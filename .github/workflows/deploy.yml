@@ -74,6 +74,18 @@ jobs:
           echo ""
           echo "=== All required files present ==="
 
+      - name: Prepare artifact (remove .gitignore to ensure all files are included)
+        run: |
+          # Temporarily remove .gitignore from web directory to ensure wasm files are uploaded
+          if [ -f "image-transform-preview/web/.gitignore" ]; then
+            rm image-transform-preview/web/.gitignore
+            echo "Removed web/.gitignore"
+          fi
+
+          # Also check parent .gitignore
+          echo "=== Files to be uploaded ==="
+          find image-transform-preview/web -type f | sort
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
