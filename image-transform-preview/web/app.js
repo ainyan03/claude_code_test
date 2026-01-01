@@ -14,6 +14,17 @@ Module.onRuntimeInitialized = function() {
     initializeApp();
 };
 
+// WebAssembly読み込みタイムアウト（10秒）
+setTimeout(() => {
+    if (!processor) {
+        console.error('WebAssembly loading timeout');
+        const loadingEl = document.getElementById('loading');
+        if (loadingEl) {
+            loadingEl.innerHTML = '<div class="spinner"></div><p style="color: #ff6b6b;">WebAssemblyの読み込みに失敗しました。<br>ページを再読み込みしてください。</p>';
+        }
+    }
+}, 10000);
+
 function initializeApp() {
     if (processor) {
         console.log('App already initialized');
