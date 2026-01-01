@@ -1,5 +1,6 @@
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
+#include <vector>
 #include "image_transform.h"
 
 using namespace emscripten;
@@ -13,7 +14,14 @@ public:
 
     int addLayer(const val& imageData, int width, int height) {
         // JavaScript Uint8ClampedArray からデータを取得
-        std::vector<uint8_t> data = convertJSArrayToVector<uint8_t>(imageData);
+        unsigned int length = imageData["length"].as<unsigned int>();
+        std::vector<uint8_t> data(length);
+
+        // JavaScriptの配列をC++のvectorにコピー
+        for (unsigned int i = 0; i < length; i++) {
+            data[i] = imageData[i].as<uint8_t>();
+        }
+
         return processor.addLayer(data.data(), width, height);
     }
 

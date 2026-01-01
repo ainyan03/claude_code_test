@@ -33,9 +33,7 @@ emcc src/image_transform.cpp src/bindings.cpp \
     -s EXPORT_NAME="Module" \
     -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap"]' \
     -s DISABLE_EXCEPTION_CATCHING=0 \
-    --bind \
-    -s TOTAL_MEMORY=256MB \
-    -s MAXIMUM_MEMORY=512MB
+    --bind
 
 echo "✅ Build complete!"
 echo ""
