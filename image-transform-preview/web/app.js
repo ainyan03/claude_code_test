@@ -423,9 +423,18 @@ function addFilterToLayer(layer, filterType) {
         layer.filters = [];
     }
     const filterIndex = layer.filters.length;
+
+    // C++から割り当てられたノード情報を取得
+    const nodeId = processor.getFilterNodeId(layer.id, filterIndex);
+    const nodePosX = processor.getFilterNodePosX(layer.id, filterIndex);
+    const nodePosY = processor.getFilterNodePosY(layer.id, filterIndex);
+
     layer.filters.push({
         type: filterType,
-        param: defaultParam
+        param: defaultParam,
+        nodeId: nodeId,
+        posX: nodePosX,
+        posY: nodePosY
     });
 
     // UIを更新
@@ -454,6 +463,15 @@ function updateLayerFiltersUI(layer) {
         const filterName = document.createElement('span');
         filterName.className = 'filter-name';
         filterName.textContent = getFilterDisplayName(filter.type);
+
+        // ノードIDバッジを追加
+        if (filter.nodeId) {
+            const nodeBadge = document.createElement('span');
+            nodeBadge.className = 'node-id-badge';
+            nodeBadge.textContent = `#${filter.nodeId}`;
+            nodeBadge.title = `Node ID: ${filter.nodeId}, Position: (${filter.posX.toFixed(0)}, ${filter.posY.toFixed(0)})`;
+            filterName.appendChild(nodeBadge);
+        }
 
         const removeBtn = document.createElement('button');
         removeBtn.className = 'filter-remove-btn';

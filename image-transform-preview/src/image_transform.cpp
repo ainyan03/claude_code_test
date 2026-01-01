@@ -5,7 +5,7 @@
 namespace ImageTransform {
 
 ImageProcessor::ImageProcessor(int canvasWidth, int canvasHeight)
-    : canvasWidth(canvasWidth), canvasHeight(canvasHeight) {
+    : canvasWidth(canvasWidth), canvasHeight(canvasHeight), nextNodeId(1) {
 }
 
 int ImageProcessor::addLayer(const uint8_t* imageData, int width, int height) {
@@ -69,6 +69,10 @@ void ImageProcessor::addFilter(int layerId, const std::string& filterType, float
     }
 
     if (filter) {
+        // ノードIDを設定
+        filter->setNodeId(nextNodeId++);
+        // デフォルト位置を設定（後でUIから更新される）
+        filter->setPosition(100.0, 100.0 + layers[layerId].filters.size() * 80.0);
         layers[layerId].filters.push_back(std::move(filter));
     }
 }
@@ -99,6 +103,38 @@ Image ImageProcessor::applyFilters(const Image& input, const std::vector<std::un
         result = filter->apply(result);
     }
     return result;
+}
+
+// ノード管理
+void ImageProcessor::setFilterNodePosition(int layerId, int filterIndex, double x, double y) {
+    if (layerId >= 0 && layerId < static_cast<int>(layers.size()) &&
+        filterIndex >= 0 && filterIndex < static_cast<int>(layers[layerId].filters.size())) {
+        layers[layerId].filters[filterIndex]->setPosition(x, y);
+    }
+}
+
+int ImageProcessor::getFilterNodeId(int layerId, int filterIndex) const {
+    if (layerId >= 0 && layerId < static_cast<int>(layers.size()) &&
+        filterIndex >= 0 && filterIndex < static_cast<int>(layers[layerId].filters.size())) {
+        return layers[layerId].filters[filterIndex]->getNodeId();
+    }
+    return -1;
+}
+
+double ImageProcessor::getFilterNodePosX(int layerId, int filterIndex) const {
+    if (layerId >= 0 && layerId < static_cast<int>(layers.size()) &&
+        filterIndex >= 0 && filterIndex < static_cast<int>(layers[layerId].filters.size())) {
+        return layers[layerId].filters[filterIndex]->getPosX();
+    }
+    return 0.0;
+}
+
+double ImageProcessor::getFilterNodePosY(int layerId, int filterIndex) const {
+    if (layerId >= 0 && layerId < static_cast<int>(layers.size()) &&
+        filterIndex >= 0 && filterIndex < static_cast<int>(layers[layerId].filters.size())) {
+        return layers[layerId].filters[filterIndex]->getPosY();
+    }
+    return 0.0;
 }
 
 Image ImageProcessor::compose() {

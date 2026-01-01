@@ -74,6 +74,23 @@ public:
         return processor.getFilterCount(layerId);
     }
 
+    // ノード管理
+    void setFilterNodePosition(int layerId, int filterIndex, double x, double y) {
+        processor.setFilterNodePosition(layerId, filterIndex, x, y);
+    }
+
+    int getFilterNodeId(int layerId, int filterIndex) const {
+        return processor.getFilterNodeId(layerId, filterIndex);
+    }
+
+    double getFilterNodePosX(int layerId, int filterIndex) const {
+        return processor.getFilterNodePosX(layerId, filterIndex);
+    }
+
+    double getFilterNodePosY(int layerId, int filterIndex) const {
+        return processor.getFilterNodePosY(layerId, filterIndex);
+    }
+
     val compose() {
         Image result = processor.compose();
 
@@ -108,5 +125,9 @@ EMSCRIPTEN_BINDINGS(image_transform) {
         .function("removeFilter", &ImageProcessorWrapper::removeFilter)
         .function("clearFilters", &ImageProcessorWrapper::clearFilters)
         .function("getFilterCount", &ImageProcessorWrapper::getFilterCount)
+        .function("setFilterNodePosition", &ImageProcessorWrapper::setFilterNodePosition)
+        .function("getFilterNodeId", &ImageProcessorWrapper::getFilterNodeId)
+        .function("getFilterNodePosX", &ImageProcessorWrapper::getFilterNodePosX)
+        .function("getFilterNodePosY", &ImageProcessorWrapper::getFilterNodePosY)
         .function("compose", &ImageProcessorWrapper::compose);
 }

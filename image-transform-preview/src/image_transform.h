@@ -19,12 +19,26 @@ struct Image {
     Image(int w, int h) : width(w), height(h), data(w * h * 4, 0) {}
 };
 
-// フィルタ基底クラス
+// フィルタ基底クラス（ノード情報を含む）
 class ImageFilter {
 public:
+    ImageFilter() : nodeId(0), posX(0.0), posY(0.0) {}
     virtual ~ImageFilter() = default;
     virtual Image apply(const Image& input) const = 0;
     virtual std::string getName() const = 0;
+
+    // ノード情報
+    void setNodeId(int id) { nodeId = id; }
+    int getNodeId() const { return nodeId; }
+
+    void setPosition(double x, double y) { posX = x; posY = y; }
+    double getPosX() const { return posX; }
+    double getPosY() const { return posY; }
+
+protected:
+    int nodeId;      // ノードの一意なID
+    double posX;     // ノードエディタ上のX座標
+    double posY;     // ノードエディタ上のY座標
 };
 
 // グレースケールフィルタ
@@ -104,6 +118,12 @@ public:
     void clearFilters(int layerId);
     int getFilterCount(int layerId) const;
 
+    // ノード管理
+    void setFilterNodePosition(int layerId, int filterIndex, double x, double y);
+    int getFilterNodeId(int layerId, int filterIndex) const;
+    double getFilterNodePosX(int layerId, int filterIndex) const;
+    double getFilterNodePosY(int layerId, int filterIndex) const;
+
     // 画像合成処理
     Image compose();
 
@@ -115,6 +135,7 @@ private:
     int canvasWidth;
     int canvasHeight;
     std::vector<Layer> layers;
+    int nextNodeId;  // ノードIDのカウンター
 
     // 内部処理関数
     void applyAffineTransform(const Image& src, Image& dst, const AffineParams& params);
