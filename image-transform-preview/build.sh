@@ -25,7 +25,7 @@ mkdir -p web
 # WebAssemblyにコンパイル
 emcc src/image_transform.cpp src/bindings.cpp \
     -o web/image_transform.js \
-    -std=c++11 \
+    -std=c++17 \
     -O3 \
     -s WASM=1 \
     -s ALLOW_MEMORY_GROWTH=1 \
