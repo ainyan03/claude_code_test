@@ -499,3 +499,115 @@ button {
     min-width: 40px;
     font-size: 11px;
 }
+
+/* ノードエディタセクション */
+.node-editor-section {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #eee;
+}
+
+.node-editor-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.node-editor-toggle {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    background: #f0f0f0;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s;
+}
+
+.node-editor-toggle:hover {
+    background: #667eea;
+    color: white;
+    border-color: #667eea;
+}
+
+.node-editor-toggle.collapsed {
+    transform: rotate(-90deg);
+}
+
+.node-editor-canvas-container {
+    background: #fafafa;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    overflow: hidden;
+    transition: all 0.3s;
+}
+
+.node-editor-canvas-container.hidden {
+    height: 0;
+    opacity: 0;
+    margin: 0;
+    border: none;
+}
+
+.node-editor-canvas {
+    display: block;
+    background:
+        linear-gradient(90deg, #f0f0f0 1px, transparent 1px),
+        linear-gradient(#f0f0f0 1px, transparent 1px);
+    background-size: 20px 20px;
+}
+
+/* ノード要素（SVG foreignObject内のHTML） */
+.node-box {
+    background: white;
+    border: 2px solid #667eea;
+    border-radius: 8px;
+    padding: 8px 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    cursor: move;
+    user-select: none;
+    min-width: 100px;
+}
+
+.node-box.dragging {
+    opacity: 0.7;
+    box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+}
+
+.node-box-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
+}
+
+.node-box-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: #667eea;
+}
+
+.node-box-id {
+    font-size: 9px;
+    color: #999;
+}
+
+.node-box-content {
+    font-size: 10px;
+    color: #666;
+}
+
+/* ノード接続線 */
+.node-connection {
+    stroke: #667eea;
+    stroke-width: 2;
+    fill: none;
+    opacity: 0.5;
+}
+
+.node-connection:hover {
+    opacity: 1;
+    stroke-width: 3;
+}

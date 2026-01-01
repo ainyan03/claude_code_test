@@ -251,6 +251,9 @@ function createLayerUI(layer) {
         });
     });
 
+    // ノードエディタを初期化
+    initializeNodeEditor(layerDiv, layer);
+
     // レイヤーリストに追加
     document.getElementById('layers-list').appendChild(layerDiv);
 }
@@ -497,6 +500,9 @@ function updateLayerFiltersUI(layer) {
 
         filtersList.appendChild(filterItem);
     });
+
+    // ノードエディタを更新
+    updateNodeEditor(layerDiv, layer);
 }
 
 function createFilterParamSlider(layer, filterIndex, filterType, min, max, displayFn, initialValue) {
@@ -564,4 +570,168 @@ function getFilterDisplayName(filterType) {
         'blur': 'ぼかし'
     };
     return names[filterType] || filterType;
+}
+
+// ========================================
+// ノードエディタ
+// ========================================
+
+function initializeNodeEditor(layerDiv, layer) {
+    const toggleBtn = layerDiv.querySelector('.node-editor-toggle');
+    const container = layerDiv.querySelector('.node-editor-canvas-container');
+
+    // トグル機能
+    toggleBtn.addEventListener('click', () => {
+        container.classList.toggle('hidden');
+        toggleBtn.classList.toggle('collapsed');
+    });
+
+    // 初期状態は表示
+    updateNodeEditor(layerDiv, layer);
+}
+
+function updateNodeEditor(layerDiv, layer) {
+    const svg = layerDiv.querySelector('.node-editor-canvas');
+    if (!svg) return;
+
+    // SVGをクリア
+    svg.innerHTML = '';
+
+    if (!layer.filters || layer.filters.length === 0) {
+        return;
+    }
+
+    // 接続線を描画
+    drawConnections(svg, layer);
+
+    // ノードを描画
+    layer.filters.forEach((filter, index) => {
+        drawNode(svg, layer, filter, index);
+    });
+}
+
+function drawConnections(svg, layer) {
+    if (!layer.filters || layer.filters.length < 2) return;
+
+    const ns = 'http://www.w3.org/2000/svg';
+
+    for (let i = 0; i < layer.filters.length - 1; i++) {
+        const filter1 = layer.filters[i];
+        const filter2 = layer.filters[i + 1];
+
+        // ノードの右端から次のノードの左端へ接続
+        const x1 = filter1.posX + 120; // ノード幅100 + padding
+        const y1 = filter1.posY + 20;  // ノード高さの中央
+        const x2 = filter2.posX;
+        const y2 = filter2.posY + 20;
+
+        // ベジェ曲線でパスを描画
+        const path = document.createElementNS(ns, 'path');
+        const midX = (x1 + x2) / 2;
+        const d = `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`;
+        path.setAttribute('d', d);
+        path.setAttribute('class', 'node-connection');
+        svg.appendChild(path);
+    }
+}
+
+function drawNode(svg, layer, filter, filterIndex) {
+    const ns = 'http://www.w3.org/2000/svg';
+
+    // foreignObjectを使用してHTMLノードを埋め込む
+    const foreignObject = document.createElementNS(ns, 'foreignObject');
+    foreignObject.setAttribute('x', filter.posX);
+    foreignObject.setAttribute('y', filter.posY);
+    foreignObject.setAttribute('width', 120);
+    foreignObject.setAttribute('height', 60);
+
+    const nodeBox = document.createElement('div');
+    nodeBox.className = 'node-box';
+    nodeBox.dataset.layerId = layer.id;
+    nodeBox.dataset.filterIndex = filterIndex;
+
+    const header = document.createElement('div');
+    header.className = 'node-box-header';
+
+    const title = document.createElement('span');
+    title.className = 'node-box-title';
+    title.textContent = getFilterDisplayName(filter.type);
+
+    const idBadge = document.createElement('span');
+    idBadge.className = 'node-box-id';
+    idBadge.textContent = `#${filter.nodeId}`;
+
+    header.appendChild(title);
+    header.appendChild(idBadge);
+
+    const content = document.createElement('div');
+    content.className = 'node-box-content';
+    content.textContent = `(${filter.posX.toFixed(0)}, ${filter.posY.toFixed(0)})`;
+
+    nodeBox.appendChild(header);
+    nodeBox.appendChild(content);
+
+    foreignObject.appendChild(nodeBox);
+    svg.appendChild(foreignObject);
+
+    // ドラッグ機能を追加
+    setupNodeDrag(nodeBox, foreignObject, layer, filterIndex);
+}
+
+function setupNodeDrag(nodeBox, foreignObject, layer, filterIndex) {
+    let isDragging = false;
+    let startX, startY;
+    let initialX, initialY;
+
+    nodeBox.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        nodeBox.classList.add('dragging');
+
+        const rect = foreignObject.getBoundingClientRect();
+        const svgRect = foreignObject.ownerSVGElement.getBoundingClientRect();
+
+        startX = e.clientX;
+        startY = e.clientY;
+        initialX = parseFloat(foreignObject.getAttribute('x'));
+        initialY = parseFloat(foreignObject.getAttribute('y'));
+
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+
+        const newX = Math.max(0, initialX + dx);
+        const newY = Math.max(0, initialY + dy);
+
+        foreignObject.setAttribute('x', newX);
+        foreignObject.setAttribute('y', newY);
+
+        // 座標表示を更新
+        const content = nodeBox.querySelector('.node-box-content');
+        content.textContent = `(${newX.toFixed(0)}, ${newY.toFixed(0)})`;
+
+        // レイヤー情報を更新
+        layer.filters[filterIndex].posX = newX;
+        layer.filters[filterIndex].posY = newY;
+
+        // C++側に同期
+        processor.setFilterNodePosition(layer.id, filterIndex, newX, newY);
+
+        // 接続線を再描画
+        const layerDiv = document.querySelector(`.layer-item[data-layer-id="${layer.id}"]`);
+        if (layerDiv) {
+            updateNodeEditor(layerDiv, layer);
+        }
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isDragging) {
+            isDragging = false;
+            nodeBox.classList.remove('dragging');
+        }
+    });
 }
