@@ -42,14 +42,37 @@ jobs:
 
       - name: Verify build output
         run: |
+          echo "=== Listing web directory ==="
           ls -la image-transform-preview/web/
+          echo ""
+          echo "=== Checking for required files ==="
+
           if [ -f "image-transform-preview/web/image_transform.wasm" ]; then
-            echo "✓ WebAssembly build successful"
-            echo "WASM size: $(ls -lh image-transform-preview/web/image_transform.wasm | awk '{print $5}')"
+            echo "✓ image_transform.wasm found"
+            echo "  Size: $(ls -lh image-transform-preview/web/image_transform.wasm | awk '{print $5}')"
           else
-            echo "✗ WebAssembly build failed"
+            echo "✗ image_transform.wasm NOT FOUND"
             exit 1
           fi
+
+          if [ -f "image-transform-preview/web/image_transform.js" ]; then
+            echo "✓ image_transform.js found"
+            echo "  Size: $(ls -lh image-transform-preview/web/image_transform.js | awk '{print $5}')"
+          else
+            echo "✗ image_transform.js NOT FOUND"
+            exit 1
+          fi
+
+          if [ -f "image-transform-preview/web/version.js" ]; then
+            echo "✓ version.js found"
+            cat image-transform-preview/web/version.js
+          else
+            echo "✗ version.js NOT FOUND"
+            exit 1
+          fi
+
+          echo ""
+          echo "=== All required files present ==="
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
