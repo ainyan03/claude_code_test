@@ -28,7 +28,12 @@ setTimeout(() => {
 }, 3000);
 
 function initializeApp() {
-    if (processor) return; // 既に初期化済み
+    if (processor) {
+        console.log('App already initialized');
+        return; // 既に初期化済み
+    }
+
+    console.log('Initializing app...');
 
     // ローディング非表示
     const loadingEl = document.getElementById('loading');
@@ -47,6 +52,11 @@ function initializeApp() {
         processor = new Module.ImageProcessor(canvasWidth, canvasHeight);
         console.log('Using WebAssembly backend');
     } else {
+        if (typeof ImageTransformJS === 'undefined') {
+            console.error('ImageTransformJS is not defined! Make sure image_transform_js.js is loaded.');
+            alert('エラー: 画像処理ライブラリが読み込まれていません。ページを再読み込みしてください。');
+            return;
+        }
         processor = new ImageTransformJS(canvasWidth, canvasHeight);
         console.log('Using JavaScript backend');
     }
@@ -56,6 +66,8 @@ function initializeApp() {
 
     // 初期プレビュー
     updatePreview();
+
+    console.log('App initialized successfully');
 }
 
 function setupEventListeners() {
@@ -78,14 +90,18 @@ async function handleImageUpload(event) {
     const files = event.target.files;
 
     for (let file of files) {
-        if (!file.type.startsWith('image/')) continue;
+        if (!file.type.startsWith('image/')) {
+            console.log('Skipping non-image file:', file.name);
+            continue;
+        }
 
         try {
             const imageData = await loadImage(file);
             addLayer(imageData);
         } catch (error) {
             console.error('Failed to load image:', error);
-            alert('画像の読み込みに失敗しました: ' + file.name);
+            const errorMsg = error.message || error.toString();
+            alert('画像の読み込みに失敗しました\nファイル名: ' + file.name + '\nエラー: ' + errorMsg);
         }
     }
 
@@ -95,58 +111,90 @@ async function handleImageUpload(event) {
 
 function loadImage(file) {
     return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const img = new Image();
-            img.onload = () => {
-                // 画像をRGBAデータに変換
-                const tempCanvas = document.createElement('canvas');
-                tempCanvas.width = img.width;
-                tempCanvas.height = img.height;
-                const tempCtx = tempCanvas.getContext('2d');
-                tempCtx.drawImage(img, 0, 0);
-                const imageData = tempCtx.getImageData(0, 0, img.width, img.height);
+        console.log('Loading image:', file.name, 'Type:', file.type, 'Size:', file.size);
 
-                resolve({
-                    data: imageData.data,
-                    width: img.width,
-                    height: img.height,
-                    name: file.name
-                });
+        const reader = new FileReader();
+
+        reader.onload = (e) => {
+            console.log('FileReader loaded successfully');
+            const img = new Image();
+
+            img.onload = () => {
+                console.log('Image loaded:', img.width + 'x' + img.height);
+                try {
+                    // 画像をRGBAデータに変換
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = img.width;
+                    tempCanvas.height = img.height;
+                    const tempCtx = tempCanvas.getContext('2d');
+                    tempCtx.drawImage(img, 0, 0);
+                    const imageData = tempCtx.getImageData(0, 0, img.width, img.height);
+
+                    console.log('ImageData created:', imageData.data.length, 'bytes');
+                    resolve({
+                        data: imageData.data,
+                        width: img.width,
+                        height: img.height,
+                        name: file.name
+                    });
+                } catch (error) {
+                    console.error('Error processing image:', error);
+                    reject(new Error('画像処理エラー: ' + error.message));
+                }
             };
-            img.onerror = reject;
+
+            img.onerror = (error) => {
+                console.error('Image load error:', error);
+                reject(new Error('画像の読み込みエラー'));
+            };
+
             img.src = e.target.result;
         };
-        reader.onerror = reject;
+
+        reader.onerror = (error) => {
+            console.error('FileReader error:', error);
+            reject(new Error('ファイル読み込みエラー'));
+        };
+
         reader.readAsDataURL(file);
     });
 }
 
 function addLayer(imageData) {
-    // C++側にレイヤー追加
-    const layerId = processor.addLayer(imageData.data, imageData.width, imageData.height);
+    console.log('Adding layer:', imageData.name, imageData.width + 'x' + imageData.height);
 
-    // レイヤー情報を保存
-    const layer = {
-        id: layerId,
-        name: imageData.name,
-        params: {
-            translateX: 0,
-            translateY: 0,
-            rotation: 0,
-            scaleX: 1.0,
-            scaleY: 1.0,
-            alpha: 1.0
-        },
-        visible: true
-    };
-    layers.push(layer);
+    try {
+        // プロセッサにレイヤー追加
+        const layerId = processor.addLayer(imageData.data, imageData.width, imageData.height);
+        console.log('Layer added with ID:', layerId);
 
-    // UIにレイヤー追加
-    createLayerUI(layer);
+        // レイヤー情報を保存
+        const layer = {
+            id: layerId,
+            name: imageData.name,
+            params: {
+                translateX: 0,
+                translateY: 0,
+                rotation: 0,
+                scaleX: 1.0,
+                scaleY: 1.0,
+                alpha: 1.0
+            },
+            visible: true
+        };
+        layers.push(layer);
 
-    // プレビュー更新
-    updatePreview();
+        // UIにレイヤー追加
+        createLayerUI(layer);
+
+        // プレビュー更新
+        updatePreview();
+
+        console.log('Layer successfully added and preview updated');
+    } catch (error) {
+        console.error('Error in addLayer:', error);
+        throw error;
+    }
 }
 
 function createLayerUI(layer) {
