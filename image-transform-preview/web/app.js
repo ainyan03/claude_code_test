@@ -6,6 +6,11 @@ let layers = [];
 let canvasWidth = 800;
 let canvasHeight = 600;
 
+// グローバルノードグラフ
+let globalNodes = [];  // すべてのノード（画像、フィルタ、出力）を管理
+let nextGlobalNodeId = 1;
+let nodeGraphSvg = null;
+
 // WebAssemblyモジュールを初期化
 // MODULARIZE=1を使用しているため、Moduleは関数としてエクスポートされる
 if (typeof Module === 'function') {
@@ -68,6 +73,9 @@ function initializeApp() {
 
     // イベントリスナー設定
     setupEventListeners();
+
+    // グローバルノードグラフ初期化
+    initializeNodeGraph();
 
     // 初期プレビュー
     updatePreview();
@@ -200,6 +208,9 @@ function addLayer(imageData) {
         // UIにレイヤー追加
         createLayerUI(layer);
 
+        // グローバルノードグラフを更新
+        renderNodeGraph();
+
         // プレビュー更新
         updatePreview();
 
@@ -250,9 +261,6 @@ function createLayerUI(layer) {
             addFilterToLayer(layer, filterType);
         });
     });
-
-    // ノードエディタを初期化
-    initializeNodeEditor(layerDiv, layer);
 
     // レイヤーリストに追加
     document.getElementById('layers-list').appendChild(layerDiv);
@@ -443,6 +451,9 @@ function addFilterToLayer(layer, filterType) {
     // UIを更新
     updateLayerFiltersUI(layer);
 
+    // グローバルノードグラフを更新
+    renderNodeGraph();
+
     // プレビュー更新
     updatePreview();
 }
@@ -500,9 +511,6 @@ function updateLayerFiltersUI(layer) {
 
         filtersList.appendChild(filterItem);
     });
-
-    // ノードエディタを更新
-    updateNodeEditor(layerDiv, layer);
 }
 
 function createFilterParamSlider(layer, filterIndex, filterType, min, max, displayFn, initialValue) {
@@ -548,6 +556,9 @@ function removeFilterFromLayer(layer, filterIndex) {
     // UI更新
     updateLayerFiltersUI(layer);
 
+    // グローバルノードグラフを更新
+    renderNodeGraph();
+
     // プレビュー更新
     updatePreview();
 }
@@ -573,12 +584,13 @@ function getFilterDisplayName(filterType) {
 }
 
 // ========================================
-// ノードエディタ
+// グローバルノードグラフ
 // ========================================
 
-function initializeNodeEditor(layerDiv, layer) {
-    const toggleBtn = layerDiv.querySelector('.node-editor-toggle');
-    const container = layerDiv.querySelector('.node-editor-canvas-container');
+function initializeNodeGraph() {
+    nodeGraphSvg = document.getElementById('node-graph-canvas');
+    const toggleBtn = document.getElementById('node-graph-toggle');
+    const container = document.querySelector('.node-graph-canvas-container');
 
     // トグル機能
     toggleBtn.addEventListener('click', () => {
@@ -586,99 +598,161 @@ function initializeNodeEditor(layerDiv, layer) {
         toggleBtn.classList.toggle('collapsed');
     });
 
-    // 初期状態は表示
-    updateNodeEditor(layerDiv, layer);
+    console.log('Node graph initialized');
 }
 
-function updateNodeEditor(layerDiv, layer) {
-    const svg = layerDiv.querySelector('.node-editor-canvas');
-    if (!svg) return;
+function renderNodeGraph() {
+    if (!nodeGraphSvg) return;
 
     // SVGをクリア
-    svg.innerHTML = '';
+    nodeGraphSvg.innerHTML = '';
 
-    if (!layer.filters || layer.filters.length === 0) {
-        return;
+    // globalNodesを再構築
+    globalNodes = [];
+
+    // 各レイヤーから画像ノードとフィルタノードを作成
+    layers.forEach((layer, layerIndex) => {
+        // 画像ノード
+        const imageNode = {
+            id: `image-${layer.id}`,
+            type: 'image',
+            layerId: layer.id,
+            title: layer.name,
+            posX: 50,
+            posY: 50 + layerIndex * 150
+        };
+        globalNodes.push(imageNode);
+
+        // フィルタノード
+        if (layer.filters) {
+            layer.filters.forEach((filter, filterIndex) => {
+                const filterNode = {
+                    id: `filter-${layer.id}-${filterIndex}`,
+                    type: 'filter',
+                    layerId: layer.id,
+                    filterIndex: filterIndex,
+                    filterType: filter.type,
+                    title: getFilterDisplayName(filter.type),
+                    nodeId: filter.nodeId,
+                    posX: filter.posX + 200,  // 画像ノードの右に配置
+                    posY: filter.posY + layerIndex * 150
+                };
+                globalNodes.push(filterNode);
+            });
+        }
+    });
+
+    // 出力ノード（最後に1つだけ）
+    if (layers.length > 0) {
+        globalNodes.push({
+            id: 'output',
+            type: 'output',
+            title: '出力',
+            posX: 600,
+            posY: 200
+        });
     }
 
     // 接続線を描画
-    drawConnections(svg, layer);
+    drawGlobalConnections();
 
     // ノードを描画
-    layer.filters.forEach((filter, index) => {
-        drawNode(svg, layer, filter, index);
+    globalNodes.forEach(node => {
+        drawGlobalNode(node);
     });
 }
 
-function drawConnections(svg, layer) {
-    if (!layer.filters || layer.filters.length < 2) return;
-
+function drawGlobalConnections() {
     const ns = 'http://www.w3.org/2000/svg';
 
-    for (let i = 0; i < layer.filters.length - 1; i++) {
-        const filter1 = layer.filters[i];
-        const filter2 = layer.filters[i + 1];
+    layers.forEach(layer => {
+        const imageNode = globalNodes.find(n => n.type === 'image' && n.layerId === layer.id);
+        if (!imageNode) return;
 
-        // ノードの右端から次のノードの左端へ接続
-        const x1 = filter1.posX + 120; // ノード幅100 + padding
-        const y1 = filter1.posY + 20;  // ノード高さの中央
-        const x2 = filter2.posX;
-        const y2 = filter2.posY + 20;
+        const layerFilters = globalNodes.filter(n => n.type === 'filter' && n.layerId === layer.id);
 
-        // ベジェ曲線でパスを描画
-        const path = document.createElementNS(ns, 'path');
-        const midX = (x1 + x2) / 2;
-        const d = `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`;
-        path.setAttribute('d', d);
-        path.setAttribute('class', 'node-connection');
-        svg.appendChild(path);
-    }
+        // 画像 → 最初のフィルタ（またはフィルタがなければ出力）
+        if (layerFilters.length > 0) {
+            drawConnection(imageNode, layerFilters[0]);
+
+            // フィルタ間の接続
+            for (let i = 0; i < layerFilters.length - 1; i++) {
+                drawConnection(layerFilters[i], layerFilters[i + 1]);
+            }
+
+            // 最後のフィルタ → 出力
+            const outputNode = globalNodes.find(n => n.type === 'output');
+            if (outputNode) {
+                drawConnection(layerFilters[layerFilters.length - 1], outputNode);
+            }
+        } else {
+            // フィルタなし: 画像 → 出力
+            const outputNode = globalNodes.find(n => n.type === 'output');
+            if (outputNode) {
+                drawConnection(imageNode, outputNode);
+            }
+        }
+    });
 }
 
-function drawNode(svg, layer, filter, filterIndex) {
+function drawConnection(fromNode, toNode) {
     const ns = 'http://www.w3.org/2000/svg';
 
-    // foreignObjectを使用してHTMLノードを埋め込む
+    const x1 = fromNode.posX + 120;
+    const y1 = fromNode.posY + 30;
+    const x2 = toNode.posX;
+    const y2 = toNode.posY + 30;
+
+    const path = document.createElementNS(ns, 'path');
+    const midX = (x1 + x2) / 2;
+    const d = `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`;
+    path.setAttribute('d', d);
+    path.setAttribute('class', 'node-connection');
+    nodeGraphSvg.appendChild(path);
+}
+
+function drawGlobalNode(node) {
+    const ns = 'http://www.w3.org/2000/svg';
+
     const foreignObject = document.createElementNS(ns, 'foreignObject');
-    foreignObject.setAttribute('x', filter.posX);
-    foreignObject.setAttribute('y', filter.posY);
+    foreignObject.setAttribute('x', node.posX);
+    foreignObject.setAttribute('y', node.posY);
     foreignObject.setAttribute('width', 120);
     foreignObject.setAttribute('height', 60);
 
     const nodeBox = document.createElement('div');
-    nodeBox.className = 'node-box';
-    nodeBox.dataset.layerId = layer.id;
-    nodeBox.dataset.filterIndex = filterIndex;
+    nodeBox.className = `node-box node-type-${node.type}`;
+    nodeBox.dataset.nodeId = node.id;
 
     const header = document.createElement('div');
     header.className = 'node-box-header';
 
     const title = document.createElement('span');
     title.className = 'node-box-title';
-    title.textContent = getFilterDisplayName(filter.type);
+    title.textContent = node.title;
 
     const idBadge = document.createElement('span');
     idBadge.className = 'node-box-id';
-    idBadge.textContent = `#${filter.nodeId}`;
+    idBadge.textContent = node.nodeId ? `#${node.nodeId}` : node.type;
 
     header.appendChild(title);
     header.appendChild(idBadge);
 
     const content = document.createElement('div');
     content.className = 'node-box-content';
-    content.textContent = `(${filter.posX.toFixed(0)}, ${filter.posY.toFixed(0)})`;
+    content.textContent = `(${node.posX.toFixed(0)}, ${node.posY.toFixed(0)})`;
 
     nodeBox.appendChild(header);
     nodeBox.appendChild(content);
 
     foreignObject.appendChild(nodeBox);
-    svg.appendChild(foreignObject);
+    nodeGraphSvg.appendChild(foreignObject);
 
-    // ドラッグ機能を追加
-    setupNodeDrag(nodeBox, foreignObject, layer, filterIndex);
+    // ドラッグ機能
+    setupGlobalNodeDrag(nodeBox, foreignObject, node);
 }
 
-function setupNodeDrag(nodeBox, foreignObject, layer, filterIndex) {
+function setupGlobalNodeDrag(nodeBox, foreignObject, node) {
     let isDragging = false;
     let startX, startY;
     let initialX, initialY;
@@ -686,9 +760,6 @@ function setupNodeDrag(nodeBox, foreignObject, layer, filterIndex) {
     nodeBox.addEventListener('mousedown', (e) => {
         isDragging = true;
         nodeBox.classList.add('dragging');
-
-        const rect = foreignObject.getBoundingClientRect();
-        const svgRect = foreignObject.ownerSVGElement.getBoundingClientRect();
 
         startX = e.clientX;
         startY = e.clientY;
@@ -710,22 +781,25 @@ function setupNodeDrag(nodeBox, foreignObject, layer, filterIndex) {
         foreignObject.setAttribute('x', newX);
         foreignObject.setAttribute('y', newY);
 
-        // 座標表示を更新
         const content = nodeBox.querySelector('.node-box-content');
         content.textContent = `(${newX.toFixed(0)}, ${newY.toFixed(0)})`;
 
-        // レイヤー情報を更新
-        layer.filters[filterIndex].posX = newX;
-        layer.filters[filterIndex].posY = newY;
+        node.posX = newX;
+        node.posY = newY;
 
-        // C++側に同期
-        processor.setFilterNodePosition(layer.id, filterIndex, newX, newY);
-
-        // 接続線を再描画
-        const layerDiv = document.querySelector(`.layer-item[data-layer-id="${layer.id}"]`);
-        if (layerDiv) {
-            updateNodeEditor(layerDiv, layer);
+        // フィルタノードの場合、C++側に同期
+        if (node.type === 'filter') {
+            const layer = layers.find(l => l.id === node.layerId);
+            if (layer && layer.filters[node.filterIndex]) {
+                layer.filters[node.filterIndex].posX = newX - 200;  // オフセット調整
+                layer.filters[node.filterIndex].posY = newY - layers.findIndex(l => l.id === node.layerId) * 150;
+                processor.setFilterNodePosition(node.layerId, node.filterIndex,
+                    layer.filters[node.filterIndex].posX,
+                    layer.filters[node.filterIndex].posY);
+            }
         }
+
+        renderNodeGraph();
     });
 
     document.addEventListener('mouseup', () => {
