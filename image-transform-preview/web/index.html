@@ -20,6 +20,7 @@
                 <h2>🔗 ノードグラフ</h2>
                 <div class="node-graph-controls">
                     <button id="add-composite-btn" class="primary-btn" title="合成ノード追加">+ 合成</button>
+                    <button id="add-filter-node-btn" class="primary-btn" title="フィルタノード追加">+ フィルタ</button>
                     <button id="node-graph-toggle" class="toggle-btn" title="表示/非表示">▼</button>
                 </div>
             </div>
@@ -62,6 +63,58 @@
                 </div>
 
                 <div id="layers-list"></div>
+
+                <!-- 合成ノード編集パネル -->
+                <div id="composite-edit-panel" class="composite-edit-panel hidden">
+                    <div class="section-header">
+                        <h3>合成ノード編集</h3>
+                        <button id="close-composite-panel" class="close-btn">×</button>
+                    </div>
+                    <div class="composite-controls">
+                        <div class="control-group">
+                            <label>
+                                <span class="control-label">X位置:</span>
+                                <input type="range" id="composite-translatex" min="-400" max="400" value="0" step="1">
+                                <span class="param-value" id="composite-translatex-value">0</span>
+                            </label>
+                        </div>
+                        <div class="control-group">
+                            <label>
+                                <span class="control-label">Y位置:</span>
+                                <input type="range" id="composite-translatey" min="-300" max="300" value="0" step="1">
+                                <span class="param-value" id="composite-translatey-value">0</span>
+                            </label>
+                        </div>
+                        <div class="control-group">
+                            <label>
+                                <span class="control-label">回転:</span>
+                                <input type="range" id="composite-rotation" min="0" max="360" value="0" step="1">
+                                <span class="param-value" id="composite-rotation-value">0°</span>
+                            </label>
+                        </div>
+                        <div class="control-group">
+                            <label>
+                                <span class="control-label">スケールX:</span>
+                                <input type="range" id="composite-scalex" min="0.1" max="3.0" value="1.0" step="0.01">
+                                <span class="param-value" id="composite-scalex-value">1.00</span>
+                            </label>
+                        </div>
+                        <div class="control-group">
+                            <label>
+                                <span class="control-label">スケールY:</span>
+                                <input type="range" id="composite-scaley" min="0.1" max="3.0" value="1.0" step="0.01">
+                                <span class="param-value" id="composite-scaley-value">1.00</span>
+                            </label>
+                        </div>
+                        <div class="control-group">
+                            <label>
+                                <span class="control-label">透明度:</span>
+                                <input type="range" id="composite-alpha" min="0" max="1" value="1.0" step="0.01">
+                                <span class="param-value" id="composite-alpha-value">1.00</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

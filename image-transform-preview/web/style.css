@@ -680,3 +680,51 @@ button {
     padding-top: 4px;
     border-top: 1px solid #e2e8f0;
 }
+
+/* 合成ノード編集パネル */
+.composite-edit-panel {
+    margin-top: 20px;
+    padding: 15px;
+    background: #f9f9f9;
+    border-radius: 8px;
+    border: 2px solid #9f7aea;
+}
+
+.composite-edit-panel.hidden {
+    display: none;
+}
+
+.composite-edit-panel .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.composite-edit-panel h3 {
+    font-size: 1em;
+    color: #9f7aea;
+    margin: 0;
+}
+
+.close-btn {
+    background: none;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    color: #999;
+    padding: 0;
+    width: 24px;
+    height: 24px;
+    line-height: 20px;
+}
+
+.close-btn:hover {
+    color: #333;
+}
+
+.composite-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}

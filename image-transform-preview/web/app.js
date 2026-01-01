@@ -11,6 +11,7 @@ let globalNodes = [];  // すべてのノード（画像、フィルタ、合成
 let globalConnections = [];  // ノード間の接続
 let nextGlobalNodeId = 1;
 let nextCompositeId = 1;
+let nextIndependentFilterId = 1;
 let nodeGraphSvg = null;
 
 // ドラッグ接続用の状態
@@ -84,6 +85,9 @@ function initializeApp() {
     // グローバルノードグラフ初期化
     initializeNodeGraph();
 
+    // 合成ノード編集パネル初期化
+    initializeCompositeEditPanel();
+
     // 初期プレビュー
     updatePreview();
 
@@ -115,6 +119,15 @@ function setupEventListeners() {
 
     // 合成ノード追加ボタン
     document.getElementById('add-composite-btn').addEventListener('click', addCompositeNode);
+
+    // 独立フィルタノード追加ボタン
+    document.getElementById('add-filter-node-btn').addEventListener('click', () => {
+        // フィルタタイプを選択するシンプルなプロンプト
+        const filterType = prompt('フィルタタイプを選択:\n1. grayscale (グレースケール)\n2. brightness (明るさ)\n3. blur (ぼかし)', 'grayscale');
+        if (filterType) {
+            addIndependentFilterNode(filterType);
+        }
+    });
 }
 
 async function handleImageUpload(event) {
@@ -809,7 +822,50 @@ function drawGlobalNode(node) {
     header.appendChild(idBadge);
     nodeBox.appendChild(header);
 
-    // 合成ノードの場合、アルファスライダーを追加
+    // 独立フィルタノードの場合、パラメータスライダーを追加
+    if (node.type === 'filter' && node.independent) {
+        const controls = document.createElement('div');
+        controls.className = 'node-box-controls';
+
+        if (node.filterType === 'brightness') {
+            controls.innerHTML = `
+                <label style="font-size: 10px; display: block; margin: 2px 0;">
+                    明るさ: <input type="range" class="filter-param-slider" min="-1" max="1" step="0.01" value="${node.param || 0}" style="width: 70px;">
+                    <span class="param-display">${(node.param || 0).toFixed(2)}</span>
+                </label>
+            `;
+        } else if (node.filterType === 'blur') {
+            controls.innerHTML = `
+                <label style="font-size: 10px; display: block; margin: 2px 0;">
+                    半径: <input type="range" class="filter-param-slider" min="1" max="10" step="1" value="${node.param || 3}" style="width: 70px;">
+                    <span class="param-display">${Math.round(node.param || 3)}px</span>
+                </label>
+            `;
+        }
+
+        const slider = controls.querySelector('.filter-param-slider');
+        const display = controls.querySelector('.param-display');
+
+        if (slider && display) {
+            slider.addEventListener('mousedown', (e) => e.stopPropagation());
+            slider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                node.param = value;
+
+                if (node.filterType === 'brightness') {
+                    display.textContent = value.toFixed(2);
+                } else if (node.filterType === 'blur') {
+                    display.textContent = Math.round(value) + 'px';
+                }
+
+                updatePreviewFromGraph();
+            });
+        }
+
+        nodeBox.appendChild(controls);
+    }
+
+    // 合成ノードの場合、アルファスライダーと編集ボタンを追加
     if (node.type === 'composite') {
         const controls = document.createElement('div');
         controls.className = 'node-box-controls';
@@ -820,19 +876,31 @@ function drawGlobalNode(node) {
             <label style="font-size: 10px; display: block; margin: 2px 0;">
                 α2: <input type="range" class="alpha2-slider" min="0" max="1" step="0.01" value="${node.alpha2 || 1.0}" style="width: 80px;">
             </label>
+            <button class="edit-composite-btn" style="font-size: 9px; padding: 2px 6px; margin-top: 4px; width: 100%;">⚙️ 詳細編集</button>
         `;
 
         const alpha1Slider = controls.querySelector('.alpha1-slider');
         const alpha2Slider = controls.querySelector('.alpha2-slider');
+        const editBtn = controls.querySelector('.edit-composite-btn');
 
+        // スライダーのドラッグがノードのドラッグとして扱われないようにする
+        alpha1Slider.addEventListener('mousedown', (e) => e.stopPropagation());
         alpha1Slider.addEventListener('input', (e) => {
             node.alpha1 = parseFloat(e.target.value);
             updatePreviewFromGraph();
         });
 
+        alpha2Slider.addEventListener('mousedown', (e) => e.stopPropagation());
         alpha2Slider.addEventListener('input', (e) => {
             node.alpha2 = parseFloat(e.target.value);
             updatePreviewFromGraph();
+        });
+
+        // 編集ボタン
+        editBtn.addEventListener('mousedown', (e) => e.stopPropagation());
+        editBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openCompositeEditPanel(node);
         });
 
         nodeBox.appendChild(controls);
@@ -1147,10 +1215,43 @@ function addCompositeNode() {
         posX: 300,
         posY: 150,
         alpha1: 1.0,  // 入力1のアルファ値
-        alpha2: 1.0   // 入力2のアルファ値
+        alpha2: 1.0,  // 入力2のアルファ値
+        affineParams: {
+            translateX: 0,
+            translateY: 0,
+            rotation: 0,
+            scaleX: 1.0,
+            scaleY: 1.0,
+            alpha: 1.0
+        }
     };
 
     globalNodes.push(compositeNode);
+    renderNodeGraph();
+}
+
+// 独立フィルタノードを追加（レイヤーに属さない）
+function addIndependentFilterNode(filterType) {
+    // デフォルトパラメータ
+    let defaultParam = 0.0;
+    if (filterType === 'brightness') {
+        defaultParam = 0.0;  // -1.0 ~ 1.0
+    } else if (filterType === 'blur') {
+        defaultParam = 3.0;  // radius
+    }
+
+    const filterNode = {
+        id: `independent-filter-${nextIndependentFilterId++}`,
+        type: 'filter',
+        independent: true,  // 独立フィルタノードであることを示すフラグ
+        filterType: filterType,
+        param: defaultParam,
+        title: getFilterDisplayName(filterType),
+        posX: 350,
+        posY: 150
+    };
+
+    globalNodes.push(filterNode);
     renderNodeGraph();
 }
 
@@ -1173,12 +1274,27 @@ function evaluateNodeGraph(nodeId, visited = new Set()) {
             const layer = layers.find(l => l.id === node.layerId);
             if (!layer || !layer.imageData) return null;
 
-            // 画像データを返す（変換なし）
-            return {
+            // 元の画像データ
+            let result = {
                 data: new Uint8ClampedArray(layer.imageData.data),
                 width: layer.imageData.width,
                 height: layer.imageData.height
             };
+
+            // レイヤーのアフィン変換を適用
+            if (layer.params) {
+                result = processor.applyTransformToImage(
+                    result,
+                    layer.params.translateX,
+                    layer.params.translateY,
+                    layer.params.rotation,
+                    layer.params.scaleX,
+                    layer.params.scaleY,
+                    layer.params.alpha
+                );
+            }
+
+            return result;
         }
 
         case 'filter': {
@@ -1193,11 +1309,23 @@ function evaluateNodeGraph(nodeId, visited = new Set()) {
             if (!inputImage) return null;
 
             // フィルタ適用
-            const layer = layers.find(l => l.id === node.layerId);
-            if (!layer || !layer.filters || !layer.filters[node.filterIndex]) return inputImage;
+            let filterType, filterParam;
 
-            const filter = layer.filters[node.filterIndex];
-            return processor.applyFilterToImage(inputImage, filter.type, filter.param);
+            if (node.independent) {
+                // 独立フィルタノード
+                filterType = node.filterType;
+                filterParam = node.param;
+            } else {
+                // レイヤー付帯フィルタノード
+                const layer = layers.find(l => l.id === node.layerId);
+                if (!layer || !layer.filters || !layer.filters[node.filterIndex]) return inputImage;
+
+                const filter = layer.filters[node.filterIndex];
+                filterType = filter.type;
+                filterParam = filter.param;
+            }
+
+            return processor.applyFilterToImage(inputImage, filterType, filterParam);
         }
 
         case 'composite': {
@@ -1229,10 +1357,30 @@ function evaluateNodeGraph(nodeId, visited = new Set()) {
             }
 
             if (images.length === 0) return null;
-            if (images.length === 1) return images[0];
 
-            // C++の mergeImages を使用
-            return processor.mergeImages(images, alphas);
+            let result;
+            if (images.length === 1) {
+                result = images[0];
+            } else {
+                // C++の mergeImages を使用
+                result = processor.mergeImages(images, alphas);
+            }
+
+            // 合成ノードのアフィン変換を適用
+            if (node.affineParams) {
+                const params = node.affineParams;
+                result = processor.applyTransformToImage(
+                    result,
+                    params.translateX,
+                    params.translateY,
+                    params.rotation,
+                    params.scaleX,
+                    params.scaleY,
+                    params.alpha
+                );
+            }
+
+            return result;
         }
 
         default:
@@ -1276,4 +1424,126 @@ function updatePreviewFromGraph() {
     } else {
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     }
+}
+
+// ========================================
+// 合成ノード編集パネル
+// ========================================
+
+let currentEditingComposite = null;
+
+function initializeCompositeEditPanel() {
+    const closeBtn = document.getElementById('close-composite-panel');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', closeCompositeEditPanel);
+    }
+
+    // 各パラメータスライダーのイベントリスナー
+    const translateX = document.getElementById('composite-translatex');
+    const translateY = document.getElementById('composite-translatey');
+    const rotation = document.getElementById('composite-rotation');
+    const scaleX = document.getElementById('composite-scalex');
+    const scaleY = document.getElementById('composite-scaley');
+    const alpha = document.getElementById('composite-alpha');
+
+    if (translateX) {
+        translateX.addEventListener('input', (e) => {
+            if (!currentEditingComposite) return;
+            const value = parseFloat(e.target.value);
+            currentEditingComposite.affineParams.translateX = value;
+            document.getElementById('composite-translatex-value').textContent = value.toFixed(0);
+            updatePreviewFromGraph();
+        });
+    }
+
+    if (translateY) {
+        translateY.addEventListener('input', (e) => {
+            if (!currentEditingComposite) return;
+            const value = parseFloat(e.target.value);
+            currentEditingComposite.affineParams.translateY = value;
+            document.getElementById('composite-translatey-value').textContent = value.toFixed(0);
+            updatePreviewFromGraph();
+        });
+    }
+
+    if (rotation) {
+        rotation.addEventListener('input', (e) => {
+            if (!currentEditingComposite) return;
+            const value = parseFloat(e.target.value);
+            currentEditingComposite.affineParams.rotation = value * Math.PI / 180;
+            document.getElementById('composite-rotation-value').textContent = value.toFixed(0) + '°';
+            updatePreviewFromGraph();
+        });
+    }
+
+    if (scaleX) {
+        scaleX.addEventListener('input', (e) => {
+            if (!currentEditingComposite) return;
+            const value = parseFloat(e.target.value);
+            currentEditingComposite.affineParams.scaleX = value;
+            document.getElementById('composite-scalex-value').textContent = value.toFixed(2);
+            updatePreviewFromGraph();
+        });
+    }
+
+    if (scaleY) {
+        scaleY.addEventListener('input', (e) => {
+            if (!currentEditingComposite) return;
+            const value = parseFloat(e.target.value);
+            currentEditingComposite.affineParams.scaleY = value;
+            document.getElementById('composite-scaley-value').textContent = value.toFixed(2);
+            updatePreviewFromGraph();
+        });
+    }
+
+    if (alpha) {
+        alpha.addEventListener('input', (e) => {
+            if (!currentEditingComposite) return;
+            const value = parseFloat(e.target.value);
+            currentEditingComposite.affineParams.alpha = value;
+            document.getElementById('composite-alpha-value').textContent = value.toFixed(2);
+            updatePreviewFromGraph();
+        });
+    }
+}
+
+function openCompositeEditPanel(node) {
+    currentEditingComposite = node;
+    const panel = document.getElementById('composite-edit-panel');
+
+    if (!panel) return;
+
+    // パネルを表示
+    panel.classList.remove('hidden');
+
+    // 現在の値をスライダーに反映
+    const params = node.affineParams;
+    if (params) {
+        document.getElementById('composite-translatex').value = params.translateX;
+        document.getElementById('composite-translatex-value').textContent = params.translateX.toFixed(0);
+
+        document.getElementById('composite-translatey').value = params.translateY;
+        document.getElementById('composite-translatey-value').textContent = params.translateY.toFixed(0);
+
+        const rotationDeg = params.rotation * 180 / Math.PI;
+        document.getElementById('composite-rotation').value = rotationDeg;
+        document.getElementById('composite-rotation-value').textContent = rotationDeg.toFixed(0) + '°';
+
+        document.getElementById('composite-scalex').value = params.scaleX;
+        document.getElementById('composite-scalex-value').textContent = params.scaleX.toFixed(2);
+
+        document.getElementById('composite-scaley').value = params.scaleY;
+        document.getElementById('composite-scaley-value').textContent = params.scaleY.toFixed(2);
+
+        document.getElementById('composite-alpha').value = params.alpha;
+        document.getElementById('composite-alpha-value').textContent = params.alpha.toFixed(2);
+    }
+}
+
+function closeCompositeEditPanel() {
+    const panel = document.getElementById('composite-edit-panel');
+    if (panel) {
+        panel.classList.add('hidden');
+    }
+    currentEditingComposite = null;
 }
