@@ -6,13 +6,21 @@ let layers = [];
 let canvasWidth = 800;
 let canvasHeight = 600;
 
-// WebAssemblyモジュールが読み込まれた時の初期化
-// Emscriptenが生成するModuleオブジェクトに設定を追加
-var Module = Module || {};
-Module.onRuntimeInitialized = function() {
-    console.log('WebAssembly loaded successfully');
-    initializeApp();
-};
+// WebAssemblyモジュールを初期化
+// MODULARIZE=1を使用しているため、Moduleは関数としてエクスポートされる
+if (typeof Module === 'function') {
+    console.log('Initializing WebAssembly module...');
+    Module({
+        onRuntimeInitialized: function() {
+            console.log('WebAssembly loaded successfully');
+            // thisはModuleインスタンス
+            window.WasmModule = this;
+            initializeApp();
+        }
+    });
+} else {
+    console.error('Module function not found');
+}
 
 // WebAssembly読み込みタイムアウト（10秒）
 setTimeout(() => {
@@ -49,11 +57,11 @@ function initializeApp() {
     canvas.height = canvasHeight;
 
     // ImageProcessor初期化（WebAssemblyのみ）
-    if (typeof Module !== 'undefined' && Module.ImageProcessor) {
-        processor = new Module.ImageProcessor(canvasWidth, canvasHeight);
+    if (typeof WasmModule !== 'undefined' && WasmModule.ImageProcessor) {
+        processor = new WasmModule.ImageProcessor(canvasWidth, canvasHeight);
         console.log('Using WebAssembly backend');
     } else {
-        console.error('WebAssembly module not loaded!');
+        console.error('WebAssembly module not loaded!', typeof WasmModule);
         alert('エラー: WebAssemblyモジュールの読み込みに失敗しました。ページを再読み込みしてください。');
         return;
     }
