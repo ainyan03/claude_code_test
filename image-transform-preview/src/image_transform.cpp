@@ -16,7 +16,7 @@ int ImageProcessor::addLayer(const uint8_t* imageData, int width, int height) {
     std::memcpy(layer.image.data.data(), imageData, width * height * 4);
     layer.visible = true;
 
-    layers.push_back(layer);
+    layers.push_back(std::move(layer));
     return layers.size() - 1;
 }
 
