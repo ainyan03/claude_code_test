@@ -1,0 +1,374 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    padding: 10px;
+}
+
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+}
+
+header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 20px;
+    text-align: center;
+}
+
+header h1 {
+    font-size: 1.8em;
+    margin-bottom: 5px;
+}
+
+header p {
+    font-size: 0.9em;
+    opacity: 0.9;
+}
+
+.main-content {
+    display: grid;
+    grid-template-columns: 1fr 400px;
+    gap: 20px;
+    padding: 20px;
+}
+
+/* プレビューセクション */
+.preview-section {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.canvas-container {
+    background: #f5f5f5;
+    border: 2px dashed #ccc;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 400px;
+    overflow: auto;
+}
+
+#preview-canvas {
+    max-width: 100%;
+    height: auto;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.canvas-controls {
+    background: #f9f9f9;
+    padding: 15px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.canvas-controls input[type="number"] {
+    width: 80px;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.output-controls {
+    display: flex;
+    justify-content: center;
+}
+
+/* レイヤーセクション */
+.layers-section {
+    background: #f9f9f9;
+    padding: 20px;
+    border-radius: 8px;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.section-header h2 {
+    font-size: 1.3em;
+    color: #333;
+}
+
+/* レイヤーアイテム */
+#layers-list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.layer-item {
+    background: white;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 15px;
+    transition: all 0.2s;
+}
+
+.layer-item:hover {
+    border-color: #667eea;
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+}
+
+.layer-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+.layer-visibility {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+}
+
+.layer-title {
+    flex: 1;
+    font-weight: 600;
+    color: #333;
+}
+
+.layer-actions {
+    display: flex;
+    gap: 5px;
+}
+
+.layer-actions button {
+    width: 30px;
+    height: 30px;
+    border: none;
+    background: #f0f0f0;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s;
+}
+
+.layer-actions button:hover {
+    background: #667eea;
+    color: white;
+}
+
+/* コントロール */
+.layer-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.control-group label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+}
+
+.control-label {
+    min-width: 80px;
+    color: #666;
+    font-weight: 500;
+}
+
+.control-group input[type="range"] {
+    flex: 1;
+    min-width: 0;
+    height: 6px;
+    cursor: pointer;
+}
+
+.param-value {
+    min-width: 50px;
+    text-align: right;
+    font-weight: 600;
+    color: #667eea;
+}
+
+/* ボタン */
+button {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-weight: 600;
+}
+
+.primary-btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.primary-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(102, 126, 234, 0.6);
+}
+
+.primary-btn:active {
+    transform: translateY(0);
+}
+
+/* ローディング */
+.loading {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    z-index: 1000;
+}
+
+.loading.hidden {
+    display: none;
+}
+
+.spinner {
+    width: 50px;
+    height: 50px;
+    border: 5px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.loading p {
+    margin-top: 20px;
+    font-size: 16px;
+}
+
+/* レスポンシブデザイン（スマートフォン対応） */
+@media (max-width: 768px) {
+    body {
+        padding: 0;
+    }
+
+    .container {
+        border-radius: 0;
+    }
+
+    header h1 {
+        font-size: 1.3em;
+    }
+
+    header p {
+        font-size: 0.8em;
+    }
+
+    .main-content {
+        grid-template-columns: 1fr;
+        padding: 15px;
+    }
+
+    .layers-section {
+        max-height: none;
+        order: 2;
+    }
+
+    .preview-section {
+        order: 1;
+    }
+
+    .canvas-container {
+        min-height: 250px;
+    }
+
+    .canvas-controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .canvas-controls label {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .canvas-controls input[type="number"] {
+        flex: 1;
+        min-width: 60px;
+    }
+
+    .section-header {
+        flex-direction: column;
+        gap: 10px;
+        align-items: stretch;
+    }
+
+    button, .primary-btn {
+        padding: 12px 16px;
+        font-size: 16px;
+        touch-action: manipulation;
+    }
+
+    .layer-actions button {
+        width: 36px;
+        height: 36px;
+        font-size: 16px;
+    }
+
+    .control-group input[type="range"] {
+        height: 8px;
+    }
+
+    .layer-visibility {
+        width: 24px;
+        height: 24px;
+    }
+}
+
+/* 超小型デバイス対応 */
+@media (max-width: 480px) {
+    .control-group label {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .control-label {
+        min-width: auto;
+    }
+
+    .param-value {
+        text-align: left;
+    }
+}

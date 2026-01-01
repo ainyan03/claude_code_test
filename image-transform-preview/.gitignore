@@ -1,0 +1,21 @@
+# WebAssembly build outputs
+web/image_transform.js
+web/image_transform.wasm
+
+# Emscripten cache
+.emscripten_cache/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.log
