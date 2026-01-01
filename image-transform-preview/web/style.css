@@ -500,63 +500,68 @@ button {
     font-size: 11px;
 }
 
-/* ノードエディタセクション */
-.node-editor-section {
-    margin-top: 15px;
-    padding-top: 15px;
-    border-top: 1px solid #eee;
+/* グローバルノードグラフセクション */
+.node-graph-section {
+    margin: 20px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
 }
 
-.node-editor-header {
+.node-graph-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 10px;
+    padding: 15px 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
 }
 
-.node-editor-toggle {
-    width: 24px;
-    height: 24px;
+.node-graph-header h2 {
+    font-size: 1.2em;
+    margin: 0;
+}
+
+.toggle-btn {
+    width: 28px;
+    height: 28px;
     padding: 0;
-    background: #f0f0f0;
-    border: 1px solid #ddd;
+    background: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.3);
     border-radius: 4px;
+    color: white;
     cursor: pointer;
-    font-size: 12px;
+    font-size: 14px;
     transition: all 0.2s;
 }
 
-.node-editor-toggle:hover {
-    background: #667eea;
-    color: white;
-    border-color: #667eea;
+.toggle-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
 }
 
-.node-editor-toggle.collapsed {
+.toggle-btn.collapsed {
     transform: rotate(-90deg);
 }
 
-.node-editor-canvas-container {
+.node-graph-canvas-container {
     background: #fafafa;
-    border: 1px solid #e0e0e0;
-    border-radius: 6px;
-    overflow: hidden;
     transition: all 0.3s;
+    overflow: auto;
 }
 
-.node-editor-canvas-container.hidden {
+.node-graph-canvas-container.hidden {
     height: 0;
     opacity: 0;
-    margin: 0;
-    border: none;
 }
 
-.node-editor-canvas {
+#node-graph-canvas {
     display: block;
     background:
         linear-gradient(90deg, #f0f0f0 1px, transparent 1px),
         linear-gradient(#f0f0f0 1px, transparent 1px);
     background-size: 20px 20px;
+    min-height: 400px;
 }
 
 /* ノード要素（SVG foreignObject内のHTML） */
@@ -568,7 +573,20 @@ button {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     cursor: move;
     user-select: none;
-    min-width: 100px;
+    min-width: 120px;
+}
+
+/* ノードタイプ別の色分け */
+.node-box.node-type-image {
+    border-color: #48bb78;
+}
+
+.node-box.node-type-filter {
+    border-color: #667eea;
+}
+
+.node-box.node-type-output {
+    border-color: #ed8936;
 }
 
 .node-box.dragging {

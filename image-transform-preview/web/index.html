@@ -14,6 +14,19 @@
             <div id="version-info" class="version-info"></div>
         </header>
 
+        <!-- グローバルノードグラフ -->
+        <div class="node-graph-section">
+            <div class="node-graph-header">
+                <h2>🔗 ノードグラフ</h2>
+                <button id="node-graph-toggle" class="toggle-btn" title="表示/非表示">▼</button>
+            </div>
+            <div class="node-graph-canvas-container">
+                <svg id="node-graph-canvas" width="100%" height="400">
+                    <!-- すべてのノード（画像、フィルタ、出力）がここに描画される -->
+                </svg>
+            </div>
+        </div>
+
         <div class="main-content">
             <!-- 左側: プレビューエリア -->
             <div class="preview-section">
@@ -114,19 +127,6 @@
                         </div>
                     </div>
                     <div class="filters-list"></div>
-                </div>
-
-                <!-- ノードエディタセクション -->
-                <div class="node-editor-section">
-                    <div class="node-editor-header">
-                        <span class="control-label">ノードエディタ</span>
-                        <button class="node-editor-toggle" title="表示/非表示">▼</button>
-                    </div>
-                    <div class="node-editor-canvas-container">
-                        <svg class="node-editor-canvas" width="100%" height="300">
-                            <!-- ノードと接続線がここに描画される -->
-                        </svg>
-                    </div>
                 </div>
             </div>
         </div>
