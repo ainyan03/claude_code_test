@@ -1,5 +1,4 @@
 // グローバル変数
-let Module;
 let processor;
 let canvas;
 let ctx;
@@ -8,11 +7,11 @@ let canvasWidth = 800;
 let canvasHeight = 600;
 
 // WebAssemblyモジュールが読み込まれた時の初期化
-Module = {
-    onRuntimeInitialized: function() {
-        console.log('WebAssembly loaded successfully');
-        initializeApp();
-    }
+// Emscriptenが生成するModuleオブジェクトに設定を追加
+var Module = Module || {};
+Module.onRuntimeInitialized = function() {
+    console.log('WebAssembly loaded successfully');
+    initializeApp();
 };
 
 function initializeApp() {

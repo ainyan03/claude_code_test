@@ -113,9 +113,9 @@
 
     <!-- Build version information -->
     <script src="version.js"></script>
-    <!-- WebAssembly module -->
-    <script src="image_transform.js"></script>
-    <!-- Application logic -->
+    <!-- Application logic (sets up Module.onRuntimeInitialized before WebAssembly loads) -->
     <script src="app.js"></script>
+    <!-- WebAssembly module (loads after app.js to ensure callbacks are set) -->
+    <script src="image_transform.js"></script>
 </body>
 </html>
