@@ -18,12 +18,18 @@
         <div class="node-graph-section">
             <div class="node-graph-header">
                 <h2>🔗 ノードグラフ</h2>
-                <button id="node-graph-toggle" class="toggle-btn" title="表示/非表示">▼</button>
+                <div class="node-graph-controls">
+                    <button id="add-composite-btn" class="primary-btn" title="合成ノード追加">+ 合成</button>
+                    <button id="node-graph-toggle" class="toggle-btn" title="表示/非表示">▼</button>
+                </div>
             </div>
             <div class="node-graph-canvas-container">
                 <svg id="node-graph-canvas" width="100%" height="400">
-                    <!-- すべてのノード（画像、フィルタ、出力）がここに描画される -->
+                    <!-- すべてのノード（画像、フィルタ、合成、出力）がここに描画される -->
                 </svg>
+                <div class="node-graph-help">
+                    💡 ヒント: 出力ポート(緑)をドラッグして入力ポート(灰)に接続 | 接続を右クリックで削除
+                </div>
             </div>
         </div>
 

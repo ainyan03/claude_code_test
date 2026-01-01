@@ -124,6 +124,11 @@ public:
     // 画像合成処理
     Image compose();
 
+    // ノードグラフ用の単体処理関数
+    Image applyFilterToImage(const Image& input, const std::string& filterType, float param = 0.0f) const;
+    Image applyTransformToImage(const Image& input, const AffineParams& params) const;
+    Image mergeImages(const std::vector<const Image*>& images, const std::vector<double>& alphas) const;
+
     // ユーティリティ
     void setCanvasSize(int width, int height);
     int getLayerCount() const { return layers.size(); }

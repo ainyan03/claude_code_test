@@ -176,6 +176,74 @@ Image ImageProcessor::compose() {
     return result;
 }
 
+// ノードグラフ用: 単一画像にフィルタを適用
+Image ImageProcessor::applyFilterToImage(const Image& input, const std::string& filterType, float param) const {
+    std::unique_ptr<ImageFilter> filter;
+
+    if (filterType == "grayscale") {
+        filter = std::make_unique<GrayscaleFilter>();
+    } else if (filterType == "brightness") {
+        filter = std::make_unique<BrightnessFilter>(param);
+    } else if (filterType == "blur") {
+        filter = std::make_unique<BoxBlurFilter>(static_cast<int>(param));
+    }
+
+    if (filter) {
+        return filter->apply(input);
+    }
+
+    return input;  // フィルタが見つからない場合は入力をそのまま返す
+}
+
+// ノードグラフ用: 単一画像にアフィン変換を適用
+Image ImageProcessor::applyTransformToImage(const Image& input, const AffineParams& params) const {
+    Image result(canvasWidth, canvasHeight);
+    std::fill(result.data.begin(), result.data.end(), 0);
+
+    // アフィン変換を適用
+    Image transformed(canvasWidth, canvasHeight);
+    const_cast<ImageProcessor*>(this)->applyAffineTransform(input, transformed, params);
+
+    return transformed;
+}
+
+// ノードグラフ用: 複数画像をマージ（合成ノード）
+Image ImageProcessor::mergeImages(const std::vector<const Image*>& images, const std::vector<double>& alphas) const {
+    Image result(canvasWidth, canvasHeight);
+
+    // キャンバスを透明で初期化
+    std::fill(result.data.begin(), result.data.end(), 0);
+
+    // 各画像を順番に合成
+    for (size_t i = 0; i < images.size() && i < alphas.size(); i++) {
+        const Image* img = images[i];
+        double alpha = alphas[i];
+
+        if (!img) continue;
+
+        // 画像サイズがキャンバスサイズと異なる場合は中央配置
+        int offsetX = (canvasWidth - img->width) / 2;
+        int offsetY = (canvasHeight - img->height) / 2;
+
+        for (int y = 0; y < img->height && (y + offsetY) < canvasHeight; y++) {
+            for (int x = 0; x < img->width && (x + offsetX) < canvasWidth; x++) {
+                if (offsetX + x < 0 || offsetY + y < 0) continue;
+
+                int srcIdx = (y * img->width + x) * 4;
+                int dstIdx = ((y + offsetY) * canvasWidth + (x + offsetX)) * 4;
+
+                const_cast<ImageProcessor*>(this)->blendPixel(
+                    &result.data[dstIdx],
+                    &img->data[srcIdx],
+                    alpha
+                );
+            }
+        }
+    }
+
+    return result;
+}
+
 void ImageProcessor::applyAffineTransform(const Image& src, Image& dst, const AffineParams& params) {
     // キャンバス中心を基準点とする
     double centerX = canvasWidth / 2.0;
