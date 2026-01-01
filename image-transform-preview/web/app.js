@@ -240,7 +240,8 @@ function setupSlider(layerDiv, layer, paramName, min, max, displayFn, transformF
     slider.min = min;
     slider.max = max;
     slider.value = layer.params[paramName];
-    valueSpan.textContent = displayFn ? displayFn(slider.value) : slider.value;
+    const initialValue = parseFloat(slider.value);
+    valueSpan.textContent = displayFn ? displayFn(initialValue) : initialValue;
 
     slider.addEventListener('input', (e) => {
         const value = parseFloat(e.target.value);
