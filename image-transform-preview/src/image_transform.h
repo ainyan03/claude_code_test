@@ -19,26 +19,12 @@ struct Image {
     Image(int w, int h) : width(w), height(h), data(w * h * 4, 0) {}
 };
 
-// フィルタ基底クラス（ノード情報を含む）
+// フィルタ基底クラス（純粋な処理のみ、UI情報は含まない）
 class ImageFilter {
 public:
-    ImageFilter() : nodeId(0), posX(0.0), posY(0.0) {}
     virtual ~ImageFilter() = default;
     virtual Image apply(const Image& input) const = 0;
     virtual std::string getName() const = 0;
-
-    // ノード情報
-    void setNodeId(int id) { nodeId = id; }
-    int getNodeId() const { return nodeId; }
-
-    void setPosition(double x, double y) { posX = x; posY = y; }
-    double getPosX() const { return posX; }
-    double getPosY() const { return posY; }
-
-protected:
-    int nodeId;      // ノードの一意なID
-    double posX;     // ノードエディタ上のX座標
-    double posY;     // ノードエディタ上のY座標
 };
 
 // グレースケールフィルタ
@@ -90,12 +76,23 @@ struct AffineParams {
           scaleX(1.0), scaleY(1.0), alpha(1.0) {}
 };
 
+// フィルタノードのUI情報（フィルタ処理とは独立）
+struct FilterNodeInfo {
+    int nodeId;     // ノードの一意なID
+    double posX;    // ノードエディタ上のX座標
+    double posY;    // ノードエディタ上のY座標
+
+    FilterNodeInfo() : nodeId(0), posX(0.0), posY(0.0) {}
+    FilterNodeInfo(int id, double x, double y) : nodeId(id), posX(x), posY(y) {}
+};
+
 // レイヤー情報
 struct Layer {
     Image image;
     AffineParams params;
     bool visible;
-    std::vector<std::unique_ptr<ImageFilter>> filters;  // フィルタパイプライン
+    std::vector<std::unique_ptr<ImageFilter>> filters;  // フィルタパイプライン（純粋な処理）
+    std::vector<FilterNodeInfo> nodeInfos;              // UI情報（フィルタと1対1対応）
 
     Layer() : visible(true) {}
 };

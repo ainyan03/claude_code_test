@@ -69,11 +69,14 @@ void ImageProcessor::addFilter(int layerId, const std::string& filterType, float
     }
 
     if (filter) {
-        // ノードIDを設定
-        filter->setNodeId(nextNodeId++);
-        // デフォルト位置を設定（後でUIから更新される）
-        filter->setPosition(100.0, 100.0 + layers[layerId].filters.size() * 80.0);
+        // フィルタを追加（純粋な処理のみ）
         layers[layerId].filters.push_back(std::move(filter));
+
+        // UI情報を別途追加
+        int currentNodeId = nextNodeId++;
+        double defaultX = 100.0;
+        double defaultY = 100.0 + layers[layerId].nodeInfos.size() * 80.0;
+        layers[layerId].nodeInfos.emplace_back(currentNodeId, defaultX, defaultY);
     }
 }
 
@@ -81,12 +84,18 @@ void ImageProcessor::removeFilter(int layerId, int filterIndex) {
     if (layerId >= 0 && layerId < static_cast<int>(layers.size()) &&
         filterIndex >= 0 && filterIndex < static_cast<int>(layers[layerId].filters.size())) {
         layers[layerId].filters.erase(layers[layerId].filters.begin() + filterIndex);
+        // UI情報も同期して削除
+        if (filterIndex < static_cast<int>(layers[layerId].nodeInfos.size())) {
+            layers[layerId].nodeInfos.erase(layers[layerId].nodeInfos.begin() + filterIndex);
+        }
     }
 }
 
 void ImageProcessor::clearFilters(int layerId) {
     if (layerId >= 0 && layerId < static_cast<int>(layers.size())) {
         layers[layerId].filters.clear();
+        // UI情報もクリア
+        layers[layerId].nodeInfos.clear();
     }
 }
 
@@ -105,34 +114,35 @@ Image ImageProcessor::applyFilters(const Image& input, const std::vector<std::un
     return result;
 }
 
-// ノード管理
+// ノード管理（UI情報のみ、フィルタ処理には影響しない）
 void ImageProcessor::setFilterNodePosition(int layerId, int filterIndex, double x, double y) {
     if (layerId >= 0 && layerId < static_cast<int>(layers.size()) &&
-        filterIndex >= 0 && filterIndex < static_cast<int>(layers[layerId].filters.size())) {
-        layers[layerId].filters[filterIndex]->setPosition(x, y);
+        filterIndex >= 0 && filterIndex < static_cast<int>(layers[layerId].nodeInfos.size())) {
+        layers[layerId].nodeInfos[filterIndex].posX = x;
+        layers[layerId].nodeInfos[filterIndex].posY = y;
     }
 }
 
 int ImageProcessor::getFilterNodeId(int layerId, int filterIndex) const {
     if (layerId >= 0 && layerId < static_cast<int>(layers.size()) &&
-        filterIndex >= 0 && filterIndex < static_cast<int>(layers[layerId].filters.size())) {
-        return layers[layerId].filters[filterIndex]->getNodeId();
+        filterIndex >= 0 && filterIndex < static_cast<int>(layers[layerId].nodeInfos.size())) {
+        return layers[layerId].nodeInfos[filterIndex].nodeId;
     }
     return -1;
 }
 
 double ImageProcessor::getFilterNodePosX(int layerId, int filterIndex) const {
     if (layerId >= 0 && layerId < static_cast<int>(layers.size()) &&
-        filterIndex >= 0 && filterIndex < static_cast<int>(layers[layerId].filters.size())) {
-        return layers[layerId].filters[filterIndex]->getPosX();
+        filterIndex >= 0 && filterIndex < static_cast<int>(layers[layerId].nodeInfos.size())) {
+        return layers[layerId].nodeInfos[filterIndex].posX;
     }
     return 0.0;
 }
 
 double ImageProcessor::getFilterNodePosY(int layerId, int filterIndex) const {
     if (layerId >= 0 && layerId < static_cast<int>(layers.size()) &&
-        filterIndex >= 0 && filterIndex < static_cast<int>(layers[layerId].filters.size())) {
-        return layers[layerId].filters[filterIndex]->getPosY();
+        filterIndex >= 0 && filterIndex < static_cast<int>(layers[layerId].nodeInfos.size())) {
+        return layers[layerId].nodeInfos[filterIndex].posY;
     }
     return 0.0;
 }
