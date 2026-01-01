@@ -6,26 +6,14 @@ let ctx;
 let layers = [];
 let canvasWidth = 800;
 let canvasHeight = 600;
-let useWasm = false;
 
 // WebAssemblyモジュールが読み込まれた時の初期化
 Module = {
     onRuntimeInitialized: function() {
         console.log('WebAssembly loaded successfully');
-        useWasm = true;
         initializeApp();
     }
 };
-
-// WebAssembly読み込みタイムアウト（3秒）
-// WebAssemblyが利用できない場合はJavaScript版にフォールバック
-setTimeout(() => {
-    if (!processor) {
-        console.log('WebAssembly not available, using JavaScript fallback');
-        useWasm = false;
-        initializeApp();
-    }
-}, 3000);
 
 function initializeApp() {
     if (processor) {
@@ -34,6 +22,9 @@ function initializeApp() {
     }
 
     console.log('Initializing app...');
+
+    // バージョン情報を表示
+    displayVersionInfo();
 
     // ローディング非表示
     const loadingEl = document.getElementById('loading');
@@ -47,18 +38,14 @@ function initializeApp() {
     canvas.width = canvasWidth;
     canvas.height = canvasHeight;
 
-    // ImageProcessor初期化
-    if (useWasm && typeof Module !== 'undefined' && Module.ImageProcessor) {
+    // ImageProcessor初期化（WebAssemblyのみ）
+    if (typeof Module !== 'undefined' && Module.ImageProcessor) {
         processor = new Module.ImageProcessor(canvasWidth, canvasHeight);
         console.log('Using WebAssembly backend');
     } else {
-        if (typeof ImageTransformJS === 'undefined') {
-            console.error('ImageTransformJS is not defined! Make sure image_transform_js.js is loaded.');
-            alert('エラー: 画像処理ライブラリが読み込まれていません。ページを再読み込みしてください。');
-            return;
-        }
-        processor = new ImageTransformJS(canvasWidth, canvasHeight);
-        console.log('Using JavaScript backend');
+        console.error('WebAssembly module not loaded!');
+        alert('エラー: WebAssemblyモジュールの読み込みに失敗しました。ページを再読み込みしてください。');
+        return;
     }
 
     // イベントリスナー設定
@@ -68,6 +55,14 @@ function initializeApp() {
     updatePreview();
 
     console.log('App initialized successfully');
+}
+
+function displayVersionInfo() {
+    const versionEl = document.getElementById('version-info');
+    if (versionEl && typeof BUILD_INFO !== 'undefined') {
+        versionEl.textContent = `Build: ${BUILD_INFO.buildDate} | Commit: ${BUILD_INFO.gitCommit} | ${BUILD_INFO.backend}`;
+        console.log('Build Info:', BUILD_INFO);
+    }
 }
 
 function setupEventListeners() {
@@ -253,6 +248,10 @@ function setupSlider(layerDiv, layer, paramName, min, max, displayFn, transformF
         // C++側にパラメータ更新
         const p = layer.params;
         const rotation = transformFn && paramName === 'rotation' ? transformFn(value) : p.rotation * Math.PI / 180;
+
+        // デバッグログ
+        console.log(`[${paramName}] Layer ${layer.id}: tx=${p.translateX}, ty=${p.translateY}, rot=${rotation}, sx=${p.scaleX}, sy=${p.scaleY}, alpha=${p.alpha}`);
+
         processor.setLayerTransform(
             layer.id,
             p.translateX,

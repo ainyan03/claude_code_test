@@ -22,6 +22,21 @@ fi
 # 出力ディレクトリ作成
 mkdir -p web
 
+# ビルド情報を生成
+BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+
+echo "// Build information - auto-generated" > web/version.js
+echo "const BUILD_INFO = {" >> web/version.js
+echo "  buildDate: '$BUILD_DATE'," >> web/version.js
+echo "  gitCommit: '$GIT_COMMIT'," >> web/version.js
+echo "  gitBranch: '$GIT_BRANCH'," >> web/version.js
+echo "  backend: 'WebAssembly'" >> web/version.js
+echo "};" >> web/version.js
+
+echo "📝 Build info: $BUILD_DATE (commit: $GIT_COMMIT)"
+
 # WebAssemblyにコンパイル
 emcc src/image_transform.cpp src/bindings.cpp \
     -o web/image_transform.js \

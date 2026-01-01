@@ -37,6 +37,13 @@ header p {
     opacity: 0.9;
 }
 
+.version-info {
+    margin-top: 10px;
+    font-size: 0.75em;
+    opacity: 0.7;
+    font-family: 'Courier New', monospace;
+}
+
 .main-content {
     display: grid;
     grid-template-columns: 1fr 400px;
