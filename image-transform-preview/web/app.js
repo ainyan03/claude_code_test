@@ -19,6 +19,22 @@ let isDraggingConnection = false;
 let dragConnectionFrom = null;
 let dragConnectionPath = null;
 
+// スロットル用のタイマー
+let updatePreviewTimer = null;
+const UPDATE_PREVIEW_THROTTLE = 16; // 60fps相当
+
+// スロットル付きプレビュー更新
+function throttledUpdatePreview() {
+    if (updatePreviewTimer) {
+        return; // 既に更新がスケジュールされている
+    }
+
+    updatePreviewTimer = setTimeout(() => {
+        updatePreviewFromGraph();
+        updatePreviewTimer = null;
+    }, UPDATE_PREVIEW_THROTTLE);
+}
+
 // WebAssemblyモジュールを初期化
 // MODULARIZE=1を使用しているため、Moduleは関数としてエクスポートされる
 if (typeof Module === 'function') {
@@ -240,7 +256,7 @@ function addLayer(imageData) {
         renderNodeGraph();
 
         // プレビュー更新
-        updatePreview();
+        updatePreviewFromGraph();
 
         console.log('Layer successfully added and preview updated');
     } catch (error) {
@@ -263,7 +279,7 @@ function createLayerUI(layer) {
     visibilityCheckbox.addEventListener('change', (e) => {
         layer.visible = e.target.checked;
         processor.setLayerVisibility(layer.id, layer.visible);
-        updatePreview();
+        updatePreviewFromGraph();
     });
 
     // パラメータスライダー
@@ -311,12 +327,9 @@ function setupSlider(layerDiv, layer, paramName, min, max, displayFn, transformF
         layer.params[paramName] = value;
         valueSpan.textContent = displayFn ? displayFn(value) : value;
 
-        // C++側にパラメータ更新
+        // C++側にパラメータ更新（従来の方法用）
         const p = layer.params;
         const rotation = transformFn && paramName === 'rotation' ? transformFn(value) : p.rotation * Math.PI / 180;
-
-        // デバッグログ
-        console.log(`[${paramName}] Layer ${layer.id}: tx=${p.translateX}, ty=${p.translateY}, rot=${rotation}, sx=${p.scaleX}, sy=${p.scaleY}, alpha=${p.alpha}`);
 
         processor.setLayerTransform(
             layer.id,
@@ -328,7 +341,8 @@ function setupSlider(layerDiv, layer, paramName, min, max, displayFn, transformF
             p.alpha
         );
 
-        updatePreview();
+        // スロットル付き更新でパフォーマンス向上
+        throttledUpdatePreview();
     });
 }
 
@@ -343,7 +357,7 @@ function moveLayerUp(layerId) {
 
         // UI更新
         refreshLayersList();
-        updatePreview();
+        updatePreviewFromGraph();
     }
 }
 
@@ -358,7 +372,7 @@ function moveLayerDown(layerId) {
 
         // UI更新
         refreshLayersList();
-        updatePreview();
+        updatePreviewFromGraph();
     }
 }
 
@@ -378,7 +392,7 @@ function deleteLayer(layerId) {
 
         // UI更新
         refreshLayersList();
-        updatePreview();
+        updatePreviewFromGraph();
     }
 }
 
@@ -425,7 +439,7 @@ function resizeCanvas() {
     canvas.height = height;
 
     processor.setCanvasSize(width, height);
-    updatePreview();
+    updatePreviewFromGraph();
 }
 
 function downloadComposedImage() {
@@ -483,7 +497,7 @@ function addFilterToLayer(layer, filterType) {
     renderNodeGraph();
 
     // プレビュー更新
-    updatePreview();
+    updatePreviewFromGraph();
 }
 
 function updateLayerFiltersUI(layer) {
@@ -564,7 +578,7 @@ function createFilterParamSlider(layer, filterIndex, filterType, min, max, displ
 
         // C++側のフィルタを更新（削除して再追加）
         rebuildLayerFilters(layer);
-        updatePreview();
+        throttledUpdatePreview();
     });
 
     label.appendChild(slider);
@@ -588,7 +602,7 @@ function removeFilterFromLayer(layer, filterIndex) {
     renderNodeGraph();
 
     // プレビュー更新
-    updatePreview();
+    updatePreviewFromGraph();
 }
 
 function rebuildLayerFilters(layer) {
@@ -858,7 +872,7 @@ function drawGlobalNode(node) {
                     display.textContent = Math.round(value) + 'px';
                 }
 
-                updatePreviewFromGraph();
+                throttledUpdatePreview();
             });
         }
 
@@ -887,13 +901,13 @@ function drawGlobalNode(node) {
         alpha1Slider.addEventListener('mousedown', (e) => e.stopPropagation());
         alpha1Slider.addEventListener('input', (e) => {
             node.alpha1 = parseFloat(e.target.value);
-            updatePreviewFromGraph();
+            throttledUpdatePreview();
         });
 
         alpha2Slider.addEventListener('mousedown', (e) => e.stopPropagation());
         alpha2Slider.addEventListener('input', (e) => {
             node.alpha2 = parseFloat(e.target.value);
-            updatePreviewFromGraph();
+            throttledUpdatePreview();
         });
 
         // 編集ボタン
@@ -1452,7 +1466,7 @@ function initializeCompositeEditPanel() {
             const value = parseFloat(e.target.value);
             currentEditingComposite.affineParams.translateX = value;
             document.getElementById('composite-translatex-value').textContent = value.toFixed(0);
-            updatePreviewFromGraph();
+            throttledUpdatePreview();
         });
     }
 
@@ -1462,7 +1476,7 @@ function initializeCompositeEditPanel() {
             const value = parseFloat(e.target.value);
             currentEditingComposite.affineParams.translateY = value;
             document.getElementById('composite-translatey-value').textContent = value.toFixed(0);
-            updatePreviewFromGraph();
+            throttledUpdatePreview();
         });
     }
 
@@ -1472,7 +1486,7 @@ function initializeCompositeEditPanel() {
             const value = parseFloat(e.target.value);
             currentEditingComposite.affineParams.rotation = value * Math.PI / 180;
             document.getElementById('composite-rotation-value').textContent = value.toFixed(0) + '°';
-            updatePreviewFromGraph();
+            throttledUpdatePreview();
         });
     }
 
@@ -1482,7 +1496,7 @@ function initializeCompositeEditPanel() {
             const value = parseFloat(e.target.value);
             currentEditingComposite.affineParams.scaleX = value;
             document.getElementById('composite-scalex-value').textContent = value.toFixed(2);
-            updatePreviewFromGraph();
+            throttledUpdatePreview();
         });
     }
 
@@ -1492,7 +1506,7 @@ function initializeCompositeEditPanel() {
             const value = parseFloat(e.target.value);
             currentEditingComposite.affineParams.scaleY = value;
             document.getElementById('composite-scaley-value').textContent = value.toFixed(2);
-            updatePreviewFromGraph();
+            throttledUpdatePreview();
         });
     }
 
@@ -1502,7 +1516,7 @@ function initializeCompositeEditPanel() {
             const value = parseFloat(e.target.value);
             currentEditingComposite.affineParams.alpha = value;
             document.getElementById('composite-alpha-value').textContent = value.toFixed(2);
-            updatePreviewFromGraph();
+            throttledUpdatePreview();
         });
     }
 }
