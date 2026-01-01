@@ -41,9 +41,9 @@ void ImageProcessor::setLayerVisibility(int layerId, bool visible) {
 void ImageProcessor::moveLayer(int fromIndex, int toIndex) {
     if (fromIndex >= 0 && fromIndex < static_cast<int>(layers.size()) &&
         toIndex >= 0 && toIndex < static_cast<int>(layers.size())) {
-        Layer temp = layers[fromIndex];
+        Layer temp = std::move(layers[fromIndex]);
         layers.erase(layers.begin() + fromIndex);
-        layers.insert(layers.begin() + toIndex, temp);
+        layers.insert(layers.begin() + toIndex, std::move(temp));
     }
 }
 
