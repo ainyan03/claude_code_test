@@ -1,0 +1,72 @@
+name: Build and Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - claude/image-transform-preview-7sfw5
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 'latest'
+          actions-cache-folder: 'emsdk-cache'
+
+      - name: Verify Emscripten installation
+        run: |
+          emcc --version
+          em++ --version
+
+      - name: Build WebAssembly
+        run: |
+          cd image-transform-preview
+          chmod +x build.sh
+          ./build.sh
+
+      - name: Verify build output
+        run: |
+          ls -la image-transform-preview/web/
+          if [ -f "image-transform-preview/web/image_transform.wasm" ]; then
+            echo "✓ WebAssembly build successful"
+            echo "WASM size: $(ls -lh image-transform-preview/web/image_transform.wasm | awk '{print $5}')"
+          else
+            echo "✗ WebAssembly build failed"
+            exit 1
+          fi
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'image-transform-preview/web'
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -2,6 +2,14 @@
 
 複数の画像にアフィン変換を適用し、透過合成してプレビューできるWebアプリケーションです。C++で実装された画像処理コアをWebAssemblyにコンパイルし、ブラウザ上で動作します。
 
+## 🚀 ライブデモ
+
+**GitHub Pagesで公開中！ビルド不要で即座に試せます：**
+
+👉 **[https://ainyan03.github.io/claude_code_test/](https://ainyan03.github.io/claude_code_test/)**
+
+PC・スマートフォン両方から直接アクセス可能です。C++で実装されたWebAssembly版が動作します。
+
 ## ✨ 特徴
 
 - **C++コア**: 画像変換処理はC++で実装され、組込み環境への移植が容易
