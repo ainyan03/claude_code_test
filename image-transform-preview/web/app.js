@@ -986,9 +986,6 @@ function setupGlobalNodeDrag(nodeBox, foreignObject, node) {
         foreignObject.setAttribute('x', newX);
         foreignObject.setAttribute('y', newY);
 
-        const content = nodeBox.querySelector('.node-box-content');
-        content.textContent = `(${newX.toFixed(0)}, ${newY.toFixed(0)})`;
-
         node.posX = newX;
         node.posY = newY;
 
@@ -996,7 +993,7 @@ function setupGlobalNodeDrag(nodeBox, foreignObject, node) {
         if (node.type === 'filter') {
             const layer = layers.find(l => l.id === node.layerId);
             if (layer && layer.filters[node.filterIndex]) {
-                layer.filters[node.filterIndex].posX = newX - 200;  // オフセット調整
+                layer.filters[node.filterIndex].posX = newX - 250;  // オフセット調整
                 layer.filters[node.filterIndex].posY = newY - layers.findIndex(l => l.id === node.layerId) * 150;
                 processor.setFilterNodePosition(node.layerId, node.filterIndex,
                     layer.filters[node.filterIndex].posX,
@@ -1004,15 +1001,64 @@ function setupGlobalNodeDrag(nodeBox, foreignObject, node) {
             }
         }
 
-        renderNodeGraph();
+        // ポートの位置を更新
+        updateNodePortsPosition(node);
+
+        // 接続線を再描画
+        updateConnectionsForNode(node.id);
     });
 
     document.addEventListener('mouseup', () => {
         if (isDragging) {
             isDragging = false;
             nodeBox.classList.remove('dragging');
+            // ドラッグ終了時にグラフ全体を再描画して整合性を保つ
+            renderNodeGraph();
         }
     });
+}
+
+// ノードのポート位置を更新
+function updateNodePortsPosition(node) {
+    const nodeWidth = 160;
+    const nodeHeight = 80;
+    const ports = getNodePorts(node);
+
+    // 入力ポートを更新
+    ports.inputs.forEach((port, index) => {
+        const portElement = nodeGraphSvg.querySelector(
+            `circle.node-port-input[data-node-id="${node.id}"][data-port-id="${port.id}"]`
+        );
+        if (portElement) {
+            const portCount = ports.inputs.length;
+            const spacing = nodeHeight / (portCount + 1);
+            const y = node.posY + spacing * (index + 1);
+            portElement.setAttribute('cx', node.posX);
+            portElement.setAttribute('cy', y);
+        }
+    });
+
+    // 出力ポートを更新
+    ports.outputs.forEach((port, index) => {
+        const portElement = nodeGraphSvg.querySelector(
+            `circle.node-port-output[data-node-id="${node.id}"][data-port-id="${port.id}"]`
+        );
+        if (portElement) {
+            const portCount = ports.outputs.length;
+            const spacing = nodeHeight / (portCount + 1);
+            const y = node.posY + spacing * (index + 1);
+            portElement.setAttribute('cx', node.posX + nodeWidth);
+            portElement.setAttribute('cy', y);
+        }
+    });
+}
+
+// 特定ノードに関連する接続線を更新
+function updateConnectionsForNode(nodeId) {
+    // 接続線のみを再描画（効率的な更新）
+    const paths = nodeGraphSvg.querySelectorAll('path.node-connection');
+    paths.forEach(path => path.remove());
+    drawAllConnections();
 }
 
 // ========================================
