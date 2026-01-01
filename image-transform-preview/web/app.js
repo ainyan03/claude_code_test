@@ -215,11 +215,11 @@ function createLayerUI(layer) {
     });
 
     // パラメータスライダー
-    setupSlider(layerDiv, layer, 'translatex', -canvasWidth/2, canvasWidth/2, (val) => val);
-    setupSlider(layerDiv, layer, 'translatey', -canvasHeight/2, canvasHeight/2, (val) => val);
+    setupSlider(layerDiv, layer, 'translateX', -canvasWidth/2, canvasWidth/2, (val) => val);
+    setupSlider(layerDiv, layer, 'translateY', -canvasHeight/2, canvasHeight/2, (val) => val);
     setupSlider(layerDiv, layer, 'rotation', 0, 360, (val) => val + '°', (val) => val * Math.PI / 180);
-    setupSlider(layerDiv, layer, 'scalex', 0.1, 3.0, (val) => val.toFixed(2));
-    setupSlider(layerDiv, layer, 'scaley', 0.1, 3.0, (val) => val.toFixed(2));
+    setupSlider(layerDiv, layer, 'scaleX', 0.1, 3.0, (val) => val.toFixed(2));
+    setupSlider(layerDiv, layer, 'scaleY', 0.1, 3.0, (val) => val.toFixed(2));
     setupSlider(layerDiv, layer, 'alpha', 0, 1, (val) => Math.round(val * 100) + '%');
 
     // レイヤー順序変更ボタン
@@ -234,7 +234,9 @@ function createLayerUI(layer) {
 }
 
 function setupSlider(layerDiv, layer, paramName, min, max, displayFn, transformFn) {
-    const slider = layerDiv.querySelector(`.param-${paramName}`);
+    // セレクター用に小文字に変換（HTMLのclass名が小文字のため）
+    const selectorName = paramName.toLowerCase();
+    const slider = layerDiv.querySelector(`.param-${selectorName}`);
     const valueSpan = slider.parentElement.querySelector('.param-value');
 
     slider.min = min;
