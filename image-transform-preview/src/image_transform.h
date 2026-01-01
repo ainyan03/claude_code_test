@@ -4,6 +4,8 @@
 #include <vector>
 #include <cstdint>
 #include <cmath>
+#include <memory>
+#include <string>
 
 namespace ImageTransform {
 
@@ -15,6 +17,49 @@ struct Image {
 
     Image() : width(0), height(0) {}
     Image(int w, int h) : width(w), height(h), data(w * h * 4, 0) {}
+};
+
+// フィルタ基底クラス
+class ImageFilter {
+public:
+    virtual ~ImageFilter() = default;
+    virtual Image apply(const Image& input) const = 0;
+    virtual std::string getName() const = 0;
+};
+
+// グレースケールフィルタ
+class GrayscaleFilter : public ImageFilter {
+public:
+    Image apply(const Image& input) const override;
+    std::string getName() const override { return "Grayscale"; }
+};
+
+// 明るさ調整フィルタ
+class BrightnessFilter : public ImageFilter {
+public:
+    explicit BrightnessFilter(float brightness = 0.0f) : brightness(brightness) {}
+    Image apply(const Image& input) const override;
+    std::string getName() const override { return "Brightness"; }
+
+    void setBrightness(float value) { brightness = value; }
+    float getBrightness() const { return brightness; }
+
+private:
+    float brightness;  // -1.0 ~ 1.0
+};
+
+// ボックスブラーフィルタ
+class BoxBlurFilter : public ImageFilter {
+public:
+    explicit BoxBlurFilter(int radius = 1) : radius(radius) {}
+    Image apply(const Image& input) const override;
+    std::string getName() const override { return "BoxBlur"; }
+
+    void setRadius(int value) { radius = value > 0 ? value : 1; }
+    int getRadius() const { return radius; }
+
+private:
+    int radius;
 };
 
 // アフィン変換パラメータ
@@ -36,6 +81,7 @@ struct Layer {
     Image image;
     AffineParams params;
     bool visible;
+    std::vector<std::unique_ptr<ImageFilter>> filters;  // フィルタパイプライン
 
     Layer() : visible(true) {}
 };
@@ -51,6 +97,12 @@ public:
     void setLayerParams(int layerId, const AffineParams& params);
     void setLayerVisibility(int layerId, bool visible);
     void moveLayer(int fromIndex, int toIndex);
+
+    // フィルタ管理
+    void addFilter(int layerId, const std::string& filterType, float param = 0.0f);
+    void removeFilter(int layerId, int filterIndex);
+    void clearFilters(int layerId);
+    int getFilterCount(int layerId) const;
 
     // 画像合成処理
     Image compose();
@@ -68,6 +120,7 @@ private:
     void applyAffineTransform(const Image& src, Image& dst, const AffineParams& params);
     void blendPixel(uint8_t* dst, const uint8_t* src, double alpha);
     bool getTransformedPixel(const Image& src, double x, double y, uint8_t* pixel);
+    Image applyFilters(const Image& input, const std::vector<std::unique_ptr<ImageFilter>>& filters);
 };
 
 } // namespace ImageTransform

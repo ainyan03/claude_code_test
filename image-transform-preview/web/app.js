@@ -242,6 +242,15 @@ function createLayerUI(layer) {
     // 削除ボタン
     layerDiv.querySelector('.layer-delete').addEventListener('click', () => deleteLayer(layer.id));
 
+    // フィルタ追加ボタン
+    const filterAddButtons = layerDiv.querySelectorAll('.filter-add-btn');
+    filterAddButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const filterType = btn.dataset.filter;
+            addFilterToLayer(layer, filterType);
+        });
+    });
+
     // レイヤーリストに追加
     document.getElementById('layers-list').appendChild(layerDiv);
 }
@@ -391,4 +400,150 @@ function downloadComposedImage() {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
     }, 'image/png');
+}
+
+// ========================================
+// フィルタ管理
+// ========================================
+
+function addFilterToLayer(layer, filterType) {
+    // デフォルトパラメータ
+    let defaultParam = 0.0;
+    if (filterType === 'brightness') {
+        defaultParam = 0.0;  // -1.0 ~ 1.0
+    } else if (filterType === 'blur') {
+        defaultParam = 3.0;  // radius
+    }
+
+    // C++側にフィルタ追加
+    processor.addFilter(layer.id, filterType, defaultParam);
+
+    // レイヤーにフィルタ情報を追加
+    if (!layer.filters) {
+        layer.filters = [];
+    }
+    const filterIndex = layer.filters.length;
+    layer.filters.push({
+        type: filterType,
+        param: defaultParam
+    });
+
+    // UIを更新
+    updateLayerFiltersUI(layer);
+
+    // プレビュー更新
+    updatePreview();
+}
+
+function updateLayerFiltersUI(layer) {
+    const layerDiv = document.querySelector(`.layer-item[data-layer-id="${layer.id}"]`);
+    if (!layerDiv) return;
+
+    const filtersList = layerDiv.querySelector('.filters-list');
+    filtersList.innerHTML = '';
+
+    if (!layer.filters) return;
+
+    layer.filters.forEach((filter, index) => {
+        const filterItem = document.createElement('div');
+        filterItem.className = 'filter-item';
+
+        const header = document.createElement('div');
+        header.className = 'filter-item-header';
+
+        const filterName = document.createElement('span');
+        filterName.className = 'filter-name';
+        filterName.textContent = getFilterDisplayName(filter.type);
+
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'filter-remove-btn';
+        removeBtn.textContent = '×';
+        removeBtn.addEventListener('click', () => removeFilterFromLayer(layer, index));
+
+        header.appendChild(filterName);
+        header.appendChild(removeBtn);
+        filterItem.appendChild(header);
+
+        // パラメータ付きフィルタの場合、スライダーを追加
+        if (filter.type === 'brightness') {
+            const paramDiv = createFilterParamSlider(layer, index, 'brightness', -1.0, 1.0,
+                (val) => (val >= 0 ? '+' : '') + val.toFixed(2),
+                filter.param);
+            filterItem.appendChild(paramDiv);
+        } else if (filter.type === 'blur') {
+            const paramDiv = createFilterParamSlider(layer, index, 'blur', 1, 10,
+                (val) => Math.round(val) + 'px',
+                filter.param);
+            filterItem.appendChild(paramDiv);
+        }
+
+        filtersList.appendChild(filterItem);
+    });
+}
+
+function createFilterParamSlider(layer, filterIndex, filterType, min, max, displayFn, initialValue) {
+    const paramDiv = document.createElement('div');
+    paramDiv.className = 'filter-param';
+
+    const label = document.createElement('label');
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = min;
+    slider.max = max;
+    slider.step = (max - min) > 10 ? 1 : 0.01;
+    slider.value = initialValue;
+
+    const valueSpan = document.createElement('span');
+    valueSpan.className = 'param-value';
+    valueSpan.textContent = displayFn(initialValue);
+
+    slider.addEventListener('input', (e) => {
+        const value = parseFloat(e.target.value);
+        layer.filters[filterIndex].param = value;
+        valueSpan.textContent = displayFn(value);
+
+        // C++側のフィルタを更新（削除して再追加）
+        rebuildLayerFilters(layer);
+        updatePreview();
+    });
+
+    label.appendChild(slider);
+    label.appendChild(valueSpan);
+    paramDiv.appendChild(label);
+
+    return paramDiv;
+}
+
+function removeFilterFromLayer(layer, filterIndex) {
+    // 配列から削除
+    layer.filters.splice(filterIndex, 1);
+
+    // C++側のフィルタを再構築
+    rebuildLayerFilters(layer);
+
+    // UI更新
+    updateLayerFiltersUI(layer);
+
+    // プレビュー更新
+    updatePreview();
+}
+
+function rebuildLayerFilters(layer) {
+    // C++側のフィルタをクリアして再追加
+    processor.clearFilters(layer.id);
+
+    if (layer.filters) {
+        layer.filters.forEach(filter => {
+            processor.addFilter(layer.id, filter.type, filter.param);
+        });
+    }
+}
+
+function getFilterDisplayName(filterType) {
+    const names = {
+        'grayscale': 'グレースケール',
+        'brightness': '明るさ',
+        'blur': 'ぼかし'
+    };
+    return names[filterType] || filterType;
 }

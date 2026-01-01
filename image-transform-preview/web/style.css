@@ -379,3 +379,109 @@ button {
         text-align: left;
     }
 }
+
+/* フィルタセクション */
+.filters-section {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #eee;
+}
+
+.filters-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.filter-add-buttons {
+    display: flex;
+    gap: 5px;
+}
+
+.filter-add-btn {
+    width: 32px;
+    height: 32px;
+    padding: 4px;
+    background: #f0f0f0;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s;
+}
+
+.filter-add-btn:hover {
+    background: #667eea;
+    color: white;
+    border-color: #667eea;
+}
+
+.filters-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.filter-item {
+    background: #f5f5f5;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.filter-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.filter-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: #555;
+}
+
+.filter-remove-btn {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    background: #ff6b6b;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s;
+}
+
+.filter-remove-btn:hover {
+    background: #ff5252;
+}
+
+.filter-param {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.filter-param label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+}
+
+.filter-param input[type="range"] {
+    flex: 1;
+    height: 4px;
+}
+
+.filter-param .param-value {
+    min-width: 40px;
+    font-size: 11px;
+}

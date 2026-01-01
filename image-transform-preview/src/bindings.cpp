@@ -57,6 +57,23 @@ public:
         return processor.getLayerCount();
     }
 
+    // フィルタ管理
+    void addFilter(int layerId, const std::string& filterType, float param) {
+        processor.addFilter(layerId, filterType, param);
+    }
+
+    void removeFilter(int layerId, int filterIndex) {
+        processor.removeFilter(layerId, filterIndex);
+    }
+
+    void clearFilters(int layerId) {
+        processor.clearFilters(layerId);
+    }
+
+    int getFilterCount(int layerId) const {
+        return processor.getFilterCount(layerId);
+    }
+
     val compose() {
         Image result = processor.compose();
 
@@ -87,5 +104,9 @@ EMSCRIPTEN_BINDINGS(image_transform) {
         .function("moveLayer", &ImageProcessorWrapper::moveLayer)
         .function("setCanvasSize", &ImageProcessorWrapper::setCanvasSize)
         .function("getLayerCount", &ImageProcessorWrapper::getLayerCount)
+        .function("addFilter", &ImageProcessorWrapper::addFilter)
+        .function("removeFilter", &ImageProcessorWrapper::removeFilter)
+        .function("clearFilters", &ImageProcessorWrapper::clearFilters)
+        .function("getFilterCount", &ImageProcessorWrapper::getFilterCount)
         .function("compose", &ImageProcessorWrapper::compose);
 }
