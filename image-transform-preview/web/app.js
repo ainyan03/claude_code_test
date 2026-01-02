@@ -146,17 +146,22 @@ function setupEventListeners() {
     // ダウンロードボタン
     document.getElementById('download-btn').addEventListener('click', downloadComposedImage);
 
-    // 合成ノード追加ボタン
-    document.getElementById('add-composite-btn').addEventListener('click', addCompositeNode);
+    // ノード追加プルダウンメニュー
+    document.getElementById('add-node-select').addEventListener('change', (e) => {
+        const value = e.target.value;
+        if (!value) return;
 
-    // 独立フィルタノード追加ボタン
-    document.getElementById('add-filter-node-btn').addEventListener('click', () => {
-        // セレクトボックスからフィルタタイプを取得
-        const filterTypeSelect = document.getElementById('filter-type-select');
-        const filterType = filterTypeSelect.value;
-        if (filterType) {
-            addIndependentFilterNode(filterType);
+        // ノードタイプに応じて追加
+        if (value === 'affine') {
+            addAffineNode();
+        } else if (value === 'composite') {
+            addCompositeNode();
+        } else if (value === 'grayscale' || value === 'brightness' || value === 'blur') {
+            addIndependentFilterNode(value);
         }
+
+        // セレクトをリセット
+        e.target.value = '';
     });
 }
 
@@ -249,8 +254,8 @@ function addImageNodeFromLibrary(imageId) {
     const image = uploadedImages.find(img => img.id === imageId);
     if (!image) return;
 
-    // 既存の同じ画像IDのノード数をカウント
-    const existingCount = globalNodes.filter(n => n.type === 'image' && n.imageId === imageId).length;
+    // 全ての画像ノードの数をカウント（より良い配置のため）
+    const existingImageNodes = globalNodes.filter(n => n.type === 'image').length;
 
     const imageNode = {
         id: `image-node-${nextImageNodeId++}`,
@@ -259,7 +264,7 @@ function addImageNodeFromLibrary(imageId) {
         alpha: 1.0,  // 画像ノードのアルファ値
         title: image.name,
         posX: 50,
-        posY: 50 + existingCount * 120
+        posY: 50 + existingImageNodes * 180  // 180ピクセル間隔で配置（アルファスライダーを考慮）
     };
 
     globalNodes.push(imageNode);
@@ -467,6 +472,10 @@ function drawConnectionBetweenPorts(fromNode, fromPortId, toNode, toPortId) {
     const path = document.createElementNS(ns, 'path');
     const midX = (fromPos.x + toPos.x) / 2;
     const d = `M ${fromPos.x} ${fromPos.y} C ${midX} ${fromPos.y}, ${midX} ${toPos.y}, ${toPos.x} ${toPos.y}`;
+
+    // 一意のIDを設定（リアルタイム更新用）
+    const pathId = `conn-${fromNode.id}-${fromPortId}-${toNode.id}-${toPortId}`;
+    path.setAttribute('id', pathId);
     path.setAttribute('d', d);
     path.setAttribute('class', 'node-connection');
     path.setAttribute('stroke', '#667eea');
@@ -1087,12 +1096,30 @@ function updateNodePortsPosition(node) {
     });
 }
 
-// 特定ノードに関連する接続線を更新
+// 特定ノードに関連する接続線を更新（リアルタイム更新版）
 function updateConnectionsForNode(nodeId) {
-    // 接続線のみを再描画（効率的な更新）
-    const paths = nodeGraphSvg.querySelectorAll('path.node-connection');
-    paths.forEach(path => path.remove());
-    drawAllConnections();
+    // 該当するノードの接続線のみをリアルタイムで更新
+    globalConnections.forEach(conn => {
+        if (conn.fromNodeId === nodeId || conn.toNodeId === nodeId) {
+            const fromNode = globalNodes.find(n => n.id === conn.fromNodeId);
+            const toNode = globalNodes.find(n => n.id === conn.toNodeId);
+
+            if (fromNode && toNode) {
+                // 接続線のパスを探す
+                const pathId = `conn-${conn.fromNodeId}-${conn.fromPortId}-${conn.toNodeId}-${conn.toPortId}`;
+                const path = document.getElementById(pathId);
+
+                if (path) {
+                    // パスのd属性だけを更新（削除・再作成しない）
+                    const fromPos = getPortPosition(fromNode, conn.fromPortId, 'output');
+                    const toPos = getPortPosition(toNode, conn.toPortId, 'input');
+                    const midX = (fromPos.x + toPos.x) / 2;
+                    const d = `M ${fromPos.x} ${fromPos.y} C ${midX} ${fromPos.y}, ${midX} ${toPos.y}, ${toPos.x} ${toPos.y}`;
+                    path.setAttribute('d', d);
+                }
+            }
+        }
+    });
 }
 
 // ========================================
@@ -1214,6 +1241,36 @@ function addCompositeNode() {
     };
 
     globalNodes.push(compositeNode);
+    renderNodeGraph();
+}
+
+// アフィン変換ノードを追加
+function addAffineNode() {
+    // 既存のアフィンノードの数を数えて位置をずらす
+    const existingAffineCount = globalNodes.filter(
+        n => n.type === 'affine'
+    ).length;
+
+    const affineNode = {
+        id: `affine-${Date.now()}`,
+        type: 'affine',
+        title: 'アフィン変換',
+        posX: 300,
+        posY: 50 + existingAffineCount * 150,
+        matrixMode: false,  // デフォルトはパラメータモード
+        // パラメータモード用の初期値
+        translateX: 0,
+        translateY: 0,
+        rotation: 0,
+        scaleX: 1.0,
+        scaleY: 1.0,
+        // 行列モード用の初期値
+        matrix: {
+            a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0
+        }
+    };
+
+    globalNodes.push(affineNode);
     renderNodeGraph();
 }
 
@@ -1458,6 +1515,15 @@ const contextMenu = document.getElementById('node-context-menu');
 // コンテキストメニューを表示
 function showContextMenu(x, y, node) {
     contextMenuTargetNode = node;
+
+    // 合成ノードの場合のみ「入力を追加」を表示
+    const addInputMenu = document.getElementById('add-input-menu');
+    if (node.type === 'composite') {
+        addInputMenu.style.display = 'block';
+    } else {
+        addInputMenu.style.display = 'none';
+    }
+
     contextMenu.style.left = x + 'px';
     contextMenu.style.top = y + 'px';
     contextMenu.style.display = 'block';
@@ -1480,6 +1546,14 @@ document.addEventListener('click', (e) => {
 document.getElementById('delete-node-menu').addEventListener('click', () => {
     if (contextMenuTargetNode) {
         deleteNode(contextMenuTargetNode);
+        hideContextMenu();
+    }
+});
+
+// 入力追加メニューアイテムのクリック
+document.getElementById('add-input-menu').addEventListener('click', () => {
+    if (contextMenuTargetNode && contextMenuTargetNode.type === 'composite') {
+        addCompositeInput(contextMenuTargetNode);
         hideContextMenu();
     }
 });

@@ -31,13 +31,14 @@
             <div class="node-graph-header">
                 <h2>🔗 ノードグラフ</h2>
                 <div class="node-graph-controls">
-                    <button id="add-composite-btn" class="primary-btn" title="合成ノード追加">+ 合成</button>
-                    <select id="filter-type-select" title="フィルタタイプ選択">
-                        <option value="grayscale">グレースケール</option>
-                        <option value="brightness">明るさ</option>
-                        <option value="blur">ぼかし</option>
+                    <select id="add-node-select" title="ノード追加">
+                        <option value="">+ ノード追加</option>
+                        <option value="affine">アフィン変換</option>
+                        <option value="composite">合成</option>
+                        <option value="grayscale">フィルタ: グレースケール</option>
+                        <option value="brightness">フィルタ: 明るさ</option>
+                        <option value="blur">フィルタ: ぼかし</option>
                     </select>
-                    <button id="add-filter-node-btn" class="primary-btn" title="フィルタノード追加">+ フィルタ</button>
                     <button id="node-graph-toggle" class="toggle-btn" title="表示/非表示">▼</button>
                 </div>
             </div>
@@ -154,6 +155,7 @@
 
     <!-- ノードコンテキストメニュー -->
     <div id="node-context-menu" class="context-menu" style="display: none;">
+        <div class="context-menu-item" id="add-input-menu" style="display: none;">➕ 入力を追加</div>
         <div class="context-menu-item" id="delete-node-menu">🗑️ ノードを削除</div>
     </div>
 
