@@ -93,7 +93,8 @@ https://[ユーザー名].github.io/[リポジトリ名]/
 
 1. ブラウザのコンソール（F12）を開いてエラーを確認
 2. CORS エラーが出ていないか確認
-3. JavaScript版にフォールバックしている場合、コンソールに "Using JavaScript backend" と表示されます
+3. WebAssemblyファイル（image_transform.wasm）が正しく読み込まれているか確認
+4. ブラウザがWebAssemblyに対応しているか確認（Chrome 57+、Firefox 52+、Safari 11+）
 
 ## 🔒 セキュリティ
 
@@ -134,8 +135,8 @@ git push
 
 WebAssembly版が動作しているか確認：
 1. ブラウザのコンソール（F12）を開く
-2. "Using WebAssembly backend" と表示されていれば成功
-3. "Using JavaScript backend" の場合はフォールバック動作
+2. Network タブで `image_transform.wasm` が正常に読み込まれているか確認
+3. エラーがなければWebAssembly版が正常に動作しています
 
 ## 🎉 完了！
 
