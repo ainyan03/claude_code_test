@@ -8,11 +8,11 @@
 
 このプロジェクトは、レイヤーベースシステムからノードグラフエディタへの大規模リファクタリングを完了しました。
 
-## 📍 開発ブランチ
+## 📍 ブランチ構成
 
-- **現在のブランチ**: `claude/image-transform-preview-7sfw5`
-- **目的**: ノードグラフアーキテクチャへの移行
-- **状態**: 実装完了、ドキュメント更新済み
+- **メインブランチ**: `claude/main-7sfw5`
+- **旧開発ブランチ**: `claude/image-transform-preview-7sfw5`（統合済み）
+- **状態**: ノードグラフ実装完了、ドキュメント整備完了
 
 ## ✅ 完了した作業
 
@@ -46,11 +46,9 @@
 ## 🔄 次のアクション（優先順位順）
 
 ### 高優先度
-1. **GitHub Actions 確認**: 最新のドキュメント更新後のビルドが完了しているか確認
-2. **mainブランチの作成**: GitHub Web UI上で main ブランチを手動作成し、このブランチの内容をマージ
-   - 注: ローカルからのmainブランチpushは、ブランチ名制約（`claude/`で始まる必要）により403エラーとなる
-   - 代替案: GitHub Web UI上でプルリクエストを作成し、mainブランチを作成
-3. **デプロイ設定の修正**: main ブランチ作成後、`.github/workflows/deploy.yml` のブランチ設定を main に変更
+1. **GitHub Actions 確認**: `claude/main-7sfw5` への初回pushでビルドが自動実行されることを確認
+2. ~~mainブランチの作成~~: ✅ 完了（`claude/main-7sfw5` を作成）
+3. ~~デプロイ設定の修正~~: ✅ 完了（`.github/workflows/deploy.yml` を `claude/main-7sfw5` に変更）
 
 ### 中優先度
 4. **パフォーマンス最適化**: フィルタ処理の16bit直接処理（現在は8bit経由）
@@ -74,7 +72,7 @@
 ## 🚀 デプロイ
 
 - **GitHub Pages**: https://ainyan03.github.io/claude_code_test/
-- **自動デプロイ**: `claude/image-transform-preview-7sfw5` ブランチへのpushで自動実行
+- **自動デプロイ**: `claude/main-7sfw5` ブランチへのpushで自動実行
 - **ビルドツール**: GitHub Actions + Emscripten
 
 ## ⚠️ 既知の問題と制約
@@ -88,13 +86,10 @@
    - 対処: main ブランチ作成後、設定を main に変更
 
 ### ブランチ管理の制約
-3. **ブランチ名制約**: このリポジトリでは `claude/` で始まるブランチ名のみpush可能
-   - mainブランチへの直接pushは403エラーとなる
-   - 対処: GitHub Web UI経由でmainブランチを作成し、プルリクエストでマージ
-
-4. **mainブランチ未作成**: 現在、リモートには `claude/image-transform-preview-7sfw5` のみ存在
-   - このブランチが事実上のデフォルトブランチとして機能
-   - GitHub Pagesもこのブランチから直接デプロイ
+3. **ブランチ名制約**: このリポジトリでは `claude/` で始まり、セッションID `7sfw5` で終わるブランチ名のみpush可能
+   - 例: `claude/main-7sfw5`, `claude/feature-xyz-7sfw5` は可能
+   - 例: `main`, `claude/main` は403エラー（セッションIDなし）
+   - 解決済み: `claude/main-7sfw5` をメインブランチとして使用
 
 ## 📝 セッション継続性のための情報
 

@@ -3,7 +3,7 @@ name: Build and Deploy to GitHub Pages
 on:
   push:
     branches:
-      - claude/image-transform-preview-7sfw5
+      - claude/main-7sfw5
   workflow_dispatch:
 
 permissions:
