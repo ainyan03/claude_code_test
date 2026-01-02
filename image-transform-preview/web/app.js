@@ -503,14 +503,33 @@ function drawConnectionBetweenPorts(fromNode, fromPortId, toNode, toPortId) {
     nodeGraphSvg.appendChild(path);
 }
 
+// アフィン変換パラメータから行列を計算
+function calculateMatrixFromParams(translateX, translateY, rotation, scaleX, scaleY) {
+    // キャンバス中心を基準点とする
+    const centerX = canvasWidth / 2.0;
+    const centerY = canvasHeight / 2.0;
+
+    // 回転を度からラジアンに変換
+    const rad = rotation * Math.PI / 180.0;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+
+    // 行列要素を計算
+    // 変換の順序：中心に移動 → スケール → 回転 → 元に戻す → 平行移動
+    const a = cos * scaleX;
+    const b = -sin * scaleY;
+    const c = sin * scaleX;
+    const d = cos * scaleY;
+    const tx = -centerX * a - centerY * c + centerX + translateX;
+    const ty = -centerX * b - centerY * d + centerY + translateY;
+
+    return { a, b, c, d, tx, ty };
+}
+
 // ノードの高さを動的に計算
 function getNodeHeight(node) {
     if (node.type === 'affine') {
-        if (node.matrixMode) {
-            return 210; // 行列モード: モード切替(25) + 6パラメータ(30×6=180) + パディング
-        } else {
-            return 250; // パラメータモード: モード切替(25) + 5パラメータ(30×5=150) + パディング
-        }
+        return 200; // アフィン変換ノード: 両モード共通で200px
     } else if (node.type === 'composite') {
         const inputCount = node.inputs ? node.inputs.length : 2;
         const baseHeight = 60; // ヘッダー + パディング
@@ -748,6 +767,14 @@ function drawGlobalNode(node) {
             txSlider.addEventListener('input', (e) => {
                 node.translateX = parseFloat(e.target.value);
                 txDisplay.textContent = Math.round(node.translateX);
+                // 行列モードに同期
+                node.matrix = calculateMatrixFromParams(
+                    node.translateX || 0,
+                    node.translateY || 0,
+                    node.rotation || 0,
+                    node.scaleX || 1,
+                    node.scaleY || 1
+                );
                 throttledUpdatePreview();
             });
             controls.appendChild(txLabel);
@@ -761,6 +788,14 @@ function drawGlobalNode(node) {
             tySlider.addEventListener('input', (e) => {
                 node.translateY = parseFloat(e.target.value);
                 tyDisplay.textContent = Math.round(node.translateY);
+                // 行列モードに同期
+                node.matrix = calculateMatrixFromParams(
+                    node.translateX || 0,
+                    node.translateY || 0,
+                    node.rotation || 0,
+                    node.scaleX || 1,
+                    node.scaleY || 1
+                );
                 throttledUpdatePreview();
             });
             controls.appendChild(tyLabel);
@@ -774,6 +809,14 @@ function drawGlobalNode(node) {
             rotSlider.addEventListener('input', (e) => {
                 node.rotation = parseFloat(e.target.value);
                 rotDisplay.textContent = Math.round(node.rotation) + '°';
+                // 行列モードに同期
+                node.matrix = calculateMatrixFromParams(
+                    node.translateX || 0,
+                    node.translateY || 0,
+                    node.rotation || 0,
+                    node.scaleX || 1,
+                    node.scaleY || 1
+                );
                 throttledUpdatePreview();
             });
             controls.appendChild(rotLabel);
@@ -787,6 +830,14 @@ function drawGlobalNode(node) {
             sxSlider.addEventListener('input', (e) => {
                 node.scaleX = parseFloat(e.target.value);
                 sxDisplay.textContent = node.scaleX.toFixed(1);
+                // 行列モードに同期
+                node.matrix = calculateMatrixFromParams(
+                    node.translateX || 0,
+                    node.translateY || 0,
+                    node.rotation || 0,
+                    node.scaleX || 1,
+                    node.scaleY || 1
+                );
                 throttledUpdatePreview();
             });
             controls.appendChild(sxLabel);
@@ -800,6 +851,14 @@ function drawGlobalNode(node) {
             sySlider.addEventListener('input', (e) => {
                 node.scaleY = parseFloat(e.target.value);
                 syDisplay.textContent = node.scaleY.toFixed(1);
+                // 行列モードに同期
+                node.matrix = calculateMatrixFromParams(
+                    node.translateX || 0,
+                    node.translateY || 0,
+                    node.rotation || 0,
+                    node.scaleX || 1,
+                    node.scaleY || 1
+                );
                 throttledUpdatePreview();
             });
             controls.appendChild(syLabel);
@@ -862,6 +921,42 @@ function drawNodePorts(node, nodeWidth, unusedNodeHeight) {
         const spacing = nodeHeight / (portCount + 1);
         const y = node.posY + spacing * (index + 1);
 
+        // 透明な大きめの円（クリックエリア拡大用）
+        const hitArea = document.createElementNS(ns, 'circle');
+        hitArea.setAttribute('cx', node.posX);
+        hitArea.setAttribute('cy', y);
+        hitArea.setAttribute('r', portRadius * 2); // 2倍の半径
+        hitArea.setAttribute('fill', 'transparent');
+        hitArea.setAttribute('stroke', 'none');
+        hitArea.dataset.nodeId = node.id;
+        hitArea.dataset.portId = port.id;
+        hitArea.dataset.portType = 'input';
+        hitArea.style.cursor = 'pointer';
+
+        // ポートのドロップターゲット（マウス）
+        hitArea.addEventListener('mouseup', (e) => {
+            if (isDraggingConnection && dragConnectionFrom) {
+                const fromNode = dragConnectionFrom.nodeId;
+                const fromPort = dragConnectionFrom.portId;
+                addConnection(fromNode, fromPort, node.id, port.id);
+                stopDraggingConnection();
+            }
+        });
+
+        // ポートのドロップターゲット（タッチ）
+        hitArea.addEventListener('touchend', (e) => {
+            if (isDraggingConnection && dragConnectionFrom) {
+                const fromNode = dragConnectionFrom.nodeId;
+                const fromPort = dragConnectionFrom.portId;
+                addConnection(fromNode, fromPort, node.id, port.id);
+                stopDraggingConnection();
+                e.preventDefault();
+            }
+        });
+
+        nodeGraphSvg.appendChild(hitArea);
+
+        // 視覚的な円（実際に見えるポート）
         const circle = document.createElementNS(ns, 'circle');
         circle.setAttribute('cx', node.posX);
         circle.setAttribute('cy', y);
@@ -873,27 +968,7 @@ function drawNodePorts(node, nodeWidth, unusedNodeHeight) {
         circle.dataset.nodeId = node.id;
         circle.dataset.portId = port.id;
         circle.dataset.portType = 'input';
-
-        // ポートのドロップターゲット（マウス）
-        circle.addEventListener('mouseup', (e) => {
-            if (isDraggingConnection && dragConnectionFrom) {
-                const fromNode = dragConnectionFrom.nodeId;
-                const fromPort = dragConnectionFrom.portId;
-                addConnection(fromNode, fromPort, node.id, port.id);
-                stopDraggingConnection();
-            }
-        });
-
-        // ポートのドロップターゲット（タッチ）
-        circle.addEventListener('touchend', (e) => {
-            if (isDraggingConnection && dragConnectionFrom) {
-                const fromNode = dragConnectionFrom.nodeId;
-                const fromPort = dragConnectionFrom.portId;
-                addConnection(fromNode, fromPort, node.id, port.id);
-                stopDraggingConnection();
-                e.preventDefault();
-            }
-        });
+        circle.style.pointerEvents = 'none'; // クリックイベントは透明円に任せる
 
         nodeGraphSvg.appendChild(circle);
     });
@@ -904,6 +979,36 @@ function drawNodePorts(node, nodeWidth, unusedNodeHeight) {
         const spacing = nodeHeight / (portCount + 1);
         const y = node.posY + spacing * (index + 1);
 
+        // 透明な大きめの円（クリックエリア拡大用）
+        const hitArea = document.createElementNS(ns, 'circle');
+        hitArea.setAttribute('cx', node.posX + nodeWidth);
+        hitArea.setAttribute('cy', y);
+        hitArea.setAttribute('r', portRadius * 2); // 2倍の半径
+        hitArea.setAttribute('fill', 'transparent');
+        hitArea.setAttribute('stroke', 'none');
+        hitArea.dataset.nodeId = node.id;
+        hitArea.dataset.portId = port.id;
+        hitArea.dataset.portType = 'output';
+        hitArea.style.cursor = 'pointer';
+
+        // ポートからドラッグ開始（マウス）
+        hitArea.addEventListener('mousedown', (e) => {
+            e.stopPropagation();
+            startDraggingConnection(node.id, port.id, e.clientX, e.clientY);
+        });
+
+        // ポートからドラッグ開始（タッチ）
+        hitArea.addEventListener('touchstart', (e) => {
+            e.stopPropagation();
+            if (e.touches && e.touches[0]) {
+                startDraggingConnection(node.id, port.id, e.touches[0].clientX, e.touches[0].clientY);
+                e.preventDefault();
+            }
+        }, { passive: false });
+
+        nodeGraphSvg.appendChild(hitArea);
+
+        // 視覚的な円（実際に見えるポート）
         const circle = document.createElementNS(ns, 'circle');
         circle.setAttribute('cx', node.posX + nodeWidth);
         circle.setAttribute('cy', y);
@@ -915,21 +1020,7 @@ function drawNodePorts(node, nodeWidth, unusedNodeHeight) {
         circle.dataset.nodeId = node.id;
         circle.dataset.portId = port.id;
         circle.dataset.portType = 'output';
-
-        // ポートからドラッグ開始（マウス）
-        circle.addEventListener('mousedown', (e) => {
-            e.stopPropagation();
-            startDraggingConnection(node.id, port.id, e.clientX, e.clientY);
-        });
-
-        // ポートからドラッグ開始（タッチ）
-        circle.addEventListener('touchstart', (e) => {
-            e.stopPropagation();
-            if (e.touches && e.touches[0]) {
-                startDraggingConnection(node.id, port.id, e.touches[0].clientX, e.touches[0].clientY);
-                e.preventDefault();
-            }
-        }, { passive: false });
+        circle.style.pointerEvents = 'none'; // クリックイベントは透明円に任せる
 
         nodeGraphSvg.appendChild(circle);
     });
@@ -1022,8 +1113,7 @@ function setupGlobalNodeDrag(nodeBox, foreignObject, node) {
             document.removeEventListener('mouseup', handleEnd);
             document.removeEventListener('touchmove', handleMove);
             document.removeEventListener('touchend', handleEnd);
-            // ドラッグ終了時にグラフ全体を再描画して整合性を保つ
-            renderNodeGraph();
+            // 再描画不要：ポートと接続線はhandleMove内で既に更新済み
         }
     };
 

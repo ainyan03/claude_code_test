@@ -587,6 +587,11 @@ button {
     background: #fafafa;
     transition: all 0.3s;
     overflow: auto;
+    position: relative;
+    height: 400px; /* デフォルト高さ */
+    resize: vertical; /* ブラウザ標準のリサイズ機能を有効化 */
+    min-height: 200px; /* 最小高さ */
+    max-height: 800px; /* 最大高さ */
 }
 
 .node-graph-canvas-container.hidden {
@@ -600,7 +605,7 @@ button {
         linear-gradient(90deg, #f0f0f0 1px, transparent 1px),
         linear-gradient(#f0f0f0 1px, transparent 1px);
     background-size: 20px 20px;
-    min-height: 400px;
+    min-height: 1200px; /* SVGの高さに合わせる */
 }
 
 /* ノード要素（SVG foreignObject内のHTML） */
