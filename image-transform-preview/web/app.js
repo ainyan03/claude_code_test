@@ -716,6 +716,7 @@ function syncNodesFromLayers() {
             id: imageId,
             type: 'image',
             layerId: layer.id,
+            params: layer.params,  // レイヤーのパラメータを含める
             title: layer.name,
             posX: existing ? existing.posX : 50,
             posY: existing ? existing.posY : 50 + layerIndex * 150
@@ -744,9 +745,10 @@ function syncNodesFromLayers() {
         }
     });
 
-    // 合成ノードと出力ノードは保持
+    // 合成ノード、出力ノード、独立フィルタノードは保持
     globalNodes.forEach(node => {
-        if (node.type === 'composite' || node.type === 'output') {
+        if (node.type === 'composite' || node.type === 'output' ||
+            (node.type === 'filter' && node.independent)) {
             newNodes.push(node);
         }
     });
