@@ -6,6 +6,8 @@
 #include <cmath>
 #include <memory>
 #include <string>
+#include <map>
+#include <set>
 
 namespace ImageTransform {
 
@@ -174,6 +176,85 @@ private:
     void blendPixel(uint8_t* dst, const uint8_t* src, double alpha);
     bool getTransformedPixel(const Image& src, double x, double y, uint8_t* pixel);
     Image applyFilters(const Image& input, const std::vector<std::unique_ptr<ImageFilter>>& filters);
+};
+
+// ========================================================================
+// ノードグラフ評価エンジン（C++側で完結）
+// ========================================================================
+
+// ノードグラフのノード定義
+struct GraphNode {
+    std::string type;  // "image", "filter", "composite", "output"
+    std::string id;
+
+    // image用
+    int layerId;
+    AffineParams transform;
+
+    // filter用（独立フィルタノード）
+    std::string filterType;
+    float filterParam;
+    bool independent;
+
+    // filter用（レイヤー付帯フィルタノード）
+    int filterLayerId;
+    int filterIndex;
+
+    // composite用
+    double alpha1;
+    double alpha2;
+    AffineParams compositeTransform;
+
+    GraphNode() : layerId(-1), filterParam(0.0f), independent(false),
+                  filterLayerId(-1), filterIndex(-1), alpha1(1.0), alpha2(1.0) {}
+};
+
+// ノードグラフの接続定義
+struct GraphConnection {
+    std::string fromNodeId;
+    std::string fromPort;
+    std::string toNodeId;
+    std::string toPort;
+};
+
+// ノードグラフ評価エンジン
+class NodeGraphEvaluator {
+public:
+    NodeGraphEvaluator(int canvasWidth, int canvasHeight);
+
+    // レイヤー画像を登録（8bit RGBA）
+    void setLayerImage(int layerId, const Image& img);
+
+    // ノードグラフ構造を設定
+    void setNodes(const std::vector<GraphNode>& nodes);
+    void setConnections(const std::vector<GraphConnection>& connections);
+
+    // ノードグラフを評価して最終画像を取得（1回のWASM呼び出しで完結）
+    Image evaluateGraph();
+
+    // キャンバスサイズ変更
+    void setCanvasSize(int width, int height);
+
+private:
+    int canvasWidth;
+    int canvasHeight;
+    ImageProcessor processor;
+
+    std::vector<GraphNode> nodes;
+    std::vector<GraphConnection> connections;
+
+    // レイヤー画像キャッシュ
+    std::map<int, Image> layerImages;         // 元画像（8bit）
+    std::map<int, Image16> layerPremulCache;  // premultiplied変換済み（16bit）
+
+    // ノード評価結果キャッシュ（1回の評価で使い回す）
+    std::map<std::string, Image16> nodeResultCache;
+
+    // 内部評価関数（再帰的にノードを評価）
+    Image16 evaluateNode(const std::string& nodeId, std::set<std::string>& visited);
+
+    // レイヤー画像のpremultiplied変換（キャッシュ付き）
+    Image16 getLayerPremultiplied(int layerId, const AffineParams& transform);
 };
 
 } // namespace ImageTransform

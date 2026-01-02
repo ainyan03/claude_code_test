@@ -1,5 +1,6 @@
 // グローバル変数
 let processor;
+let graphEvaluator;  // ノードグラフ評価エンジン（C++側）
 let canvas;
 let ctx;
 let layers = [];
@@ -92,6 +93,16 @@ function initializeApp() {
     } else {
         console.error('WebAssembly module not loaded!', typeof WasmModule);
         alert('エラー: WebAssemblyモジュールの読み込みに失敗しました。ページを再読み込みしてください。');
+        return;
+    }
+
+    // NodeGraphEvaluator初期化（C++側でグラフ評価）
+    if (typeof WasmModule !== 'undefined' && WasmModule.NodeGraphEvaluator) {
+        graphEvaluator = new WasmModule.NodeGraphEvaluator(canvasWidth, canvasHeight);
+        console.log('NodeGraphEvaluator initialized');
+    } else {
+        console.error('NodeGraphEvaluator not found in WebAssembly module');
+        alert('エラー: NodeGraphEvaluatorの読み込みに失敗しました。');
         return;
     }
 
@@ -248,6 +259,10 @@ function addLayer(imageData) {
             visible: true
         };
         layers.push(layer);
+
+        // C++側のNodeGraphEvaluatorにも画像を登録
+        graphEvaluator.setLayerImage(layerId, imageData.data, imageData.width, imageData.height);
+        console.log('Layer image registered to NodeGraphEvaluator');
 
         // UIにレイヤー追加
         createLayerUI(layer);
@@ -1460,7 +1475,7 @@ function evaluateNodeGraph(nodeId, visited = new Set()) {
     }
 }
 
-// グラフベースのプレビュー更新
+// グラフベースのプレビュー更新（C++側で完結）
 function updatePreviewFromGraph() {
     const perfStart = performance.now();
 
@@ -1482,23 +1497,24 @@ function updatePreviewFromGraph() {
         return;
     }
 
-    // グラフを評価して最終画像を取得（16bit premultiplied）
+    // C++側にノードグラフ構造を渡す（1回のWASM呼び出しで完結）
     const evalStart = performance.now();
-    const resultImage16 = evaluateNodeGraph(inputConn.fromNodeId);
+
+    graphEvaluator.setNodes(globalNodes);
+    graphEvaluator.setConnections(globalConnections);
+
+    // C++側でノードグラフ全体を評価
+    const resultImage = graphEvaluator.evaluateGraph();
+
     const evalTime = performance.now() - evalStart;
 
-    if (resultImage16 && resultImage16.data) {
-        // 16bit premultiplied → 8bit RGBA変換
-        const convertStart = performance.now();
-        const resultImage8 = processor.fromPremultiplied(resultImage16);
-        const convertTime = performance.now() - convertStart;
-
+    if (resultImage && resultImage.data) {
         // キャンバスに描画
         const drawStart = performance.now();
         const imageData = new ImageData(
-            resultImage8.data,
-            resultImage8.width,
-            resultImage8.height
+            resultImage.data,
+            resultImage.width,
+            resultImage.height
         );
 
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
@@ -1506,7 +1522,7 @@ function updatePreviewFromGraph() {
         const drawTime = performance.now() - drawStart;
 
         const totalTime = performance.now() - perfStart;
-        console.log(`[Perf] Total: ${totalTime.toFixed(1)}ms (Eval: ${evalTime.toFixed(1)}ms, Convert: ${convertTime.toFixed(1)}ms, Draw: ${drawTime.toFixed(1)}ms)`);
+        console.log(`[Perf] Total: ${totalTime.toFixed(1)}ms (Eval: ${evalTime.toFixed(1)}ms, Draw: ${drawTime.toFixed(1)}ms)`);
     } else {
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     }
