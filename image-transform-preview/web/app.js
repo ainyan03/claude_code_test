@@ -926,6 +926,7 @@ function drawNodePorts(node, nodeWidth, unusedNodeHeight) {
         hitArea.setAttribute('cx', node.posX);
         hitArea.setAttribute('cy', y);
         hitArea.setAttribute('r', portRadius * 2); // 2倍の半径
+        hitArea.setAttribute('class', 'node-port-hitarea node-port-hitarea-input');
         hitArea.setAttribute('fill', 'transparent');
         hitArea.setAttribute('stroke', 'none');
         hitArea.dataset.nodeId = node.id;
@@ -984,6 +985,7 @@ function drawNodePorts(node, nodeWidth, unusedNodeHeight) {
         hitArea.setAttribute('cx', node.posX + nodeWidth);
         hitArea.setAttribute('cy', y);
         hitArea.setAttribute('r', portRadius * 2); // 2倍の半径
+        hitArea.setAttribute('class', 'node-port-hitarea node-port-hitarea-output');
         hitArea.setAttribute('fill', 'transparent');
         hitArea.setAttribute('stroke', 'none');
         hitArea.dataset.nodeId = node.id;
@@ -1193,29 +1195,51 @@ function updateNodePortsPosition(node) {
     const nodeHeight = getNodeHeight(node); // 動的に計算
     const ports = getNodePorts(node);
 
-    // 入力ポートを更新
+    // 入力ポートを更新（透明なヒットエリア円と視覚的な円の両方）
     ports.inputs.forEach((port, index) => {
+        const portCount = ports.inputs.length;
+        const spacing = nodeHeight / (portCount + 1);
+        const y = node.posY + spacing * (index + 1);
+
+        // 透明なヒットエリア円を更新
+        const hitArea = nodeGraphSvg.querySelector(
+            `circle.node-port-hitarea-input[data-node-id="${node.id}"][data-port-id="${port.id}"]`
+        );
+        if (hitArea) {
+            hitArea.setAttribute('cx', node.posX);
+            hitArea.setAttribute('cy', y);
+        }
+
+        // 視覚的な円を更新
         const portElement = nodeGraphSvg.querySelector(
             `circle.node-port-input[data-node-id="${node.id}"][data-port-id="${port.id}"]`
         );
         if (portElement) {
-            const portCount = ports.inputs.length;
-            const spacing = nodeHeight / (portCount + 1);
-            const y = node.posY + spacing * (index + 1);
             portElement.setAttribute('cx', node.posX);
             portElement.setAttribute('cy', y);
         }
     });
 
-    // 出力ポートを更新
+    // 出力ポートを更新（透明なヒットエリア円と視覚的な円の両方）
     ports.outputs.forEach((port, index) => {
+        const portCount = ports.outputs.length;
+        const spacing = nodeHeight / (portCount + 1);
+        const y = node.posY + spacing * (index + 1);
+
+        // 透明なヒットエリア円を更新
+        const hitArea = nodeGraphSvg.querySelector(
+            `circle.node-port-hitarea-output[data-node-id="${node.id}"][data-port-id="${port.id}"]`
+        );
+        if (hitArea) {
+            hitArea.setAttribute('cx', node.posX + nodeWidth);
+            hitArea.setAttribute('cy', y);
+        }
+
+        // 視覚的な円を更新
         const portElement = nodeGraphSvg.querySelector(
             `circle.node-port-output[data-node-id="${node.id}"][data-port-id="${port.id}"]`
         );
         if (portElement) {
-            const portCount = ports.outputs.length;
-            const spacing = nodeHeight / (portCount + 1);
-            const y = node.posY + spacing * (index + 1);
             portElement.setAttribute('cx', node.posX + nodeWidth);
             portElement.setAttribute('cy', y);
         }
