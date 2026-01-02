@@ -686,7 +686,8 @@ button {
 /* ノードポート */
 .node-port {
     cursor: pointer;
-    transition: all 0.2s;
+    /* 位置(cx,cy)はトランジションしない。hover時のr, filterのみアニメーション */
+    transition: r 0.2s, filter 0.2s;
 }
 
 .node-port:hover {
