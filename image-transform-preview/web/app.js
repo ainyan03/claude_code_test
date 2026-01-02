@@ -512,6 +512,11 @@ function initializeNodeGraph() {
 function renderNodeGraph() {
     if (!nodeGraphSvg) return;
 
+    // ドラッグ中の接続線を明示的にクリーンアップ
+    if (isDraggingConnection) {
+        stopDraggingConnection();
+    }
+
     // SVGをクリア
     nodeGraphSvg.innerHTML = '';
 
@@ -1131,12 +1136,17 @@ function removeConnection(fromNodeId, fromPortId, toNodeId, toPortId) {
 
 // 合成ノードを追加
 function addCompositeNode() {
+    // 既存の合成ノードの数を数えて位置をずらす
+    const existingCompositeCount = globalNodes.filter(
+        n => n.type === 'composite'
+    ).length;
+
     const compositeNode = {
         id: `composite-${nextCompositeId++}`,
         type: 'composite',
         title: '合成',
         posX: 300,
-        posY: 150,
+        posY: 50 + existingCompositeCount * 150,  // 既存のノードと重ならないように配置
         // 動的な入力配列（デフォルトで2つの入力）
         inputs: [
             { id: 'in1', alpha: 1.0 },
@@ -1182,6 +1192,11 @@ function addIndependentFilterNode(filterType) {
         defaultParam = 3.0;  // radius
     }
 
+    // 既存の独立フィルタノードの数を数えて位置をずらす
+    const existingFilterCount = globalNodes.filter(
+        n => n.type === 'filter' && n.independent
+    ).length;
+
     const filterNode = {
         id: `independent-filter-${nextIndependentFilterId++}`,
         type: 'filter',
@@ -1189,12 +1204,22 @@ function addIndependentFilterNode(filterType) {
         filterType: filterType,
         param: defaultParam,
         title: getFilterDisplayName(filterType),
-        posX: 350,
-        posY: 150
+        posX: 200,
+        posY: 50 + existingFilterCount * 120  // 既存のノードと重ならないように配置
     };
 
     globalNodes.push(filterNode);
     renderNodeGraph();
+}
+
+// フィルタ表示名を取得
+function getFilterDisplayName(filterType) {
+    const names = {
+        'grayscale': 'グレースケール',
+        'brightness': '明るさ',
+        'blur': 'ぼかし'
+    };
+    return names[filterType] || filterType;
 }
 
 // ノード間のグラフを処理して画像を生成（16bit Premultiplied Alpha版）
