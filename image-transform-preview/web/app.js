@@ -1432,6 +1432,9 @@ function updatePreviewFromGraph() {
         return;
     }
 
+    // レイヤーの変更を反映（重要！）
+    syncNodesFromLayers();
+
     // 出力ノードへの入力接続を取得
     const inputConn = globalConnections.find(
         c => c.toNodeId === outputNode.id && c.toPortId === 'in'
