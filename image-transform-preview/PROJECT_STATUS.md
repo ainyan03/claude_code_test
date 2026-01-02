@@ -47,8 +47,10 @@
 
 ### 高優先度
 1. **GitHub Actions 確認**: 最新のドキュメント更新後のビルドが完了しているか確認
-2. **main ブランチへのマージ**: この開発ブランチを main にマージ
-3. **デプロイ設定の修正**: `.github/workflows/deploy.yml` のブランチ設定を main に変更
+2. **mainブランチの作成**: GitHub Web UI上で main ブランチを手動作成し、このブランチの内容をマージ
+   - 注: ローカルからのmainブランチpushは、ブランチ名制約（`claude/`で始まる必要）により403エラーとなる
+   - 代替案: GitHub Web UI上でプルリクエストを作成し、mainブランチを作成
+3. **デプロイ設定の修正**: main ブランチ作成後、`.github/workflows/deploy.yml` のブランチ設定を main に変更
 
 ### 中優先度
 4. **パフォーマンス最適化**: フィルタ処理の16bit直接処理（現在は8bit経由）
@@ -75,13 +77,24 @@
 - **自動デプロイ**: `claude/image-transform-preview-7sfw5` ブランチへのpushで自動実行
 - **ビルドツール**: GitHub Actions + Emscripten
 
-## ⚠️ 既知の問題
+## ⚠️ 既知の問題と制約
 
-1. **ビルド情報が古い**: `web/version.js` が古いコミットハッシュを参照
+### 技術的な問題
+1. **ビルド情報が古い**: `web/version.js` が古いコミットハッシュ（29b32db）を参照
    - 対処: GitHub Actionsのビルド完了待ち
+   - 最新コミット: 78fa53d（ドキュメント追加）
 
 2. **GitHub Actions設定**: 開発ブランチからのデプロイが設定されている
-   - 対処: main ブランチにマージ後、設定を main に変更
+   - 対処: main ブランチ作成後、設定を main に変更
+
+### ブランチ管理の制約
+3. **ブランチ名制約**: このリポジトリでは `claude/` で始まるブランチ名のみpush可能
+   - mainブランチへの直接pushは403エラーとなる
+   - 対処: GitHub Web UI経由でmainブランチを作成し、プルリクエストでマージ
+
+4. **mainブランチ未作成**: 現在、リモートには `claude/image-transform-preview-7sfw5` のみ存在
+   - このブランチが事実上のデフォルトブランチとして機能
+   - GitHub Pagesもこのブランチから直接デプロイ
 
 ## 📝 セッション継続性のための情報
 
