@@ -558,7 +558,15 @@ function syncNodesFromLayers() {
             id: imageId,
             type: 'image',
             layerId: layer.id,
-            params: layer.params,  // レイヤーのパラメータを含める
+            // paramsをコピーし、rotationを度→ラジアンに変換
+            params: {
+                translateX: layer.params.translateX,
+                translateY: layer.params.translateY,
+                rotation: layer.params.rotation * Math.PI / 180,  // 度→ラジアン
+                scaleX: layer.params.scaleX,
+                scaleY: layer.params.scaleY,
+                alpha: layer.params.alpha
+            },
             title: layer.name,
             posX: existing ? existing.posX : 50,
             posY: existing ? existing.posY : 50 + layerIndex * 150
@@ -1510,7 +1518,7 @@ function initializeCompositeEditPanel() {
         rotation.addEventListener('input', (e) => {
             if (!currentEditingComposite) return;
             const value = parseFloat(e.target.value);
-            currentEditingComposite.affineParams.rotation = value * Math.PI / 180;
+            currentEditingComposite.affineParams.rotation = value;  // 度数法で保存
             document.getElementById('composite-rotation-value').textContent = value.toFixed(0) + '°';
             throttledUpdatePreview();
         });
@@ -1565,9 +1573,8 @@ function openCompositeEditPanel(node) {
         document.getElementById('composite-translatey').value = params.translateY;
         document.getElementById('composite-translatey-value').textContent = params.translateY.toFixed(0);
 
-        const rotationDeg = params.rotation * 180 / Math.PI;
-        document.getElementById('composite-rotation').value = rotationDeg;
-        document.getElementById('composite-rotation-value').textContent = rotationDeg.toFixed(0) + '°';
+        document.getElementById('composite-rotation').value = params.rotation;
+        document.getElementById('composite-rotation-value').textContent = params.rotation.toFixed(0) + '°';
 
         document.getElementById('composite-scalex').value = params.scaleX;
         document.getElementById('composite-scalex-value').textContent = params.scaleX.toFixed(2);

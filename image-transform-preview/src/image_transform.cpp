@@ -393,43 +393,65 @@ Image BrightnessFilter::apply(const Image& input) const {
 
 // ボックスブラーフィルタ
 Image BoxBlurFilter::apply(const Image& input) const {
-    Image output = input;
-
     int width = input.width;
     int height = input.height;
 
-    // 各ピクセルに対してボックスブラーを適用
+    // 分離可能ブラー: 水平方向 → 垂直方向の2パスで処理
+    // O(width * height * radius^2) → O(width * height * radius)
+
+    // 中間バッファ（水平ブラー結果）
+    Image temp(width, height);
+
+    // パス1: 水平方向のブラー
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
             int sumR = 0, sumG = 0, sumB = 0, sumA = 0;
             int count = 0;
 
-            // 周囲のピクセルを走査
-            for (int dy = -radius; dy <= radius; dy++) {
-                for (int dx = -radius; dx <= radius; dx++) {
-                    int nx = x + dx;
-                    int ny = y + dy;
+            int xStart = std::max(0, x - radius);
+            int xEnd = std::min(width - 1, x + radius);
 
-                    // 範囲チェック
-                    if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-                        int idx = (ny * width + nx) * 4;
-                        sumR += input.data[idx];
-                        sumG += input.data[idx + 1];
-                        sumB += input.data[idx + 2];
-                        sumA += input.data[idx + 3];
-                        count++;
-                    }
-                }
+            for (int nx = xStart; nx <= xEnd; nx++) {
+                int idx = (y * width + nx) * 4;
+                sumR += input.data[idx];
+                sumG += input.data[idx + 1];
+                sumB += input.data[idx + 2];
+                sumA += input.data[idx + 3];
+                count++;
             }
 
-            // 平均値を計算
             int outIdx = (y * width + x) * 4;
-            if (count > 0) {
-                output.data[outIdx] = static_cast<uint8_t>(sumR / count);
-                output.data[outIdx + 1] = static_cast<uint8_t>(sumG / count);
-                output.data[outIdx + 2] = static_cast<uint8_t>(sumB / count);
-                output.data[outIdx + 3] = static_cast<uint8_t>(sumA / count);
+            temp.data[outIdx] = sumR / count;
+            temp.data[outIdx + 1] = sumG / count;
+            temp.data[outIdx + 2] = sumB / count;
+            temp.data[outIdx + 3] = sumA / count;
+        }
+    }
+
+    // パス2: 垂直方向のブラー
+    Image output(width, height);
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            int sumR = 0, sumG = 0, sumB = 0, sumA = 0;
+            int count = 0;
+
+            int yStart = std::max(0, y - radius);
+            int yEnd = std::min(height - 1, y + radius);
+
+            for (int ny = yStart; ny <= yEnd; ny++) {
+                int idx = (ny * width + x) * 4;
+                sumR += temp.data[idx];
+                sumG += temp.data[idx + 1];
+                sumB += temp.data[idx + 2];
+                sumA += temp.data[idx + 3];
+                count++;
             }
+
+            int outIdx = (y * width + x) * 4;
+            output.data[outIdx] = sumR / count;
+            output.data[outIdx + 1] = sumG / count;
+            output.data[outIdx + 2] = sumB / count;
+            output.data[outIdx + 3] = sumA / count;
         }
     }
 
@@ -703,8 +725,10 @@ Image16 NodeGraphEvaluator::getLayerPremultiplied(int layerId, const AffineParam
     );
 
     if (needsTransform) {
-        double centerX = canvasWidth / 2.0;
-        double centerY = canvasHeight / 2.0;
+        // 元画像の中心を回転軸にする
+        const Image& originalImg = layerImages.at(layerId);
+        double centerX = originalImg.width / 2.0;
+        double centerY = originalImg.height / 2.0;
         AffineMatrix matrix = AffineMatrix::fromParams(transform, centerX, centerY);
         return processor.applyTransformToImage16(premul, matrix, transform.alpha);
     }

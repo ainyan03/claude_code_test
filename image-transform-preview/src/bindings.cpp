@@ -494,7 +494,8 @@ public:
                     val affine = nodeObj["affineParams"];
                     node.compositeTransform.translateX = affine["translateX"].as<double>();
                     node.compositeTransform.translateY = affine["translateY"].as<double>();
-                    node.compositeTransform.rotation = affine["rotation"].as<double>();
+                    // JavaScriptから度数法で渡されるのでラジアンに変換
+                    node.compositeTransform.rotation = affine["rotation"].as<double>() * M_PI / 180.0;
                     node.compositeTransform.scaleX = affine["scaleX"].as<double>();
                     node.compositeTransform.scaleY = affine["scaleY"].as<double>();
                     node.compositeTransform.alpha = affine["alpha"].as<double>();
