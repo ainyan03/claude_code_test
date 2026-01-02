@@ -3,7 +3,9 @@ let processor;
 let graphEvaluator;  // ノードグラフ評価エンジン（C++側）
 let canvas;
 let ctx;
-let layers = [];
+let layers = [];  // 後方互換性のため一時保持
+let uploadedImages = [];  // 画像ライブラリ
+let nextImageId = 1;
 let canvasWidth = 800;
 let canvasHeight = 600;
 
@@ -13,6 +15,7 @@ let globalConnections = [];  // ノード間の接続
 let nextGlobalNodeId = 1;
 let nextCompositeId = 1;
 let nextIndependentFilterId = 1;
+let nextImageNodeId = 1;
 let nodeGraphSvg = null;
 
 // ドラッグ接続用の状態
@@ -169,7 +172,7 @@ async function handleImageUpload(event) {
 
         try {
             const imageData = await loadImage(file);
-            addLayer(imageData);
+            addImageToLibrary(imageData);
         } catch (error) {
             console.error('Failed to load image:', error);
             const errorMsg = error.message || error.toString();
@@ -179,6 +182,108 @@ async function handleImageUpload(event) {
 
     // inputをリセット（同じファイルを再度選択可能にする）
     event.target.value = '';
+}
+
+// 画像ライブラリに画像を追加
+function addImageToLibrary(imageData) {
+    const imageId = nextImageId++;
+
+    const image = {
+        id: imageId,
+        name: imageData.name || `Image ${imageId}`,
+        imageData: imageData,
+        width: imageData.width,
+        height: imageData.height
+    };
+
+    uploadedImages.push(image);
+
+    // C++側に画像を登録（後方互換性）
+    graphEvaluator.setLayerImage(imageId, imageData.data, imageData.width, imageData.height);
+
+    // UIを更新
+    renderImageLibrary();
+}
+
+// 画像ライブラリUIを描画
+function renderImageLibrary() {
+    const libraryContainer = document.getElementById('images-library');
+    libraryContainer.innerHTML = '';
+
+    uploadedImages.forEach(image => {
+        const template = document.getElementById('image-item-template');
+        const item = template.content.cloneNode(true);
+
+        // サムネイル設定
+        const thumbnail = item.querySelector('.image-thumbnail img');
+        thumbnail.src = createThumbnailDataURL(image.imageData);
+
+        // 画像名設定
+        item.querySelector('.image-name').textContent = image.name;
+
+        // ノード追加ボタン
+        item.querySelector('.add-image-node-btn').addEventListener('click', () => {
+            addImageNodeFromLibrary(image.id);
+        });
+
+        // 削除ボタン
+        item.querySelector('.delete-image-btn').addEventListener('click', () => {
+            deleteImageFromLibrary(image.id);
+        });
+
+        libraryContainer.appendChild(item);
+    });
+}
+
+// サムネイル用のData URLを作成
+function createThumbnailDataURL(imageData) {
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = imageData.width;
+    tempCanvas.height = imageData.height;
+    const tempCtx = tempCanvas.getContext('2d');
+    tempCtx.putImageData(new ImageData(imageData.data, imageData.width, imageData.height), 0, 0);
+    return tempCanvas.toDataURL();
+}
+
+// 画像ライブラリから画像ノードを追加
+function addImageNodeFromLibrary(imageId) {
+    const image = uploadedImages.find(img => img.id === imageId);
+    if (!image) return;
+
+    // 既存の同じ画像IDのノード数をカウント
+    const existingCount = globalNodes.filter(n => n.type === 'image' && n.imageId === imageId).length;
+
+    const imageNode = {
+        id: `image-node-${nextImageNodeId++}`,
+        type: 'image',
+        imageId: imageId,
+        alpha: 1.0,  // 画像ノードのアルファ値
+        title: image.name,
+        posX: 50,
+        posY: 50 + existingCount * 120
+    };
+
+    globalNodes.push(imageNode);
+    renderNodeGraph();
+}
+
+// 画像ライブラリから画像を削除
+function deleteImageFromLibrary(imageId) {
+    // この画像を使用しているノードがあるか確認
+    const usingNodes = globalNodes.filter(n => n.type === 'image' && n.imageId === imageId);
+    if (usingNodes.length > 0) {
+        if (!confirm(`この画像は${usingNodes.length}個のノードで使用されています。削除してもよろしいですか？`)) {
+            return;
+        }
+        // ノードも削除
+        globalNodes = globalNodes.filter(n => !(n.type === 'image' && n.imageId === imageId));
+    }
+
+    // 画像を削除
+    uploadedImages = uploadedImages.filter(img => img.id !== imageId);
+
+    renderImageLibrary();
+    renderNodeGraph();
 }
 
 function loadImage(file) {

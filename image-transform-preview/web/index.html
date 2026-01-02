@@ -71,15 +71,15 @@
                 </div>
             </div>
 
-            <!-- 右側: レイヤー管理エリア -->
-            <div class="layers-section">
+            <!-- 右側: 画像管理エリア -->
+            <div class="images-section">
                 <div class="section-header">
-                    <h2>レイヤー</h2>
-                    <button id="add-image-btn" class="primary-btn">+ 画像追加</button>
+                    <h2>📸 画像ライブラリ</h2>
+                    <button id="add-image-btn" class="primary-btn">📁 画像を追加</button>
                     <input type="file" id="image-input" accept="image/*" style="display:none;" multiple>
                 </div>
 
-                <div id="layers-list"></div>
+                <div id="images-library"></div>
 
                 <!-- 合成ノード編集パネル -->
                 <div id="composite-edit-panel" class="composite-edit-panel hidden">
@@ -136,60 +136,17 @@
         </div>
     </div>
 
-    <!-- レイヤーテンプレート -->
-    <template id="layer-template">
-        <div class="layer-item">
-            <div class="layer-header">
-                <input type="checkbox" class="layer-visibility" checked>
-                <span class="layer-title">Layer</span>
-                <div class="layer-actions">
-                    <button class="layer-up" title="上へ">↑</button>
-                    <button class="layer-down" title="下へ">↓</button>
-                    <button class="layer-delete" title="削除">×</button>
-                </div>
+    <!-- 画像アイテムテンプレート -->
+    <template id="image-item-template">
+        <div class="image-item">
+            <div class="image-thumbnail">
+                <img src="" alt="thumbnail">
             </div>
-            <div class="layer-controls">
-                <div class="control-group">
-                    <label>
-                        <span class="control-label">X位置:</span>
-                        <input type="range" class="param-translatex" min="-400" max="400" value="0" step="1">
-                        <span class="param-value">0</span>
-                    </label>
-                </div>
-                <div class="control-group">
-                    <label>
-                        <span class="control-label">Y位置:</span>
-                        <input type="range" class="param-translatey" min="-300" max="300" value="0" step="1">
-                        <span class="param-value">0</span>
-                    </label>
-                </div>
-                <div class="control-group">
-                    <label>
-                        <span class="control-label">回転:</span>
-                        <input type="range" class="param-rotation" min="0" max="360" value="0" step="1">
-                        <span class="param-value">0°</span>
-                    </label>
-                </div>
-                <div class="control-group">
-                    <label>
-                        <span class="control-label">スケールX:</span>
-                        <input type="range" class="param-scalex" min="0.1" max="3.0" value="1.0" step="0.01">
-                        <span class="param-value">1.00</span>
-                    </label>
-                </div>
-                <div class="control-group">
-                    <label>
-                        <span class="control-label">スケールY:</span>
-                        <input type="range" class="param-scaley" min="0.1" max="3.0" value="1.0" step="0.01">
-                        <span class="param-value">1.00</span>
-                    </label>
-                </div>
-                <div class="control-group">
-                    <label>
-                        <span class="control-label">透過度:</span>
-                        <input type="range" class="param-alpha" min="0" max="1" value="1.0" step="0.01">
-                        <span class="param-value">100%</span>
-                    </label>
+            <div class="image-info">
+                <span class="image-name">Image</span>
+                <div class="image-actions">
+                    <button class="add-image-node-btn" title="ノード追加">+ ノード</button>
+                    <button class="delete-image-btn" title="削除">×</button>
                 </div>
             </div>
         </div>
