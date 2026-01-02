@@ -351,6 +351,32 @@ button {
     font-size: 16px;
 }
 
+/* コンテキストメニュー */
+.context-menu {
+    position: fixed;
+    background: white;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    z-index: 10000;
+    min-width: 150px;
+}
+
+.context-menu-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background 0.2s;
+}
+
+.context-menu-item:hover {
+    background: #f0f0f0;
+}
+
+.context-menu-item:active {
+    background: #e0e0e0;
+}
+
 /* レスポンシブデザイン（スマートフォン対応） */
 @media (max-width: 768px) {
     body {

@@ -1276,6 +1276,43 @@ function setupGlobalNodeDrag(nodeBox, foreignObject, node) {
         e.stopPropagation();
     };
 
+    // 右クリックメニュー
+    nodeBox.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        showContextMenu(e.clientX, e.clientY, node);
+    });
+
+    // 長押し検出（スマートフォン用）
+    let longPressTimer = null;
+    nodeBox.addEventListener('touchstart', (e) => {
+        // スライダーやボタンの場合はスキップ
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') {
+            return;
+        }
+
+        longPressTimer = setTimeout(() => {
+            if (!isDragging) {
+                const touch = e.touches[0];
+                showContextMenu(touch.clientX, touch.clientY, node);
+            }
+        }, 500); // 500msの長押し
+    }, { passive: true });
+
+    nodeBox.addEventListener('touchend', () => {
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+    });
+
+    nodeBox.addEventListener('touchmove', () => {
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+    });
+
     // マウスとタッチの両方のイベントを登録
     nodeBox.addEventListener('mousedown', handleStart);
     nodeBox.addEventListener('touchstart', handleStart, { passive: false });
@@ -1868,4 +1905,69 @@ function closeCompositeEditPanel() {
         panel.classList.add('hidden');
     }
     currentEditingComposite = null;
+}
+
+// ========================================
+// ノードコンテキストメニュー & 削除機能
+// ========================================
+
+let contextMenuTargetNode = null;
+const contextMenu = document.getElementById('node-context-menu');
+
+// コンテキストメニューを表示
+function showContextMenu(x, y, node) {
+    contextMenuTargetNode = node;
+    contextMenu.style.left = x + 'px';
+    contextMenu.style.top = y + 'px';
+    contextMenu.style.display = 'block';
+}
+
+// コンテキストメニューを非表示
+function hideContextMenu() {
+    contextMenu.style.display = 'none';
+    contextMenuTargetNode = null;
+}
+
+// ドキュメント全体のクリックでメニューを閉じる
+document.addEventListener('click', (e) => {
+    if (!contextMenu.contains(e.target)) {
+        hideContextMenu();
+    }
+});
+
+// 削除メニューアイテムのクリック
+document.getElementById('delete-node-menu').addEventListener('click', () => {
+    if (contextMenuTargetNode) {
+        deleteNode(contextMenuTargetNode);
+        hideContextMenu();
+    }
+});
+
+// ノードを削除
+function deleteNode(node) {
+    // outputノードは削除不可
+    if (node.type === 'output') {
+        alert('出力ノードは削除できません');
+        return;
+    }
+
+    // 確認ダイアログ
+    if (!confirm(`ノード「${node.title}」を削除しますか？`)) {
+        return;
+    }
+
+    // ノードを削除
+    const index = globalNodes.findIndex(n => n.id === node.id);
+    if (index >= 0) {
+        globalNodes.splice(index, 1);
+    }
+
+    // 関連する接続を削除
+    globalConnections = globalConnections.filter(conn =>
+        conn.fromNodeId !== node.id && conn.toNodeId !== node.id
+    );
+
+    // グラフを再描画
+    renderNodeGraph();
+    throttledUpdatePreview();
 }
