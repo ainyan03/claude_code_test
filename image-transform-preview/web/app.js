@@ -878,7 +878,6 @@ function drawGlobalNode(node) {
         const display = controls.querySelector('.param-display');
 
         if (slider && display) {
-            slider.addEventListener('mousedown', (e) => e.stopPropagation());
             slider.addEventListener('input', (e) => {
                 const value = parseFloat(e.target.value);
                 node.param = value;
@@ -914,23 +913,18 @@ function drawGlobalNode(node) {
         const alpha2Slider = controls.querySelector('.alpha2-slider');
         const editBtn = controls.querySelector('.edit-composite-btn');
 
-        // スライダーのドラッグがノードのドラッグとして扱われないようにする
-        alpha1Slider.addEventListener('mousedown', (e) => e.stopPropagation());
         alpha1Slider.addEventListener('input', (e) => {
             node.alpha1 = parseFloat(e.target.value);
             throttledUpdatePreview();
         });
 
-        alpha2Slider.addEventListener('mousedown', (e) => e.stopPropagation());
         alpha2Slider.addEventListener('input', (e) => {
             node.alpha2 = parseFloat(e.target.value);
             throttledUpdatePreview();
         });
 
         // 編集ボタン
-        editBtn.addEventListener('mousedown', (e) => e.stopPropagation());
         editBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
             openCompositeEditPanel(node);
         });
 
@@ -1061,19 +1055,7 @@ function setupGlobalNodeDrag(nodeBox, foreignObject, node) {
     let startX, startY;
     let initialX, initialY;
 
-    nodeBox.addEventListener('mousedown', (e) => {
-        isDragging = true;
-        nodeBox.classList.add('dragging');
-
-        startX = e.clientX;
-        startY = e.clientY;
-        initialX = parseFloat(foreignObject.getAttribute('x'));
-        initialY = parseFloat(foreignObject.getAttribute('y'));
-
-        e.preventDefault();
-    });
-
-    document.addEventListener('mousemove', (e) => {
+    const handleMouseMove = (e) => {
         if (!isDragging) return;
 
         const dx = e.clientX - startX;
@@ -1088,32 +1070,45 @@ function setupGlobalNodeDrag(nodeBox, foreignObject, node) {
         node.posX = newX;
         node.posY = newY;
 
-        // フィルタノードの場合、C++側に同期
-        if (node.type === 'filter') {
-            const layer = layers.find(l => l.id === node.layerId);
-            if (layer && layer.filters[node.filterIndex]) {
-                layer.filters[node.filterIndex].posX = newX - 250;  // オフセット調整
-                layer.filters[node.filterIndex].posY = newY - layers.findIndex(l => l.id === node.layerId) * 150;
-                processor.setFilterNodePosition(node.layerId, node.filterIndex,
-                    layer.filters[node.filterIndex].posX,
-                    layer.filters[node.filterIndex].posY);
-            }
-        }
-
         // ポートの位置を更新
         updateNodePortsPosition(node);
 
         // 接続線を再描画
         updateConnectionsForNode(node.id);
-    });
+    };
 
-    document.addEventListener('mouseup', () => {
+    const handleMouseUp = () => {
         if (isDragging) {
             isDragging = false;
             nodeBox.classList.remove('dragging');
+            // リスナーを削除
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
             // ドラッグ終了時にグラフ全体を再描画して整合性を保つ
             renderNodeGraph();
         }
+    };
+
+    nodeBox.addEventListener('mousedown', (e) => {
+        // クリックがスライダーやボタンの場合はドラッグしない
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') {
+            return;
+        }
+
+        isDragging = true;
+        nodeBox.classList.add('dragging');
+
+        startX = e.clientX;
+        startY = e.clientY;
+        initialX = parseFloat(foreignObject.getAttribute('x'));
+        initialY = parseFloat(foreignObject.getAttribute('y'));
+
+        // リスナーを追加
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+
+        e.preventDefault();
+        e.stopPropagation();
     });
 }
 
