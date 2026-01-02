@@ -1296,6 +1296,14 @@ function evaluateNodeGraph(nodeId, visited = new Set()) {
                 p.scaleX !== 1.0 || p.scaleY !== 1.0 || p.alpha !== 1.0
             );
 
+            // デバッグ: パラメータ値を出力
+            if (needsTransform) {
+                console.log(`[Node:${node.id}] Params:`, {
+                    tx: p.translateX, ty: p.translateY, rot: p.rotation,
+                    sx: p.scaleX, sy: p.scaleY, alpha: p.alpha
+                });
+            }
+
             let result;
             if (needsTransform) {
                 // 変換が必要な場合のみコピーして処理
