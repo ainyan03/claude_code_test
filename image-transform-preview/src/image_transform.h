@@ -220,9 +220,15 @@ struct GraphNode {
     std::vector<CompositeInput> compositeInputs;  // 動的な入力配列
     AffineParams compositeTransform;
 
+    // affine用（アフィン変換ノード）
+    bool matrixMode;           // false: パラメータモード, true: 行列モード
+    AffineParams affineParams; // パラメータモード用
+    AffineMatrix affineMatrix; // 行列モード用
+
     GraphNode() : imageId(-1), imageAlpha(1.0),
                   layerId(-1), filterParam(0.0f), independent(false),
-                  filterLayerId(-1), filterIndex(-1), alpha1(1.0), alpha2(1.0) {}
+                  filterLayerId(-1), filterIndex(-1), alpha1(1.0), alpha2(1.0),
+                  matrixMode(false) {}
 };
 
 // ノードグラフの接続定義

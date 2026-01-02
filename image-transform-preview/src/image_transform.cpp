@@ -903,6 +903,37 @@ Image16 NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<std
             AffineMatrix matrix = AffineMatrix::fromParams(p, centerX, centerY);
             result = processor.applyTransformToImage16(result, matrix, p.alpha);
         }
+
+    } else if (node->type == "affine") {
+        // アフィン変換ノード: 入力画像にアフィン変換を適用
+        // 入力接続を検索
+        const GraphConnection* inputConn = nullptr;
+        for (const auto& conn : connections) {
+            if (conn.toNodeId == nodeId && conn.toPort == "in") {
+                inputConn = &conn;
+                break;
+            }
+        }
+
+        if (inputConn) {
+            Image16 inputImage = evaluateNode(inputConn->fromNodeId, visited);
+
+            // 変換行列を取得
+            AffineMatrix matrix;
+            if (node->matrixMode) {
+                // 行列モード: 直接指定された行列を使用
+                matrix = node->affineMatrix;
+            } else {
+                // パラメータモード: パラメータから行列を生成
+                // 元画像ではなくキャンバスの中心を回転軸にする
+                double centerX = canvasWidth / 2.0;
+                double centerY = canvasHeight / 2.0;
+                matrix = AffineMatrix::fromParams(node->affineParams, centerX, centerY);
+            }
+
+            // アフィン変換を適用（alpha=1.0、アフィン変換ノード自体はalphaを持たない）
+            result = processor.applyTransformToImage16(inputImage, matrix, 1.0);
+        }
     }
 
     // キャッシュに保存

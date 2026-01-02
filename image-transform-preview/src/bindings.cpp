@@ -512,6 +512,46 @@ public:
                 }
             }
 
+            // affine用パラメータ（アフィン変換ノード）
+            if (node.type == "affine") {
+                // モードフラグを取得
+                if (nodeObj["matrixMode"].typeOf().as<std::string>() != "undefined") {
+                    node.matrixMode = nodeObj["matrixMode"].as<bool>();
+                }
+
+                if (!node.matrixMode) {
+                    // パラメータモード
+                    node.affineParams.translateX = nodeObj["translateX"].typeOf().as<std::string>() != "undefined"
+                        ? nodeObj["translateX"].as<double>() : 0.0;
+                    node.affineParams.translateY = nodeObj["translateY"].typeOf().as<std::string>() != "undefined"
+                        ? nodeObj["translateY"].as<double>() : 0.0;
+                    node.affineParams.rotation = nodeObj["rotation"].typeOf().as<std::string>() != "undefined"
+                        ? nodeObj["rotation"].as<double>() * M_PI / 180.0 : 0.0;  // 度→ラジアン変換
+                    node.affineParams.scaleX = nodeObj["scaleX"].typeOf().as<std::string>() != "undefined"
+                        ? nodeObj["scaleX"].as<double>() : 1.0;
+                    node.affineParams.scaleY = nodeObj["scaleY"].typeOf().as<std::string>() != "undefined"
+                        ? nodeObj["scaleY"].as<double>() : 1.0;
+                    node.affineParams.alpha = 1.0;  // アフィン変換ノード自体はalphaを持たない
+                } else {
+                    // 行列モード
+                    if (nodeObj["matrix"].typeOf().as<std::string>() != "undefined") {
+                        val matrix = nodeObj["matrix"];
+                        node.affineMatrix.a = matrix["a"].typeOf().as<std::string>() != "undefined"
+                            ? matrix["a"].as<double>() : 1.0;
+                        node.affineMatrix.b = matrix["b"].typeOf().as<std::string>() != "undefined"
+                            ? matrix["b"].as<double>() : 0.0;
+                        node.affineMatrix.c = matrix["c"].typeOf().as<std::string>() != "undefined"
+                            ? matrix["c"].as<double>() : 0.0;
+                        node.affineMatrix.d = matrix["d"].typeOf().as<std::string>() != "undefined"
+                            ? matrix["d"].as<double>() : 1.0;
+                        node.affineMatrix.tx = matrix["tx"].typeOf().as<std::string>() != "undefined"
+                            ? matrix["tx"].as<double>() : 0.0;
+                        node.affineMatrix.ty = matrix["ty"].typeOf().as<std::string>() != "undefined"
+                            ? matrix["ty"].as<double>() : 0.0;
+                    }
+                }
+            }
+
             nodes.push_back(node);
         }
 

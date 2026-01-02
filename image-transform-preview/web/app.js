@@ -924,6 +924,144 @@ function drawGlobalNode(node) {
         nodeBox.appendChild(controls);
     }
 
+    // アフィン変換ノードの場合、パラメータまたは行列のスライダーを追加
+    if (node.type === 'affine') {
+        const controls = document.createElement('div');
+        controls.className = 'node-box-controls';
+
+        // モード切り替えトグル
+        const modeToggle = document.createElement('div');
+        modeToggle.style.cssText = 'font-size: 9px; margin-bottom: 4px; display: flex; gap: 2px;';
+
+        const paramBtn = document.createElement('button');
+        paramBtn.textContent = 'パラメータ';
+        paramBtn.style.cssText = `font-size: 9px; padding: 2px 4px; flex: 1; ${node.matrixMode ? '' : 'background: #4CAF50; color: white;'}`;
+
+        const matrixBtn = document.createElement('button');
+        matrixBtn.textContent = '行列';
+        matrixBtn.style.cssText = `font-size: 9px; padding: 2px 4px; flex: 1; ${node.matrixMode ? 'background: #4CAF50; color: white;' : ''}`;
+
+        paramBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            node.matrixMode = false;
+            renderNodeGraph();
+            throttledUpdatePreview();
+        });
+
+        matrixBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            node.matrixMode = true;
+            renderNodeGraph();
+            throttledUpdatePreview();
+        });
+
+        modeToggle.appendChild(paramBtn);
+        modeToggle.appendChild(matrixBtn);
+        controls.appendChild(modeToggle);
+
+        // パラメータモード
+        if (!node.matrixMode) {
+            // 平行移動X
+            const txLabel = document.createElement('label');
+            txLabel.style.cssText = 'font-size: 10px; display: block; margin: 2px 0;';
+            txLabel.innerHTML = `X: <input type="range" class="affine-tx-slider" min="-500" max="500" step="1" value="${node.translateX || 0}" style="width: 60px;"> <span class="tx-display">${Math.round(node.translateX || 0)}</span>`;
+            const txSlider = txLabel.querySelector('.affine-tx-slider');
+            const txDisplay = txLabel.querySelector('.tx-display');
+            txSlider.addEventListener('input', (e) => {
+                node.translateX = parseFloat(e.target.value);
+                txDisplay.textContent = Math.round(node.translateX);
+                throttledUpdatePreview();
+            });
+            controls.appendChild(txLabel);
+
+            // 平行移動Y
+            const tyLabel = document.createElement('label');
+            tyLabel.style.cssText = 'font-size: 10px; display: block; margin: 2px 0;';
+            tyLabel.innerHTML = `Y: <input type="range" class="affine-ty-slider" min="-500" max="500" step="1" value="${node.translateY || 0}" style="width: 60px;"> <span class="ty-display">${Math.round(node.translateY || 0)}</span>`;
+            const tySlider = tyLabel.querySelector('.affine-ty-slider');
+            const tyDisplay = tyLabel.querySelector('.ty-display');
+            tySlider.addEventListener('input', (e) => {
+                node.translateY = parseFloat(e.target.value);
+                tyDisplay.textContent = Math.round(node.translateY);
+                throttledUpdatePreview();
+            });
+            controls.appendChild(tyLabel);
+
+            // 回転
+            const rotLabel = document.createElement('label');
+            rotLabel.style.cssText = 'font-size: 10px; display: block; margin: 2px 0;';
+            rotLabel.innerHTML = `回転: <input type="range" class="affine-rot-slider" min="-180" max="180" step="1" value="${node.rotation || 0}" style="width: 60px;"> <span class="rot-display">${Math.round(node.rotation || 0)}°</span>`;
+            const rotSlider = rotLabel.querySelector('.affine-rot-slider');
+            const rotDisplay = rotLabel.querySelector('.rot-display');
+            rotSlider.addEventListener('input', (e) => {
+                node.rotation = parseFloat(e.target.value);
+                rotDisplay.textContent = Math.round(node.rotation) + '°';
+                throttledUpdatePreview();
+            });
+            controls.appendChild(rotLabel);
+
+            // スケールX
+            const sxLabel = document.createElement('label');
+            sxLabel.style.cssText = 'font-size: 10px; display: block; margin: 2px 0;';
+            sxLabel.innerHTML = `SX: <input type="range" class="affine-sx-slider" min="0.1" max="3" step="0.1" value="${node.scaleX !== undefined ? node.scaleX : 1}" style="width: 60px;"> <span class="sx-display">${(node.scaleX !== undefined ? node.scaleX : 1).toFixed(1)}</span>`;
+            const sxSlider = sxLabel.querySelector('.affine-sx-slider');
+            const sxDisplay = sxLabel.querySelector('.sx-display');
+            sxSlider.addEventListener('input', (e) => {
+                node.scaleX = parseFloat(e.target.value);
+                sxDisplay.textContent = node.scaleX.toFixed(1);
+                throttledUpdatePreview();
+            });
+            controls.appendChild(sxLabel);
+
+            // スケールY
+            const syLabel = document.createElement('label');
+            syLabel.style.cssText = 'font-size: 10px; display: block; margin: 2px 0;';
+            syLabel.innerHTML = `SY: <input type="range" class="affine-sy-slider" min="0.1" max="3" step="0.1" value="${node.scaleY !== undefined ? node.scaleY : 1}" style="width: 60px;"> <span class="sy-display">${(node.scaleY !== undefined ? node.scaleY : 1).toFixed(1)}</span>`;
+            const sySlider = syLabel.querySelector('.affine-sy-slider');
+            const syDisplay = syLabel.querySelector('.sy-display');
+            sySlider.addEventListener('input', (e) => {
+                node.scaleY = parseFloat(e.target.value);
+                syDisplay.textContent = node.scaleY.toFixed(1);
+                throttledUpdatePreview();
+            });
+            controls.appendChild(syLabel);
+        }
+        // 行列モード
+        else {
+            // 行列要素 a, b, c, d, tx, ty
+            const matrixParams = [
+                { name: 'a', label: 'a', min: -3, max: 3, step: 0.1, default: 1 },
+                { name: 'b', label: 'b', min: -3, max: 3, step: 0.1, default: 0 },
+                { name: 'c', label: 'c', min: -3, max: 3, step: 0.1, default: 0 },
+                { name: 'd', label: 'd', min: -3, max: 3, step: 0.1, default: 1 },
+                { name: 'tx', label: 'tx', min: -500, max: 500, step: 1, default: 0 },
+                { name: 'ty', label: 'ty', min: -500, max: 500, step: 1, default: 0 }
+            ];
+
+            matrixParams.forEach(param => {
+                const value = node.matrix && node.matrix[param.name] !== undefined ? node.matrix[param.name] : param.default;
+                const label = document.createElement('label');
+                label.style.cssText = 'font-size: 10px; display: block; margin: 2px 0;';
+                label.innerHTML = `${param.label}: <input type="range" class="affine-matrix-slider" data-param="${param.name}" min="${param.min}" max="${param.max}" step="${param.step}" value="${value}" style="width: 60px;"> <span class="matrix-display">${value.toFixed(param.step >= 1 ? 0 : 1)}</span>`;
+
+                const slider = label.querySelector('.affine-matrix-slider');
+                const display = label.querySelector('.matrix-display');
+
+                slider.addEventListener('input', (e) => {
+                    if (!node.matrix) node.matrix = { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+                    const val = parseFloat(e.target.value);
+                    node.matrix[param.name] = val;
+                    display.textContent = val.toFixed(param.step >= 1 ? 0 : 1);
+                    throttledUpdatePreview();
+                });
+
+                controls.appendChild(label);
+            });
+        }
+
+        nodeBox.appendChild(controls);
+    }
+
     foreignObject.appendChild(nodeBox);
     nodeGraphSvg.appendChild(foreignObject);
 
@@ -1217,6 +1355,12 @@ function getNodePorts(node) {
                     });
                 });
             }
+            ports.outputs.push({ id: 'out', label: '出力', type: 'image' });
+            break;
+
+        case 'affine':
+            // アフィン変換ノード: 入力1つ、出力1つ
+            ports.inputs.push({ id: 'in', label: '入力', type: 'image' });
             ports.outputs.push({ id: 'out', label: '出力', type: 'image' });
             break;
 
