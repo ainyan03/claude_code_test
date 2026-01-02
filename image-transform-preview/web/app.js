@@ -1269,7 +1269,7 @@ function addIndependentFilterNode(filterType) {
     renderNodeGraph();
 }
 
-// ノード間のグラフを処理して画像を生成
+// ノード間のグラフを処理して画像を生成（16bit Premultiplied Alpha版）
 function evaluateNodeGraph(nodeId, visited = new Set()) {
     // 循環参照チェック
     if (visited.has(nodeId)) {
@@ -1284,10 +1284,15 @@ function evaluateNodeGraph(nodeId, visited = new Set()) {
     // ノードタイプごとに処理
     switch (node.type) {
         case 'image': {
-            // 画像ノード: レイヤーから画像データを取得
+            // 画像ノード: レイヤーから画像データを取得して16bit premultipliedに変換
             const nodeStart = performance.now();
             const layer = layers.find(l => l.id === node.layerId);
             if (!layer || !layer.imageData) return null;
+
+            // 8bit → 16bit premultiplied変換
+            const convertStart = performance.now();
+            let result = processor.toPremultiplied(layer.imageData);
+            console.log(`[Node:${node.id}] Convert to 16bit: ${(performance.now() - convertStart).toFixed(1)}ms`);
 
             // アフィン変換が必要かチェック
             const p = layer.params;
@@ -1296,43 +1301,30 @@ function evaluateNodeGraph(nodeId, visited = new Set()) {
                 p.scaleX !== 1.0 || p.scaleY !== 1.0 || p.alpha !== 1.0
             );
 
-            // デバッグ: パラメータ値を出力
             if (needsTransform) {
-                console.log(`[Node:${node.id}] Params:`, {
-                    tx: p.translateX, ty: p.translateY, rot: p.rotation,
-                    sx: p.scaleX, sy: p.scaleY, alpha: p.alpha
-                });
-            }
+                // 行列ベースアフィン変換（16bit版、固定小数点演算）
+                const transformStart = performance.now();
+                const centerX = canvasWidth / 2.0;
+                const centerY = canvasHeight / 2.0;
 
-            let result;
-            if (needsTransform) {
-                // 変換が必要な場合のみコピーして処理
-                result = {
-                    data: new Uint8ClampedArray(layer.imageData.data),
-                    width: layer.imageData.width,
-                    height: layer.imageData.height
-                };
-
-                result = processor.applyTransformToImage(
-                    result,
-                    p.translateX,
-                    p.translateY,
-                    p.rotation,
-                    p.scaleX,
-                    p.scaleY,
-                    p.alpha
+                const matrix = processor.createAffineMatrix(
+                    p.translateX, p.translateY, p.rotation,
+                    p.scaleX, p.scaleY, centerX, centerY
                 );
-            } else {
-                // 変換不要の場合は直接参照（コピーしない）
-                result = layer.imageData;
+
+                result = processor.applyTransformToImage16(
+                    result, matrix.a, matrix.b, matrix.c, matrix.d,
+                    matrix.tx, matrix.ty, p.alpha
+                );
+                console.log(`[Node:${node.id}] Transform: ${(performance.now() - transformStart).toFixed(1)}ms`);
             }
 
-            console.log(`[Node:${node.id}] Image: ${(performance.now() - nodeStart).toFixed(1)}ms (transform: ${needsTransform})`);
+            console.log(`[Node:${node.id}] Image total: ${(performance.now() - nodeStart).toFixed(1)}ms`);
             return result;
         }
 
         case 'filter': {
-            // フィルタノード: 入力画像にフィルタを適用
+            // フィルタノード: 入力画像にフィルタを適用（16bit版）
             const nodeStart = performance.now();
             const inputConn = globalConnections.find(
                 c => c.toNodeId === nodeId && c.toPortId === 'in'
@@ -1361,13 +1353,13 @@ function evaluateNodeGraph(nodeId, visited = new Set()) {
             }
 
             const filterStart = performance.now();
-            const result = processor.applyFilterToImage(inputImage, filterType, filterParam);
-            console.log(`[Node:${node.id}] Filter(${filterType}): ${(performance.now() - nodeStart).toFixed(1)}ms (C++: ${(performance.now() - filterStart).toFixed(1)}ms)`);
+            const result = processor.applyFilterToImage16(inputImage, filterType, filterParam);
+            console.log(`[Node:${node.id}] Filter(${filterType}): ${(performance.now() - filterStart).toFixed(1)}ms`);
             return result;
         }
 
         case 'composite': {
-            // 合成ノード: 複数入力を合成
+            // 合成ノード: 複数入力を合成（16bit premultiplied版、超高速）
             const nodeStart = performance.now();
             const input1Conn = globalConnections.find(
                 c => c.toNodeId === nodeId && c.toPortId === 'in1'
@@ -1377,21 +1369,47 @@ function evaluateNodeGraph(nodeId, visited = new Set()) {
             );
 
             const images = [];
-            const alphas = [];
 
             if (input1Conn) {
                 const img1 = evaluateNodeGraph(input1Conn.fromNodeId, visited);
                 if (img1) {
-                    images.push(img1);
-                    alphas.push(node.alpha1 || 1.0);
+                    // alpha1をプリマルチプライド形式で適用
+                    const alpha1 = node.alpha1 || 1.0;
+                    if (alpha1 !== 1.0) {
+                        const alphaU16 = Math.floor(alpha1 * 65535);
+                        const scaledImg = {
+                            data: new Uint16Array(img1.data.length),
+                            width: img1.width,
+                            height: img1.height
+                        };
+                        for (let i = 0; i < img1.data.length; i++) {
+                            scaledImg.data[i] = (img1.data[i] * alphaU16) >> 16;
+                        }
+                        images.push(scaledImg);
+                    } else {
+                        images.push(img1);
+                    }
                 }
             }
 
             if (input2Conn) {
                 const img2 = evaluateNodeGraph(input2Conn.fromNodeId, visited);
                 if (img2) {
-                    images.push(img2);
-                    alphas.push(node.alpha2 || 1.0);
+                    const alpha2 = node.alpha2 || 1.0;
+                    if (alpha2 !== 1.0) {
+                        const alphaU16 = Math.floor(alpha2 * 65535);
+                        const scaledImg = {
+                            data: new Uint16Array(img2.data.length),
+                            width: img2.width,
+                            height: img2.height
+                        };
+                        for (let i = 0; i < img2.data.length; i++) {
+                            scaledImg.data[i] = (img2.data[i] * alphaU16) >> 16;
+                        }
+                        images.push(scaledImg);
+                    } else {
+                        images.push(img2);
+                    }
                 }
             }
 
@@ -1401,9 +1419,9 @@ function evaluateNodeGraph(nodeId, visited = new Set()) {
             if (images.length === 1) {
                 result = images[0];
             } else {
-                // C++の mergeImages を使用
+                // 16bit premultiplied合成（除算なし、超高速）
                 const mergeStart = performance.now();
-                result = processor.mergeImages(images, alphas);
+                result = processor.mergeImages16(images);
                 console.log(`[Node:${node.id}] Merge: ${(performance.now() - mergeStart).toFixed(1)}ms`);
             }
 
@@ -1417,14 +1435,17 @@ function evaluateNodeGraph(nodeId, visited = new Set()) {
 
                 if (needsTransform) {
                     const transformStart = performance.now();
-                    result = processor.applyTransformToImage(
-                        result,
-                        p.translateX,
-                        p.translateY,
-                        p.rotation,
-                        p.scaleX,
-                        p.scaleY,
-                        p.alpha
+                    const centerX = canvasWidth / 2.0;
+                    const centerY = canvasHeight / 2.0;
+
+                    const matrix = processor.createAffineMatrix(
+                        p.translateX, p.translateY, p.rotation,
+                        p.scaleX, p.scaleY, centerX, centerY
+                    );
+
+                    result = processor.applyTransformToImage16(
+                        result, matrix.a, matrix.b, matrix.c, matrix.d,
+                        matrix.tx, matrix.ty, p.alpha
                     );
                     console.log(`[Node:${node.id}] Transform: ${(performance.now() - transformStart).toFixed(1)}ms`);
                 }
@@ -1461,18 +1482,23 @@ function updatePreviewFromGraph() {
         return;
     }
 
-    // グラフを評価して最終画像を取得
+    // グラフを評価して最終画像を取得（16bit premultiplied）
     const evalStart = performance.now();
-    const resultImage = evaluateNodeGraph(inputConn.fromNodeId);
+    const resultImage16 = evaluateNodeGraph(inputConn.fromNodeId);
     const evalTime = performance.now() - evalStart;
 
-    if (resultImage && resultImage.data) {
+    if (resultImage16 && resultImage16.data) {
+        // 16bit premultiplied → 8bit RGBA変換
+        const convertStart = performance.now();
+        const resultImage8 = processor.fromPremultiplied(resultImage16);
+        const convertTime = performance.now() - convertStart;
+
         // キャンバスに描画
         const drawStart = performance.now();
         const imageData = new ImageData(
-            resultImage.data,
-            resultImage.width,
-            resultImage.height
+            resultImage8.data,
+            resultImage8.width,
+            resultImage8.height
         );
 
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
@@ -1480,7 +1506,7 @@ function updatePreviewFromGraph() {
         const drawTime = performance.now() - drawStart;
 
         const totalTime = performance.now() - perfStart;
-        console.log(`[Perf] Total: ${totalTime.toFixed(1)}ms (Eval: ${evalTime.toFixed(1)}ms, Draw: ${drawTime.toFixed(1)}ms)`);
+        console.log(`[Perf] Total: ${totalTime.toFixed(1)}ms (Eval: ${evalTime.toFixed(1)}ms, Convert: ${convertTime.toFixed(1)}ms, Draw: ${drawTime.toFixed(1)}ms)`);
     } else {
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     }

@@ -222,6 +222,185 @@ public:
         return resultObj;
     }
 
+    // ========================================================================
+    // 16bit Premultiplied Alpha版 高速処理関数群
+    // ========================================================================
+
+    // 8bit RGBA → 16bit Premultiplied変換
+    val toPremultiplied(const val& inputImageObj) {
+        val inputData = inputImageObj["data"];
+        int width = inputImageObj["width"].as<int>();
+        int height = inputImageObj["height"].as<int>();
+
+        Image input(width, height);
+        unsigned int length = inputData["length"].as<unsigned int>();
+        for (unsigned int i = 0; i < length; i++) {
+            input.data[i] = inputData[i].as<uint8_t>();
+        }
+
+        Image16 result = processor.toPremultiplied(input);
+
+        // Uint16Arrayとして返す
+        val uint16Array = val::global("Uint16Array").new_(
+            typed_memory_view(result.data.size(), result.data.data())
+        );
+
+        val resultObj = val::object();
+        resultObj.set("data", uint16Array);
+        resultObj.set("width", result.width);
+        resultObj.set("height", result.height);
+
+        return resultObj;
+    }
+
+    // 16bit Premultiplied → 8bit RGBA変換
+    val fromPremultiplied(const val& inputImageObj) {
+        val inputData = inputImageObj["data"];
+        int width = inputImageObj["width"].as<int>();
+        int height = inputImageObj["height"].as<int>();
+
+        Image16 input(width, height);
+        unsigned int length = inputData["length"].as<unsigned int>();
+        for (unsigned int i = 0; i < length; i++) {
+            input.data[i] = inputData[i].as<uint16_t>();
+        }
+
+        Image result = processor.fromPremultiplied(input);
+
+        val uint8Array = val::global("Uint8ClampedArray").new_(
+            typed_memory_view(result.data.size(), result.data.data())
+        );
+
+        val resultObj = val::object();
+        resultObj.set("data", uint8Array);
+        resultObj.set("width", result.width);
+        resultObj.set("height", result.height);
+
+        return resultObj;
+    }
+
+    // 16bit版フィルタ処理
+    val applyFilterToImage16(const val& inputImageObj, const std::string& filterType, float param) {
+        val inputData = inputImageObj["data"];
+        int width = inputImageObj["width"].as<int>();
+        int height = inputImageObj["height"].as<int>();
+
+        Image16 input(width, height);
+        unsigned int length = inputData["length"].as<unsigned int>();
+        for (unsigned int i = 0; i < length; i++) {
+            input.data[i] = inputData[i].as<uint16_t>();
+        }
+
+        Image16 result = processor.applyFilterToImage16(input, filterType, param);
+
+        val uint16Array = val::global("Uint16Array").new_(
+            typed_memory_view(result.data.size(), result.data.data())
+        );
+
+        val resultObj = val::object();
+        resultObj.set("data", uint16Array);
+        resultObj.set("width", result.width);
+        resultObj.set("height", result.height);
+
+        return resultObj;
+    }
+
+    // 16bit版行列ベースアフィン変換
+    val applyTransformToImage16(const val& inputImageObj, double a, double b, double c,
+                                double d, double tx, double ty, double alpha) {
+        val inputData = inputImageObj["data"];
+        int width = inputImageObj["width"].as<int>();
+        int height = inputImageObj["height"].as<int>();
+
+        Image16 input(width, height);
+        unsigned int length = inputData["length"].as<unsigned int>();
+        for (unsigned int i = 0; i < length; i++) {
+            input.data[i] = inputData[i].as<uint16_t>();
+        }
+
+        AffineMatrix matrix;
+        matrix.a = a;
+        matrix.b = b;
+        matrix.c = c;
+        matrix.d = d;
+        matrix.tx = tx;
+        matrix.ty = ty;
+
+        Image16 result = processor.applyTransformToImage16(input, matrix, alpha);
+
+        val uint16Array = val::global("Uint16Array").new_(
+            typed_memory_view(result.data.size(), result.data.data())
+        );
+
+        val resultObj = val::object();
+        resultObj.set("data", uint16Array);
+        resultObj.set("width", result.width);
+        resultObj.set("height", result.height);
+
+        return resultObj;
+    }
+
+    // 16bit版マージ（超高速版）
+    val mergeImages16(const val& imagesArray) {
+        unsigned int imageCount = imagesArray["length"].as<unsigned int>();
+        std::vector<Image16> images;
+        std::vector<const Image16*> imagePtrs;
+
+        for (unsigned int i = 0; i < imageCount; i++) {
+            val imageObj = imagesArray[i];
+            val imageData = imageObj["data"];
+            int width = imageObj["width"].as<int>();
+            int height = imageObj["height"].as<int>();
+
+            Image16 img(width, height);
+            unsigned int length = imageData["length"].as<unsigned int>();
+            for (unsigned int j = 0; j < length; j++) {
+                img.data[j] = imageData[j].as<uint16_t>();
+            }
+            images.push_back(std::move(img));
+        }
+
+        for (auto& img : images) {
+            imagePtrs.push_back(&img);
+        }
+
+        Image16 result = processor.mergeImages16(imagePtrs);
+
+        val uint16Array = val::global("Uint16Array").new_(
+            typed_memory_view(result.data.size(), result.data.data())
+        );
+
+        val resultObj = val::object();
+        resultObj.set("data", uint16Array);
+        resultObj.set("width", result.width);
+        resultObj.set("height", result.height);
+
+        return resultObj;
+    }
+
+    // AffineMatrixをパラメータから生成するヘルパー
+    val createAffineMatrix(double translateX, double translateY, double rotation,
+                          double scaleX, double scaleY, double centerX, double centerY) {
+        AffineParams params;
+        params.translateX = translateX;
+        params.translateY = translateY;
+        params.rotation = rotation;
+        params.scaleX = scaleX;
+        params.scaleY = scaleY;
+
+        AffineMatrix matrix = AffineMatrix::fromParams(params, centerX, centerY);
+
+        val resultObj = val::object();
+        resultObj.set("a", matrix.a);
+        resultObj.set("b", matrix.b);
+        resultObj.set("c", matrix.c);
+        resultObj.set("d", matrix.d);
+        resultObj.set("tx", matrix.tx);
+        resultObj.set("ty", matrix.ty);
+
+        return resultObj;
+    }
+
 private:
     ImageProcessor processor;
 };
@@ -247,5 +426,12 @@ EMSCRIPTEN_BINDINGS(image_transform) {
         .function("compose", &ImageProcessorWrapper::compose)
         .function("applyFilterToImage", &ImageProcessorWrapper::applyFilterToImage)
         .function("applyTransformToImage", &ImageProcessorWrapper::applyTransformToImage)
-        .function("mergeImages", &ImageProcessorWrapper::mergeImages);
+        .function("mergeImages", &ImageProcessorWrapper::mergeImages)
+        // 16bit Premultiplied Alpha版 高速処理関数
+        .function("toPremultiplied", &ImageProcessorWrapper::toPremultiplied)
+        .function("fromPremultiplied", &ImageProcessorWrapper::fromPremultiplied)
+        .function("applyFilterToImage16", &ImageProcessorWrapper::applyFilterToImage16)
+        .function("applyTransformToImage16", &ImageProcessorWrapper::applyTransformToImage16)
+        .function("mergeImages16", &ImageProcessorWrapper::mergeImages16)
+        .function("createAffineMatrix", &ImageProcessorWrapper::createAffineMatrix);
 }

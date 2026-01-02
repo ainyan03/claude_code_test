@@ -9,7 +9,7 @@
 
 namespace ImageTransform {
 
-// 画像データ構造
+// 画像データ構造（8bit RGBA、ストレートアルファ）
 struct Image {
     std::vector<uint8_t> data;  // RGBA format
     int width;
@@ -17,6 +17,16 @@ struct Image {
 
     Image() : width(0), height(0) {}
     Image(int w, int h) : width(w), height(h), data(w * h * 4, 0) {}
+};
+
+// 16bit プリマルチプライドアルファ画像（ノードグラフ内部処理用）
+struct Image16 {
+    std::vector<uint16_t> data;  // Premultiplied RGBA, 16bit per channel
+    int width;
+    int height;
+
+    Image16() : width(0), height(0) {}
+    Image16(int w, int h) : width(w), height(h), data(w * h * 4, 0) {}
 };
 
 // フィルタ基底クラス（純粋な処理のみ、UI情報は含まない）
@@ -76,6 +86,19 @@ struct AffineParams {
           scaleX(1.0), scaleY(1.0), alpha(1.0) {}
 };
 
+// 2x3アフィン変換行列
+// [a  b  tx]   [x]   [a*x + b*y + tx]
+// [c  d  ty] * [y] = [c*x + d*y + ty]
+//              [1]
+struct AffineMatrix {
+    double a, b, c, d, tx, ty;
+
+    AffineMatrix() : a(1), b(0), c(0), d(1), tx(0), ty(0) {}
+
+    // AffineParamsから行列を生成
+    static AffineMatrix fromParams(const AffineParams& params, double centerX, double centerY);
+};
+
 // フィルタノードのUI情報（フィルタ処理とは独立）
 struct FilterNodeInfo {
     int nodeId;     // ノードの一意なID
@@ -124,10 +147,17 @@ public:
     // 画像合成処理
     Image compose();
 
-    // ノードグラフ用の単体処理関数
+    // ノードグラフ用の単体処理関数（8bit版、互換性のため残す）
     Image applyFilterToImage(const Image& input, const std::string& filterType, float param = 0.0f) const;
     Image applyTransformToImage(const Image& input, const AffineParams& params) const;
     Image mergeImages(const std::vector<const Image*>& images, const std::vector<double>& alphas) const;
+
+    // ノードグラフ用の高速処理関数（16bit premultiplied alpha版）
+    Image16 toPremultiplied(const Image& input) const;
+    Image fromPremultiplied(const Image16& input) const;
+    Image16 applyFilterToImage16(const Image16& input, const std::string& filterType, float param = 0.0f) const;
+    Image16 applyTransformToImage16(const Image16& input, const AffineMatrix& matrix, double alpha = 1.0) const;
+    Image16 mergeImages16(const std::vector<const Image16*>& images) const;
 
     // ユーティリティ
     void setCanvasSize(int width, int height);
