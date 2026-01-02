@@ -155,7 +155,7 @@ public:
     Image mergeImages(const std::vector<const Image*>& images, const std::vector<double>& alphas) const;
 
     // ノードグラフ用の高速処理関数（16bit premultiplied alpha版）
-    Image16 toPremultiplied(const Image& input) const;
+    Image16 toPremultiplied(const Image& input, double alpha = 1.0) const;
     Image fromPremultiplied(const Image16& input) const;
     Image16 applyFilterToImage16(const Image16& input, const std::string& filterType, float param = 0.0f) const;
     Image16 applyTransformToImage16(const Image16& input, const AffineMatrix& matrix, double alpha = 1.0) const;
@@ -197,7 +197,11 @@ struct GraphNode {
     std::string type;  // "image", "filter", "composite", "output"
     std::string id;
 
-    // image用
+    // image用（新形式: imageId + alpha）
+    int imageId;       // 画像ライブラリのID
+    double imageAlpha; // 画像ノードのアルファ値
+
+    // image用（旧形式: 後方互換性のため保持）
     int layerId;
     AffineParams transform;
 
@@ -216,7 +220,8 @@ struct GraphNode {
     std::vector<CompositeInput> compositeInputs;  // 動的な入力配列
     AffineParams compositeTransform;
 
-    GraphNode() : layerId(-1), filterParam(0.0f), independent(false),
+    GraphNode() : imageId(-1), imageAlpha(1.0),
+                  layerId(-1), filterParam(0.0f), independent(false),
                   filterLayerId(-1), filterIndex(-1), alpha1(1.0), alpha2(1.0) {}
 };
 

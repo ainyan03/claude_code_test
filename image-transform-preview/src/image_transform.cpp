@@ -487,7 +487,7 @@ AffineMatrix AffineMatrix::fromParams(const AffineParams& params, double centerX
 }
 
 // 8bit RGBA → 16bit Premultiplied RGBA変換
-Image16 ImageProcessor::toPremultiplied(const Image& input) const {
+Image16 ImageProcessor::toPremultiplied(const Image& input, double alpha) const {
     Image16 output(input.width, input.height);
     int pixelCount = input.width * input.height;
 
@@ -501,7 +501,9 @@ Image16 ImageProcessor::toPremultiplied(const Image& input) const {
         uint16_t a8 = input.data[idx8 + 3];
 
         // 8bit → 16bit変換（0-255 → 0-65535）
-        uint16_t a16 = (a8 << 8) | a8;
+        // ノードのアルファ値も適用
+        uint16_t a16_raw = (a8 << 8) | a8;
+        uint16_t a16 = (a16_raw * static_cast<uint16_t>(alpha * 65535)) >> 16;
 
         // プリマルチプライド: RGB * alpha
         // (r8 * a16) / 65535 を高速計算
@@ -766,8 +768,18 @@ Image16 NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<std
     Image16 result(canvasWidth, canvasHeight);
 
     if (node->type == "image") {
-        // 画像ノード: レイヤー画像を取得してpremultiplied変換 + アフィン変換
-        result = getLayerPremultiplied(node->layerId, node->transform);
+        // 新形式: imageId + alpha（画像ライブラリ対応）
+        if (node->imageId >= 0) {
+            auto it = layerImages.find(node->imageId);
+            if (it != layerImages.end()) {
+                // premultiplied変換時にalphaを適用
+                result = processor.toPremultiplied(it->second, node->imageAlpha);
+            }
+        }
+        // 旧形式: layerId + transform（後方互換性）
+        else if (node->layerId >= 0) {
+            result = getLayerPremultiplied(node->layerId, node->transform);
+        }
 
     } else if (node->type == "filter") {
         // フィルタノード: 入力画像にフィルタを適用

@@ -808,6 +808,29 @@ function drawGlobalNode(node) {
     header.appendChild(idBadge);
     nodeBox.appendChild(header);
 
+    // 画像ノードの場合、アルファスライダーを追加
+    if (node.type === 'image' && node.imageId !== undefined) {
+        const controls = document.createElement('div');
+        controls.className = 'node-box-controls';
+
+        const label = document.createElement('label');
+        label.style.cssText = 'font-size: 10px; display: block; margin: 2px 0;';
+        label.innerHTML = `α: <input type="range" class="image-alpha-slider" min="0" max="1" step="0.01" value="${node.alpha || 1.0}" style="width: 80px;"> <span class="alpha-display">${Math.round((node.alpha || 1.0) * 100)}%</span>`;
+
+        const slider = label.querySelector('.image-alpha-slider');
+        const display = label.querySelector('.alpha-display');
+
+        slider.addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+            node.alpha = value;
+            display.textContent = Math.round(value * 100) + '%';
+            throttledUpdatePreview();
+        });
+
+        controls.appendChild(label);
+        nodeBox.appendChild(controls);
+    }
+
     // 独立フィルタノードの場合、パラメータスライダーを追加
     if (node.type === 'filter' && node.independent) {
         const controls = document.createElement('div');

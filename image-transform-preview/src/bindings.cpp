@@ -227,7 +227,7 @@ public:
     // ========================================================================
 
     // 8bit RGBA → 16bit Premultiplied変換
-    val toPremultiplied(const val& inputImageObj) {
+    val toPremultiplied(const val& inputImageObj, double alpha = 1.0) {
         val inputData = inputImageObj["data"];
         int width = inputImageObj["width"].as<int>();
         int height = inputImageObj["height"].as<int>();
@@ -238,7 +238,7 @@ public:
             input.data[i] = inputData[i].as<uint8_t>();
         }
 
-        Image16 result = processor.toPremultiplied(input);
+        Image16 result = processor.toPremultiplied(input, alpha);
 
         // Uint16Arrayとして返す
         val uint16Array = val::global("Uint16Array").new_(
@@ -442,16 +442,26 @@ public:
 
             // image用パラメータ
             if (node.type == "image") {
-                node.layerId = nodeObj["layerId"].as<int>();
+                // 新形式: imageId + alpha（画像ライブラリ対応）
+                if (nodeObj["imageId"].typeOf().as<std::string>() != "undefined") {
+                    node.imageId = nodeObj["imageId"].as<int>();
+                    node.imageAlpha = nodeObj["alpha"].typeOf().as<std::string>() != "undefined"
+                        ? nodeObj["alpha"].as<double>()
+                        : 1.0;
+                }
+                // 旧形式: layerId + params（後方互換性）
+                else if (nodeObj["layerId"].typeOf().as<std::string>() != "undefined") {
+                    node.layerId = nodeObj["layerId"].as<int>();
 
-                if (nodeObj["params"].typeOf().as<std::string>() != "undefined") {
-                    val params = nodeObj["params"];
-                    node.transform.translateX = params["translateX"].as<double>();
-                    node.transform.translateY = params["translateY"].as<double>();
-                    node.transform.rotation = params["rotation"].as<double>();
-                    node.transform.scaleX = params["scaleX"].as<double>();
-                    node.transform.scaleY = params["scaleY"].as<double>();
-                    node.transform.alpha = params["alpha"].as<double>();
+                    if (nodeObj["params"].typeOf().as<std::string>() != "undefined") {
+                        val params = nodeObj["params"];
+                        node.transform.translateX = params["translateX"].as<double>();
+                        node.transform.translateY = params["translateY"].as<double>();
+                        node.transform.rotation = params["rotation"].as<double>();
+                        node.transform.scaleX = params["scaleX"].as<double>();
+                        node.transform.scaleY = params["scaleY"].as<double>();
+                        node.transform.alpha = params["alpha"].as<double>();
+                    }
                 }
             }
 
