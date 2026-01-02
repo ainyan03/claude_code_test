@@ -19,20 +19,20 @@ let isDraggingConnection = false;
 let dragConnectionFrom = null;
 let dragConnectionPath = null;
 
-// スロットル用のタイマー
-let updatePreviewTimer = null;
-const UPDATE_PREVIEW_THROTTLE = 16; // 60fps相当
+// requestAnimationFrame用のフラグ
+let updatePreviewScheduled = false;
 
-// スロットル付きプレビュー更新
+// rAFベースのスロットル付きプレビュー更新（より高速）
 function throttledUpdatePreview() {
-    if (updatePreviewTimer) {
+    if (updatePreviewScheduled) {
         return; // 既に更新がスケジュールされている
     }
 
-    updatePreviewTimer = setTimeout(() => {
+    updatePreviewScheduled = true;
+    requestAnimationFrame(() => {
         updatePreviewFromGraph();
-        updatePreviewTimer = null;
-    }, UPDATE_PREVIEW_THROTTLE);
+        updatePreviewScheduled = false;
+    });
 }
 
 // WebAssemblyモジュールを初期化
@@ -1285,34 +1285,47 @@ function evaluateNodeGraph(nodeId, visited = new Set()) {
     switch (node.type) {
         case 'image': {
             // 画像ノード: レイヤーから画像データを取得
+            const nodeStart = performance.now();
             const layer = layers.find(l => l.id === node.layerId);
             if (!layer || !layer.imageData) return null;
 
-            // 元の画像データ
-            let result = {
-                data: new Uint8ClampedArray(layer.imageData.data),
-                width: layer.imageData.width,
-                height: layer.imageData.height
-            };
+            // アフィン変換が必要かチェック
+            const p = layer.params;
+            const needsTransform = p && (
+                p.translateX !== 0 || p.translateY !== 0 || p.rotation !== 0 ||
+                p.scaleX !== 1.0 || p.scaleY !== 1.0 || p.alpha !== 1.0
+            );
 
-            // レイヤーのアフィン変換を適用
-            if (layer.params) {
+            let result;
+            if (needsTransform) {
+                // 変換が必要な場合のみコピーして処理
+                result = {
+                    data: new Uint8ClampedArray(layer.imageData.data),
+                    width: layer.imageData.width,
+                    height: layer.imageData.height
+                };
+
                 result = processor.applyTransformToImage(
                     result,
-                    layer.params.translateX,
-                    layer.params.translateY,
-                    layer.params.rotation,
-                    layer.params.scaleX,
-                    layer.params.scaleY,
-                    layer.params.alpha
+                    p.translateX,
+                    p.translateY,
+                    p.rotation,
+                    p.scaleX,
+                    p.scaleY,
+                    p.alpha
                 );
+            } else {
+                // 変換不要の場合は直接参照（コピーしない）
+                result = layer.imageData;
             }
 
+            console.log(`[Node:${node.id}] Image: ${(performance.now() - nodeStart).toFixed(1)}ms (transform: ${needsTransform})`);
             return result;
         }
 
         case 'filter': {
             // フィルタノード: 入力画像にフィルタを適用
+            const nodeStart = performance.now();
             const inputConn = globalConnections.find(
                 c => c.toNodeId === nodeId && c.toPortId === 'in'
             );
@@ -1339,11 +1352,15 @@ function evaluateNodeGraph(nodeId, visited = new Set()) {
                 filterParam = filter.param;
             }
 
-            return processor.applyFilterToImage(inputImage, filterType, filterParam);
+            const filterStart = performance.now();
+            const result = processor.applyFilterToImage(inputImage, filterType, filterParam);
+            console.log(`[Node:${node.id}] Filter(${filterType}): ${(performance.now() - nodeStart).toFixed(1)}ms (C++: ${(performance.now() - filterStart).toFixed(1)}ms)`);
+            return result;
         }
 
         case 'composite': {
             // 合成ノード: 複数入力を合成
+            const nodeStart = performance.now();
             const input1Conn = globalConnections.find(
                 c => c.toNodeId === nodeId && c.toPortId === 'in1'
             );
@@ -1377,23 +1394,35 @@ function evaluateNodeGraph(nodeId, visited = new Set()) {
                 result = images[0];
             } else {
                 // C++の mergeImages を使用
+                const mergeStart = performance.now();
                 result = processor.mergeImages(images, alphas);
+                console.log(`[Node:${node.id}] Merge: ${(performance.now() - mergeStart).toFixed(1)}ms`);
             }
 
-            // 合成ノードのアフィン変換を適用
+            // 合成ノードのアフィン変換が必要かチェック
             if (node.affineParams) {
-                const params = node.affineParams;
-                result = processor.applyTransformToImage(
-                    result,
-                    params.translateX,
-                    params.translateY,
-                    params.rotation,
-                    params.scaleX,
-                    params.scaleY,
-                    params.alpha
+                const p = node.affineParams;
+                const needsTransform = (
+                    p.translateX !== 0 || p.translateY !== 0 || p.rotation !== 0 ||
+                    p.scaleX !== 1.0 || p.scaleY !== 1.0 || p.alpha !== 1.0
                 );
+
+                if (needsTransform) {
+                    const transformStart = performance.now();
+                    result = processor.applyTransformToImage(
+                        result,
+                        p.translateX,
+                        p.translateY,
+                        p.rotation,
+                        p.scaleX,
+                        p.scaleY,
+                        p.alpha
+                    );
+                    console.log(`[Node:${node.id}] Transform: ${(performance.now() - transformStart).toFixed(1)}ms`);
+                }
             }
 
+            console.log(`[Node:${node.id}] Composite total: ${(performance.now() - nodeStart).toFixed(1)}ms`);
             return result;
         }
 
@@ -1404,6 +1433,8 @@ function evaluateNodeGraph(nodeId, visited = new Set()) {
 
 // グラフベースのプレビュー更新
 function updatePreviewFromGraph() {
+    const perfStart = performance.now();
+
     const outputNode = globalNodes.find(n => n.type === 'output');
     if (!outputNode) {
         // 出力ノードがない場合は従来の方法で合成
@@ -1423,10 +1454,13 @@ function updatePreviewFromGraph() {
     }
 
     // グラフを評価して最終画像を取得
+    const evalStart = performance.now();
     const resultImage = evaluateNodeGraph(inputConn.fromNodeId);
+    const evalTime = performance.now() - evalStart;
 
     if (resultImage && resultImage.data) {
         // キャンバスに描画
+        const drawStart = performance.now();
         const imageData = new ImageData(
             resultImage.data,
             resultImage.width,
@@ -1435,6 +1469,10 @@ function updatePreviewFromGraph() {
 
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
         ctx.putImageData(imageData, 0, 0);
+        const drawTime = performance.now() - drawStart;
+
+        const totalTime = performance.now() - perfStart;
+        console.log(`[Perf] Total: ${totalTime.toFixed(1)}ms (Eval: ${evalTime.toFixed(1)}ms, Draw: ${drawTime.toFixed(1)}ms)`);
     } else {
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     }
