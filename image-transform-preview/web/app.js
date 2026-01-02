@@ -368,6 +368,7 @@ function resizeCanvas() {
     canvas.height = height;
 
     processor.setCanvasSize(width, height);
+    graphEvaluator.setCanvasSize(width, height);  // graphEvaluatorのサイズも更新
     updatePreviewFromGraph();
 }
 
@@ -611,8 +612,8 @@ function drawGlobalNode(node) {
         controls.className = 'node-box-controls';
 
         const label = document.createElement('label');
-        label.style.cssText = 'font-size: 10px; display: block; margin: 2px 0;';
-        label.innerHTML = `α: <input type="range" class="image-alpha-slider" min="0" max="1" step="0.01" value="${node.alpha || 1.0}" style="width: 80px;"> <span class="alpha-display">${Math.round((node.alpha || 1.0) * 100)}%</span>`;
+        label.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;';
+        label.innerHTML = `<span style="min-width: 40px;">α:</span><input type="range" class="image-alpha-slider" min="0" max="1" step="0.01" value="${node.alpha || 1.0}" style="width: 60px;"> <span class="alpha-display">${Math.round((node.alpha || 1.0) * 100)}%</span>`;
 
         const slider = label.querySelector('.image-alpha-slider');
         const display = label.querySelector('.alpha-display');
@@ -635,15 +636,17 @@ function drawGlobalNode(node) {
 
         if (node.filterType === 'brightness') {
             controls.innerHTML = `
-                <label style="font-size: 10px; display: block; margin: 2px 0;">
-                    明るさ: <input type="range" class="filter-param-slider" min="-1" max="1" step="0.01" value="${node.param || 0}" style="width: 70px;">
+                <label style="font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;">
+                    <span style="min-width: 40px;">明るさ:</span>
+                    <input type="range" class="filter-param-slider" min="-1" max="1" step="0.01" value="${node.param || 0}" style="width: 60px;">
                     <span class="param-display">${(node.param || 0).toFixed(2)}</span>
                 </label>
             `;
         } else if (node.filterType === 'blur') {
             controls.innerHTML = `
-                <label style="font-size: 10px; display: block; margin: 2px 0;">
-                    半径: <input type="range" class="filter-param-slider" min="1" max="10" step="1" value="${node.param || 3}" style="width: 70px;">
+                <label style="font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;">
+                    <span style="min-width: 40px;">半径:</span>
+                    <input type="range" class="filter-param-slider" min="1" max="10" step="1" value="${node.param || 3}" style="width: 60px;">
                     <span class="param-display">${Math.round(node.param || 3)}px</span>
                 </label>
             `;
@@ -679,8 +682,8 @@ function drawGlobalNode(node) {
         if (node.inputs && node.inputs.length > 0) {
             node.inputs.forEach((input, index) => {
                 const label = document.createElement('label');
-                label.style.cssText = 'font-size: 10px; display: block; margin: 2px 0;';
-                label.innerHTML = `α${index + 1}: <input type="range" class="alpha-slider" data-input-id="${input.id}" min="0" max="1" step="0.01" value="${input.alpha}" style="width: 60px;">`;
+                label.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;';
+                label.innerHTML = `<span style="min-width: 40px;">α${index + 1}:</span><input type="range" class="alpha-slider" data-input-id="${input.id}" min="0" max="1" step="0.01" value="${input.alpha}" style="width: 60px;">`;
 
                 const slider = label.querySelector('.alpha-slider');
                 slider.addEventListener('input', (e) => {
@@ -760,8 +763,8 @@ function drawGlobalNode(node) {
         if (!node.matrixMode) {
             // 平行移動X
             const txLabel = document.createElement('label');
-            txLabel.style.cssText = 'font-size: 10px; display: block; margin: 2px 0;';
-            txLabel.innerHTML = `X: <input type="range" class="affine-tx-slider" min="-500" max="500" step="1" value="${node.translateX || 0}" style="width: 60px;"> <span class="tx-display">${Math.round(node.translateX || 0)}</span>`;
+            txLabel.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;';
+            txLabel.innerHTML = `<span style="min-width: 40px;">X:</span><input type="range" class="affine-tx-slider" min="-500" max="500" step="1" value="${node.translateX || 0}" style="width: 60px;"> <span class="tx-display">${Math.round(node.translateX || 0)}</span>`;
             const txSlider = txLabel.querySelector('.affine-tx-slider');
             const txDisplay = txLabel.querySelector('.tx-display');
             txSlider.addEventListener('input', (e) => {
@@ -781,8 +784,8 @@ function drawGlobalNode(node) {
 
             // 平行移動Y
             const tyLabel = document.createElement('label');
-            tyLabel.style.cssText = 'font-size: 10px; display: block; margin: 2px 0;';
-            tyLabel.innerHTML = `Y: <input type="range" class="affine-ty-slider" min="-500" max="500" step="1" value="${node.translateY || 0}" style="width: 60px;"> <span class="ty-display">${Math.round(node.translateY || 0)}</span>`;
+            tyLabel.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;';
+            tyLabel.innerHTML = `<span style="min-width: 40px;">Y:</span><input type="range" class="affine-ty-slider" min="-500" max="500" step="1" value="${node.translateY || 0}" style="width: 60px;"> <span class="ty-display">${Math.round(node.translateY || 0)}</span>`;
             const tySlider = tyLabel.querySelector('.affine-ty-slider');
             const tyDisplay = tyLabel.querySelector('.ty-display');
             tySlider.addEventListener('input', (e) => {
@@ -802,8 +805,8 @@ function drawGlobalNode(node) {
 
             // 回転
             const rotLabel = document.createElement('label');
-            rotLabel.style.cssText = 'font-size: 10px; display: block; margin: 2px 0;';
-            rotLabel.innerHTML = `回転: <input type="range" class="affine-rot-slider" min="-180" max="180" step="1" value="${node.rotation || 0}" style="width: 60px;"> <span class="rot-display">${Math.round(node.rotation || 0)}°</span>`;
+            rotLabel.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;';
+            rotLabel.innerHTML = `<span style="min-width: 40px;">回転:</span><input type="range" class="affine-rot-slider" min="-180" max="180" step="1" value="${node.rotation || 0}" style="width: 60px;"> <span class="rot-display">${Math.round(node.rotation || 0)}°</span>`;
             const rotSlider = rotLabel.querySelector('.affine-rot-slider');
             const rotDisplay = rotLabel.querySelector('.rot-display');
             rotSlider.addEventListener('input', (e) => {
@@ -823,8 +826,8 @@ function drawGlobalNode(node) {
 
             // スケールX
             const sxLabel = document.createElement('label');
-            sxLabel.style.cssText = 'font-size: 10px; display: block; margin: 2px 0;';
-            sxLabel.innerHTML = `SX: <input type="range" class="affine-sx-slider" min="0.1" max="3" step="0.1" value="${node.scaleX !== undefined ? node.scaleX : 1}" style="width: 60px;"> <span class="sx-display">${(node.scaleX !== undefined ? node.scaleX : 1).toFixed(1)}</span>`;
+            sxLabel.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;';
+            sxLabel.innerHTML = `<span style="min-width: 40px;">SX:</span><input type="range" class="affine-sx-slider" min="0.1" max="3" step="0.1" value="${node.scaleX !== undefined ? node.scaleX : 1}" style="width: 60px;"> <span class="sx-display">${(node.scaleX !== undefined ? node.scaleX : 1).toFixed(1)}</span>`;
             const sxSlider = sxLabel.querySelector('.affine-sx-slider');
             const sxDisplay = sxLabel.querySelector('.sx-display');
             sxSlider.addEventListener('input', (e) => {
@@ -844,8 +847,8 @@ function drawGlobalNode(node) {
 
             // スケールY
             const syLabel = document.createElement('label');
-            syLabel.style.cssText = 'font-size: 10px; display: block; margin: 2px 0;';
-            syLabel.innerHTML = `SY: <input type="range" class="affine-sy-slider" min="0.1" max="3" step="0.1" value="${node.scaleY !== undefined ? node.scaleY : 1}" style="width: 60px;"> <span class="sy-display">${(node.scaleY !== undefined ? node.scaleY : 1).toFixed(1)}</span>`;
+            syLabel.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;';
+            syLabel.innerHTML = `<span style="min-width: 40px;">SY:</span><input type="range" class="affine-sy-slider" min="0.1" max="3" step="0.1" value="${node.scaleY !== undefined ? node.scaleY : 1}" style="width: 60px;"> <span class="sy-display">${(node.scaleY !== undefined ? node.scaleY : 1).toFixed(1)}</span>`;
             const sySlider = syLabel.querySelector('.affine-sy-slider');
             const syDisplay = syLabel.querySelector('.sy-display');
             sySlider.addEventListener('input', (e) => {
@@ -878,8 +881,8 @@ function drawGlobalNode(node) {
             matrixParams.forEach(param => {
                 const value = node.matrix && node.matrix[param.name] !== undefined ? node.matrix[param.name] : param.default;
                 const label = document.createElement('label');
-                label.style.cssText = 'font-size: 10px; display: block; margin: 2px 0;';
-                label.innerHTML = `${param.label}: <input type="range" class="affine-matrix-slider" data-param="${param.name}" min="${param.min}" max="${param.max}" step="${param.step}" value="${value}" style="width: 60px;"> <span class="matrix-display">${value.toFixed(param.step >= 1 ? 0 : 1)}</span>`;
+                label.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;';
+                label.innerHTML = `<span style="min-width: 40px;">${param.label}:</span><input type="range" class="affine-matrix-slider" data-param="${param.name}" min="${param.min}" max="${param.max}" step="${param.step}" value="${value}" style="width: 60px;"> <span class="matrix-display">${value.toFixed(param.step >= 1 ? 0 : 1)}</span>`;
 
                 const slider = label.querySelector('.affine-matrix-slider');
                 const display = label.querySelector('.matrix-display');
