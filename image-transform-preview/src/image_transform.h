@@ -182,6 +182,16 @@ private:
 // ノードグラフ評価エンジン（C++側で完結）
 // ========================================================================
 
+// 合成ノードの入力定義
+struct CompositeInput {
+    std::string id;
+    double alpha;
+
+    CompositeInput() : id(""), alpha(1.0) {}
+    CompositeInput(const std::string& inputId, double inputAlpha)
+        : id(inputId), alpha(inputAlpha) {}
+};
+
 // ノードグラフのノード定義
 struct GraphNode {
     std::string type;  // "image", "filter", "composite", "output"
@@ -201,8 +211,9 @@ struct GraphNode {
     int filterIndex;
 
     // composite用
-    double alpha1;
-    double alpha2;
+    double alpha1;  // 後方互換性のため保持（非推奨）
+    double alpha2;  // 後方互換性のため保持（非推奨）
+    std::vector<CompositeInput> compositeInputs;  // 動的な入力配列
     AffineParams compositeTransform;
 
     GraphNode() : layerId(-1), filterParam(0.0f), independent(false),

@@ -32,6 +32,11 @@
                 <h2>🔗 ノードグラフ</h2>
                 <div class="node-graph-controls">
                     <button id="add-composite-btn" class="primary-btn" title="合成ノード追加">+ 合成</button>
+                    <select id="filter-type-select" title="フィルタタイプ選択">
+                        <option value="grayscale">グレースケール</option>
+                        <option value="brightness">明るさ</option>
+                        <option value="blur">ぼかし</option>
+                    </select>
                     <button id="add-filter-node-btn" class="primary-btn" title="フィルタノード追加">+ フィルタ</button>
                     <button id="node-graph-toggle" class="toggle-btn" title="表示/非表示">▼</button>
                 </div>
@@ -185,19 +190,6 @@
                         <input type="range" class="param-alpha" min="0" max="1" value="1.0" step="0.01">
                         <span class="param-value">100%</span>
                     </label>
-                </div>
-
-                <!-- フィルタセクション -->
-                <div class="filters-section">
-                    <div class="filters-header">
-                        <span class="control-label">フィルタ</span>
-                        <div class="filter-add-buttons">
-                            <button class="filter-add-btn" data-filter="grayscale" title="グレースケール">⚪</button>
-                            <button class="filter-add-btn" data-filter="brightness" title="明るさ">☀️</button>
-                            <button class="filter-add-btn" data-filter="blur" title="ぼかし">🌫️</button>
-                        </div>
-                    </div>
-                    <div class="filters-list"></div>
                 </div>
             </div>
         </div>

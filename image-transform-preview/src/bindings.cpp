@@ -469,11 +469,25 @@ public:
 
             // composite用パラメータ
             if (node.type == "composite") {
+                // 旧形式のalpha1, alpha2（後方互換性）
                 if (nodeObj["alpha1"].typeOf().as<std::string>() != "undefined") {
                     node.alpha1 = nodeObj["alpha1"].as<double>();
                 }
                 if (nodeObj["alpha2"].typeOf().as<std::string>() != "undefined") {
                     node.alpha2 = nodeObj["alpha2"].as<double>();
+                }
+
+                // 新形式の動的入力配列
+                if (nodeObj["inputs"].typeOf().as<std::string>() != "undefined") {
+                    val inputsArray = nodeObj["inputs"];
+                    unsigned int inputCount = inputsArray["length"].as<unsigned int>();
+                    for (unsigned int j = 0; j < inputCount; j++) {
+                        val inputObj = inputsArray[j];
+                        CompositeInput input;
+                        input.id = inputObj["id"].as<std::string>();
+                        input.alpha = inputObj["alpha"].as<double>();
+                        node.compositeInputs.push_back(input);
+                    }
                 }
 
                 if (nodeObj["affineParams"].typeOf().as<std::string>() != "undefined") {

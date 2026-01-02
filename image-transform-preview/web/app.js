@@ -149,8 +149,9 @@ function setupEventListeners() {
 
     // 独立フィルタノード追加ボタン
     document.getElementById('add-filter-node-btn').addEventListener('click', () => {
-        // フィルタタイプを選択するシンプルなプロンプト
-        const filterType = prompt('フィルタタイプを選択:\n1. grayscale (グレースケール)\n2. brightness (明るさ)\n3. blur (ぼかし)', 'grayscale');
+        // セレクトボックスからフィルタタイプを取得
+        const filterTypeSelect = document.getElementById('filter-type-select');
+        const filterType = filterTypeSelect.value;
         if (filterType) {
             addIndependentFilterNode(filterType);
         }
@@ -312,15 +313,6 @@ function createLayerUI(layer) {
     // 削除ボタン
     layerDiv.querySelector('.layer-delete').addEventListener('click', () => deleteLayer(layer.id));
 
-    // フィルタ追加ボタン
-    const filterAddButtons = layerDiv.querySelectorAll('.filter-add-btn');
-    filterAddButtons.forEach(btn => {
-        btn.addEventListener('click', () => {
-            const filterType = btn.dataset.filter;
-            addFilterToLayer(layer, filterType);
-        });
-    });
-
     // レイヤーリストに追加
     document.getElementById('layers-list').appendChild(layerDiv);
 }
@@ -468,176 +460,6 @@ function downloadComposedImage() {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
     }, 'image/png');
-}
-
-// ========================================
-// フィルタ管理
-// ========================================
-
-function addFilterToLayer(layer, filterType) {
-    // デフォルトパラメータ
-    let defaultParam = 0.0;
-    if (filterType === 'brightness') {
-        defaultParam = 0.0;  // -1.0 ~ 1.0
-    } else if (filterType === 'blur') {
-        defaultParam = 3.0;  // radius
-    }
-
-    // C++側にフィルタ追加
-    processor.addFilter(layer.id, filterType, defaultParam);
-
-    // レイヤーにフィルタ情報を追加
-    if (!layer.filters) {
-        layer.filters = [];
-    }
-    const filterIndex = layer.filters.length;
-
-    // C++から割り当てられたノード情報を取得
-    const nodeId = processor.getFilterNodeId(layer.id, filterIndex);
-    const nodePosX = processor.getFilterNodePosX(layer.id, filterIndex);
-    const nodePosY = processor.getFilterNodePosY(layer.id, filterIndex);
-
-    layer.filters.push({
-        type: filterType,
-        param: defaultParam,
-        nodeId: nodeId,
-        posX: nodePosX,
-        posY: nodePosY
-    });
-
-    // UIを更新
-    updateLayerFiltersUI(layer);
-
-    // グローバルノードグラフを更新
-    renderNodeGraph();
-
-    // プレビュー更新
-    updatePreviewFromGraph();
-}
-
-function updateLayerFiltersUI(layer) {
-    const layerDiv = document.querySelector(`.layer-item[data-layer-id="${layer.id}"]`);
-    if (!layerDiv) return;
-
-    const filtersList = layerDiv.querySelector('.filters-list');
-    filtersList.innerHTML = '';
-
-    if (!layer.filters) return;
-
-    layer.filters.forEach((filter, index) => {
-        const filterItem = document.createElement('div');
-        filterItem.className = 'filter-item';
-
-        const header = document.createElement('div');
-        header.className = 'filter-item-header';
-
-        const filterName = document.createElement('span');
-        filterName.className = 'filter-name';
-        filterName.textContent = getFilterDisplayName(filter.type);
-
-        // ノードIDバッジを追加
-        if (filter.nodeId) {
-            const nodeBadge = document.createElement('span');
-            nodeBadge.className = 'node-id-badge';
-            nodeBadge.textContent = `#${filter.nodeId}`;
-            nodeBadge.title = `Node ID: ${filter.nodeId}, Position: (${filter.posX.toFixed(0)}, ${filter.posY.toFixed(0)})`;
-            filterName.appendChild(nodeBadge);
-        }
-
-        const removeBtn = document.createElement('button');
-        removeBtn.className = 'filter-remove-btn';
-        removeBtn.textContent = '×';
-        removeBtn.addEventListener('click', () => removeFilterFromLayer(layer, index));
-
-        header.appendChild(filterName);
-        header.appendChild(removeBtn);
-        filterItem.appendChild(header);
-
-        // パラメータ付きフィルタの場合、スライダーを追加
-        if (filter.type === 'brightness') {
-            const paramDiv = createFilterParamSlider(layer, index, 'brightness', -1.0, 1.0,
-                (val) => (val >= 0 ? '+' : '') + val.toFixed(2),
-                filter.param);
-            filterItem.appendChild(paramDiv);
-        } else if (filter.type === 'blur') {
-            const paramDiv = createFilterParamSlider(layer, index, 'blur', 1, 10,
-                (val) => Math.round(val) + 'px',
-                filter.param);
-            filterItem.appendChild(paramDiv);
-        }
-
-        filtersList.appendChild(filterItem);
-    });
-}
-
-function createFilterParamSlider(layer, filterIndex, filterType, min, max, displayFn, initialValue) {
-    const paramDiv = document.createElement('div');
-    paramDiv.className = 'filter-param';
-
-    const label = document.createElement('label');
-    const slider = document.createElement('input');
-    slider.type = 'range';
-    slider.min = min;
-    slider.max = max;
-    slider.step = (max - min) > 10 ? 1 : 0.01;
-    slider.value = initialValue;
-
-    const valueSpan = document.createElement('span');
-    valueSpan.className = 'param-value';
-    valueSpan.textContent = displayFn(initialValue);
-
-    slider.addEventListener('input', (e) => {
-        const value = parseFloat(e.target.value);
-        layer.filters[filterIndex].param = value;
-        valueSpan.textContent = displayFn(value);
-
-        // C++側のフィルタを更新（削除して再追加）
-        rebuildLayerFilters(layer);
-        throttledUpdatePreview();
-    });
-
-    label.appendChild(slider);
-    label.appendChild(valueSpan);
-    paramDiv.appendChild(label);
-
-    return paramDiv;
-}
-
-function removeFilterFromLayer(layer, filterIndex) {
-    // 配列から削除
-    layer.filters.splice(filterIndex, 1);
-
-    // C++側のフィルタを再構築
-    rebuildLayerFilters(layer);
-
-    // UI更新
-    updateLayerFiltersUI(layer);
-
-    // グローバルノードグラフを更新
-    renderNodeGraph();
-
-    // プレビュー更新
-    updatePreviewFromGraph();
-}
-
-function rebuildLayerFilters(layer) {
-    // C++側のフィルタをクリアして再追加
-    processor.clearFilters(layer.id);
-
-    if (layer.filters) {
-        layer.filters.forEach(filter => {
-            processor.addFilter(layer.id, filter.type, filter.param);
-        });
-    }
-}
-
-function getFilterDisplayName(filterType) {
-    const names = {
-        'grayscale': 'グレースケール',
-        'brightness': '明るさ',
-        'blur': 'ぼかし'
-    };
-    return names[filterType] || filterType;
 }
 
 // ========================================
@@ -910,38 +732,53 @@ function drawGlobalNode(node) {
         nodeBox.appendChild(controls);
     }
 
-    // 合成ノードの場合、アルファスライダーと編集ボタンを追加
+    // 合成ノードの場合、動的なアルファスライダーと編集・追加ボタンを追加
     if (node.type === 'composite') {
         const controls = document.createElement('div');
         controls.className = 'node-box-controls';
-        controls.innerHTML = `
-            <label style="font-size: 10px; display: block; margin: 2px 0;">
-                α1: <input type="range" class="alpha1-slider" min="0" max="1" step="0.01" value="${node.alpha1 || 1.0}" style="width: 80px;">
-            </label>
-            <label style="font-size: 10px; display: block; margin: 2px 0;">
-                α2: <input type="range" class="alpha2-slider" min="0" max="1" step="0.01" value="${node.alpha2 || 1.0}" style="width: 80px;">
-            </label>
-            <button class="edit-composite-btn" style="font-size: 9px; padding: 2px 6px; margin-top: 4px; width: 100%;">⚙️ 詳細編集</button>
-        `;
 
-        const alpha1Slider = controls.querySelector('.alpha1-slider');
-        const alpha2Slider = controls.querySelector('.alpha2-slider');
-        const editBtn = controls.querySelector('.edit-composite-btn');
+        // 各入力のアルファスライダーを動的に生成
+        if (node.inputs && node.inputs.length > 0) {
+            node.inputs.forEach((input, index) => {
+                const label = document.createElement('label');
+                label.style.cssText = 'font-size: 10px; display: block; margin: 2px 0;';
+                label.innerHTML = `α${index + 1}: <input type="range" class="alpha-slider" data-input-id="${input.id}" min="0" max="1" step="0.01" value="${input.alpha}" style="width: 60px;">`;
 
-        alpha1Slider.addEventListener('input', (e) => {
-            node.alpha1 = parseFloat(e.target.value);
-            throttledUpdatePreview();
+                const slider = label.querySelector('.alpha-slider');
+                slider.addEventListener('input', (e) => {
+                    input.alpha = parseFloat(e.target.value);
+                    throttledUpdatePreview();
+                });
+
+                controls.appendChild(label);
+            });
+        }
+
+        // ボタンコンテナ
+        const btnContainer = document.createElement('div');
+        btnContainer.style.cssText = 'display: flex; gap: 2px; margin-top: 4px;';
+
+        // 入力追加ボタン
+        const addInputBtn = document.createElement('button');
+        addInputBtn.textContent = '+ 入力';
+        addInputBtn.style.cssText = 'font-size: 9px; padding: 2px 4px; flex: 1;';
+        addInputBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            addCompositeInput(node);
         });
 
-        alpha2Slider.addEventListener('input', (e) => {
-            node.alpha2 = parseFloat(e.target.value);
-            throttledUpdatePreview();
-        });
-
-        // 編集ボタン
+        // 詳細編集ボタン
+        const editBtn = document.createElement('button');
+        editBtn.textContent = '⚙️ 詳細';
+        editBtn.style.cssText = 'font-size: 9px; padding: 2px 4px; flex: 1;';
         editBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
             openCompositeEditPanel(node);
         });
+
+        btnContainer.appendChild(addInputBtn);
+        btnContainer.appendChild(editBtn);
+        controls.appendChild(btnContainer);
 
         nodeBox.appendChild(controls);
     }
@@ -1229,9 +1066,16 @@ function getNodePorts(node) {
             break;
 
         case 'composite':
-            // 合成ノード: 入力2つ、出力1つ
-            ports.inputs.push({ id: 'in1', label: '入力1', type: 'image' });
-            ports.inputs.push({ id: 'in2', label: '入力2', type: 'image' });
+            // 合成ノード: 動的な入力数、出力1つ
+            if (node.inputs && node.inputs.length > 0) {
+                node.inputs.forEach((input, index) => {
+                    ports.inputs.push({
+                        id: input.id,
+                        label: `入力${index + 1}`,
+                        type: 'image'
+                    });
+                });
+            }
             ports.outputs.push({ id: 'out', label: '出力', type: 'image' });
             break;
 
@@ -1293,8 +1137,11 @@ function addCompositeNode() {
         title: '合成',
         posX: 300,
         posY: 150,
-        alpha1: 1.0,  // 入力1のアルファ値
-        alpha2: 1.0,  // 入力2のアルファ値
+        // 動的な入力配列（デフォルトで2つの入力）
+        inputs: [
+            { id: 'in1', alpha: 1.0 },
+            { id: 'in2', alpha: 1.0 }
+        ],
         affineParams: {
             translateX: 0,
             translateY: 0,
@@ -1306,6 +1153,22 @@ function addCompositeNode() {
     };
 
     globalNodes.push(compositeNode);
+    renderNodeGraph();
+}
+
+// 合成ノードに入力を追加
+function addCompositeInput(node) {
+    if (!node.inputs) {
+        node.inputs = [];
+    }
+
+    const newIndex = node.inputs.length + 1;
+    node.inputs.push({
+        id: `in${newIndex}`,
+        alpha: 1.0
+    });
+
+    // ノードグラフを再描画
     renderNodeGraph();
 }
 

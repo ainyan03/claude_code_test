@@ -777,43 +777,68 @@ Image16 NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<std
         }
 
     } else if (node->type == "composite") {
-        // 合成ノード: 複数入力を合成
+        // 合成ノード: 可変長入力を合成
         std::vector<Image16> images;
         std::vector<const Image16*> imagePtrs;
 
-        // 入力1を取得
-        for (const auto& conn : connections) {
-            if (conn.toNodeId == nodeId && conn.toPort == "in1") {
-                Image16 img1 = evaluateNode(conn.fromNodeId, visited);
+        // 動的な入力配列を使用（compositeInputsが空の場合は旧形式の互換性処理）
+        if (!node->compositeInputs.empty()) {
+            // 新形式: 動的な入力配列
+            for (const auto& input : node->compositeInputs) {
+                // この入力ポートへの接続を検索
+                for (const auto& conn : connections) {
+                    if (conn.toNodeId == nodeId && conn.toPort == input.id) {
+                        Image16 img = evaluateNode(conn.fromNodeId, visited);
 
-                // alpha1を適用
-                if (node->alpha1 != 1.0) {
-                    uint16_t alphaU16 = static_cast<uint16_t>(node->alpha1 * 65535);
-                    for (size_t i = 0; i < img1.data.size(); i++) {
-                        img1.data[i] = (img1.data[i] * alphaU16) >> 16;
+                        // アルファ値を適用
+                        if (input.alpha != 1.0) {
+                            uint16_t alphaU16 = static_cast<uint16_t>(input.alpha * 65535);
+                            for (size_t i = 0; i < img.data.size(); i++) {
+                                img.data[i] = (img.data[i] * alphaU16) >> 16;
+                            }
+                        }
+
+                        images.push_back(std::move(img));
+                        break;
                     }
                 }
-
-                images.push_back(std::move(img1));
-                break;
             }
-        }
+        } else {
+            // 旧形式: alpha1, alpha2（後方互換性）
+            // 入力1を取得
+            for (const auto& conn : connections) {
+                if (conn.toNodeId == nodeId && conn.toPort == "in1") {
+                    Image16 img1 = evaluateNode(conn.fromNodeId, visited);
 
-        // 入力2を取得
-        for (const auto& conn : connections) {
-            if (conn.toNodeId == nodeId && conn.toPort == "in2") {
-                Image16 img2 = evaluateNode(conn.fromNodeId, visited);
-
-                // alpha2を適用
-                if (node->alpha2 != 1.0) {
-                    uint16_t alphaU16 = static_cast<uint16_t>(node->alpha2 * 65535);
-                    for (size_t i = 0; i < img2.data.size(); i++) {
-                        img2.data[i] = (img2.data[i] * alphaU16) >> 16;
+                    // alpha1を適用
+                    if (node->alpha1 != 1.0) {
+                        uint16_t alphaU16 = static_cast<uint16_t>(node->alpha1 * 65535);
+                        for (size_t i = 0; i < img1.data.size(); i++) {
+                            img1.data[i] = (img1.data[i] * alphaU16) >> 16;
+                        }
                     }
-                }
 
-                images.push_back(std::move(img2));
-                break;
+                    images.push_back(std::move(img1));
+                    break;
+                }
+            }
+
+            // 入力2を取得
+            for (const auto& conn : connections) {
+                if (conn.toNodeId == nodeId && conn.toPort == "in2") {
+                    Image16 img2 = evaluateNode(conn.fromNodeId, visited);
+
+                    // alpha2を適用
+                    if (node->alpha2 != 1.0) {
+                        uint16_t alphaU16 = static_cast<uint16_t>(node->alpha2 * 65535);
+                        for (size_t i = 0; i < img2.data.size(); i++) {
+                            img2.data[i] = (img2.data[i] * alphaU16) >> 16;
+                        }
+                    }
+
+                    images.push_back(std::move(img2));
+                    break;
+                }
             }
         }
 
