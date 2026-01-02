@@ -232,11 +232,24 @@ Image ImageProcessor::mergeImages(const std::vector<const Image*>& images, const
                 int srcIdx = (y * img->width + x) * 4;
                 int dstIdx = ((y + offsetY) * canvasWidth + (x + offsetX)) * 4;
 
-                const_cast<ImageProcessor*>(this)->blendPixel(
-                    &result.data[dstIdx],
-                    &img->data[srcIdx],
-                    alpha
-                );
+                // インライン化されたアルファブレンディング（パフォーマンス最適化）
+                uint8_t* dst = &result.data[dstIdx];
+                const uint8_t* src = &img->data[srcIdx];
+
+                double srcAlpha = (src[3] / 255.0) * alpha;
+                double dstAlpha = dst[3] / 255.0;
+                double outAlpha = srcAlpha + dstAlpha * (1.0 - srcAlpha);
+
+                if (outAlpha > 0.0) {
+                    double invOutAlpha = 1.0 / outAlpha;
+                    double srcWeight = srcAlpha * invOutAlpha;
+                    double dstWeight = dstAlpha * (1.0 - srcAlpha) * invOutAlpha;
+
+                    dst[0] = static_cast<uint8_t>(src[0] * srcWeight + dst[0] * dstWeight);
+                    dst[1] = static_cast<uint8_t>(src[1] * srcWeight + dst[1] * dstWeight);
+                    dst[2] = static_cast<uint8_t>(src[2] * srcWeight + dst[2] * dstWeight);
+                    dst[3] = static_cast<uint8_t>(outAlpha * 255.0);
+                }
             }
         }
     }
