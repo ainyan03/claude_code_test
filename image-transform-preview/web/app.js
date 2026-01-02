@@ -655,15 +655,30 @@ function initializeNodeGraph() {
         toggleBtn.classList.toggle('collapsed');
     });
 
-    // 接続ドラッグのマウス移動
+    // 接続ドラッグのマウス移動（タッチ対応）
     document.addEventListener('mousemove', (e) => {
         if (isDraggingConnection) {
             updateDragConnectionPath(e.clientX, e.clientY);
         }
     });
 
+    // 接続ドラッグのタッチ移動
+    document.addEventListener('touchmove', (e) => {
+        if (isDraggingConnection && e.touches && e.touches[0]) {
+            updateDragConnectionPath(e.touches[0].clientX, e.touches[0].clientY);
+            e.preventDefault();
+        }
+    }, { passive: false });
+
     // 接続ドラッグのキャンセル（空白エリアでリリース）
     nodeGraphSvg.addEventListener('mouseup', (e) => {
+        if (isDraggingConnection && e.target === nodeGraphSvg) {
+            stopDraggingConnection();
+        }
+    });
+
+    // 接続ドラッグのキャンセル（タッチ）
+    nodeGraphSvg.addEventListener('touchend', (e) => {
         if (isDraggingConnection && e.target === nodeGraphSvg) {
             stopDraggingConnection();
         }
@@ -687,7 +702,7 @@ function renderNodeGraph() {
             id: 'output',
             type: 'output',
             title: '出力',
-            posX: 700,
+            posX: 500,  // スマートフォン対応：右端にはみ出ないよう調整
             posY: 200
         });
     }
@@ -964,13 +979,24 @@ function drawNodePorts(node, nodeWidth, nodeHeight) {
         circle.dataset.portId = port.id;
         circle.dataset.portType = 'input';
 
-        // ポートのドロップターゲット
+        // ポートのドロップターゲット（マウス）
         circle.addEventListener('mouseup', (e) => {
             if (isDraggingConnection && dragConnectionFrom) {
                 const fromNode = dragConnectionFrom.nodeId;
                 const fromPort = dragConnectionFrom.portId;
                 addConnection(fromNode, fromPort, node.id, port.id);
                 stopDraggingConnection();
+            }
+        });
+
+        // ポートのドロップターゲット（タッチ）
+        circle.addEventListener('touchend', (e) => {
+            if (isDraggingConnection && dragConnectionFrom) {
+                const fromNode = dragConnectionFrom.nodeId;
+                const fromPort = dragConnectionFrom.portId;
+                addConnection(fromNode, fromPort, node.id, port.id);
+                stopDraggingConnection();
+                e.preventDefault();
             }
         });
 
@@ -995,11 +1021,20 @@ function drawNodePorts(node, nodeWidth, nodeHeight) {
         circle.dataset.portId = port.id;
         circle.dataset.portType = 'output';
 
-        // ポートからドラッグ開始
+        // ポートからドラッグ開始（マウス）
         circle.addEventListener('mousedown', (e) => {
             e.stopPropagation();
             startDraggingConnection(node.id, port.id, e.clientX, e.clientY);
         });
+
+        // ポートからドラッグ開始（タッチ）
+        circle.addEventListener('touchstart', (e) => {
+            e.stopPropagation();
+            if (e.touches && e.touches[0]) {
+                startDraggingConnection(node.id, port.id, e.touches[0].clientX, e.touches[0].clientY);
+                e.preventDefault();
+            }
+        }, { passive: false });
 
         nodeGraphSvg.appendChild(circle);
     });
@@ -1055,11 +1090,15 @@ function setupGlobalNodeDrag(nodeBox, foreignObject, node) {
     let startX, startY;
     let initialX, initialY;
 
-    const handleMouseMove = (e) => {
+    const handleMove = (e) => {
         if (!isDragging) return;
 
-        const dx = e.clientX - startX;
-        const dy = e.clientY - startY;
+        // タッチとマウスの両方に対応
+        const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+        const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+
+        const dx = clientX - startX;
+        const dy = clientY - startY;
 
         const newX = Math.max(0, initialX + dx);
         const newY = Math.max(0, initialY + dy);
@@ -1075,21 +1114,25 @@ function setupGlobalNodeDrag(nodeBox, foreignObject, node) {
 
         // 接続線を再描画
         updateConnectionsForNode(node.id);
+
+        e.preventDefault();
     };
 
-    const handleMouseUp = () => {
+    const handleEnd = () => {
         if (isDragging) {
             isDragging = false;
             nodeBox.classList.remove('dragging');
             // リスナーを削除
-            document.removeEventListener('mousemove', handleMouseMove);
-            document.removeEventListener('mouseup', handleMouseUp);
+            document.removeEventListener('mousemove', handleMove);
+            document.removeEventListener('mouseup', handleEnd);
+            document.removeEventListener('touchmove', handleMove);
+            document.removeEventListener('touchend', handleEnd);
             // ドラッグ終了時にグラフ全体を再描画して整合性を保つ
             renderNodeGraph();
         }
     };
 
-    nodeBox.addEventListener('mousedown', (e) => {
+    const handleStart = (e) => {
         // クリックがスライダーやボタンの場合はドラッグしない
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') {
             return;
@@ -1098,18 +1141,28 @@ function setupGlobalNodeDrag(nodeBox, foreignObject, node) {
         isDragging = true;
         nodeBox.classList.add('dragging');
 
-        startX = e.clientX;
-        startY = e.clientY;
+        // タッチとマウスの両方に対応
+        const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+        const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+
+        startX = clientX;
+        startY = clientY;
         initialX = parseFloat(foreignObject.getAttribute('x'));
         initialY = parseFloat(foreignObject.getAttribute('y'));
 
-        // リスナーを追加
-        document.addEventListener('mousemove', handleMouseMove);
-        document.addEventListener('mouseup', handleMouseUp);
+        // マウスとタッチの両方のリスナーを追加
+        document.addEventListener('mousemove', handleMove);
+        document.addEventListener('mouseup', handleEnd);
+        document.addEventListener('touchmove', handleMove, { passive: false });
+        document.addEventListener('touchend', handleEnd);
 
         e.preventDefault();
         e.stopPropagation();
-    });
+    };
+
+    // マウスとタッチの両方のイベントを登録
+    nodeBox.addEventListener('mousedown', handleStart);
+    nodeBox.addEventListener('touchstart', handleStart, { passive: false });
 }
 
 // ノードのポート位置を更新
