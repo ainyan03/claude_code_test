@@ -257,14 +257,26 @@ function addImageNodeFromLibrary(imageId) {
     // 全ての画像ノードの数をカウント（より良い配置のため）
     const existingImageNodes = globalNodes.filter(n => n.type === 'image').length;
 
+    // 画面に収まるように座標を計算（表示領域の安全範囲: 高さ380px）
+    const maxVisibleHeight = 380;
+    const nodeHeight = 100; // 画像ノードの高さ
+    const spacing = 120; // ノード間の間隔
+    const startX = 50;
+    const startY = 50;
+
+    // 1列に収まる最大ノード数を計算
+    const nodesPerColumn = Math.floor((maxVisibleHeight - startY) / spacing);
+    const column = Math.floor(existingImageNodes / nodesPerColumn);
+    const row = existingImageNodes % nodesPerColumn;
+
     const imageNode = {
         id: `image-node-${nextImageNodeId++}`,
         type: 'image',
         imageId: imageId,
         alpha: 1.0,  // 画像ノードのアルファ値
         title: image.name,
-        posX: 50,
-        posY: 50 + existingImageNodes * 180  // 180ピクセル間隔で配置（アルファスライダーを考慮）
+        posX: startX + column * 200,  // 列ごとに200pxずつ右に配置
+        posY: startY + row * spacing  // 行ごとに120pxずつ下に配置
     };
 
     globalNodes.push(imageNode);
@@ -491,9 +503,32 @@ function drawConnectionBetweenPorts(fromNode, fromPortId, toNode, toPortId) {
     nodeGraphSvg.appendChild(path);
 }
 
+// ノードの高さを動的に計算
+function getNodeHeight(node) {
+    if (node.type === 'affine') {
+        if (node.matrixMode) {
+            return 210; // 行列モード: モード切替(25) + 6パラメータ(30×6=180) + パディング
+        } else {
+            return 250; // パラメータモード: モード切替(25) + 5パラメータ(30×5=150) + パディング
+        }
+    } else if (node.type === 'composite') {
+        const inputCount = node.inputs ? node.inputs.length : 2;
+        const baseHeight = 60; // ヘッダー + パディング
+        const sliderHeight = 22; // 各アルファスライダー
+        const buttonHeight = 30; // ボタンコンテナ
+        return baseHeight + (inputCount * sliderHeight) + buttonHeight;
+    } else if (node.type === 'image') {
+        return 100; // 画像ノード: タイトル + アルファスライダー
+    } else if (node.type === 'filter' && node.independent) {
+        return 100; // 独立フィルタ: タイトル + パラメータスライダー
+    } else {
+        return 80; // デフォルト（出力ノード等）
+    }
+}
+
 function getPortPosition(node, portId, portType) {
     const nodeWidth = 160;
-    const nodeHeight = 80;
+    const nodeHeight = getNodeHeight(node); // 動的に計算
     const portRadius = 6;
 
     const ports = getNodePorts(node);
@@ -521,7 +556,7 @@ function getPortPosition(node, portId, portType) {
 function drawGlobalNode(node) {
     const ns = 'http://www.w3.org/2000/svg';
     const nodeWidth = 160;
-    const nodeHeight = 80;
+    const nodeHeight = getNodeHeight(node); // 動的に計算
 
     // ノードボックス (foreignObject)
     const foreignObject = document.createElementNS(ns, 'foreignObject');
@@ -815,8 +850,9 @@ function drawGlobalNode(node) {
     setupGlobalNodeDrag(nodeBox, foreignObject, node);
 }
 
-function drawNodePorts(node, nodeWidth, nodeHeight) {
+function drawNodePorts(node, nodeWidth, unusedNodeHeight) {
     const ns = 'http://www.w3.org/2000/svg';
+    const nodeHeight = getNodeHeight(node); // 動的に計算
     const ports = getNodePorts(node);
     const portRadius = 6;
 
@@ -1064,7 +1100,7 @@ function setupGlobalNodeDrag(nodeBox, foreignObject, node) {
 // ノードのポート位置を更新
 function updateNodePortsPosition(node) {
     const nodeWidth = 160;
-    const nodeHeight = 80;
+    const nodeHeight = getNodeHeight(node); // 動的に計算
     const ports = getNodePorts(node);
 
     // 入力ポートを更新
