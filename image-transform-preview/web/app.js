@@ -3,7 +3,6 @@ let processor;
 let graphEvaluator;  // ノードグラフ評価エンジン（C++側）
 let canvas;
 let ctx;
-let layers = [];  // 後方互換性のため一時保持
 let uploadedImages = [];  // 画像ライブラリ
 let nextImageId = 1;
 let canvasWidth = 800;

@@ -204,56 +204,7 @@ header p {
     background: #dc2626;
 }
 
-/* レイヤーアイテム（後方互換性のため一時保持） */
-.layer-header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 12px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid #eee;
-}
-
-.layer-visibility {
-    width: 20px;
-    height: 20px;
-    cursor: pointer;
-}
-
-.layer-title {
-    flex: 1;
-    font-weight: 600;
-    color: #333;
-}
-
-.layer-actions {
-    display: flex;
-    gap: 5px;
-}
-
-.layer-actions button {
-    width: 30px;
-    height: 30px;
-    border: none;
-    background: #f0f0f0;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 14px;
-    transition: all 0.2s;
-}
-
-.layer-actions button:hover {
-    background: #667eea;
-    color: white;
-}
-
 /* コントロール */
-.layer-controls {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
 .control-group {
     display: flex;
     flex-direction: column;
@@ -441,19 +392,8 @@ button {
         touch-action: manipulation;
     }
 
-    .layer-actions button {
-        width: 36px;
-        height: 36px;
-        font-size: 16px;
-    }
-
     .control-group input[type="range"] {
         height: 8px;
-    }
-
-    .layer-visibility {
-        width: 24px;
-        height: 24px;
     }
 }
 
