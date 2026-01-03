@@ -1,7 +1,8 @@
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
 #include <vector>
-#include "image_transform.h"
+#include "image_processor.h"
+#include "node_graph.h"
 
 using namespace emscripten;
 using namespace ImageTransform;
