@@ -26,10 +26,10 @@ public:
             input.data[i] = inputData[i].as<uint8_t>();
         }
 
-        // 8bit → 16bit変換 → フィルタ適用 → 8bit変換
-        Image16 input16 = processor.toPremultiplied(input);
-        Image16 result16 = processor.applyFilterToImage16(input16, filterType, param);
-        Image result = processor.fromPremultiplied(result16);
+        // 8bit → ViewPort変換 → フィルタ適用 → 8bit変換
+        ViewPort inputVP = processor.fromImage(input);
+        ViewPort resultVP = processor.applyFilter(inputVP, filterType, param);
+        Image result = processor.toImage(resultVP);
 
         // 結果をJavaScriptオブジェクトに変換
         val uint8Array = val::global("Uint8ClampedArray").new_(
@@ -66,13 +66,13 @@ public:
         params.scaleY = scaleY;
         params.alpha = alpha;
 
-        // 8bit → 16bit変換 → アフィン変換適用 → 8bit変換
-        Image16 input16 = processor.toPremultiplied(input);
+        // 8bit → ViewPort変換 → アフィン変換適用 → 8bit変換
+        ViewPort inputVP = processor.fromImage(input);
         double centerX = width / 2.0;
         double centerY = height / 2.0;
         AffineMatrix matrix = AffineMatrix::fromParams(params, centerX, centerY);
-        Image16 result16 = processor.applyTransformToImage16(input16, matrix, alpha);
-        Image result = processor.fromPremultiplied(result16);
+        ViewPort resultVP = processor.applyTransform(inputVP, matrix, alpha);
+        Image result = processor.toImage(resultVP);
 
         // 結果をJavaScriptオブジェクトに変換
         val uint8Array = val::global("Uint8ClampedArray").new_(
@@ -90,8 +90,8 @@ public:
     val mergeImages(const val& imagesArray, const val& alphasArray) {
         // JavaScript配列から画像とアルファ値を取得
         unsigned int imageCount = imagesArray["length"].as<unsigned int>();
-        std::vector<Image16> images16;
-        std::vector<const Image16*> imagePtrs16;
+        std::vector<ViewPort> viewports;
+        std::vector<const ViewPort*> viewportPtrs;
         std::vector<double> alphas;
 
         // アルファ値を取得
@@ -112,20 +112,20 @@ public:
                 img.data[j] = imageData[j].as<uint8_t>();
             }
 
-            // 8bit → 16bit変換（アルファ値を適用）
+            // 8bit → ViewPort変換（アルファ値を適用）
             double alpha = i < alphas.size() ? alphas[i] : 1.0;
-            Image16 img16 = processor.toPremultiplied(img, alpha);
-            images16.push_back(std::move(img16));
+            ViewPort vp = processor.fromImage(img, alpha);
+            viewports.push_back(std::move(vp));
         }
 
         // ポインタ配列を作成
-        for (auto& img : images16) {
-            imagePtrs16.push_back(&img);
+        for (auto& vp : viewports) {
+            viewportPtrs.push_back(&vp);
         }
 
-        // マージ処理（16bit版）→ 8bit変換
-        Image16 result16 = processor.mergeImages16(imagePtrs16);
-        Image result = processor.fromPremultiplied(result16);
+        // マージ処理（ViewPort版）→ 8bit変換
+        ViewPort resultVP = processor.mergeImages(viewportPtrs);
+        Image result = processor.toImage(resultVP);
 
         // 結果をJavaScriptオブジェクトに変換
         val uint8Array = val::global("Uint8ClampedArray").new_(
@@ -144,7 +144,7 @@ public:
     // 16bit Premultiplied Alpha版 高速処理関数群
     // ========================================================================
 
-    // 8bit RGBA → 16bit Premultiplied変換
+    // 8bit RGBA → ViewPort（16bit Premultiplied）変換
     val toPremultiplied(const val& inputImageObj, double alpha = 1.0) {
         val inputData = inputImageObj["data"];
         int width = inputImageObj["width"].as<int>();
@@ -156,11 +156,13 @@ public:
             input.data[i] = inputData[i].as<uint8_t>();
         }
 
-        Image16 result = processor.toPremultiplied(input, alpha);
+        ViewPort result = processor.fromImage(input, alpha);
 
-        // Uint16Arrayとして返す
+        // Uint16Arrayとして返す（ViewPortの内部データをuint16_tとして公開）
+        uint16_t* resultData = static_cast<uint16_t*>(result.data);
+        int pixelCount = result.width * result.height * 4;
         val uint16Array = val::global("Uint16Array").new_(
-            typed_memory_view(result.data.size(), result.data.data())
+            typed_memory_view(pixelCount, resultData)
         );
 
         val resultObj = val::object();
@@ -171,19 +173,20 @@ public:
         return resultObj;
     }
 
-    // 16bit Premultiplied → 8bit RGBA変換
+    // ViewPort（16bit Premultiplied）→ 8bit RGBA変換
     val fromPremultiplied(const val& inputImageObj) {
         val inputData = inputImageObj["data"];
         int width = inputImageObj["width"].as<int>();
         int height = inputImageObj["height"].as<int>();
 
-        Image16 input(width, height);
+        ViewPort input(width, height, PixelFormatIDs::RGBA16_Premultiplied);
         unsigned int length = inputData["length"].as<unsigned int>();
+        uint16_t* inputPtr = static_cast<uint16_t*>(input.data);
         for (unsigned int i = 0; i < length; i++) {
-            input.data[i] = inputData[i].as<uint16_t>();
+            inputPtr[i] = inputData[i].as<uint16_t>();
         }
 
-        Image result = processor.fromPremultiplied(input);
+        Image result = processor.toImage(input);
 
         val uint8Array = val::global("Uint8ClampedArray").new_(
             typed_memory_view(result.data.size(), result.data.data())
@@ -197,22 +200,25 @@ public:
         return resultObj;
     }
 
-    // 16bit版フィルタ処理
+    // ViewPort版フィルタ処理（16bit互換）
     val applyFilterToImage16(const val& inputImageObj, const std::string& filterType, float param) {
         val inputData = inputImageObj["data"];
         int width = inputImageObj["width"].as<int>();
         int height = inputImageObj["height"].as<int>();
 
-        Image16 input(width, height);
+        ViewPort input(width, height, PixelFormatIDs::RGBA16_Premultiplied);
         unsigned int length = inputData["length"].as<unsigned int>();
+        uint16_t* inputPtr = static_cast<uint16_t*>(input.data);
         for (unsigned int i = 0; i < length; i++) {
-            input.data[i] = inputData[i].as<uint16_t>();
+            inputPtr[i] = inputData[i].as<uint16_t>();
         }
 
-        Image16 result = processor.applyFilterToImage16(input, filterType, param);
+        ViewPort result = processor.applyFilter(input, filterType, param);
 
+        uint16_t* resultData = static_cast<uint16_t*>(result.data);
+        int pixelCount = result.width * result.height * 4;
         val uint16Array = val::global("Uint16Array").new_(
-            typed_memory_view(result.data.size(), result.data.data())
+            typed_memory_view(pixelCount, resultData)
         );
 
         val resultObj = val::object();
@@ -223,17 +229,18 @@ public:
         return resultObj;
     }
 
-    // 16bit版行列ベースアフィン変換
+    // ViewPort版行列ベースアフィン変換（16bit互換）
     val applyTransformToImage16(const val& inputImageObj, double a, double b, double c,
                                 double d, double tx, double ty, double alpha) {
         val inputData = inputImageObj["data"];
         int width = inputImageObj["width"].as<int>();
         int height = inputImageObj["height"].as<int>();
 
-        Image16 input(width, height);
+        ViewPort input(width, height, PixelFormatIDs::RGBA16_Premultiplied);
         unsigned int length = inputData["length"].as<unsigned int>();
+        uint16_t* inputPtr = static_cast<uint16_t*>(input.data);
         for (unsigned int i = 0; i < length; i++) {
-            input.data[i] = inputData[i].as<uint16_t>();
+            inputPtr[i] = inputData[i].as<uint16_t>();
         }
 
         AffineMatrix matrix;
@@ -244,10 +251,12 @@ public:
         matrix.tx = tx;
         matrix.ty = ty;
 
-        Image16 result = processor.applyTransformToImage16(input, matrix, alpha);
+        ViewPort result = processor.applyTransform(input, matrix, alpha);
 
+        uint16_t* resultData = static_cast<uint16_t*>(result.data);
+        int pixelCount = result.width * result.height * 4;
         val uint16Array = val::global("Uint16Array").new_(
-            typed_memory_view(result.data.size(), result.data.data())
+            typed_memory_view(pixelCount, resultData)
         );
 
         val resultObj = val::object();
@@ -258,11 +267,11 @@ public:
         return resultObj;
     }
 
-    // 16bit版マージ（超高速版）
+    // ViewPort版マージ（16bit互換）
     val mergeImages16(const val& imagesArray) {
         unsigned int imageCount = imagesArray["length"].as<unsigned int>();
-        std::vector<Image16> images;
-        std::vector<const Image16*> imagePtrs;
+        std::vector<ViewPort> viewports;
+        std::vector<const ViewPort*> viewportPtrs;
 
         for (unsigned int i = 0; i < imageCount; i++) {
             val imageObj = imagesArray[i];
@@ -270,22 +279,25 @@ public:
             int width = imageObj["width"].as<int>();
             int height = imageObj["height"].as<int>();
 
-            Image16 img(width, height);
+            ViewPort vp(width, height, PixelFormatIDs::RGBA16_Premultiplied);
             unsigned int length = imageData["length"].as<unsigned int>();
+            uint16_t* vpPtr = static_cast<uint16_t*>(vp.data);
             for (unsigned int j = 0; j < length; j++) {
-                img.data[j] = imageData[j].as<uint16_t>();
+                vpPtr[j] = imageData[j].as<uint16_t>();
             }
-            images.push_back(std::move(img));
+            viewports.push_back(std::move(vp));
         }
 
-        for (auto& img : images) {
-            imagePtrs.push_back(&img);
+        for (auto& vp : viewports) {
+            viewportPtrs.push_back(&vp);
         }
 
-        Image16 result = processor.mergeImages16(imagePtrs);
+        ViewPort result = processor.mergeImages(viewportPtrs);
 
+        uint16_t* resultData = static_cast<uint16_t*>(result.data);
+        int pixelCount = result.width * result.height * 4;
         val uint16Array = val::global("Uint16Array").new_(
-            typed_memory_view(result.data.size(), result.data.data())
+            typed_memory_view(pixelCount, resultData)
         );
 
         val resultObj = val::object();

@@ -1,7 +1,7 @@
 #ifndef NODE_GRAPH_H
 #define NODE_GRAPH_H
 
-#include "image_types.h"
+#include "viewport.h"
 #include "image_processor.h"
 #include <string>
 #include <vector>
@@ -9,6 +9,10 @@
 #include <set>
 
 namespace ImageTransform {
+
+// 前方宣言（後方互換性）
+struct Image;
+struct AffineParams;
 
 // ========================================================================
 // ノードグラフ構造定義
@@ -102,16 +106,16 @@ private:
 
     // レイヤー画像キャッシュ
     std::map<int, Image> layerImages;         // 元画像（8bit）
-    std::map<int, Image16> layerPremulCache;  // premultiplied変換済み（16bit）
+    std::map<int, ViewPort> layerPremulCache;  // premultiplied変換済み（ViewPort）
 
     // ノード評価結果キャッシュ（1回の評価で使い回す）
-    std::map<std::string, Image16> nodeResultCache;
+    std::map<std::string, ViewPort> nodeResultCache;
 
     // 内部評価関数（再帰的にノードを評価）
-    Image16 evaluateNode(const std::string& nodeId, std::set<std::string>& visited);
+    ViewPort evaluateNode(const std::string& nodeId, std::set<std::string>& visited);
 
     // レイヤー画像のpremultiplied変換（キャッシュ付き）
-    Image16 getLayerPremultiplied(int layerId, const AffineParams& transform);
+    ViewPort getLayerPremultiplied(int layerId, const AffineParams& transform);
 };
 
 } // namespace ImageTransform

@@ -1,4 +1,5 @@
 #include "node_graph.h"
+#include "image_types.h"
 
 namespace ImageTransform {
 
@@ -32,22 +33,22 @@ void NodeGraphEvaluator::setConnections(const std::vector<GraphConnection>& newC
 }
 
 // レイヤー画像のpremultiplied変換（変換パラメータ付き、キャッシュ使用）
-Image16 NodeGraphEvaluator::getLayerPremultiplied(int layerId, const AffineParams& transform) {
+ViewPort NodeGraphEvaluator::getLayerPremultiplied(int layerId, const AffineParams& transform) {
     // レイヤー画像を取得
     auto it = layerImages.find(layerId);
     if (it == layerImages.end()) {
-        return Image16(canvasWidth, canvasHeight);  // 空画像
+        return ViewPort(canvasWidth, canvasHeight, PixelFormatIDs::RGBA16_Premultiplied);  // 空画像
     }
 
     const Image& img = it->second;
 
     // premultiplied変換（キャッシュを使用）
-    Image16 premul;
+    ViewPort premul;
     auto cacheIt = layerPremulCache.find(layerId);
     if (cacheIt != layerPremulCache.end()) {
         premul = cacheIt->second;
     } else {
-        premul = processor.toPremultiplied(img);
+        premul = processor.fromImage(img);
         layerPremulCache[layerId] = premul;
     }
 
@@ -64,17 +65,17 @@ Image16 NodeGraphEvaluator::getLayerPremultiplied(int layerId, const AffineParam
         double centerX = originalImg.width / 2.0;
         double centerY = originalImg.height / 2.0;
         AffineMatrix matrix = AffineMatrix::fromParams(transform, centerX, centerY);
-        return processor.applyTransformToImage16(premul, matrix, transform.alpha);
+        return processor.applyTransform(premul, matrix, transform.alpha);
     }
 
     return premul;
 }
 
 // ノードを再帰的に評価
-Image16 NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<std::string>& visited) {
+ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<std::string>& visited) {
     // 循環参照チェック
     if (visited.find(nodeId) != visited.end()) {
-        return Image16(canvasWidth, canvasHeight);  // 空画像
+        return ViewPort(canvasWidth, canvasHeight, PixelFormatIDs::RGBA16_Premultiplied);  // 空画像
     }
     visited.insert(nodeId);
 
@@ -94,10 +95,10 @@ Image16 NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<std
     }
 
     if (!node) {
-        return Image16(canvasWidth, canvasHeight);  // 空画像
+        return ViewPort(canvasWidth, canvasHeight, PixelFormatIDs::RGBA16_Premultiplied);  // 空画像
     }
 
-    Image16 result(canvasWidth, canvasHeight);
+    ViewPort result(canvasWidth, canvasHeight, PixelFormatIDs::RGBA16_Premultiplied);
 
     if (node->type == "image") {
         // 新形式: imageId + alpha（画像ライブラリ対応）
@@ -105,7 +106,7 @@ Image16 NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<std
             auto it = layerImages.find(node->imageId);
             if (it != layerImages.end()) {
                 // premultiplied変換時にalphaを適用
-                result = processor.toPremultiplied(it->second, node->imageAlpha);
+                result = processor.fromImage(it->second, node->imageAlpha);
             }
         }
         // 旧形式: layerId + transform（後方互換性）
@@ -125,7 +126,7 @@ Image16 NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<std
         }
 
         if (inputConn) {
-            Image16 inputImage = evaluateNode(inputConn->fromNodeId, visited);
+            ViewPort inputImage = evaluateNode(inputConn->fromNodeId, visited);
 
             std::string filterType;
             float filterParam;
@@ -141,13 +142,13 @@ Image16 NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<std
                 return result;
             }
 
-            result = processor.applyFilterToImage16(inputImage, filterType, filterParam);
+            result = processor.applyFilter(inputImage, filterType, filterParam);
         }
 
     } else if (node->type == "composite") {
         // 合成ノード: 可変長入力を合成
-        std::vector<Image16> images;
-        std::vector<const Image16*> imagePtrs;
+        std::vector<ViewPort> images;
+        std::vector<const ViewPort*> imagePtrs;
 
         // 動的な入力配列を使用（compositeInputsが空の場合は旧形式の互換性処理）
         if (!node->compositeInputs.empty()) {
@@ -156,9 +157,9 @@ Image16 NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<std
                 // この入力ポートへの接続を検索
                 for (const auto& conn : connections) {
                     if (conn.toNodeId == nodeId && conn.toPort == input.id) {
-                        Image16 img = evaluateNode(conn.fromNodeId, visited);
+                        ViewPort img = evaluateNode(conn.fromNodeId, visited);
 
-                        // ★Phase 4: 合成にはPremultiplied形式が必要
+                        // 合成にはPremultiplied形式が必要
                         if (img.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
                             img = processor.convertPixelFormat(img, PixelFormatIDs::RGBA16_Premultiplied);
                         }
@@ -166,8 +167,10 @@ Image16 NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<std
                         // アルファ値を適用
                         if (input.alpha != 1.0) {
                             uint16_t alphaU16 = static_cast<uint16_t>(input.alpha * 65535);
-                            for (size_t i = 0; i < img.data.size(); i++) {
-                                img.data[i] = (img.data[i] * alphaU16) >> 16;
+                            uint16_t* imgData = static_cast<uint16_t*>(img.data);
+                            int pixelCount = img.width * img.height * 4;
+                            for (int i = 0; i < pixelCount; i++) {
+                                imgData[i] = (imgData[i] * alphaU16) >> 16;
                             }
                         }
 
@@ -181,9 +184,9 @@ Image16 NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<std
             // 入力1を取得
             for (const auto& conn : connections) {
                 if (conn.toNodeId == nodeId && conn.toPort == "in1") {
-                    Image16 img1 = evaluateNode(conn.fromNodeId, visited);
+                    ViewPort img1 = evaluateNode(conn.fromNodeId, visited);
 
-                    // ★Phase 4: 合成にはPremultiplied形式が必要
+                    // 合成にはPremultiplied形式が必要
                     if (img1.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
                         img1 = processor.convertPixelFormat(img1, PixelFormatIDs::RGBA16_Premultiplied);
                     }
@@ -191,8 +194,10 @@ Image16 NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<std
                     // alpha1を適用
                     if (node->alpha1 != 1.0) {
                         uint16_t alphaU16 = static_cast<uint16_t>(node->alpha1 * 65535);
-                        for (size_t i = 0; i < img1.data.size(); i++) {
-                            img1.data[i] = (img1.data[i] * alphaU16) >> 16;
+                        uint16_t* imgData = static_cast<uint16_t*>(img1.data);
+                        int pixelCount = img1.width * img1.height * 4;
+                        for (int i = 0; i < pixelCount; i++) {
+                            imgData[i] = (imgData[i] * alphaU16) >> 16;
                         }
                     }
 
@@ -204,9 +209,9 @@ Image16 NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<std
             // 入力2を取得
             for (const auto& conn : connections) {
                 if (conn.toNodeId == nodeId && conn.toPort == "in2") {
-                    Image16 img2 = evaluateNode(conn.fromNodeId, visited);
+                    ViewPort img2 = evaluateNode(conn.fromNodeId, visited);
 
-                    // ★Phase 4: 合成にはPremultiplied形式が必要
+                    // 合成にはPremultiplied形式が必要
                     if (img2.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
                         img2 = processor.convertPixelFormat(img2, PixelFormatIDs::RGBA16_Premultiplied);
                     }
@@ -214,8 +219,10 @@ Image16 NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<std
                     // alpha2を適用
                     if (node->alpha2 != 1.0) {
                         uint16_t alphaU16 = static_cast<uint16_t>(node->alpha2 * 65535);
-                        for (size_t i = 0; i < img2.data.size(); i++) {
-                            img2.data[i] = (img2.data[i] * alphaU16) >> 16;
+                        uint16_t* imgData = static_cast<uint16_t*>(img2.data);
+                        int pixelCount = img2.width * img2.height * 4;
+                        for (int i = 0; i < pixelCount; i++) {
+                            imgData[i] = (imgData[i] * alphaU16) >> 16;
                         }
                     }
 
@@ -234,7 +241,7 @@ Image16 NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<std
         if (imagePtrs.size() == 1) {
             result = images[0];
         } else if (imagePtrs.size() > 1) {
-            result = processor.mergeImages16(imagePtrs);
+            result = processor.mergeImages(imagePtrs);
         }
 
         // 合成ノードのアフィン変換
@@ -248,7 +255,7 @@ Image16 NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<std
             double centerX = canvasWidth / 2.0;
             double centerY = canvasHeight / 2.0;
             AffineMatrix matrix = AffineMatrix::fromParams(p, centerX, centerY);
-            result = processor.applyTransformToImage16(result, matrix, p.alpha);
+            result = processor.applyTransform(result, matrix, p.alpha);
         }
 
     } else if (node->type == "affine") {
@@ -263,9 +270,9 @@ Image16 NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<std
         }
 
         if (inputConn) {
-            Image16 inputImage = evaluateNode(inputConn->fromNodeId, visited);
+            ViewPort inputImage = evaluateNode(inputConn->fromNodeId, visited);
 
-            // ★Phase 4: アフィン変換にはPremultiplied形式が必要
+            // アフィン変換にはPremultiplied形式が必要
             if (inputImage.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
                 inputImage = processor.convertPixelFormat(inputImage, PixelFormatIDs::RGBA16_Premultiplied);
             }
@@ -284,7 +291,7 @@ Image16 NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<std
             }
 
             // アフィン変換を適用（alpha=1.0、アフィン変換ノード自体はalphaを持たない）
-            result = processor.applyTransformToImage16(inputImage, matrix, 1.0);
+            result = processor.applyTransform(inputImage, matrix, 1.0);
         }
     }
 
@@ -324,12 +331,12 @@ Image NodeGraphEvaluator::evaluateGraph() {
         return Image(canvasWidth, canvasHeight);  // 空画像
     }
 
-    // グラフを評価（16bit premultiplied）
+    // グラフを評価（ViewPort: premultiplied）
     std::set<std::string> visited;
-    Image16 result16 = evaluateNode(inputConn->fromNodeId, visited);
+    ViewPort resultViewPort = evaluateNode(inputConn->fromNodeId, visited);
 
-    // 16bit → 8bit変換
-    return processor.fromPremultiplied(result16);
+    // ViewPort → 8bit Image変換
+    return processor.toImage(resultViewPort);
 }
 
 } // namespace ImageTransform
