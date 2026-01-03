@@ -90,21 +90,25 @@ public:
         int width = inputVP.width;
         int height = inputVP.height;
 
-        // 変換パラメータ設定
+        // 変換パラメータ設定（alpha除外）
         AffineParams params;
         params.translateX = tx;
         params.translateY = ty;
         params.rotation = rotation;
         params.scaleX = scaleX;
         params.scaleY = scaleY;
-        params.alpha = alpha;
 
-        // RGBA8 → RGBA16 Premultiplied変換（アフィン変換はPremultiplied形式で処理）
+        // RGBA8 → RGBA16 Premultiplied変換
         ViewPort inputVP16 = processor.convertPixelFormat(inputVP, PixelFormatIDs::RGBA16_Premultiplied);
+
+        // アフィン変換を適用
         double centerX = width / 2.0;
         double centerY = height / 2.0;
         AffineMatrix matrix = AffineMatrix::fromParams(params, centerX, centerY);
-        ViewPort resultVP16 = processor.applyTransform(inputVP16, matrix, alpha);
+        ViewPort transformed = processor.applyTransform(inputVP16, matrix);
+
+        // アルファ調整を適用（alphaフィルタ使用）
+        ViewPort resultVP16 = processor.applyFilter(transformed, "alpha", static_cast<float>(alpha));
         ViewPort resultVP = processor.convertPixelFormat(resultVP16, PixelFormatIDs::RGBA8_Straight);
 
         // ViewPort → JavaScript

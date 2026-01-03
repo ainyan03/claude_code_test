@@ -48,7 +48,8 @@ void ImageProcessor::setCanvasSize(int width, int height) {
 }
 
 // 8bit RGBA → ViewPort（16bit Premultiplied RGBA）変換
-ViewPort ImageProcessor::fromImage(const Image& input, double alpha) const {
+// 純粋な型変換のみ（アルファ調整はAlphaFilterを使用）
+ViewPort ImageProcessor::fromImage(const Image& input) const {
     ViewPort output(input.width, input.height, PixelFormatIDs::RGBA16_Premultiplied);
     int pixelCount = input.width * input.height;
 
@@ -65,9 +66,7 @@ ViewPort ImageProcessor::fromImage(const Image& input, double alpha) const {
         uint16_t a8 = srcData[idx8 + 3];
 
         // 8bit → 16bit変換（0-255 → 0-65535）
-        // ノードのアルファ値も適用
-        uint16_t a16_raw = (a8 << 8) | a8;
-        uint16_t a16 = (a16_raw * static_cast<uint16_t>(alpha * 65535)) >> 16;
+        uint16_t a16 = (a8 << 8) | a8;
 
         // プリマルチプライド: RGB * alpha
         // (r8 * a16) / 65535 を高速計算
@@ -170,7 +169,8 @@ ViewPort ImageProcessor::mergeImages(const std::vector<const ViewPort*>& images)
 }
 
 // 行列ベース + 固定小数点アフィン変換（ViewPortベース）
-ViewPort ImageProcessor::applyTransform(const ViewPort& input, const AffineMatrix& matrix, double alpha) const {
+// 純粋な幾何変換のみ（アルファ調整はAlphaFilterを使用）
+ViewPort ImageProcessor::applyTransform(const ViewPort& input, const AffineMatrix& matrix) const {
     ViewPort output(canvasWidth, canvasHeight, PixelFormatIDs::RGBA16_Premultiplied);
     std::memset(output.data, 0, output.getTotalBytes());
 
@@ -194,8 +194,6 @@ ViewPort ImageProcessor::applyTransform(const ViewPort& input, const AffineMatri
     int32_t fixedInvC  = static_cast<int32_t>(invC * 65536);
     int32_t fixedInvD  = static_cast<int32_t>(invD * 65536);
 
-    uint16_t alphaU16 = static_cast<uint16_t>(alpha * 65535);
-
     // 入力データへのポインタ取得
     const uint16_t* inputData = static_cast<const uint16_t*>(input.data);
 
@@ -217,11 +215,11 @@ ViewPort ImageProcessor::applyTransform(const ViewPort& input, const AffineMatri
                 const uint16_t* srcPixel = input.getPixelPtr<uint16_t>(sx, sy);
                 uint16_t* dstPixel = &dstRow[dx * 4];
 
-                // プリマルチプライド済みなので、alphaを乗算するだけ
-                dstPixel[0] = (srcPixel[0] * alphaU16) >> 16;
-                dstPixel[1] = (srcPixel[1] * alphaU16) >> 16;
-                dstPixel[2] = (srcPixel[2] * alphaU16) >> 16;
-                dstPixel[3] = (srcPixel[3] * alphaU16) >> 16;
+                // ピクセルをそのままコピー（アルファ調整なし）
+                dstPixel[0] = srcPixel[0];
+                dstPixel[1] = srcPixel[1];
+                dstPixel[2] = srcPixel[2];
+                dstPixel[3] = srcPixel[3];
             }
 
             // DDAアルゴリズム: 座標増分を加算（除算なし）
@@ -249,6 +247,10 @@ ViewPort ImageProcessor::applyFilter(const ViewPort& input, const std::string& f
     else if (filterType == "blur") {
         BoxBlurFilterParams params(static_cast<int>(param));
         filter = std::make_unique<BoxBlurFilter>(params);
+    }
+    else if (filterType == "alpha") {
+        AlphaFilterParams params(param);
+        filter = std::make_unique<AlphaFilter>(params);
     }
 
     // フィルタを適用

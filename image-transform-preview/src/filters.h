@@ -26,6 +26,12 @@ struct BoxBlurFilterParams {
     BoxBlurFilterParams(int r = 3) : radius(r > 0 ? r : 1) {}
 };
 
+struct AlphaFilterParams {
+    float alpha;  // アルファ乗数 (0.0 ~ 1.0)
+
+    AlphaFilterParams(float a = 1.0f) : alpha(a) {}
+};
+
 // ========================================================================
 // フィルタクラス群（ViewPortベース処理）
 // ========================================================================
@@ -88,6 +94,27 @@ public:
 
 private:
     BoxBlurFilterParams params_;
+};
+
+// アルファ調整フィルタ（透明度変更）
+class AlphaFilter : public ImageFilter {
+public:
+    explicit AlphaFilter(const AlphaFilterParams& params)
+        : ImageFilter("Alpha"), params_(params) {}
+
+    ViewPort apply(const ViewPort& input) const override;
+
+    // Premultiplied形式で処理（RGB値もアルファに応じてスケール）
+    PixelFormatID getPreferredInputFormat() const override {
+        return PixelFormatIDs::RGBA16_Premultiplied;
+    }
+
+    PixelFormatID getOutputFormat() const override {
+        return PixelFormatIDs::RGBA16_Premultiplied;
+    }
+
+private:
+    AlphaFilterParams params_;
 };
 
 } // namespace ImageTransform

@@ -30,11 +30,10 @@ struct AffineParams {
     double rotation;    // 回転角度（ラジアン）
     double scaleX;      // スケール X
     double scaleY;      // スケール Y
-    double alpha;       // 透過度 (0.0 - 1.0)
 
     AffineParams()
         : translateX(0), translateY(0), rotation(0),
-          scaleX(1.0), scaleY(1.0), alpha(1.0) {}
+          scaleX(1.0), scaleY(1.0) {}
 };
 
 // 2x3アフィン変換行列
