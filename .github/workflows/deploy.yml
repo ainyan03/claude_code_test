@@ -3,7 +3,8 @@ name: Build and Deploy to GitHub Pages
 on:
   push:
     branches:
-      - claude/main-7sfw5
+      - main
+      - 'claude/*'
   workflow_dispatch:
 
 permissions:

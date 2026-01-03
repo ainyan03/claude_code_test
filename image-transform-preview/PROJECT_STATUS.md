@@ -8,11 +8,24 @@
 
 このプロジェクトは、レイヤーベースシステムからノードグラフエディタへの大規模リファクタリングを完了しました。
 
-## 📍 ブランチ構成
+## 📍 ブランチ構成と運用方針
 
-- **メインブランチ**: `claude/main-7sfw5`
-- **旧開発ブランチ**: `claude/image-transform-preview-7sfw5`（統合済み）
+### 現在のブランチ
+- **開発ブランチ**: `claude/main-7sfw5`（現在のセッションID: 7sfw5）
+- **mainブランチ**: 未作成（次のステップで作成推奨）
 - **状態**: ノードグラフ実装完了、ドキュメント整備完了
+
+### 運用戦略（ハイブリッド方式）
+詳細は [BRANCH_STRATEGY.md](BRANCH_STRATEGY.md) を参照。
+
+**自動デプロイ対象**:
+- `main` ブランチ（安定版）
+- `claude/*` すべてのブランチ（開発版）
+
+**フロー**:
+1. 各セッションで `claude/[feature]-[session-id]` で作業
+2. pushすると即座にGitHub Pagesにデプロイ（ユーザーがすぐ確認可能）
+3. 作業完了後、PRを作成してmainにマージ
 
 ## ✅ 完了した作業
 
@@ -46,9 +59,15 @@
 ## 🔄 次のアクション（優先順位順）
 
 ### 高優先度
-1. **GitHub Actions 確認**: `claude/main-7sfw5` への初回pushでビルドが自動実行されることを確認
-2. ~~mainブランチの作成~~: ✅ 完了（`claude/main-7sfw5` を作成）
-3. ~~デプロイ設定の修正~~: ✅ 完了（`.github/workflows/deploy.yml` を `claude/main-7sfw5` に変更）
+1. **mainブランチの作成**（ユーザー操作、初回のみ）:
+   - GitHub Web UIで `main` ブランチを作成
+   - `claude/main-7sfw5` の内容をベースにする
+   - リポジトリのデフォルトブランチを `main` に設定
+   - 手順詳細: [BRANCH_STRATEGY.md](BRANCH_STRATEGY.md) 参照
+
+2. ~~デプロイ設定の修正~~: ✅ 完了（`main` と `claude/*` の両方を対象に設定）
+
+3. ~~ブランチ戦略の文書化~~: ✅ 完了（`BRANCH_STRATEGY.md` を作成）
 
 ### 中優先度
 4. **パフォーマンス最適化**: フィルタ処理の16bit直接処理（現在は8bit経由）
@@ -72,37 +91,50 @@
 ## 🚀 デプロイ
 
 - **GitHub Pages**: https://ainyan03.github.io/claude_code_test/
-- **自動デプロイ**: `claude/main-7sfw5` ブランチへのpushで自動実行
+- **自動デプロイ**: `main` または `claude/*` ブランチへのpushで自動実行
 - **ビルドツール**: GitHub Actions + Emscripten
+- **デプロイ時間**: 約3-5分（Emscriptenビルド含む）
 
 ## ⚠️ 既知の問題と制約
 
-### 技術的な問題
-1. **ビルド情報が古い**: `web/version.js` が古いコミットハッシュ（29b32db）を参照
-   - 対処: GitHub Actionsのビルド完了待ち
-   - 最新コミット: 78fa53d（ドキュメント追加）
-
-2. **GitHub Actions設定**: 開発ブランチからのデプロイが設定されている
-   - 対処: main ブランチ作成後、設定を main に変更
-
 ### ブランチ管理の制約
-3. **ブランチ名制約**: このリポジトリでは `claude/` で始まり、セッションID `7sfw5` で終わるブランチ名のみpush可能
-   - 例: `claude/main-7sfw5`, `claude/feature-xyz-7sfw5` は可能
-   - 例: `main`, `claude/main` は403エラー（セッションIDなし）
-   - 解決済み: `claude/main-7sfw5` をメインブランチとして使用
+1. **ブランチ名制約**: このリポジトリでは `claude/` で始まり、セッションID `7sfw5` で終わるブランチ名のみpush可能
+   - ✅ 可能: `claude/main-7sfw5`, `claude/feature-xyz-7sfw5`
+   - ❌ 不可: `main`, `claude/main` （403エラー）
+   - **解決策**: ハイブリッド運用（詳細: [BRANCH_STRATEGY.md](BRANCH_STRATEGY.md)）
+     - `claude/*-[session-id]` で開発・即座にデプロイ
+     - PR経由で `main` ブランチに統合（GitHub Web UIで作成）
+
+2. **セッション間の制約**: 新しいセッションでは異なるセッションIDが割り当てられる
+   - 前のセッションのブランチには直接pushできない
+   - **解決策**: mainブランチから継承して新しいブランチで作業
+
+### デプロイの注意点
+3. **GitHub Pagesは単一環境**: 本番環境と開発環境が同じURL
+   - `main` または `claude/*` どちらのデプロイでも、最後にデプロイされたものが表示される
+   - 開発中の変更が即座に公開される（これは意図した挙動）
 
 ## 📝 セッション継続性のための情報
 
 このプロジェクトは複数のセッションにわたって開発されました。作業を再開する場合：
 
 1. **最新の状態を確認**: このファイルと CHANGELOG.md を読む
-2. **コミット履歴を確認**: `git log --oneline -15` で最近の変更を確認
-3. **ブランチ構造を確認**: `git branch -a` で開発ブランチを確認
-4. **次のアクションを実行**: 上記「次のアクション」セクションを参照
+2. **ブランチ戦略を理解**: [BRANCH_STRATEGY.md](BRANCH_STRATEGY.md) を読む
+3. **コミット履歴を確認**: `git log --oneline -15` で最近の変更を確認
+4. **ブランチ構造を確認**: `git branch -a` で開発ブランチを確認
+5. **適切なブランチから開始**:
+   - mainブランチが存在する場合: `git checkout main` → 新しいブランチ作成
+   - mainブランチが存在しない場合: 最新の `claude/*` ブランチから継続
+6. **次のアクションを実行**: 上記「次のアクション」セクションを参照
 
-## 🔗 関連リソース
+## 🔗 関連ドキュメント
 
+### プロジェクト管理
+- [PROJECT_STATUS.md](PROJECT_STATUS.md): このファイル（現在の状態と次のステップ）
+- [CHANGELOG.md](CHANGELOG.md): 変更履歴の詳細
+- [BRANCH_STRATEGY.md](BRANCH_STRATEGY.md): ブランチ戦略とセッション継続性
+
+### ユーザー向け
 - [README.md](README.md): プロジェクト概要と使い方
 - [QUICKSTART.md](QUICKSTART.md): クイックスタートガイド
-- [CHANGELOG.md](CHANGELOG.md): 変更履歴の詳細
 - [GITHUB_PAGES_SETUP.md](GITHUB_PAGES_SETUP.md): GitHub Pagesデプロイ手順
