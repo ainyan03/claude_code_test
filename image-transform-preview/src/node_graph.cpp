@@ -158,6 +158,11 @@ Image16 NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<std
                     if (conn.toNodeId == nodeId && conn.toPort == input.id) {
                         Image16 img = evaluateNode(conn.fromNodeId, visited);
 
+                        // ★Phase 4: 合成にはPremultiplied形式が必要
+                        if (img.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
+                            img = processor.convertPixelFormat(img, PixelFormatIDs::RGBA16_Premultiplied);
+                        }
+
                         // アルファ値を適用
                         if (input.alpha != 1.0) {
                             uint16_t alphaU16 = static_cast<uint16_t>(input.alpha * 65535);
@@ -178,6 +183,11 @@ Image16 NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<std
                 if (conn.toNodeId == nodeId && conn.toPort == "in1") {
                     Image16 img1 = evaluateNode(conn.fromNodeId, visited);
 
+                    // ★Phase 4: 合成にはPremultiplied形式が必要
+                    if (img1.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
+                        img1 = processor.convertPixelFormat(img1, PixelFormatIDs::RGBA16_Premultiplied);
+                    }
+
                     // alpha1を適用
                     if (node->alpha1 != 1.0) {
                         uint16_t alphaU16 = static_cast<uint16_t>(node->alpha1 * 65535);
@@ -195,6 +205,11 @@ Image16 NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<std
             for (const auto& conn : connections) {
                 if (conn.toNodeId == nodeId && conn.toPort == "in2") {
                     Image16 img2 = evaluateNode(conn.fromNodeId, visited);
+
+                    // ★Phase 4: 合成にはPremultiplied形式が必要
+                    if (img2.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
+                        img2 = processor.convertPixelFormat(img2, PixelFormatIDs::RGBA16_Premultiplied);
+                    }
 
                     // alpha2を適用
                     if (node->alpha2 != 1.0) {
@@ -249,6 +264,11 @@ Image16 NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<std
 
         if (inputConn) {
             Image16 inputImage = evaluateNode(inputConn->fromNodeId, visited);
+
+            // ★Phase 4: アフィン変換にはPremultiplied形式が必要
+            if (inputImage.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
+                inputImage = processor.convertPixelFormat(inputImage, PixelFormatIDs::RGBA16_Premultiplied);
+            }
 
             // 変換行列を取得
             AffineMatrix matrix;
