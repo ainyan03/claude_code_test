@@ -614,7 +614,7 @@ function drawGlobalNode(node) {
             thumbnail.style.cssText = 'padding: 4px; text-align: center;';
 
             const img = document.createElement('img');
-            img.src = image.imageData;
+            img.src = createThumbnailDataURL(image.imageData);
             img.style.cssText = 'max-width: 80px; max-height: 60px; border-radius: 4px;';
 
             thumbnail.appendChild(img);
