@@ -159,9 +159,11 @@ npx http-server -p 8000
 
 ```
 image-transform-preview/
-├── src/
-│   ├── image_transform.h      # 画像変換ヘッダー
-│   ├── image_transform.cpp    # 画像変換実装（C++コア）
+├── src/                       # C++ソースコード（モジュラー設計）
+│   ├── image_types.h          # 基本型定義
+│   ├── filters.h/cpp          # フィルタクラス群
+│   ├── image_processor.h/cpp  # コア画像処理エンジン
+│   ├── node_graph.h/cpp       # ノードグラフ評価エンジン
 │   └── bindings.cpp           # Emscriptenバインディング
 ├── web/
 │   ├── index.html             # メインHTML
@@ -177,11 +179,19 @@ image-transform-preview/
 
 ### C++コア（組込み環境への移植可能）
 
-`src/image_transform.cpp`に実装された画像処理コアは、標準C++のみを使用しており、以下の機能を提供します：
+モジュラー設計のC++コアは、標準C++のみを使用しており、以下の機能を提供します：
 
-- **Image構造体**: RGBAピクセルデータを保持
-- **AffineParams構造体**: アフィン変換パラメータ
-- **NodeGraphEvaluator クラス**:
+- **基本型**（`image_types.h`）:
+  - Image/Image16構造体: 8bit/16bit RGBAピクセルデータ
+  - AffineParams/AffineMatrix構造体: アフィン変換パラメータ
+- **フィルタシステム**（`filters.h/cpp`）:
+  - ImageFilter16基底クラス
+  - BrightnessFilter16, GrayscaleFilter16, BoxBlurFilter16
+  - 16bit premultiplied alpha処理
+- **画像処理エンジン**（`image_processor.h/cpp`）:
+  - フィルタ適用、アフィン変換、画像合成
+  - 8bit ↔ 16bit変換機能
+- **ノードグラフエンジン**（`node_graph.h/cpp`）:
   - ノードグラフの評価エンジン
   - トポロジカルソートによる依存関係解決
   - ノードタイプ別の画像処理実行
@@ -208,16 +218,20 @@ Emscriptenの`embind`を使用してC++クラスをJavaScriptから呼び出し�
 
 ## 🚀 組込み環境への移植
 
-C++コア（`image_transform.h`と`image_transform.cpp`）は、以下の特徴により組込み環境への移植が容易です：
+モジュラー設計のC++コアは、以下の特徴により組込み環境への移植が容易です：
 
 - **依存関係なし**: 標準C++のみを使用（OpenCVなど不要）
+- **モジュラー設計**: 必要なモジュールだけを選択して使用可能
 - **シンプルなAPI**: `NodeGraphEvaluator`クラスでノードグラフを評価
 - **メモリ管理**: `std::vector`を使用（カスタムアロケータに変更可能）
-- **拡張性**: 新しいノードタイプを簡単に追加可能
+- **拡張性**: 新しいフィルタやノードタイプを簡単に追加可能
 
 ### 移植手順
 
-1. `src/image_transform.h`と`src/image_transform.cpp`をコピー
+1. 必要なファイルをコピー:
+   - 最小構成: `image_types.h`, `image_processor.h/cpp`
+   - フィルタ使用: `filters.h/cpp`も追加
+   - ノードグラフ使用: `node_graph.h/cpp`も追加
 2. 必要に応じて`std::vector`をカスタムアロケータに置き換え
 3. プロジェクトに組み込んでビルド
 
@@ -235,9 +249,9 @@ C++コア（`image_transform.h`と`image_transform.cpp`）は、以下の特徴�
 ### デバッグビルド
 
 ```bash
-emcc src/image_transform.cpp src/bindings.cpp \
+emcc src/filters.cpp src/image_processor.cpp src/node_graph.cpp src/bindings.cpp \
     -o web/image_transform.js \
-    -std=c++11 \
+    -std=c++17 \
     -O0 -g \
     -s ASSERTIONS=1 \
     # ... その他のオプション
