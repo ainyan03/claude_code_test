@@ -140,13 +140,11 @@ struct FilterNodeInfo {
     FilterNodeInfo(int id, double x, double y) : nodeId(id), posX(x), posY(y) {}
 };
 
-// レイヤー情報
+// レイヤー情報（旧アーキテクチャ - 削除予定）
 struct Layer {
     Image image;
     AffineParams params;
     bool visible;
-    std::vector<std::unique_ptr<ImageFilter>> filters;  // フィルタパイプライン（純粋な処理）
-    std::vector<FilterNodeInfo> nodeInfos;              // UI情報（フィルタと1対1対応）
 
     Layer() : visible(true) {}
 };
@@ -201,7 +199,6 @@ private:
     void applyAffineTransform(const Image& src, Image& dst, const AffineParams& params);
     void blendPixel(uint8_t* dst, const uint8_t* src, double alpha);
     bool getTransformedPixel(const Image& src, double x, double y, uint8_t* pixel);
-    Image applyFilters(const Image& input, const std::vector<std::unique_ptr<ImageFilter>>& filters);
 };
 
 // ========================================================================
