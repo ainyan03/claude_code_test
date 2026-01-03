@@ -176,26 +176,7 @@ Image ImageProcessor::compose() {
     return result;
 }
 
-// ノードグラフ用: 単一画像にフィルタを適用
-Image ImageProcessor::applyFilterToImage(const Image& input, const std::string& filterType, float param) const {
-    std::unique_ptr<ImageFilter> filter;
-
-    if (filterType == "grayscale") {
-        filter = std::make_unique<GrayscaleFilter>();
-    } else if (filterType == "brightness") {
-        filter = std::make_unique<BrightnessFilter>(param);
-    } else if (filterType == "blur") {
-        filter = std::make_unique<BoxBlurFilter>(static_cast<int>(param));
-    }
-
-    if (filter) {
-        return filter->apply(input);
-    }
-
-    return input;  // フィルタが見つからない場合は入力をそのまま返す
-}
-
-// ノードグラフ用: 単一画像にアフィン変換を適用
+// ノードグラフ用: 単一画像にアフィン変換を適用（8bit版 - 削除予定）
 Image ImageProcessor::applyTransformToImage(const Image& input, const AffineParams& params) const {
     Image result(canvasWidth, canvasHeight);
     std::fill(result.data.begin(), result.data.end(), 0);
@@ -348,114 +329,6 @@ void ImageProcessor::blendPixel(uint8_t* dst, const uint8_t* src, double alpha) 
         }
         dst[3] = static_cast<uint8_t>(outAlpha * 255.0);
     }
-}
-
-// ========================================
-// フィルタ実装
-// ========================================
-
-// グレースケールフィルタ
-Image GrayscaleFilter::apply(const Image& input) const {
-    Image output = input;
-
-    for (size_t i = 0; i < input.data.size(); i += 4) {
-        // グレースケール変換（平均法）
-        uint8_t gray = static_cast<uint8_t>(
-            (input.data[i] + input.data[i + 1] + input.data[i + 2]) / 3
-        );
-        output.data[i] = gray;       // R
-        output.data[i + 1] = gray;   // G
-        output.data[i + 2] = gray;   // B
-        // Alpha は変更しない
-    }
-
-    return output;
-}
-
-// 明るさ調整フィルタ
-Image BrightnessFilter::apply(const Image& input) const {
-    Image output = input;
-
-    // 明るさ調整値を -255 ~ 255 の範囲に変換
-    int adjustment = static_cast<int>(brightness * 255.0f);
-
-    for (size_t i = 0; i < input.data.size(); i += 4) {
-        // RGB各チャンネルに明るさ調整を適用
-        for (int c = 0; c < 3; c++) {
-            int value = input.data[i + c] + adjustment;
-            output.data[i + c] = static_cast<uint8_t>(std::max(0, std::min(255, value)));
-        }
-        // Alpha は変更しない
-    }
-
-    return output;
-}
-
-// ボックスブラーフィルタ
-Image BoxBlurFilter::apply(const Image& input) const {
-    int width = input.width;
-    int height = input.height;
-
-    // 分離可能ブラー: 水平方向 → 垂直方向の2パスで処理
-    // O(width * height * radius^2) → O(width * height * radius)
-
-    // 中間バッファ（水平ブラー結果）
-    Image temp(width, height);
-
-    // パス1: 水平方向のブラー
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            int sumR = 0, sumG = 0, sumB = 0, sumA = 0;
-            int count = 0;
-
-            int xStart = std::max(0, x - radius);
-            int xEnd = std::min(width - 1, x + radius);
-
-            for (int nx = xStart; nx <= xEnd; nx++) {
-                int idx = (y * width + nx) * 4;
-                sumR += input.data[idx];
-                sumG += input.data[idx + 1];
-                sumB += input.data[idx + 2];
-                sumA += input.data[idx + 3];
-                count++;
-            }
-
-            int outIdx = (y * width + x) * 4;
-            temp.data[outIdx] = sumR / count;
-            temp.data[outIdx + 1] = sumG / count;
-            temp.data[outIdx + 2] = sumB / count;
-            temp.data[outIdx + 3] = sumA / count;
-        }
-    }
-
-    // パス2: 垂直方向のブラー
-    Image output(width, height);
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            int sumR = 0, sumG = 0, sumB = 0, sumA = 0;
-            int count = 0;
-
-            int yStart = std::max(0, y - radius);
-            int yEnd = std::min(height - 1, y + radius);
-
-            for (int ny = yStart; ny <= yEnd; ny++) {
-                int idx = (ny * width + x) * 4;
-                sumR += temp.data[idx];
-                sumG += temp.data[idx + 1];
-                sumB += temp.data[idx + 2];
-                sumA += temp.data[idx + 3];
-                count++;
-            }
-
-            int outIdx = (y * width + x) * 4;
-            output.data[outIdx] = sumR / count;
-            output.data[outIdx + 1] = sumG / count;
-            output.data[outIdx + 2] = sumB / count;
-            output.data[outIdx + 3] = sumA / count;
-        }
-    }
-
-    return output;
 }
 
 // ========================================================================

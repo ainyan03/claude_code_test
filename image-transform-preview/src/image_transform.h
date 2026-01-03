@@ -103,53 +103,6 @@ private:
     BoxBlurFilterParams params_;
 };
 
-// ========================================================================
-// 8bit フィルタクラス群（旧アーキテクチャ - 削除予定）
-// ========================================================================
-
-// フィルタ基底クラス（純粋な処理のみ、UI情報は含まない）
-class ImageFilter {
-public:
-    virtual ~ImageFilter() = default;
-    virtual Image apply(const Image& input) const = 0;
-    virtual std::string getName() const = 0;
-};
-
-// グレースケールフィルタ
-class GrayscaleFilter : public ImageFilter {
-public:
-    Image apply(const Image& input) const override;
-    std::string getName() const override { return "Grayscale"; }
-};
-
-// 明るさ調整フィルタ
-class BrightnessFilter : public ImageFilter {
-public:
-    explicit BrightnessFilter(float brightness = 0.0f) : brightness(brightness) {}
-    Image apply(const Image& input) const override;
-    std::string getName() const override { return "Brightness"; }
-
-    void setBrightness(float value) { brightness = value; }
-    float getBrightness() const { return brightness; }
-
-private:
-    float brightness;  // -1.0 ~ 1.0
-};
-
-// ボックスブラーフィルタ
-class BoxBlurFilter : public ImageFilter {
-public:
-    explicit BoxBlurFilter(int radius = 1) : radius(radius) {}
-    Image apply(const Image& input) const override;
-    std::string getName() const override { return "BoxBlur"; }
-
-    void setRadius(int value) { radius = value > 0 ? value : 1; }
-    int getRadius() const { return radius; }
-
-private:
-    int radius;
-};
-
 // アフィン変換パラメータ
 struct AffineParams {
     double translateX;  // 平行移動 X
@@ -225,17 +178,14 @@ public:
     // 画像合成処理
     Image compose();
 
-    // ノードグラフ用の単体処理関数（8bit版、互換性のため残す）
-    Image applyFilterToImage(const Image& input, const std::string& filterType, float param = 0.0f) const;
-    Image applyTransformToImage(const Image& input, const AffineParams& params) const;
-    Image mergeImages(const std::vector<const Image*>& images, const std::vector<double>& alphas) const;
-
-    // ノードグラフ用の高速処理関数（16bit premultiplied alpha版）
-    Image16 toPremultiplied(const Image& input, double alpha = 1.0) const;
-    Image fromPremultiplied(const Image16& input) const;
+    // ノードグラフ用の処理関数（16bit版）
     Image16 applyFilterToImage16(const Image16& input, const std::string& filterType, float param = 0.0f) const;
     Image16 applyTransformToImage16(const Image16& input, const AffineMatrix& matrix, double alpha = 1.0) const;
     Image16 mergeImages16(const std::vector<const Image16*>& images) const;
+
+    // 8bit ↔ 16bit 変換（入出力用）
+    Image16 toPremultiplied(const Image& input, double alpha = 1.0) const;
+    Image fromPremultiplied(const Image16& input) const;
 
     // ユーティリティ
     void setCanvasSize(int width, int height);
