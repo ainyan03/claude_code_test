@@ -4,6 +4,116 @@
 
 ## [Unreleased] - 2026-01-03
 
+### 🖼️ Phase 5A: ViewPort統一画像型の導入（組込み環境対応）
+
+#### 背景と目的
+Image（8bit）とImage16（16bit）の2つの型が存在し、コード重複とメンテナンスコストが発生していました。また、組込み環境への移植を前提として、以下の機能が必要でした：
+- カスタムアロケータによるメモリ管理
+- ビューポート/ROI機能（メモリコピーなしでサブ領域を参照）
+- 任意のピクセルフォーマット対応（Phase 1の拡張可能システムと統合）
+
+#### 新規ファイル
+**src/viewport.h** (~200行):
+- ViewPort構造体の完全な定義
+- 包括的なドキュメントコメント
+- RAII原則に従った設計
+- テンプレートメソッド（型安全なピクセルアクセス）
+
+**src/viewport.cpp** (~350行):
+- 完全なRAII実装
+  - コンストラクタ/デストラクタ
+  - コピーセマンティクス（ディープコピー）
+  - ムーブセマンティクス（所有権移転）
+- メモリ管理
+  - 16バイトアライメント対応
+  - ストライド計算（行パディング）
+  - カスタムアロケータ統合
+- ビューポート機能
+  - `createSubView()`: ゼロコピーサブ領域作成
+  - 親子関係管理
+- 変換ヘルパー
+  - `fromImage()` / `toImage()`
+  - `fromImage16()` / `toImage16()`
+
+#### 修正ファイル
+**src/image_types.h**:
+- ImageとImage16に非推奨コメント追加
+- 段階的移行戦略を明示
+```cpp
+// 【非推奨】このImageは将来的にViewPortに統合されます。
+// 新規コードではViewPortの使用を推奨します。
+// 移行完了後にこの型は削除されます。
+```
+
+**build.sh**:
+- viewport.cppをコンパイル対象に追加
+
+#### ViewPortの主要機能
+
+**1. 統一された画像型**
+```cpp
+// 任意のフォーマットに対応
+ViewPort img8(800, 600, PixelFormatIDs::RGBA8_Straight);
+ViewPort img16(800, 600, PixelFormatIDs::RGBA16_Premultiplied);
+ViewPort rgb565(800, 600, PixelFormatIDs::RGB565_LE);
+```
+
+**2. ビューポート機能（ゼロコピー）**
+```cpp
+ViewPort fullImage(1920, 1080, PixelFormatIDs::RGBA16_Premultiplied);
+ViewPort roi = fullImage.createSubView(100, 100, 640, 480);
+// roiは親画像のメモリを直接参照（コピーなし）
+processFilter(roi);  // サブ領域のみ処理
+```
+
+**3. カスタムアロケータ対応**
+```cpp
+// 組込み環境での静的バッファ使用
+uint8_t staticBuffer[1024 * 1024];
+FixedBufferAllocator fixedAlloc(staticBuffer, sizeof(staticBuffer));
+ViewPort img(800, 600, PixelFormatIDs::RGBA16_Premultiplied, &fixedAlloc);
+```
+
+**4. 後方互換性**
+```cpp
+// 既存コードからの移行
+Image oldImg(800, 600);
+ViewPort newImg = ViewPort::fromImage(oldImg);
+
+// 既存コードへの変換
+Image backToOld = newImg.toImage();
+```
+
+#### 設計の利点
+- ✅ **コード重複の排除**: Image/Image16の統一
+- ✅ **メモリ効率**: std::vectorのオーバーヘッド排除、16バイトアライメント
+- ✅ **ROI処理**: メモリコピーなしで部分領域処理が可能
+- ✅ **組込み環境対応**: カスタムアロケータで柔軟なメモリ管理
+- ✅ **拡張性**: 任意のピクセルフォーマットに対応（Phase 1と完全統合）
+- ✅ **型安全性**: PixelFormatIDによる実行時検証
+
+#### 移行戦略（段階的アプローチ）
+1. **Phase 5A（完了）**: ViewPort基盤実装
+2. **Phase 5B（予定）**: ViewPort版処理関数の実装
+3. **Phase 5C（予定）**: 既存コードの段階的移行
+4. **Phase 5D（予定）**: Image/Image16の完全削除
+
+#### コミット
+- `c41fe91` - Phase 5A: Introduce ViewPort unified image type with viewport support
+
+#### コード統計
+```
+新規追加: 555行
+- viewport.h: ~200行（ドキュメント含む）
+- viewport.cpp: ~350行（完全実装）
+- deprecation comments: ~5行
+変更: 4ファイル
+```
+
+---
+
+## [Unreleased] - 2026-01-03
+
 ### 🎨 拡張可能ピクセルフォーマットシステムの実装（4フェーズ）
 
 #### 背景と問題
