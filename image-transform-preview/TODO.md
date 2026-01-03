@@ -289,6 +289,128 @@
 
 ---
 
+## 🔧 コード品質・バグ修正
+
+最終更新: 2026-01-04
+
+### ✅ 修正済み（2026-01-04）
+- [x] `app.js`: キャンバスサイズのNaN検証を追加
+- [x] `app.js`: 未使用パラメータ `unusedNodeHeight` を削除
+- [x] `app.js`: 未使用変数 `portRadius` を削除（getPortPosition）
+- [x] `app.js`: 未使用パラメータ `e` を削除（mouseup handler）
+- [x] `app.js`: ループ内のDOM取得を最適化（renderImageLibrary）
+- [x] `app.js`: innerHTML を DOM API に置き換え（XSS対策）
+- [x] `bindings.cpp`: mergeImages の境界チェックを追加
+
+---
+
+### 高優先度
+
+#### Q1. メモリ安全性: ダングリングポインタ
+**ファイル**: `bindings.cpp` (lines 150-153)
+
+**問題**:
+```cpp
+for (auto& vp : viewports) {
+    viewportPtrs.push_back(&vp);  // vectorの要素への参照を保存
+}
+```
+`viewports` vectorが再アロケートされると、保存されたポインタが無効になる可能性。
+
+**修正案**: vectorのreserveを事前に行うか、インデックスベースのアクセスに変更
+
+**難易度**: 中
+
+---
+
+#### Q2. 入力検証: viewPortFromJSImage
+**ファイル**: `bindings.cpp` (lines 17-32)
+
+**問題**:
+- `width`, `height` の負値チェックがない
+- `width * height * 4` のオーバーフロー未チェック
+- ループの境界チェック不足
+
+**修正案**: mergeImages と同様の検証を追加
+
+**難易度**: 低
+
+---
+
+#### Q3. 型安全性: Unsafe型キャスト
+**ファイル**: `bindings.cpp` (lines 203, 259, 298, 339)
+
+**問題**:
+```cpp
+uint16_t* resultData = static_cast<uint16_t*>(result.data);
+```
+`result.formatID` がRGBA16_Premultiplied であることを仮定したキャスト。
+
+**修正案**: formatIDの検証を追加、または型安全なアクセサを実装
+
+**難易度**: 中
+
+---
+
+### 中優先度
+
+#### Q4. 未初期化フィールド: GraphNode
+**ファイル**: `node_graph.h` (lines 32-66)
+
+**問題**: GraphNode構造体のデフォルトコンストラクタで一部フィールドが初期化されていない
+
+**修正案**: 全フィールドのデフォルト値を設定
+
+**難易度**: 低
+
+---
+
+#### Q5. イベントリスナーの蓄積
+**ファイル**: `app.js` (lines 1730-1734付近)
+
+**問題**: グローバルイベントリスナーが重複登録される可能性
+
+**修正案**: リスナー登録前に既存リスナーの削除、または一度だけ登録するフラグ管理
+
+**難易度**: 低
+
+---
+
+#### Q6. 後方互換性: imageId/layerId
+**ファイル**: `bindings.cpp` (lines 405-422)
+
+**問題**: 旧形式（layerId）と新形式（imageId）の両方をサポートしているが、両方存在する場合の挙動が不明確
+
+**修正案**: 明示的な優先順位とログ出力、または旧形式の非推奨化
+
+**難易度**: 低
+
+---
+
+### 低優先度
+
+#### Q7. ストライドの仮定
+**ファイル**: `viewport.cpp` (lines 329-331)
+
+**問題**: deepCopyでstride >= (width * bytesPerPixel) を仮定
+
+**修正案**: アサーションまたは検証を追加
+
+**難易度**: 低
+
+---
+
+#### Q8. 精度損失: サイズ計算
+**ファイル**: `bindings.cpp` (line 204等)
+
+**問題**: `int pixelCount = result.width * result.height * 4` でオーバーフローの可能性
+
+**修正案**: `size_t` を使用、またはオーバーフローチェックを追加
+
+**難易度**: 低
+
+---
+
 ## 📝 メンテナンスタスク
 
 ### M1. 定期的な更新
