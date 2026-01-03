@@ -19,7 +19,8 @@ void NodeGraphEvaluator::setCanvasSize(int width, int height) {
 }
 
 void NodeGraphEvaluator::setLayerImage(int layerId, const Image& img) {
-    layerImages[layerId] = img;
+    // Image（8bit RGBA）からViewPort（RGBA8_Straight）に変換して保存
+    layerImages[layerId] = ViewPort::fromImage(img);
     // 画像更新時は該当レイヤーのキャッシュをクリア
     layerPremulCache.erase(layerId);
 }
@@ -40,7 +41,7 @@ ViewPort NodeGraphEvaluator::getLayerPremultiplied(int layerId, const AffinePara
         return ViewPort(canvasWidth, canvasHeight, PixelFormatIDs::RGBA16_Premultiplied);  // 空画像
     }
 
-    const Image& img = it->second;
+    const ViewPort& imgVP = it->second;
 
     // premultiplied変換（キャッシュを使用）
     ViewPort premul;
@@ -48,7 +49,8 @@ ViewPort NodeGraphEvaluator::getLayerPremultiplied(int layerId, const AffinePara
     if (cacheIt != layerPremulCache.end()) {
         premul = cacheIt->second;
     } else {
-        premul = processor.fromImage(img);
+        // RGBA8_Straight → RGBA16_Premultiplied 変換
+        premul = processor.convertPixelFormat(imgVP, PixelFormatIDs::RGBA16_Premultiplied);
         layerPremulCache[layerId] = premul;
     }
 
@@ -61,7 +63,7 @@ ViewPort NodeGraphEvaluator::getLayerPremultiplied(int layerId, const AffinePara
 
     if (needsTransform) {
         // 元画像の中心を回転軸にする
-        const Image& originalImg = layerImages.at(layerId);
+        const ViewPort& originalImg = layerImages.at(layerId);
         double centerX = originalImg.width / 2.0;
         double centerY = originalImg.height / 2.0;
         AffineMatrix matrix = AffineMatrix::fromParams(transform, centerX, centerY);
@@ -105,8 +107,8 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
         if (node->imageId >= 0) {
             auto it = layerImages.find(node->imageId);
             if (it != layerImages.end()) {
-                // premultiplied変換のみ（alphaは独立フィルタノードで調整）
-                result = processor.fromImage(it->second);
+                // RGBA8_Straight → RGBA16_Premultiplied 変換（alphaは独立フィルタノードで調整）
+                result = processor.convertPixelFormat(it->second, PixelFormatIDs::RGBA16_Premultiplied);
             }
         }
         // 旧形式: layerId + transform（後方互換性）
