@@ -23,29 +23,6 @@ struct Image {
     Image(int w, int h) : width(w), height(h), data(w * h * 4, 0) {}
 };
 
-// ========================================================================
-// 16bit 画像（内部処理用、拡張可能ピクセルフォーマットシステム対応）
-// ========================================================================
-// 【非推奨】このImage16は将来的にViewPortに統合されます。
-// 新規コードではViewPortの使用を推奨します。
-// 移行完了後にこの型は削除されます。
-struct Image16 {
-    std::vector<uint16_t> data;  // RGBA, 16bit per channel
-    int width;
-    int height;
-    PixelFormatID formatID;  // ピクセルフォーマット識別子
-
-    // デフォルトコンストラクタ（Premultiplied形式）
-    Image16()
-        : width(0), height(0),
-          formatID(PixelFormatIDs::RGBA16_Premultiplied) {}
-
-    // 標準コンストラクタ（デフォルトはPremultiplied形式）
-    Image16(int w, int h, PixelFormatID fmtID = PixelFormatIDs::RGBA16_Premultiplied)
-        : width(w), height(h), data(w * h * 4, 0),
-          formatID(fmtID) {}
-};
-
 // アフィン変換パラメータ
 struct AffineParams {
     double translateX;  // 平行移動 X

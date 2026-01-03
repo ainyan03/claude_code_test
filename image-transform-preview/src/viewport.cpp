@@ -224,7 +224,7 @@ size_t ViewPort::getTotalBytes() const {
 }
 
 // ========================================================================
-// Image/Image16 からの変換
+// Image からの変換
 // ========================================================================
 
 ViewPort ViewPort::fromImage(const Image& img) {
@@ -238,20 +238,8 @@ ViewPort ViewPort::fromImage(const Image& img) {
     return vp;
 }
 
-ViewPort ViewPort::fromImage16(const Image16& img) {
-    ViewPort vp(img.width, img.height, img.formatID);
-
-    // データをコピー
-    if (!img.data.empty()) {
-        size_t bytes = img.data.size() * sizeof(uint16_t);
-        std::memcpy(vp.data, img.data.data(), bytes);
-    }
-
-    return vp;
-}
-
 // ========================================================================
-// Image/Image16 への変換
+// Image への変換
 // ========================================================================
 
 Image ViewPort::toImage() const {
@@ -269,26 +257,6 @@ Image ViewPort::toImage() const {
         // 異なる形式の場合は変換が必要
         // TODO: PixelFormatRegistryを使用した変換
         throw std::runtime_error("ViewPort::toImage: format conversion not yet implemented");
-    }
-
-    return img;
-}
-
-Image16 ViewPort::toImage16() const {
-    Image16 img(width, height, formatID);
-
-    if (formatID == PixelFormatIDs::RGBA16_Straight ||
-        formatID == PixelFormatIDs::RGBA16_Premultiplied) {
-        // 同じ形式の場合は直接コピー
-        for (int y = 0; y < height; y++) {
-            const uint16_t* srcRow = getPixelPtr<uint16_t>(0, y);
-            uint16_t* dstRow = &img.data[y * width * 4];
-            std::memcpy(dstRow, srcRow, width * 4 * sizeof(uint16_t));
-        }
-    } else {
-        // 異なる形式の場合は変換が必要
-        // TODO: PixelFormatRegistryを使用した変換
-        throw std::runtime_error("ViewPort::toImage16: format conversion not yet implemented");
     }
 
     return img;
