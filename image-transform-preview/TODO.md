@@ -306,6 +306,7 @@
 - [x] `bindings.cpp`: reserve() でダングリングポインタ防止（Q1）
 - [x] `app.js`: appInitialized フラグでイベントリスナー重複登録防止（Q5）
 - [x] `node_graph.h`: GraphNode フィールド初期化確認済み（Q4 - 問題なし）
+- [x] `viewport.cpp`: deepCopy にストライド検証アサート追加（Q7）
 
 ---
 
@@ -334,19 +335,6 @@ uint16_t* resultData = static_cast<uint16_t*>(result.data);
 **問題**: 旧形式（layerId）と新形式（imageId）の両方をサポートしているが、両方存在する場合の挙動が不明確
 
 **修正案**: 明示的な優先順位とログ出力、または旧形式の非推奨化
-
-**難易度**: 低
-
----
-
-### 低優先度
-
-#### Q7. ストライドの仮定
-**ファイル**: `viewport.cpp` (lines 329-331)
-
-**問題**: deepCopyでstride >= (width * bytesPerPixel) を仮定
-
-**修正案**: アサーションまたは検証を追加
 
 **難易度**: 低
 

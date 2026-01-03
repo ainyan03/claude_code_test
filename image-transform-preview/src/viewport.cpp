@@ -1,5 +1,6 @@
 #include "viewport.h"
 #include "image_types.h"
+#include <cassert>
 #include <cstring>
 #include <algorithm>
 #include <stdexcept>
@@ -324,6 +325,10 @@ void ViewPort::deepCopy(const ViewPort& other) {
 
     size_t bytesPerPixel = getBytesPerPixel();
     size_t copyBytes = width * bytesPerPixel;
+
+    // ストライドの妥当性を検証（バッファオーバーフロー防止）
+    assert(stride >= static_cast<int>(copyBytes) && "stride must be >= width * bytesPerPixel");
+    assert(other.stride >= static_cast<int>(copyBytes) && "source stride must be >= width * bytesPerPixel");
 
     for (int y = 0; y < height; y++) {
         std::memcpy(dstPtr + y * stride,
