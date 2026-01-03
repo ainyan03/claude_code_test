@@ -19,8 +19,13 @@ void NodeGraphEvaluator::setCanvasSize(int width, int height) {
 }
 
 void NodeGraphEvaluator::setLayerImage(int layerId, const Image& img) {
+    // 既存のエントリを削除（存在する場合）
+    layerImages.erase(layerId);
+
     // Image（8bit RGBA）からViewPort（RGBA8_Straight）に変換して保存
-    layerImages[layerId] = ViewPort::fromImage(img);
+    // emplace()を使って直接構築することでムーブ/コピーを最適化
+    layerImages.emplace(layerId, ViewPort::fromImage(img));
+
     // 画像更新時は該当レイヤーのキャッシュをクリア
     layerPremulCache.erase(layerId);
 }
