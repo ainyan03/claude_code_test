@@ -1,7 +1,7 @@
 #ifndef FILTERS_H
 #define FILTERS_H
 
-#include "image_types.h"
+#include "viewport.h"
 
 namespace ImageTransform {
 
@@ -27,25 +27,25 @@ struct BoxBlurFilterParams {
 };
 
 // ========================================================================
-// フィルタクラス群（16bit premultiplied alpha処理）
+// フィルタクラス群（ViewPortベース処理）
 // ========================================================================
 
-// 16bitフィルタの基底クラス
-class ImageFilter16 {
+// フィルタの基底クラス
+class ImageFilter {
 protected:
-    ImageFilter16(const char* name) : name_(name) {}
+    ImageFilter(const char* name) : name_(name) {}
 
 public:
-    virtual ~ImageFilter16() = default;
-    virtual Image16 apply(const Image16& input) const = 0;
+    virtual ~ImageFilter() = default;
+    virtual ViewPort apply(const ViewPort& input) const = 0;
     const char* getName() const { return name_; }
 
-    // ★新規（Phase 3）: このフィルタが要求する入力形式
+    // このフィルタが要求する入力形式
     virtual PixelFormatID getPreferredInputFormat() const {
         return PixelFormatIDs::RGBA16_Straight;  // デフォルト: Straight
     }
 
-    // ★新規（Phase 3）: このフィルタが出力する形式
+    // このフィルタが出力する形式
     virtual PixelFormatID getOutputFormat() const {
         return PixelFormatIDs::RGBA16_Straight;  // デフォルト: Straight
     }
@@ -55,36 +55,36 @@ private:
 };
 
 // 明るさ調整フィルタ
-class BrightnessFilter16 : public ImageFilter16 {
+class BrightnessFilter : public ImageFilter {
 public:
-    explicit BrightnessFilter16(const BrightnessFilterParams& params)
-        : ImageFilter16("Brightness"), params_(params) {}
+    explicit BrightnessFilter(const BrightnessFilterParams& params)
+        : ImageFilter("Brightness"), params_(params) {}
 
-    Image16 apply(const Image16& input) const override;
+    ViewPort apply(const ViewPort& input) const override;
 
 private:
     BrightnessFilterParams params_;
 };
 
 // グレースケールフィルタ
-class GrayscaleFilter16 : public ImageFilter16 {
+class GrayscaleFilter : public ImageFilter {
 public:
-    explicit GrayscaleFilter16(const GrayscaleFilterParams& params = {})
-        : ImageFilter16("Grayscale"), params_(params) {}
+    explicit GrayscaleFilter(const GrayscaleFilterParams& params = {})
+        : ImageFilter("Grayscale"), params_(params) {}
 
-    Image16 apply(const Image16& input) const override;
+    ViewPort apply(const ViewPort& input) const override;
 
 private:
     GrayscaleFilterParams params_;
 };
 
 // ボックスブラーフィルタ
-class BoxBlurFilter16 : public ImageFilter16 {
+class BoxBlurFilter : public ImageFilter {
 public:
-    explicit BoxBlurFilter16(const BoxBlurFilterParams& params)
-        : ImageFilter16("BoxBlur"), params_(params) {}
+    explicit BoxBlurFilter(const BoxBlurFilterParams& params)
+        : ImageFilter("BoxBlur"), params_(params) {}
 
-    Image16 apply(const Image16& input) const override;
+    ViewPort apply(const ViewPort& input) const override;
 
 private:
     BoxBlurFilterParams params_;

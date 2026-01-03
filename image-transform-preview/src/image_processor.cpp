@@ -1,4 +1,5 @@
 #include "image_processor.h"
+#include "image_types.h"
 #include <algorithm>
 #include <cstring>
 #include <memory>
@@ -46,19 +47,22 @@ void ImageProcessor::setCanvasSize(int width, int height) {
     canvasHeight = height;
 }
 
-// 8bit RGBA → 16bit Premultiplied RGBA変換
-Image16 ImageProcessor::toPremultiplied(const Image& input, double alpha) const {
-    Image16 output(input.width, input.height);
+// 8bit RGBA → ViewPort（16bit Premultiplied RGBA）変換
+ViewPort ImageProcessor::fromImage(const Image& input, double alpha) const {
+    ViewPort output(input.width, input.height, PixelFormatIDs::RGBA16_Premultiplied);
     int pixelCount = input.width * input.height;
+
+    const uint8_t* srcData = input.data.data();
+    uint16_t* dstData = static_cast<uint16_t*>(output.data);
 
     for (int i = 0; i < pixelCount; i++) {
         int idx8 = i * 4;
         int idx16 = i * 4;
 
-        uint16_t r8 = input.data[idx8];
-        uint16_t g8 = input.data[idx8 + 1];
-        uint16_t b8 = input.data[idx8 + 2];
-        uint16_t a8 = input.data[idx8 + 3];
+        uint16_t r8 = srcData[idx8];
+        uint16_t g8 = srcData[idx8 + 1];
+        uint16_t b8 = srcData[idx8 + 2];
+        uint16_t a8 = srcData[idx8 + 3];
 
         // 8bit → 16bit変換（0-255 → 0-65535）
         // ノードのアルファ値も適用
@@ -67,27 +71,30 @@ Image16 ImageProcessor::toPremultiplied(const Image& input, double alpha) const 
 
         // プリマルチプライド: RGB * alpha
         // (r8 * a16) / 65535 を高速計算
-        output.data[idx16]     = (r8 * a16) >> 8;  // (r8 * a16) / 256（近似）
-        output.data[idx16 + 1] = (g8 * a16) >> 8;
-        output.data[idx16 + 2] = (b8 * a16) >> 8;
-        output.data[idx16 + 3] = a16;
+        dstData[idx16]     = (r8 * a16) >> 8;  // (r8 * a16) / 256（近似）
+        dstData[idx16 + 1] = (g8 * a16) >> 8;
+        dstData[idx16 + 2] = (b8 * a16) >> 8;
+        dstData[idx16 + 3] = a16;
     }
 
     return output;
 }
 
-// 16bit Premultiplied RGBA → 8bit RGBA変換
-Image ImageProcessor::fromPremultiplied(const Image16& input) const {
+// ViewPort（16bit Premultiplied RGBA）→ 8bit RGBA変換
+Image ImageProcessor::toImage(const ViewPort& input) const {
     Image output(input.width, input.height);
     int pixelCount = input.width * input.height;
+
+    const uint16_t* srcData = static_cast<const uint16_t*>(input.data);
+    uint8_t* dstData = output.data.data();
 
     for (int i = 0; i < pixelCount; i++) {
         int idx = i * 4;
 
-        uint16_t r16 = input.data[idx];
-        uint16_t g16 = input.data[idx + 1];
-        uint16_t b16 = input.data[idx + 2];
-        uint16_t a16 = input.data[idx + 3];
+        uint16_t r16 = srcData[idx];
+        uint16_t g16 = srcData[idx + 1];
+        uint16_t b16 = srcData[idx + 2];
+        uint16_t a16 = srcData[idx + 3];
 
         // アンプリマルチプライド: RGB / alpha
         if (a16 > 0) {
@@ -96,32 +103,32 @@ Image ImageProcessor::fromPremultiplied(const Image16& input) const {
             uint32_t g_unpre = ((uint32_t)g16 * 65535) / a16;
             uint32_t b_unpre = ((uint32_t)b16 * 65535) / a16;
 
-            output.data[idx]     = std::min(r_unpre >> 8, 255u);
-            output.data[idx + 1] = std::min(g_unpre >> 8, 255u);
-            output.data[idx + 2] = std::min(b_unpre >> 8, 255u);
+            dstData[idx]     = std::min(r_unpre >> 8, 255u);
+            dstData[idx + 1] = std::min(g_unpre >> 8, 255u);
+            dstData[idx + 2] = std::min(b_unpre >> 8, 255u);
         } else {
-            output.data[idx]     = 0;
-            output.data[idx + 1] = 0;
-            output.data[idx + 2] = 0;
+            dstData[idx]     = 0;
+            dstData[idx + 1] = 0;
+            dstData[idx + 2] = 0;
         }
 
-        output.data[idx + 3] = a16 >> 8;  // 16bit → 8bit
+        dstData[idx + 3] = a16 >> 8;  // 16bit → 8bit
     }
 
     return output;
 }
 
-// 16bit Premultiplied画像の合成（超高速版：除算なし）
-Image16 ImageProcessor::mergeImages16(const std::vector<const Image16*>& images) const {
-    Image16 result(canvasWidth, canvasHeight);
+// ViewPort（Premultiplied）画像の合成（超高速版：除算なし）
+ViewPort ImageProcessor::mergeImages(const std::vector<const ViewPort*>& images) const {
+    ViewPort result(canvasWidth, canvasHeight, PixelFormatIDs::RGBA16_Premultiplied);
 
     // キャンバスを透明で初期化
-    std::fill(result.data.begin(), result.data.end(), 0);
+    std::memset(result.data, 0, result.getTotalBytes());
 
     // 各画像を順番に合成（プリマルチプライド前提なので単純加算）
     for (size_t i = 0; i < images.size(); i++) {
-        const Image16* img = images[i];
-        if (!img) continue;
+        const ViewPort* img = images[i];
+        if (!img || !img->isValid()) continue;
 
         // 画像サイズがキャンバスサイズと異なる場合は中央配置
         int offsetX = (canvasWidth - img->width) / 2;
@@ -131,18 +138,18 @@ Image16 ImageProcessor::mergeImages16(const std::vector<const Image16*>& images)
             for (int x = 0; x < img->width && (x + offsetX) < canvasWidth; x++) {
                 if (offsetX + x < 0 || offsetY + y < 0) continue;
 
-                int srcIdx = (y * img->width + x) * 4;
-                int dstIdx = ((y + offsetY) * canvasWidth + (x + offsetX)) * 4;
+                const uint16_t* srcPixel = img->getPixelPtr<uint16_t>(x, y);
+                uint16_t* dstPixel = result.getPixelPtr<uint16_t>(x + offsetX, y + offsetY);
 
-                uint16_t srcR = img->data[srcIdx];
-                uint16_t srcG = img->data[srcIdx + 1];
-                uint16_t srcB = img->data[srcIdx + 2];
-                uint16_t srcA = img->data[srcIdx + 3];
+                uint16_t srcR = srcPixel[0];
+                uint16_t srcG = srcPixel[1];
+                uint16_t srcB = srcPixel[2];
+                uint16_t srcA = srcPixel[3];
 
-                uint16_t dstR = result.data[dstIdx];
-                uint16_t dstG = result.data[dstIdx + 1];
-                uint16_t dstB = result.data[dstIdx + 2];
-                uint16_t dstA = result.data[dstIdx + 3];
+                uint16_t dstR = dstPixel[0];
+                uint16_t dstG = dstPixel[1];
+                uint16_t dstB = dstPixel[2];
+                uint16_t dstA = dstPixel[3];
 
                 // プリマルチプライド合成: src over dst
                 // out_rgb = src_rgb + dst_rgb * (1 - src_a)
@@ -151,10 +158,10 @@ Image16 ImageProcessor::mergeImages16(const std::vector<const Image16*>& images)
                 uint16_t invSrcA = 65535 - srcA;
 
                 // 乗算と16bitシフトで高速計算（除算なし）
-                result.data[dstIdx]     = srcR + ((dstR * invSrcA) >> 16);
-                result.data[dstIdx + 1] = srcG + ((dstG * invSrcA) >> 16);
-                result.data[dstIdx + 2] = srcB + ((dstB * invSrcA) >> 16);
-                result.data[dstIdx + 3] = srcA + ((dstA * invSrcA) >> 16);
+                dstPixel[0] = srcR + ((dstR * invSrcA) >> 16);
+                dstPixel[1] = srcG + ((dstG * invSrcA) >> 16);
+                dstPixel[2] = srcB + ((dstB * invSrcA) >> 16);
+                dstPixel[3] = srcA + ((dstA * invSrcA) >> 16);
             }
         }
     }
@@ -162,10 +169,10 @@ Image16 ImageProcessor::mergeImages16(const std::vector<const Image16*>& images)
     return result;
 }
 
-// 行列ベース + 固定小数点アフィン変換（16bit版）
-Image16 ImageProcessor::applyTransformToImage16(const Image16& input, const AffineMatrix& matrix, double alpha) const {
-    Image16 output(canvasWidth, canvasHeight);
-    std::fill(output.data.begin(), output.data.end(), 0);
+// 行列ベース + 固定小数点アフィン変換（ViewPortベース）
+ViewPort ImageProcessor::applyTransform(const ViewPort& input, const AffineMatrix& matrix, double alpha) const {
+    ViewPort output(canvasWidth, canvasHeight, PixelFormatIDs::RGBA16_Premultiplied);
+    std::memset(output.data, 0, output.getTotalBytes());
 
     // 逆行列を計算（出力→入力の座標変換）
     double det = matrix.a * matrix.d - matrix.b * matrix.c;
@@ -189,11 +196,16 @@ Image16 ImageProcessor::applyTransformToImage16(const Image16& input, const Affi
 
     uint16_t alphaU16 = static_cast<uint16_t>(alpha * 65535);
 
+    // 入力データへのポインタ取得
+    const uint16_t* inputData = static_cast<const uint16_t*>(input.data);
+
     // 出力画像の各ピクセルをスキャン
     for (int dy = 0; dy < canvasHeight; dy++) {
         // 行の開始座標を固定小数点で計算
         int32_t srcX_fixed = static_cast<int32_t>((invA * 0 + invB * dy + invTx) * 65536);
         int32_t srcY_fixed = static_cast<int32_t>((invC * 0 + invD * dy + invTy) * 65536);
+
+        uint16_t* dstRow = output.getPixelPtr<uint16_t>(0, dy);
 
         for (int dx = 0; dx < canvasWidth; dx++) {
             // 固定小数点から整数座標を抽出（上位16bit）
@@ -202,14 +214,14 @@ Image16 ImageProcessor::applyTransformToImage16(const Image16& input, const Affi
 
             // 範囲チェック
             if (sx >= 0 && sx < input.width && sy >= 0 && sy < input.height) {
-                int srcIdx = (sy * input.width + sx) * 4;
-                int dstIdx = (dy * canvasWidth + dx) * 4;
+                const uint16_t* srcPixel = input.getPixelPtr<uint16_t>(sx, sy);
+                uint16_t* dstPixel = &dstRow[dx * 4];
 
                 // プリマルチプライド済みなので、alphaを乗算するだけ
-                output.data[dstIdx]     = (input.data[srcIdx]     * alphaU16) >> 16;
-                output.data[dstIdx + 1] = (input.data[srcIdx + 1] * alphaU16) >> 16;
-                output.data[dstIdx + 2] = (input.data[srcIdx + 2] * alphaU16) >> 16;
-                output.data[dstIdx + 3] = (input.data[srcIdx + 3] * alphaU16) >> 16;
+                dstPixel[0] = (srcPixel[0] * alphaU16) >> 16;
+                dstPixel[1] = (srcPixel[1] * alphaU16) >> 16;
+                dstPixel[2] = (srcPixel[2] * alphaU16) >> 16;
+                dstPixel[3] = (srcPixel[3] * alphaU16) >> 16;
             }
 
             // DDAアルゴリズム: 座標増分を加算（除算なし）
@@ -221,22 +233,22 @@ Image16 ImageProcessor::applyTransformToImage16(const Image16& input, const Affi
     return output;
 }
 
-// 16bit版フィルタ処理（ファクトリパターン）
-Image16 ImageProcessor::applyFilterToImage16(const Image16& input, const std::string& filterType, float param) const {
-    std::unique_ptr<ImageFilter16> filter;
+// ViewPortベースフィルタ処理（ファクトリパターン）
+ViewPort ImageProcessor::applyFilter(const ViewPort& input, const std::string& filterType, float param) const {
+    std::unique_ptr<ImageFilter> filter;
 
     // フィルタクラスの生成（文字列→クラスのマッピング）
     if (filterType == "brightness") {
         BrightnessFilterParams params(param);
-        filter = std::make_unique<BrightnessFilter16>(params);
+        filter = std::make_unique<BrightnessFilter>(params);
     }
     else if (filterType == "grayscale") {
         GrayscaleFilterParams params;
-        filter = std::make_unique<GrayscaleFilter16>(params);
+        filter = std::make_unique<GrayscaleFilter>(params);
     }
     else if (filterType == "blur") {
         BoxBlurFilterParams params(static_cast<int>(param));
-        filter = std::make_unique<BoxBlurFilter16>(params);
+        filter = std::make_unique<BoxBlurFilter>(params);
     }
 
     // フィルタを適用
@@ -245,22 +257,22 @@ Image16 ImageProcessor::applyFilterToImage16(const Image16& input, const std::st
     }
 
     // 未知のフィルタタイプの場合は入力をそのまま返す
-    return input;
+    return ViewPort(input);
 }
 
-// ピクセルフォーマット変換（Phase 3）
-Image16 ImageProcessor::convertPixelFormat(const Image16& input, PixelFormatID targetFormat) const {
+// ピクセルフォーマット変換
+ViewPort ImageProcessor::convertPixelFormat(const ViewPort& input, PixelFormatID targetFormat) const {
     // 同じフォーマットの場合は変換不要
     if (input.formatID == targetFormat) {
-        return input;
+        return ViewPort(input);
     }
 
     // レジストリから変換を実行
-    Image16 output(input.width, input.height, targetFormat);
+    ViewPort output(input.width, input.height, targetFormat);
 
     PixelFormatRegistry::getInstance().convert(
-        input.data.data(), input.formatID,
-        output.data.data(), targetFormat,
+        input.data, input.formatID,
+        output.data, targetFormat,
         input.width * input.height
     );
 

@@ -5,82 +5,104 @@
 namespace ImageTransform {
 
 // ========================================================================
-// フィルタ実装
+// フィルタ実装（ViewPortベース）
 // ========================================================================
 
-// 明るさ調整フィルタ（Phase 3: Straight形式で処理）
-Image16 BrightnessFilter16::apply(const Image16& input) const {
-    // ★Phase 3修正: 入力が要求形式でない場合は変換
-    Image16 working = input;
+// 明るさ調整フィルタ（Straight形式で処理）
+ViewPort BrightnessFilter::apply(const ViewPort& input) const {
+    // 入力が要求形式でない場合は変換
+    ViewPort working;
     if (input.formatID != PixelFormatIDs::RGBA16_Straight) {
+        working = ViewPort(input.width, input.height, PixelFormatIDs::RGBA16_Straight);
         PixelFormatRegistry::getInstance().convert(
-            input.data.data(), input.formatID,
-            working.data.data(), PixelFormatIDs::RGBA16_Straight,
+            input.data, input.formatID,
+            working.data, PixelFormatIDs::RGBA16_Straight,
             input.width * input.height
         );
-        working.formatID = PixelFormatIDs::RGBA16_Straight;
+    } else {
+        // 入力が既にStraight形式の場合、そのまま参照（コピー不要）
+        working = ViewPort(input);
     }
 
-    // ★ストレート形式での処理（数学的に正しい）
-    Image16 output(working.width, working.height, PixelFormatIDs::RGBA16_Straight);
+    // ストレート形式での処理（数学的に正しい）
+    ViewPort output(working.width, working.height, PixelFormatIDs::RGBA16_Straight);
     int adjustment = static_cast<int>(params_.brightness * 65535.0f);
 
-    for (size_t i = 0; i < working.data.size(); i += 4) {
-        // RGB各チャンネルに明るさ調整を適用（ストレート形式なので直接加算）
-        for (int c = 0; c < 3; c++) {
-            int value = static_cast<int>(working.data[i + c]) + adjustment;
-            output.data[i + c] = static_cast<uint16_t>(std::max(0, std::min(65535, value)));
+    for (int y = 0; y < working.height; y++) {
+        const uint16_t* srcRow = working.getPixelPtr<uint16_t>(0, y);
+        uint16_t* dstRow = output.getPixelPtr<uint16_t>(0, y);
+
+        for (int x = 0; x < working.width; x++) {
+            int pixelOffset = x * 4;
+            // RGB各チャンネルに明るさ調整を適用（ストレート形式なので直接加算）
+            for (int c = 0; c < 3; c++) {
+                int value = static_cast<int>(srcRow[pixelOffset + c]) + adjustment;
+                dstRow[pixelOffset + c] = static_cast<uint16_t>(std::max(0, std::min(65535, value)));
+            }
+            // Alphaはそのままコピー
+            dstRow[pixelOffset + 3] = srcRow[pixelOffset + 3];
         }
-        // Alphaはそのままコピー
-        output.data[i + 3] = working.data[i + 3];
     }
 
     return output;
 }
 
-// グレースケールフィルタ（Phase 3: Straight形式で処理）
-Image16 GrayscaleFilter16::apply(const Image16& input) const {
-    // ★Phase 3修正: 入力が要求形式でない場合は変換
-    Image16 working = input;
+// グレースケールフィルタ（Straight形式で処理）
+ViewPort GrayscaleFilter::apply(const ViewPort& input) const {
+    // 入力が要求形式でない場合は変換
+    ViewPort working;
     if (input.formatID != PixelFormatIDs::RGBA16_Straight) {
+        working = ViewPort(input.width, input.height, PixelFormatIDs::RGBA16_Straight);
         PixelFormatRegistry::getInstance().convert(
-            input.data.data(), input.formatID,
-            working.data.data(), PixelFormatIDs::RGBA16_Straight,
+            input.data, input.formatID,
+            working.data, PixelFormatIDs::RGBA16_Straight,
             input.width * input.height
         );
-        working.formatID = PixelFormatIDs::RGBA16_Straight;
+    } else {
+        // 入力が既にStraight形式の場合、そのまま参照（コピー不要）
+        working = ViewPort(input);
     }
 
-    // ★ストレート形式での処理（数学的に正しい）
-    Image16 output(working.width, working.height, PixelFormatIDs::RGBA16_Straight);
+    // ストレート形式での処理（数学的に正しい）
+    ViewPort output(working.width, working.height, PixelFormatIDs::RGBA16_Straight);
 
-    for (size_t i = 0; i < working.data.size(); i += 4) {
-        // グレースケール変換（平均法、ストレート形式で正しく処理）
-        uint16_t gray = static_cast<uint16_t>(
-            (static_cast<uint32_t>(working.data[i]) +
-             static_cast<uint32_t>(working.data[i + 1]) +
-             static_cast<uint32_t>(working.data[i + 2])) / 3
-        );
-        output.data[i] = gray;       // R
-        output.data[i + 1] = gray;   // G
-        output.data[i + 2] = gray;   // B
-        output.data[i + 3] = working.data[i + 3];  // Alphaはそのままコピー
+    for (int y = 0; y < working.height; y++) {
+        const uint16_t* srcRow = working.getPixelPtr<uint16_t>(0, y);
+        uint16_t* dstRow = output.getPixelPtr<uint16_t>(0, y);
+
+        for (int x = 0; x < working.width; x++) {
+            int pixelOffset = x * 4;
+            // グレースケール変換（平均法、ストレート形式で正しく処理）
+            uint16_t gray = static_cast<uint16_t>(
+                (static_cast<uint32_t>(srcRow[pixelOffset]) +
+                 static_cast<uint32_t>(srcRow[pixelOffset + 1]) +
+                 static_cast<uint32_t>(srcRow[pixelOffset + 2])) / 3
+            );
+            dstRow[pixelOffset] = gray;       // R
+            dstRow[pixelOffset + 1] = gray;   // G
+            dstRow[pixelOffset + 2] = gray;   // B
+            dstRow[pixelOffset + 3] = srcRow[pixelOffset + 3];  // Alphaはそのままコピー
+        }
     }
 
     return output;
 }
 
 // ボックスブラーフィルタ
-Image16 BoxBlurFilter16::apply(const Image16& input) const {
+ViewPort BoxBlurFilter::apply(const ViewPort& input) const {
     int width = input.width;
     int height = input.height;
     int radius = params_.radius;
 
     // 中間バッファ（水平ブラー結果）
-    Image16 temp(width, height);
+    // 入力と同じフォーマットで処理
+    ViewPort temp(width, height, input.formatID);
 
     // パス1: 水平方向のブラー
     for (int y = 0; y < height; y++) {
+        const uint16_t* srcRow = input.getPixelPtr<uint16_t>(0, y);
+        uint16_t* dstRow = temp.getPixelPtr<uint16_t>(0, y);
+
         for (int x = 0; x < width; x++) {
             uint32_t sumR = 0, sumG = 0, sumB = 0, sumA = 0;
             int count = 0;
@@ -89,25 +111,27 @@ Image16 BoxBlurFilter16::apply(const Image16& input) const {
             int xEnd = std::min(width - 1, x + radius);
 
             for (int nx = xStart; nx <= xEnd; nx++) {
-                int idx = (y * width + nx) * 4;
-                sumR += input.data[idx];
-                sumG += input.data[idx + 1];
-                sumB += input.data[idx + 2];
-                sumA += input.data[idx + 3];
+                int pixelOffset = nx * 4;
+                sumR += srcRow[pixelOffset];
+                sumG += srcRow[pixelOffset + 1];
+                sumB += srcRow[pixelOffset + 2];
+                sumA += srcRow[pixelOffset + 3];
                 count++;
             }
 
-            int outIdx = (y * width + x) * 4;
-            temp.data[outIdx] = sumR / count;
-            temp.data[outIdx + 1] = sumG / count;
-            temp.data[outIdx + 2] = sumB / count;
-            temp.data[outIdx + 3] = sumA / count;
+            int outOffset = x * 4;
+            dstRow[outOffset] = sumR / count;
+            dstRow[outOffset + 1] = sumG / count;
+            dstRow[outOffset + 2] = sumB / count;
+            dstRow[outOffset + 3] = sumA / count;
         }
     }
 
     // パス2: 垂直方向のブラー
-    Image16 output(width, height);
+    ViewPort output(width, height, input.formatID);
     for (int y = 0; y < height; y++) {
+        uint16_t* dstRow = output.getPixelPtr<uint16_t>(0, y);
+
         for (int x = 0; x < width; x++) {
             uint32_t sumR = 0, sumG = 0, sumB = 0, sumA = 0;
             int count = 0;
@@ -116,19 +140,20 @@ Image16 BoxBlurFilter16::apply(const Image16& input) const {
             int yEnd = std::min(height - 1, y + radius);
 
             for (int ny = yStart; ny <= yEnd; ny++) {
-                int idx = (ny * width + x) * 4;
-                sumR += temp.data[idx];
-                sumG += temp.data[idx + 1];
-                sumB += temp.data[idx + 2];
-                sumA += temp.data[idx + 3];
+                const uint16_t* tmpRow = temp.getPixelPtr<uint16_t>(0, ny);
+                int pixelOffset = x * 4;
+                sumR += tmpRow[pixelOffset];
+                sumG += tmpRow[pixelOffset + 1];
+                sumB += tmpRow[pixelOffset + 2];
+                sumA += tmpRow[pixelOffset + 3];
                 count++;
             }
 
-            int outIdx = (y * width + x) * 4;
-            output.data[outIdx] = sumR / count;
-            output.data[outIdx + 1] = sumG / count;
-            output.data[outIdx + 2] = sumB / count;
-            output.data[outIdx + 3] = sumA / count;
+            int outOffset = x * 4;
+            dstRow[outOffset] = sumR / count;
+            dstRow[outOffset + 1] = sumG / count;
+            dstRow[outOffset + 2] = sumB / count;
+            dstRow[outOffset + 3] = sumA / count;
         }
     }
 
