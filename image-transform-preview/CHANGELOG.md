@@ -4,6 +4,124 @@
 
 ## [Unreleased] - 2026-01-03
 
+### 🎯 Phase 5B-D: ViewPort完全移行とImage16削除
+
+#### 概要
+Phase 5Aで実装したViewPort統一画像型に、すべての内部処理を移行しました。Image16型を完全に削除し、ViewPortが内部処理の統一画像型として機能するようになりました。
+
+#### Phase 5B: ViewPortベース処理関数の実装
+
+**変更ファイル**:
+- **src/filters.h**: `ImageFilter16` → `ImageFilter` にリネーム
+  - すべてのフィルタクラスがViewPortベースに（`BrightnessFilter`, `GrayscaleFilter`, `BoxBlurFilter`）
+  - `apply(const ViewPort& input)` メソッドで統一
+  - `getPreferredInputFormat()` はViewPort形式に対応
+
+- **src/filters.cpp**: すべてのフィルタ実装をViewPortに移行
+  - `getPixelPtr<uint16_t>()` テンプレートメソッドで型安全なアクセス
+  - PixelFormatRegistryを使用した形式変換
+  - 例: `BrightnessFilter::apply(const ViewPort& input)`
+
+- **src/image_processor.h**: メソッド名を明確化
+  - `toPremultiplied()` → `fromImage()` (8bit → ViewPort変換)
+  - `fromPremultiplied()` → `toImage()` (ViewPort → 8bit変換)
+  - `applyFilterToImage16()` → `applyFilter()` (ViewPortベース)
+  - `applyTransformToImage16()` → `applyTransform()` (ViewPortベース)
+  - `mergeImages16()` → `mergeImages()` (ViewPortベース)
+
+- **src/image_processor.cpp**: すべての処理関数をViewPort実装に
+  - `fromImage()`: 8bit RGBA → ViewPort (16bit Premultiplied) 変換
+  - `toImage()`: ViewPort → 8bit RGBA 変換
+  - `applyFilter()`: ViewPortベースフィルタ処理
+  - `applyTransform()`: ViewPortベースアフィン変換
+  - `mergeImages()`: ViewPortベース画像合成
+  - `convertPixelFormat()`: ViewPort形式間変換
+
+**コミット**: `c9453c2` - Fix: Include image_types.h in node_graph.h for complete type definitions
+
+#### Phase 5C: 既存コードの段階的移行
+
+**変更ファイル**:
+- **src/node_graph.h**:
+  - `#include "image_types.h"` を追加（AffineParams/AffineMatrixの完全な型定義が必要）
+  - 内部キャッシュをViewPortに変更
+    - `std::map<int, Image16> layerPremulCache` → `std::map<int, ViewPort> layerPremulCache`
+    - `std::map<std::string, Image16> nodeResultCache` → `std::map<std::string, ViewPort> nodeResultCache`
+  - `evaluateNode()` の戻り値を `Image16` → `ViewPort` に変更
+  - `getLayerPremultiplied()` の戻り値を `Image16` → `ViewPort` に変更
+
+- **src/node_graph.cpp**: すべてのノード評価をViewPortベースに
+  - `evaluateNode()`: ViewPortを返すように変更
+  - 画像ノード: `processor.fromImage()` でViewPort変換
+  - フィルタノード: `processor.applyFilter()` でViewPort処理
+  - 合成ノード: `processor.mergeImages()` でViewPort合成
+  - アフィン変換ノード: `processor.applyTransform()` でViewPort変換
+  - `evaluateGraph()`: 最後に `processor.toImage()` で8bit変換
+
+- **src/bindings.cpp**: 内部処理をViewPortに統一、JavaScript APIは互換性維持
+  - `toPremultiplied()`: `processor.fromImage()` を使用
+  - `applyFilterToImage()`: `processor.applyFilter()` を使用
+  - `applyTransformToImage()`: `processor.applyTransform()` を使用
+  - `mergeImages()`: `processor.mergeImages()` を使用
+
+**ビルドエラー修正**:
+- 問題: `field has incomplete type 'AffineParams'` エラー
+- 原因: node_graph.hでAffineParams/AffineMatrixが前方宣言のみで完全定義がなかった
+- 解決: `#include "image_types.h"` を追加して完全な型定義を取得
+
+#### Phase 5D: Image16の完全削除
+
+**変更ファイル**:
+- **src/image_types.h**:
+  - `Image16` 構造体を完全削除（約20行削除）
+  - `Image` 構造体は保持（WebAssembly API境界で使用）
+  - AffineParams と AffineMatrix は保持（引き続き使用中）
+
+- **src/viewport.h**:
+  - `Image16` 前方宣言を削除
+  - `fromImage16()` 静的メソッドを削除
+  - `toImage16()` メソッドを削除
+  - コメントを更新（「Image/Image16を統合」→「統一画像型として設計」）
+
+- **src/viewport.cpp**:
+  - `fromImage16()` 実装を削除
+  - `toImage16()` 実装を削除
+  - コメントセクションを「Image からの変換」「Image への変換」に更新
+
+**確認**:
+- `grep -r "Image16"` で残存参照がないことを確認 → ✅ なし
+
+**コミット**: `ee41eb5` - Phase 5D: Remove Image16 type and migration helpers
+
+#### 全体的な成果
+
+**削除されたコード**:
+- Image16構造体: ~20行
+- fromImage16/toImage16実装: ~50行
+- 合計: ~70行の削減
+
+**変更されたコード**:
+- filters.h/cpp: ViewPortベースに完全移行
+- image_processor.h/cpp: ViewPortベースに完全移行
+- node_graph.h/cpp: ViewPortベースに完全移行
+- bindings.cpp: 内部処理をViewPortに統一
+
+**現在の型使用状況**:
+- **Image**: 8bit RGBA、WebAssembly API境界のみで使用
+- **ViewPort**: 内部処理の統一画像型、すべての処理関数で使用
+- **Image16**: ✅ 完全削除
+
+**利点**:
+- ✅ コード重複の完全排除
+- ✅ 型安全性の向上（PixelFormatIDによる実行時検証）
+- ✅ メモリ効率の改善（16バイトアライメント、カスタムアロケータ）
+- ✅ ROI/viewport機能の有効化（ゼロコピーサブ領域処理）
+- ✅ 組込み環境対応（FixedBufferAllocator使用可能）
+
+---
+
+## [Unreleased] - 2026-01-03
+
 ### 🖼️ Phase 5A: ViewPort統一画像型の導入（組込み環境対応）
 
 #### 背景と目的

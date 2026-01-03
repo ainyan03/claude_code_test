@@ -12,8 +12,8 @@
 
 ### 現在のブランチ
 - **mainブランチ**: ✅ 作成済み（安定版の基準ブランチ）
-- **開発ブランチ**: `claude/review-image-transform-preview-dZG9N`（現在のセッションID: dZG9N）
-- **状態**: ViewPort統一画像型実装完了（Phase 5A）、組込み環境対応基盤構築完了
+- **開発ブランチ**: `claude/viewport-type-refactor-WTFwb`（現在のセッションID: WTFwb）
+- **状態**: ViewPort統一画像型への完全移行完了（Phase 5A-D）、Image16削除完了
 
 ### 運用戦略（ハイブリッド方式）
 詳細は [BRANCH_STRATEGY.md](BRANCH_STRATEGY.md) を参照。
@@ -39,7 +39,7 @@
 - [x] **拡張可能ピクセルフォーマットシステム**: Straight/Premultiplied alphaの自動管理
 - [x] **数学的に正確なフィルタ処理**: レビュアー指摘事項の完全解決
 - [x] **Lazy conversionパターン**: 不要な形式変換の最適化
-- [x] **ViewPort統一画像型**: Image/Image16統合、組込み環境対応（Phase 5A）
+- [x] **ViewPort統一画像型**: Image/Image16統合、組込み環境対応（Phase 5A-D完了）
 - [x] **カスタムアロケータ統合**: DefaultAllocator/FixedBufferAllocator対応
 - [x] **ビューポート/ROI機能**: ゼロコピーサブリージョン参照
 - [x] **モジュラーファイル構造**: 関心の分離による保守性向上
@@ -68,30 +68,30 @@
 ### C++コード構造（モジュラー設計）
 ```
 src/
-├── image_types.h              # 基本型定義（Image, Image16【非推奨】, AffineParams等）
+├── image_types.h              # 基本型定義（Image, AffineParams, AffineMatrix等）
 ├── pixel_format.h             # ピクセルフォーマット記述子（Phase 1）
 ├── pixel_format_registry.h/cpp # フォーマットレジストリ（Phase 1）
 ├── image_allocator.h          # メモリ管理インターフェース（Phase 1）
-├── viewport.h/cpp             # ViewPort統一画像型（Phase 5A、Image/Image16統合）
-├── filters.h/cpp              # フィルタクラス群（Phase 3で形式管理追加）
-├── image_processor.h/cpp      # コア画像処理エンジン
-├── node_graph.h/cpp           # ノードグラフ評価エンジン（Phase 4で最適化）
+├── viewport.h/cpp             # ViewPort統一画像型（Phase 5、Image16完全置換）
+├── filters.h/cpp              # フィルタクラス群（ViewPortベース）
+├── image_processor.h/cpp      # コア画像処理エンジン（ViewPortベース）
+├── node_graph.h/cpp           # ノードグラフ評価エンジン（ViewPortベース）
 └── bindings.cpp               # JavaScriptバインディング
 ```
 
 ## 🔄 次のアクション（優先順位順）
 
-### ViewPort統合とImage/Image16移行（現在のフェーズ）
+### ViewPort統合とImage/Image16移行
 1. ~~Phase 1: 基盤システムの実装~~: ✅ 完了（PixelFormatRegistry等）
 2. ~~Phase 2: Image16構造体の拡張~~: ✅ 完了（formatIDフィールド追加）
 3. ~~Phase 3: フィルタの修正~~: ✅ 完了（レビュー指摘事項解決）
 4. ~~Phase 4: ノードグラフ評価の最適化~~: ✅ 完了（自動形式変換）
 5. ~~**Phase 5A: ViewPort統一画像型の実装**~~: ✅ 完了（組込み環境対応基盤構築）
-6. **Phase 5B: ViewPortベース処理関数の実装**: filters.cpp、image_processor.cpp等の移行
-7. **Phase 5C: 既存コードの段階的移行**: node_graph.cpp等でViewPortを使用開始
-8. **Phase 5D: Image/Image16の完全削除**: 移行完了後にレガシー型を削除
+6. ~~**Phase 5B: ViewPortベース処理関数の実装**~~: ✅ 完了（filters、image_processor移行）
+7. ~~**Phase 5C: 既存コードの段階的移行**~~: ✅ 完了（node_graph、bindings移行）
+8. ~~**Phase 5D: Image16の完全削除**~~: ✅ 完了（Image16とヘルパー関数削除）
 
-**レビュアー指摘の問題が完全に解決され、組込み環境対応の基盤が整いました！**
+**✅ ViewPort移行が完全に完了！Image16は削除され、ViewPortが内部処理の統一画像型として機能しています。**
 
 ### 将来の機能拡張（任意）
 - **Phase 6: WebAssemblyバインディングの更新**: API互換性の維持
@@ -135,13 +135,15 @@ src/
 - 各処理関数が両方の型に対応する必要がある
 - std::vectorによるメモリ管理は組込み環境では不適切
 - ROI処理でメモリコピーが発生（非効率）
-**解決策**: ViewPort統一画像型の実装（Phase 5A）
+**解決策**: ViewPort統一画像型の実装（Phase 5A-D）
 - void*ポインタ + PixelFormatIDで任意の形式に対応（型に依存しない設計）
 - ImageAllocatorインターフェースによるカスタムメモリ管理（組込み環境対応）
 - 親子関係によるゼロコピーviewport/ROI機能
 - RAII原則に従った安全なメモリ管理
-**移行戦略**: Image/Image16は非推奨として段階的に移行（Phase 5B-D）
-**ステータス**: ✅ Phase 5A完了（2026-01-03）、Phase 5B-Dで移行継続中
+**移行完了**: Image16は完全削除、内部処理はViewPortに統一
+- Imageは8bit API境界のみで使用（WebAssembly bindings）
+- すべてのフィルタ、画像処理、ノードグラフ評価がViewPortベースに
+**ステータス**: ✅ Phase 5A-D完了（2026-01-03）
 
 ## ⚠️ 既知の問題と制約
 
