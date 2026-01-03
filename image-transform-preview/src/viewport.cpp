@@ -224,6 +224,25 @@ size_t ViewPort::getTotalBytes() const {
 }
 
 // ========================================================================
+// 外部データからの構築
+// ========================================================================
+
+ViewPort ViewPort::fromExternalData(const void* externalData, int w, int h,
+                                     PixelFormatID fmtID,
+                                     ImageAllocator* alloc) {
+    // ViewPortを作成（メモリ自動確保）
+    ViewPort vp(w, h, fmtID, alloc);
+
+    // 外部データからコピー
+    if (externalData) {
+        size_t totalBytes = vp.getTotalBytes();
+        std::memcpy(vp.data, externalData, totalBytes);
+    }
+
+    return vp;
+}
+
+// ========================================================================
 // Image からの変換
 // ========================================================================
 
@@ -231,7 +250,7 @@ ViewPort ViewPort::fromImage(const Image& img) {
     ViewPort vp(img.width, img.height, PixelFormatIDs::RGBA8_Straight);
 
     // データをコピー
-    if (!img.data.empty()) {
+    if (!img.data.empty() && vp.data != nullptr) {
         std::memcpy(vp.data, img.data.data(), img.data.size());
     }
 

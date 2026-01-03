@@ -56,7 +56,7 @@ ViewPort NodeGraphEvaluator::getLayerPremultiplied(int layerId, const AffinePara
     const bool needsTransform = (
         transform.translateX != 0 || transform.translateY != 0 ||
         transform.rotation != 0 || transform.scaleX != 1.0 ||
-        transform.scaleY != 1.0 || transform.alpha != 1.0
+        transform.scaleY != 1.0
     );
 
     if (needsTransform) {
@@ -65,7 +65,7 @@ ViewPort NodeGraphEvaluator::getLayerPremultiplied(int layerId, const AffinePara
         double centerX = originalImg.width / 2.0;
         double centerY = originalImg.height / 2.0;
         AffineMatrix matrix = AffineMatrix::fromParams(transform, centerX, centerY);
-        return processor.applyTransform(premul, matrix, transform.alpha);
+        return processor.applyTransform(premul, matrix);
     }
 
     return premul;
@@ -101,12 +101,12 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
     ViewPort result(canvasWidth, canvasHeight, PixelFormatIDs::RGBA16_Premultiplied);
 
     if (node->type == "image") {
-        // 新形式: imageId + alpha（画像ライブラリ対応）
+        // 新形式: imageId（画像ライブラリ対応）
         if (node->imageId >= 0) {
             auto it = layerImages.find(node->imageId);
             if (it != layerImages.end()) {
-                // premultiplied変換時にalphaを適用
-                result = processor.fromImage(it->second, node->imageAlpha);
+                // premultiplied変換のみ（alphaは独立フィルタノードで調整）
+                result = processor.fromImage(it->second);
             }
         }
         // 旧形式: layerId + transform（後方互換性）
@@ -248,14 +248,14 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
         const AffineParams& p = node->compositeTransform;
         const bool needsTransform = (
             p.translateX != 0 || p.translateY != 0 || p.rotation != 0 ||
-            p.scaleX != 1.0 || p.scaleY != 1.0 || p.alpha != 1.0
+            p.scaleX != 1.0 || p.scaleY != 1.0
         );
 
         if (needsTransform) {
             double centerX = canvasWidth / 2.0;
             double centerY = canvasHeight / 2.0;
             AffineMatrix matrix = AffineMatrix::fromParams(p, centerX, centerY);
-            result = processor.applyTransform(result, matrix, p.alpha);
+            result = processor.applyTransform(result, matrix);
         }
 
     } else if (node->type == "affine") {
@@ -290,8 +290,8 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
                 matrix = AffineMatrix::fromParams(node->affineParams, centerX, centerY);
             }
 
-            // アフィン変換を適用（alpha=1.0、アフィン変換ノード自体はalphaを持たない）
-            result = processor.applyTransform(inputImage, matrix, 1.0);
+            // アフィン変換を適用（アフィン変換ノード自体はalphaを持たない）
+            result = processor.applyTransform(inputImage, matrix);
         }
     }
 

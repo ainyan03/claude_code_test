@@ -3,88 +3,116 @@
 #include <vector>
 #include "image_processor.h"
 #include "node_graph.h"
+#include "viewport.h"
+#include "pixel_format.h"
 
 using namespace emscripten;
 using namespace ImageTransform;
 
+// ========================================================================
+// ViewPort ↔ JavaScript 変換ヘルパー関数
+// ========================================================================
+
+// JavaScript画像オブジェクト（Uint8Array）→ ViewPort（RGBA8_Straight）
+ViewPort viewPortFromJSImage(const val& imageObj) {
+    val inputData = imageObj["data"];
+    int width = imageObj["width"].as<int>();
+    int height = imageObj["height"].as<int>();
+
+    // JavaScriptからデータを一時バッファにコピー
+    std::vector<uint8_t> buffer(width * height * 4);
+    unsigned int length = inputData["length"].as<unsigned int>();
+    for (unsigned int i = 0; i < length; i++) {
+        buffer[i] = inputData[i].as<uint8_t>();
+    }
+
+    // 外部データからViewPortを構築
+    return ViewPort::fromExternalData(buffer.data(), width, height,
+                                       PixelFormatIDs::RGBA8_Straight);
+}
+
+// ViewPort → JavaScript画像オブジェクト（Uint8ClampedArray）
+val viewPortToJSImage(const ViewPort& vp) {
+    // RGBA8形式に変換が必要な場合を考慮
+    ViewPort output = vp;
+    if (vp.formatID != PixelFormatIDs::RGBA8_Straight &&
+        vp.formatID != PixelFormatIDs::RGBA8_Premultiplied) {
+        // TODO: PixelFormatRegistryを使用した変換
+        // とりあえず、RGBA8系を仮定
+    }
+
+    // strideを考慮して行ごとにコピー
+    std::vector<uint8_t> buffer(output.width * output.height * 4);
+    for (int y = 0; y < output.height; y++) {
+        const uint8_t* srcRow = output.getPixelPtr<uint8_t>(0, y);
+        uint8_t* dstRow = &buffer[y * output.width * 4];
+        std::memcpy(dstRow, srcRow, output.width * 4);
+    }
+
+    val uint8Array = val::global("Uint8ClampedArray").new_(
+        typed_memory_view(buffer.size(), buffer.data())
+    );
+
+    val resultObj = val::object();
+    resultObj.set("data", uint8Array);
+    resultObj.set("width", output.width);
+    resultObj.set("height", output.height);
+
+    return resultObj;
+}
+
+// ========================================================================
 // JavaScriptからアクセスしやすいラッパークラス
+// ========================================================================
 class ImageProcessorWrapper {
 public:
     ImageProcessorWrapper(int width, int height)
         : processor(width, height) {}
 
-    // ノードグラフ用の単体処理関数（内部的には16bit処理を使用）
+    // ノードグラフ用の単体処理関数（ViewPort直接使用）
     val applyFilterToImage(const val& inputImageObj, const std::string& filterType, float param) {
-        // JavaScript画像オブジェクトからC++のImageに変換
-        val inputData = inputImageObj["data"];
-        int width = inputImageObj["width"].as<int>();
-        int height = inputImageObj["height"].as<int>();
+        // JavaScript → ViewPort (RGBA8_Straight)
+        ViewPort inputVP = viewPortFromJSImage(inputImageObj);
 
-        Image input(width, height);
-        unsigned int length = inputData["length"].as<unsigned int>();
-        for (unsigned int i = 0; i < length; i++) {
-            input.data[i] = inputData[i].as<uint8_t>();
-        }
+        // RGBA8 → RGBA16形式変換してフィルタ処理
+        ViewPort inputVP16 = processor.convertPixelFormat(inputVP, PixelFormatIDs::RGBA16_Straight);
+        ViewPort resultVP16 = processor.applyFilter(inputVP16, filterType, param);
+        ViewPort resultVP = processor.convertPixelFormat(resultVP16, PixelFormatIDs::RGBA8_Straight);
 
-        // 8bit → ViewPort変換 → フィルタ適用 → 8bit変換
-        ViewPort inputVP = processor.fromImage(input);
-        ViewPort resultVP = processor.applyFilter(inputVP, filterType, param);
-        Image result = processor.toImage(resultVP);
-
-        // 結果をJavaScriptオブジェクトに変換
-        val uint8Array = val::global("Uint8ClampedArray").new_(
-            typed_memory_view(result.data.size(), result.data.data())
-        );
-
-        val resultObj = val::object();
-        resultObj.set("data", uint8Array);
-        resultObj.set("width", result.width);
-        resultObj.set("height", result.height);
-
-        return resultObj;
+        // ViewPort → JavaScript
+        return viewPortToJSImage(resultVP);
     }
 
     val applyTransformToImage(const val& inputImageObj, double tx, double ty,
                              double rotation, double scaleX, double scaleY, double alpha) {
-        // JavaScript画像オブジェクトからC++のImageに変換
-        val inputData = inputImageObj["data"];
-        int width = inputImageObj["width"].as<int>();
-        int height = inputImageObj["height"].as<int>();
+        // JavaScript → ViewPort (RGBA8_Straight)
+        ViewPort inputVP = viewPortFromJSImage(inputImageObj);
+        int width = inputVP.width;
+        int height = inputVP.height;
 
-        Image input(width, height);
-        unsigned int length = inputData["length"].as<unsigned int>();
-        for (unsigned int i = 0; i < length; i++) {
-            input.data[i] = inputData[i].as<uint8_t>();
-        }
-
-        // 変換パラメータ設定
+        // 変換パラメータ設定（alpha除外）
         AffineParams params;
         params.translateX = tx;
         params.translateY = ty;
         params.rotation = rotation;
         params.scaleX = scaleX;
         params.scaleY = scaleY;
-        params.alpha = alpha;
 
-        // 8bit → ViewPort変換 → アフィン変換適用 → 8bit変換
-        ViewPort inputVP = processor.fromImage(input);
+        // RGBA8 → RGBA16 Premultiplied変換
+        ViewPort inputVP16 = processor.convertPixelFormat(inputVP, PixelFormatIDs::RGBA16_Premultiplied);
+
+        // アフィン変換を適用
         double centerX = width / 2.0;
         double centerY = height / 2.0;
         AffineMatrix matrix = AffineMatrix::fromParams(params, centerX, centerY);
-        ViewPort resultVP = processor.applyTransform(inputVP, matrix, alpha);
-        Image result = processor.toImage(resultVP);
+        ViewPort transformed = processor.applyTransform(inputVP16, matrix);
 
-        // 結果をJavaScriptオブジェクトに変換
-        val uint8Array = val::global("Uint8ClampedArray").new_(
-            typed_memory_view(result.data.size(), result.data.data())
-        );
+        // アルファ調整を適用（alphaフィルタ使用）
+        ViewPort resultVP16 = processor.applyFilter(transformed, "alpha", static_cast<float>(alpha));
+        ViewPort resultVP = processor.convertPixelFormat(resultVP16, PixelFormatIDs::RGBA8_Straight);
 
-        val resultObj = val::object();
-        resultObj.set("data", uint8Array);
-        resultObj.set("width", result.width);
-        resultObj.set("height", result.height);
-
-        return resultObj;
+        // ViewPort → JavaScript
+        return viewPortToJSImage(resultVP);
     }
 
     val mergeImages(const val& imagesArray, const val& alphasArray) {
@@ -114,7 +142,8 @@ public:
 
             // 8bit → ViewPort変換（アルファ値を適用）
             double alpha = i < alphas.size() ? alphas[i] : 1.0;
-            ViewPort vp = processor.fromImage(img, alpha);
+            ViewPort temp = processor.fromImage(img);
+            ViewPort vp = processor.applyFilter(temp, "alpha", static_cast<float>(alpha));
             viewports.push_back(std::move(vp));
         }
 
@@ -156,7 +185,8 @@ public:
             input.data[i] = inputData[i].as<uint8_t>();
         }
 
-        ViewPort result = processor.fromImage(input, alpha);
+        ViewPort temp = processor.fromImage(input);
+        ViewPort result = processor.applyFilter(temp, "alpha", static_cast<float>(alpha));
 
         // Uint16Arrayとして返す（ViewPortの内部データをuint16_tとして公開）
         uint16_t* resultData = static_cast<uint16_t*>(result.data);
@@ -251,7 +281,8 @@ public:
         matrix.tx = tx;
         matrix.ty = ty;
 
-        ViewPort result = processor.applyTransform(input, matrix, alpha);
+        ViewPort transformed = processor.applyTransform(input, matrix);
+        ViewPort result = processor.applyFilter(transformed, "alpha", static_cast<float>(alpha));
 
         uint16_t* resultData = static_cast<uint16_t*>(result.data);
         int pixelCount = result.width * result.height * 4;
@@ -372,12 +403,9 @@ public:
 
             // image用パラメータ
             if (node.type == "image") {
-                // 新形式: imageId + alpha（画像ライブラリ対応）
+                // 新形式: imageId（画像ライブラリ対応）
                 if (nodeObj["imageId"].typeOf().as<std::string>() != "undefined") {
                     node.imageId = nodeObj["imageId"].as<int>();
-                    node.imageAlpha = nodeObj["alpha"].typeOf().as<std::string>() != "undefined"
-                        ? nodeObj["alpha"].as<double>()
-                        : 1.0;
                 }
                 // 旧形式: layerId + params（後方互換性）
                 else if (nodeObj["layerId"].typeOf().as<std::string>() != "undefined") {
@@ -390,7 +418,6 @@ public:
                         node.transform.rotation = params["rotation"].as<double>();
                         node.transform.scaleX = params["scaleX"].as<double>();
                         node.transform.scaleY = params["scaleY"].as<double>();
-                        node.transform.alpha = params["alpha"].as<double>();
                     }
                 }
             }
@@ -438,7 +465,6 @@ public:
                     node.compositeTransform.rotation = affine["rotation"].as<double>() * M_PI / 180.0;
                     node.compositeTransform.scaleX = affine["scaleX"].as<double>();
                     node.compositeTransform.scaleY = affine["scaleY"].as<double>();
-                    node.compositeTransform.alpha = affine["alpha"].as<double>();
                 }
             }
 
@@ -461,7 +487,6 @@ public:
                         ? nodeObj["scaleX"].as<double>() : 1.0;
                     node.affineParams.scaleY = nodeObj["scaleY"].typeOf().as<std::string>() != "undefined"
                         ? nodeObj["scaleY"].as<double>() : 1.0;
-                    node.affineParams.alpha = 1.0;  // アフィン変換ノード自体はalphaを持たない
                 } else {
                     // 行列モード
                     if (nodeObj["matrix"].typeOf().as<std::string>() != "undefined") {

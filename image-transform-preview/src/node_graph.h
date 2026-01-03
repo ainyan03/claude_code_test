@@ -33,9 +33,8 @@ struct GraphNode {
     std::string type;  // "image", "filter", "composite", "affine", "output"
     std::string id;
 
-    // image用（新形式: imageId + alpha）
+    // image用（新形式: imageId）
     int imageId;       // 画像ライブラリのID
-    double imageAlpha; // 画像ノードのアルファ値
 
     // image用（旧形式: 後方互換性のため保持）
     int layerId;
@@ -61,7 +60,7 @@ struct GraphNode {
     AffineParams affineParams; // パラメータモード用
     AffineMatrix affineMatrix; // 行列モード用
 
-    GraphNode() : imageId(-1), imageAlpha(1.0),
+    GraphNode() : imageId(-1),
                   layerId(-1), filterParam(0.0f), independent(false),
                   filterLayerId(-1), filterIndex(-1), alpha1(1.0), alpha2(1.0),
                   matrixMode(false) {}

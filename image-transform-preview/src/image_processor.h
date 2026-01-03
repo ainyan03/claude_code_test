@@ -20,11 +20,11 @@ public:
 
     // コア画像処理関数（ViewPortベース）
     ViewPort applyFilter(const ViewPort& input, const std::string& filterType, float param = 0.0f) const;
-    ViewPort applyTransform(const ViewPort& input, const AffineMatrix& matrix, double alpha = 1.0) const;
+    ViewPort applyTransform(const ViewPort& input, const AffineMatrix& matrix) const;
     ViewPort mergeImages(const std::vector<const ViewPort*>& images) const;
 
-    // 8bit Image ↔ ViewPort 変換（入出力用）
-    ViewPort fromImage(const Image& input, double alpha = 1.0) const;
+    // 8bit Image ↔ ViewPort 変換（入出力用、純粋な型変換）
+    ViewPort fromImage(const Image& input) const;
     Image toImage(const ViewPort& input) const;
 
     // ピクセルフォーマット変換

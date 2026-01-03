@@ -160,4 +160,41 @@ ViewPort BoxBlurFilter::apply(const ViewPort& input) const {
     return output;
 }
 
+// アルファ調整フィルタ（Premultiplied形式で処理）
+ViewPort AlphaFilter::apply(const ViewPort& input) const {
+    // 入力が要求形式でない場合は変換
+    ViewPort working;
+    if (input.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
+        working = ViewPort(input.width, input.height, PixelFormatIDs::RGBA16_Premultiplied);
+        PixelFormatRegistry::getInstance().convert(
+            input.data, input.formatID,
+            working.data, PixelFormatIDs::RGBA16_Premultiplied,
+            input.width * input.height
+        );
+    } else {
+        working = ViewPort(input);
+    }
+
+    // Premultiplied形式での処理
+    // RGB値もアルファに応じてスケールされるため、すべてのチャンネルに乗算を適用
+    ViewPort output(working.width, working.height, PixelFormatIDs::RGBA16_Premultiplied);
+    uint32_t alphaScale = static_cast<uint32_t>(params_.alpha * 65536.0f);  // 16.16固定小数点
+
+    for (int y = 0; y < working.height; y++) {
+        const uint16_t* srcRow = working.getPixelPtr<uint16_t>(0, y);
+        uint16_t* dstRow = output.getPixelPtr<uint16_t>(0, y);
+
+        for (int x = 0; x < working.width; x++) {
+            int pixelOffset = x * 4;
+            // RGBA全チャンネルにアルファ乗算を適用（Premultiplied形式）
+            for (int c = 0; c < 4; c++) {
+                uint32_t value = srcRow[pixelOffset + c];
+                dstRow[pixelOffset + c] = static_cast<uint16_t>((value * alphaScale) >> 16);
+            }
+        }
+    }
+
+    return output;
+}
+
 } // namespace ImageTransform

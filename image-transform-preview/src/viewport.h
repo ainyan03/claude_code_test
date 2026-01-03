@@ -154,6 +154,20 @@ struct ViewPort {
     bool isValid() const { return data != nullptr && width > 0 && height > 0; }
 
     // ========================================================================
+    // 外部データからの構築
+    // ========================================================================
+
+    // 外部データからViewPortを構築（データをコピー）
+    // externalData: コピー元のデータポインタ
+    // w, h: 画像サイズ（ピクセル）
+    // fmtID: ピクセルフォーマット
+    // alloc: メモリアロケータ（デフォルトはDefaultAllocator）
+    // 戻り値: 新しいViewPort（externalDataをコピーして所有）
+    static ViewPort fromExternalData(const void* externalData, int w, int h,
+                                      PixelFormatID fmtID,
+                                      ImageAllocator* alloc = &DefaultAllocator::getInstance());
+
+    // ========================================================================
     // Image からの変換（移行用ヘルパー）
     // ========================================================================
 
