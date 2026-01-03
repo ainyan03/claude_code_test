@@ -12,8 +12,8 @@
 
 ### 現在のブランチ
 - **mainブランチ**: ✅ 作成済み（安定版の基準ブランチ）
-- **開発ブランチ**: `claude/main-7sfw5`（現在のセッションID: 7sfw5）
-- **状態**: ノードグラフ実装完了、ドキュメント整備完了、本番運用可能
+- **開発ブランチ**: `claude/review-image-transform-preview-dZG9N`（現在のセッションID: dZG9N）
+- **状態**: 拡張可能ピクセルフォーマットシステム実装完了、レビュー指摘事項解決済み
 
 ### 運用戦略（ハイブリッド方式）
 詳細は [BRANCH_STRATEGY.md](BRANCH_STRATEGY.md) を参照。
@@ -36,7 +36,9 @@
 - [x] C++ NodeGraphEvaluator の実装
 - [x] トポロジカルソートによる依存関係解決
 - [x] メモ化による重複計算回避
-- [x] **16bit専用アーキテクチャ**: すべてのフィルタ処理を16bit premultiplied alphaで統一
+- [x] **拡張可能ピクセルフォーマットシステム**: Straight/Premultiplied alphaの自動管理
+- [x] **数学的に正確なフィルタ処理**: レビュアー指摘事項の完全解決
+- [x] **Lazy conversionパターン**: 不要な形式変換の最適化
 - [x] **モジュラーファイル構造**: 関心の分離による保守性向上
 
 ### UI/UX
@@ -63,27 +65,33 @@
 ### C++コード構造（モジュラー設計）
 ```
 src/
-├── image_types.h          # 基本型定義
-├── filters.h/cpp          # フィルタクラス群
-├── image_processor.h/cpp  # コア画像処理エンジン
-├── node_graph.h/cpp       # ノードグラフ評価エンジン
-└── bindings.cpp           # JavaScriptバインディング
+├── image_types.h              # 基本型定義（Image, Image16, AffineParams等）
+├── pixel_format.h             # ピクセルフォーマット記述子（Phase 1）
+├── pixel_format_registry.h/cpp # フォーマットレジストリ（Phase 1）
+├── image_allocator.h          # メモリ管理インターフェース（Phase 1）
+├── filters.h/cpp              # フィルタクラス群（Phase 3で形式管理追加）
+├── image_processor.h/cpp      # コア画像処理エンジン
+├── node_graph.h/cpp           # ノードグラフ評価エンジン（Phase 4で最適化）
+└── bindings.cpp               # JavaScriptバインディング
 ```
 
 ## 🔄 次のアクション（優先順位順）
 
-### セットアップ完了！
-1. ~~mainブランチの作成~~: ✅ 完了（GitHub Web UIで作成）
-2. ~~デプロイ設定の修正~~: ✅ 完了（`main` と `claude/*` の両方を対象に設定）
-3. ~~ブランチ戦略の文書化~~: ✅ 完了（`BRANCH_STRATEGY.md` を作成）
-4. ~~セッション継続性の確保~~: ✅ 完了（全ドキュメント整備済み）
+### ピクセルフォーマットシステム完了！
+1. ~~Phase 1: 基盤システムの実装~~: ✅ 完了（PixelFormatRegistry等）
+2. ~~Phase 2: Image16構造体の拡張~~: ✅ 完了（formatIDフィールド追加）
+3. ~~Phase 3: フィルタの修正~~: ✅ 完了（レビュー指摘事項解決）
+4. ~~Phase 4: ノードグラフ評価の最適化~~: ✅ 完了（自動形式変換）
 
-**プロジェクトは本番運用可能な状態です！**
+**レビュアー指摘の問題が完全に解決されました！**
 
 ### 将来の機能拡張（任意）
+- **Phase 5: WebAssemblyバインディングの更新**: API互換性の維持
+- **Phase 6: 新フォーマットの実装**: RGB565、RGB332、インデックスカラー等
+- **Phase 7: 非推奨コードの削除**: レガシーPixelFormat enumの整理
 - **追加ノードタイプ**: トリミング、色調補正、その他のフィルタなど
 - **ノードグラフの保存/読み込み**: JSON形式でのパイプライン保存機能
-- **ユニットテスト**: NodeGraphEvaluator のテストケース追加
+- **ユニットテスト**: PixelFormatRegistry、フィルタ処理のテストケース追加
 - **モバイルUI最適化**: タッチ操作のさらなる改善
 
 ## 📦 ビルド成果物
@@ -103,11 +111,22 @@ src/
 - **ビルドツール**: GitHub Actions + Emscripten
 - **デプロイ時間**: 約3-5分（Emscriptenビルド含む）
 
+## 🎯 最近解決した問題
+
+### レビュアー指摘事項: プリマルチプライドアルファの不適切な使用
+**問題**: ブライトネスやグレースケールフィルタがプリマルチプライドアルファデータに直接作用していた
+**影響**: 数学的に不正確な結果（明るさ調整の誤差、グレースケール変換の暗化）
+**解決策**: 拡張可能ピクセルフォーマットシステムの実装（Phase 1-4）
+- フィルタはStraight alpha形式で処理（数学的に正確）
+- 合成/変換はPremultiplied alpha形式で処理（ブレンディングに最適）
+- 自動形式変換によりフィルタチェーン全体を最適化
+**ステータス**: ✅ 完全解決（2026-01-03）
+
 ## ⚠️ 既知の問題と制約
 
 ### ブランチ管理の制約と解決策
-1. **ブランチ名制約**: このリポジトリでは `claude/` で始まり、セッションID `7sfw5` で終わるブランチ名のみpush可能
-   - ✅ 可能: `claude/main-7sfw5`, `claude/feature-xyz-7sfw5`
+1. **ブランチ名制約**: このリポジトリでは `claude/` で始まり、現在のセッションIDで終わるブランチ名のみpush可能
+   - ✅ 可能（現在のセッション）: `claude/review-image-transform-preview-dZG9N`
    - ❌ 不可（403エラー）: `main`, `claude/main`
    - ✅ **解決済み**: GitHub Web UIで `main` ブランチを作成（UI経由の操作は制約を受けない）
 

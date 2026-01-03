@@ -4,6 +4,125 @@
 
 ## [Unreleased] - 2026-01-03
 
+### 🎨 拡張可能ピクセルフォーマットシステムの実装（4フェーズ）
+
+#### 背景と問題
+レビュアーから「ブライトネスやグレースケールフィルタをプリマルチプライドアルファデータに直接適用するのは数学的に不適切」という指摘を受けました。この問題を解決するため、拡張可能なピクセルフォーマットシステムを段階的に実装しました。
+
+#### フェーズ1: 基盤システムの実装
+**新規ファイル**:
+- `src/pixel_format.h`: ピクセルフォーマット記述子の定義
+  - `PixelFormatID`: フォーマット識別子（uint32_t）
+  - `PixelFormatDescriptor`: ビット配置、エンディアン、チャンネル情報を記述
+  - ビットパック形式対応（1,2,3,4 bits/pixel）
+  - インデックスカラー/パレット対応
+  - 可変ピクセル/ユニット比率（例: 3bpp = 8ピクセル/3バイト）
+- `src/pixel_format_registry.h/cpp`: フォーマット管理とレジストリパターン
+  - シングルトンレジストリでフォーマットを一元管理
+  - 組み込み形式: `RGBA16_Straight`, `RGBA16_Premultiplied`
+  - 形式間変換関数の提供
+  - ユーザー定義形式の登録サポート
+- `src/image_allocator.h`: 組み込み環境対応のメモリ管理
+  - `ImageAllocator` インターフェース
+  - `DefaultAllocator` (malloc/free)
+  - `FixedBufferAllocator` (静的バッファ)
+
+**設計の特徴**:
+- 将来のRGB565、RGB332、インデックスカラー等に対応可能
+- Lazy conversion パターン（必要な時のみ変換）
+- 後方互換性を維持（既存コードは変更不要）
+
+**コミット**: `c04781f` - Phase 1: Add extensible pixel format system foundation
+
+#### フェーズ2: Image16構造体の拡張
+**変更ファイル**:
+- `src/image_types.h`: Image16構造体の拡張
+  - `formatID` フィールドを追加（新形式システム）
+  - レガシー `PixelFormat` 列挙型を維持（後方互換性）
+  - オーバーロードされたコンストラクタ
+    - `Image16(int w, int h, PixelFormat fmt)` - 旧API
+    - `Image16(int w, int h, PixelFormatID fmtID)` - 新API
+  - デフォルトは `RGBA16_Premultiplied` 形式
+
+**後方互換性**:
+- 既存コードは一切変更せずにコンパイル可能
+- 新旧両方のAPIが共存
+
+**コミット**: `e1a05eb` - Phase 2: Extend Image16 with new format system (backward compatible)
+
+#### フェーズ3: フィルタの修正（コア問題の解決）
+**変更ファイル**:
+- `src/filters.h`: `ImageFilter16` 基底クラスの拡張
+  - `getPreferredInputFormat()`: フィルタが要求する入力形式を宣言
+  - `getOutputFormat()`: フィルタの出力形式を宣言
+- `src/filters.cpp`: **重要な修正** - レビュー指摘への対応
+  - `BrightnessFilter16`: Straight形式で処理（数学的に正確）
+    - RGB値に直接加算（プリマルチプライド形式では誤り）
+    - オーバーフロー/アンダーフローを適切に処理
+  - `GrayscaleFilter16`: Straight形式で処理
+    - RGB値の平均を計算（プリマルチプライド形式では暗くなる）
+  - 自動形式変換: 入力が異なる形式の場合、フィルタ内で変換
+- `src/image_processor.h/cpp`: `convertPixelFormat()` メソッド追加
+  - レジストリを使用した形式間変換
+  - 同一形式の場合は変換をスキップ（最適化）
+
+**数学的正確性の例**:
+```
+問題のケース（旧実装）:
+- ピクセル: RGB(200, 200, 200), A(128/255)
+- プリマルチプライド: RGB(100, 100, 100), A(128)
+- ブライトネス+50を適用 → RGB(150, 150, 150) ✗ 誤り
+- 正しい結果: RGB(250, 250, 250) ✓
+
+修正後（新実装）:
+- Straight形式に変換: RGB(200, 200, 200), A(128)
+- ブライトネス+50を適用: RGB(250, 250, 250), A(128)
+- 必要に応じてPremultipliedに変換 ✓ 正確
+```
+
+**コミット**: `614cbdf` - Phase 3: Fix premultiplied alpha filter processing (CRITICAL FIX)
+
+#### フェーズ4: ノードグラフ評価の最適化
+**変更ファイル**:
+- `src/node_graph.cpp`: ノード境界での自動形式変換
+  - **合成ノード**: Premultiplied形式が必須（ブレンディングの数学）
+    - 新形式動的入力（3箇所）
+    - 旧形式互換入力（input1, input2）
+  - **アフィン変換ノード**: Premultiplied形式が適切（エッジブレンディング）
+  - 各ノードで入力形式をチェックし、必要に応じて自動変換
+
+**データフロー（最適化）**:
+```
+imageノード → [Premultiplied]
+                   ↓
+filterノード → [Straight処理] → [Straight出力]
+                   ↓
+合成ノード → [自動変換] → [Premultiplied処理]
+```
+
+**最適化ポイント**:
+- フィルタチェーン内での冗長な変換を回避
+  - 例: Brightness → Grayscale は両方Straightで処理、変換は1回のみ
+- 必要な箇所でのみ変換（Lazy conversion パターン）
+- ノードグラフ評価の透明性（開発者は形式を意識不要）
+
+**コミット**: `85d9464` - Phase 4: Add automatic pixel format conversion in node graph evaluation
+
+#### 全体的な成果
+- ✅ レビュアー指摘の問題を完全解決
+- ✅ 数学的に正確なフィルタ処理
+- ✅ 将来の形式拡張に対応可能（RGB565, インデックスカラー等）
+- ✅ 後方互換性を完全維持
+- ✅ パフォーマンス最適化（不要な変換を回避）
+- ✅ 組み込み環境対応（カスタムアロケータ）
+
+#### ビルド
+- `build.sh`: `pixel_format_registry.cpp` をコンパイル対象に追加
+
+---
+
+## [Unreleased] - 2026-01-03
+
 ### 🏗️ コードリファクタリング: モジュラーファイル構造への分離
 
 #### アーキテクチャ改善
