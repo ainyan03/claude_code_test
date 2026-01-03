@@ -131,51 +131,11 @@ struct AffineMatrix {
     static AffineMatrix fromParams(const AffineParams& params, double centerX, double centerY);
 };
 
-// フィルタノードのUI情報（フィルタ処理とは独立）
-struct FilterNodeInfo {
-    int nodeId;     // ノードの一意なID
-    double posX;    // ノードエディタ上のX座標
-    double posY;    // ノードエディタ上のY座標
 
-    FilterNodeInfo() : nodeId(0), posX(0.0), posY(0.0) {}
-    FilterNodeInfo(int id, double x, double y) : nodeId(id), posX(x), posY(y) {}
-};
-
-// レイヤー情報（旧アーキテクチャ - 削除予定）
-struct Layer {
-    Image image;
-    AffineParams params;
-    bool visible;
-
-    Layer() : visible(true) {}
-};
-
-// 画像変換クラス
+// 画像変換クラス（コア処理機能のみ）
 class ImageProcessor {
 public:
     ImageProcessor(int canvasWidth, int canvasHeight);
-
-    // レイヤー管理
-    int addLayer(const uint8_t* imageData, int width, int height);
-    void removeLayer(int layerId);
-    void setLayerParams(int layerId, const AffineParams& params);
-    void setLayerVisibility(int layerId, bool visible);
-    void moveLayer(int fromIndex, int toIndex);
-
-    // フィルタ管理
-    void addFilter(int layerId, const std::string& filterType, float param = 0.0f);
-    void removeFilter(int layerId, int filterIndex);
-    void clearFilters(int layerId);
-    int getFilterCount(int layerId) const;
-
-    // ノード管理
-    void setFilterNodePosition(int layerId, int filterIndex, double x, double y);
-    int getFilterNodeId(int layerId, int filterIndex) const;
-    double getFilterNodePosX(int layerId, int filterIndex) const;
-    double getFilterNodePosY(int layerId, int filterIndex) const;
-
-    // 画像合成処理
-    Image compose();
 
     // コア画像処理関数（16bit premultiplied alpha処理）
     Image16 applyFilterToImage16(const Image16& input, const std::string& filterType, float param = 0.0f) const;
@@ -186,20 +146,14 @@ public:
     Image16 toPremultiplied(const Image& input, double alpha = 1.0) const;
     Image fromPremultiplied(const Image16& input) const;
 
-    // ユーティリティ
+    // キャンバスサイズ管理
     void setCanvasSize(int width, int height);
-    int getLayerCount() const { return layers.size(); }
+    int getCanvasWidth() const { return canvasWidth; }
+    int getCanvasHeight() const { return canvasHeight; }
 
 private:
     int canvasWidth;
     int canvasHeight;
-    std::vector<Layer> layers;
-    int nextNodeId;  // ノードIDのカウンター
-
-    // 内部処理関数
-    void applyAffineTransform(const Image& src, Image& dst, const AffineParams& params);
-    void blendPixel(uint8_t* dst, const uint8_t* src, double alpha);
-    bool getTransformedPixel(const Image& src, double x, double y, uint8_t* pixel);
 };
 
 // ========================================================================
