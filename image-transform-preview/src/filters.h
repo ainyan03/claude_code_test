@@ -40,6 +40,16 @@ public:
     virtual Image16 apply(const Image16& input) const = 0;
     const char* getName() const { return name_; }
 
+    // ★新規（Phase 3）: このフィルタが要求する入力形式
+    virtual PixelFormatID getPreferredInputFormat() const {
+        return PixelFormatIDs::RGBA16_Straight;  // デフォルト: Straight
+    }
+
+    // ★新規（Phase 3）: このフィルタが出力する形式
+    virtual PixelFormatID getOutputFormat() const {
+        return PixelFormatIDs::RGBA16_Straight;  // デフォルト: Straight
+    }
+
 private:
     const char* name_;
 };

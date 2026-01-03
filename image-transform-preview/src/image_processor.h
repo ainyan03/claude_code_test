@@ -3,6 +3,7 @@
 
 #include "image_types.h"
 #include "filters.h"
+#include "pixel_format_registry.h"
 #include <string>
 #include <vector>
 
@@ -21,6 +22,9 @@ public:
     // 8bit ↔ 16bit 変換（入出力用）
     Image16 toPremultiplied(const Image& input, double alpha = 1.0) const;
     Image fromPremultiplied(const Image16& input) const;
+
+    // ★新規（Phase 3）: ピクセルフォーマット変換
+    Image16 convertPixelFormat(const Image16& input, PixelFormatID targetFormat) const;
 
     // キャンバスサイズ管理
     void setCanvasSize(int width, int height);

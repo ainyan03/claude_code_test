@@ -1,4 +1,5 @@
 #include "filters.h"
+#include "pixel_format_registry.h"
 #include <algorithm>
 
 namespace ImageTransform {
@@ -7,39 +8,63 @@ namespace ImageTransform {
 // フィルタ実装
 // ========================================================================
 
-// 明るさ調整フィルタ
+// 明るさ調整フィルタ（Phase 3: Straight形式で処理）
 Image16 BrightnessFilter16::apply(const Image16& input) const {
-    Image16 output(input.width, input.height);
+    // ★Phase 3修正: 入力が要求形式でない場合は変換
+    Image16 working = input;
+    if (input.formatID != PixelFormatIDs::RGBA16_Straight) {
+        PixelFormatRegistry::getInstance().convert(
+            input.data.data(), input.formatID,
+            working.data.data(), PixelFormatIDs::RGBA16_Straight,
+            input.width * input.height
+        );
+        working.formatID = PixelFormatIDs::RGBA16_Straight;
+    }
+
+    // ★ストレート形式での処理（数学的に正しい）
+    Image16 output(working.width, working.height, PixelFormatIDs::RGBA16_Straight);
     int adjustment = static_cast<int>(params_.brightness * 65535.0f);
 
-    for (size_t i = 0; i < input.data.size(); i += 4) {
-        // RGB各チャンネルに明るさ調整を適用（premultiplied alphaなので、RGBのみ）
+    for (size_t i = 0; i < working.data.size(); i += 4) {
+        // RGB各チャンネルに明るさ調整を適用（ストレート形式なので直接加算）
         for (int c = 0; c < 3; c++) {
-            int value = static_cast<int>(input.data[i + c]) + adjustment;
+            int value = static_cast<int>(working.data[i + c]) + adjustment;
             output.data[i + c] = static_cast<uint16_t>(std::max(0, std::min(65535, value)));
         }
         // Alphaはそのままコピー
-        output.data[i + 3] = input.data[i + 3];
+        output.data[i + 3] = working.data[i + 3];
     }
 
     return output;
 }
 
-// グレースケールフィルタ
+// グレースケールフィルタ（Phase 3: Straight形式で処理）
 Image16 GrayscaleFilter16::apply(const Image16& input) const {
-    Image16 output(input.width, input.height);
+    // ★Phase 3修正: 入力が要求形式でない場合は変換
+    Image16 working = input;
+    if (input.formatID != PixelFormatIDs::RGBA16_Straight) {
+        PixelFormatRegistry::getInstance().convert(
+            input.data.data(), input.formatID,
+            working.data.data(), PixelFormatIDs::RGBA16_Straight,
+            input.width * input.height
+        );
+        working.formatID = PixelFormatIDs::RGBA16_Straight;
+    }
 
-    for (size_t i = 0; i < input.data.size(); i += 4) {
-        // グレースケール変換（平均法、premultiplied alphaでも同様に適用）
+    // ★ストレート形式での処理（数学的に正しい）
+    Image16 output(working.width, working.height, PixelFormatIDs::RGBA16_Straight);
+
+    for (size_t i = 0; i < working.data.size(); i += 4) {
+        // グレースケール変換（平均法、ストレート形式で正しく処理）
         uint16_t gray = static_cast<uint16_t>(
-            (static_cast<uint32_t>(input.data[i]) +
-             static_cast<uint32_t>(input.data[i + 1]) +
-             static_cast<uint32_t>(input.data[i + 2])) / 3
+            (static_cast<uint32_t>(working.data[i]) +
+             static_cast<uint32_t>(working.data[i + 1]) +
+             static_cast<uint32_t>(working.data[i + 2])) / 3
         );
         output.data[i] = gray;       // R
         output.data[i + 1] = gray;   // G
         output.data[i + 2] = gray;   // B
-        output.data[i + 3] = input.data[i + 3];  // Alphaはそのままコピー
+        output.data[i + 3] = working.data[i + 3];  // Alphaはそのままコピー
     }
 
     return output;

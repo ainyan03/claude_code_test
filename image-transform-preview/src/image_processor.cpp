@@ -248,4 +248,23 @@ Image16 ImageProcessor::applyFilterToImage16(const Image16& input, const std::st
     return input;
 }
 
+// ピクセルフォーマット変換（Phase 3）
+Image16 ImageProcessor::convertPixelFormat(const Image16& input, PixelFormatID targetFormat) const {
+    // 同じフォーマットの場合は変換不要
+    if (input.formatID == targetFormat) {
+        return input;
+    }
+
+    // レジストリから変換を実行
+    Image16 output(input.width, input.height, targetFormat);
+
+    PixelFormatRegistry::getInstance().convert(
+        input.data.data(), input.formatID,
+        output.data.data(), targetFormat,
+        input.width * input.height
+    );
+
+    return output;
+}
+
 } // namespace ImageTransform
