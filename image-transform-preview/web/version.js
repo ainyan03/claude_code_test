@@ -1,7 +1,7 @@
 // Build information - auto-generated
 const BUILD_INFO = {
-  buildDate: '2026-01-02 11:39:28 UTC',
-  gitCommit: '29b32db',
-  gitBranch: 'claude/image-transform-preview-7sfw5',
+  buildDate: '2026-01-03 23:25:14 UTC',
+  gitCommit: 'e48becd',
+  gitBranch: 'main',
   backend: 'WebAssembly'
 };

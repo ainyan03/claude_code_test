@@ -19,11 +19,23 @@ ViewPort viewPortFromJSImage(const val& imageObj) {
     int width = imageObj["width"].as<int>();
     int height = imageObj["height"].as<int>();
 
+    // 入力検証: サイズの妥当性チェック
+    if (width <= 0 || height <= 0 || width > 8192 || height > 8192) {
+        // 無効なサイズの場合は1x1の空ViewPortを返す
+        return ViewPort(1, 1, PixelFormatIDs::RGBA8_Straight);
+    }
+
+    // オーバーフロー防止のためsize_tで計算
+    size_t expectedSize = static_cast<size_t>(width) * static_cast<size_t>(height) * 4;
+
     // JavaScriptからデータを一時バッファにコピー
-    std::vector<uint8_t> buffer(width * height * 4);
+    std::vector<uint8_t> buffer(expectedSize);
     unsigned int length = inputData["length"].as<unsigned int>();
-    for (unsigned int i = 0; i < length; i++) {
-        buffer[i] = inputData[i].as<uint8_t>();
+
+    // 境界チェック: コピー量を制限
+    size_t copyLength = std::min(static_cast<size_t>(length), expectedSize);
+    for (size_t i = 0; i < copyLength; i++) {
+        buffer[i] = inputData[static_cast<unsigned int>(i)].as<uint8_t>();
     }
 
     // 外部データからViewPortを構築
@@ -201,7 +213,8 @@ public:
 
         // Uint16Arrayとして返す（ViewPortの内部データをuint16_tとして公開）
         uint16_t* resultData = static_cast<uint16_t*>(result.data);
-        int pixelCount = result.width * result.height * 4;
+        // オーバーフロー防止のためsize_tで計算
+        size_t pixelCount = static_cast<size_t>(result.width) * static_cast<size_t>(result.height) * 4;
         val uint16Array = val::global("Uint16Array").new_(
             typed_memory_view(pixelCount, resultData)
         );
@@ -257,7 +270,7 @@ public:
         ViewPort result = processor.applyFilter(input, filterType, param);
 
         uint16_t* resultData = static_cast<uint16_t*>(result.data);
-        int pixelCount = result.width * result.height * 4;
+        size_t pixelCount = static_cast<size_t>(result.width) * static_cast<size_t>(result.height) * 4;
         val uint16Array = val::global("Uint16Array").new_(
             typed_memory_view(pixelCount, resultData)
         );
@@ -296,7 +309,7 @@ public:
         ViewPort result = processor.applyFilter(transformed, "alpha", static_cast<float>(alpha));
 
         uint16_t* resultData = static_cast<uint16_t*>(result.data);
-        int pixelCount = result.width * result.height * 4;
+        size_t pixelCount = static_cast<size_t>(result.width) * static_cast<size_t>(result.height) * 4;
         val uint16Array = val::global("Uint16Array").new_(
             typed_memory_view(pixelCount, resultData)
         );
@@ -314,6 +327,10 @@ public:
         unsigned int imageCount = imagesArray["length"].as<unsigned int>();
         std::vector<ViewPort> viewports;
         std::vector<const ViewPort*> viewportPtrs;
+
+        // ダングリングポインタ防止: 事前にメモリを確保
+        viewports.reserve(imageCount);
+        viewportPtrs.reserve(imageCount);
 
         for (unsigned int i = 0; i < imageCount; i++) {
             val imageObj = imagesArray[i];
@@ -337,7 +354,7 @@ public:
         ViewPort result = processor.mergeImages(viewportPtrs);
 
         uint16_t* resultData = static_cast<uint16_t*>(result.data);
-        int pixelCount = result.width * result.height * 4;
+        size_t pixelCount = static_cast<size_t>(result.width) * static_cast<size_t>(result.height) * 4;
         val uint16Array = val::global("Uint16Array").new_(
             typed_memory_view(pixelCount, resultData)
         );

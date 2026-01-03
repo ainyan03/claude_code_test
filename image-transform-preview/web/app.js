@@ -25,6 +25,9 @@ let dragConnectionPath = null;
 // requestAnimationFrame用のフラグ
 let updatePreviewScheduled = false;
 
+// 初期化フラグ（イベントリスナーの重複登録防止）
+let appInitialized = false;
+
 // rAFベースのスロットル付きプレビュー更新（より高速）
 function throttledUpdatePreview() {
     if (updatePreviewScheduled) {
@@ -66,10 +69,12 @@ setTimeout(() => {
 }, 10000);
 
 function initializeApp() {
-    if (processor) {
+    // 初期化フラグで重複実行を防止（processorより早い段階でチェック）
+    if (appInitialized) {
         console.log('App already initialized');
-        return; // 既に初期化済み
+        return;
     }
+    appInitialized = true;
 
     console.log('Initializing app...');
 
