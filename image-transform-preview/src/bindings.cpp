@@ -142,7 +142,8 @@ public:
 
             // 8bit → ViewPort変換（アルファ値を適用）
             double alpha = i < alphas.size() ? alphas[i] : 1.0;
-            ViewPort vp = processor.fromImage(img, alpha);
+            ViewPort temp = processor.fromImage(img);
+            ViewPort vp = processor.applyFilter(temp, "alpha", static_cast<float>(alpha));
             viewports.push_back(std::move(vp));
         }
 
@@ -184,7 +185,8 @@ public:
             input.data[i] = inputData[i].as<uint8_t>();
         }
 
-        ViewPort result = processor.fromImage(input, alpha);
+        ViewPort temp = processor.fromImage(input);
+        ViewPort result = processor.applyFilter(temp, "alpha", static_cast<float>(alpha));
 
         // Uint16Arrayとして返す（ViewPortの内部データをuint16_tとして公開）
         uint16_t* resultData = static_cast<uint16_t*>(result.data);
@@ -279,7 +281,8 @@ public:
         matrix.tx = tx;
         matrix.ty = ty;
 
-        ViewPort result = processor.applyTransform(input, matrix, alpha);
+        ViewPort transformed = processor.applyTransform(input, matrix);
+        ViewPort result = processor.applyFilter(transformed, "alpha", static_cast<float>(alpha));
 
         uint16_t* resultData = static_cast<uint16_t*>(result.data);
         int pixelCount = result.width * result.height * 4;
@@ -418,7 +421,6 @@ public:
                         node.transform.rotation = params["rotation"].as<double>();
                         node.transform.scaleX = params["scaleX"].as<double>();
                         node.transform.scaleY = params["scaleY"].as<double>();
-                        node.transform.alpha = params["alpha"].as<double>();
                     }
                 }
             }
@@ -466,7 +468,6 @@ public:
                     node.compositeTransform.rotation = affine["rotation"].as<double>() * M_PI / 180.0;
                     node.compositeTransform.scaleX = affine["scaleX"].as<double>();
                     node.compositeTransform.scaleY = affine["scaleY"].as<double>();
-                    node.compositeTransform.alpha = affine["alpha"].as<double>();
                 }
             }
 
@@ -489,7 +490,6 @@ public:
                         ? nodeObj["scaleX"].as<double>() : 1.0;
                     node.affineParams.scaleY = nodeObj["scaleY"].typeOf().as<std::string>() != "undefined"
                         ? nodeObj["scaleY"].as<double>() : 1.0;
-                    node.affineParams.alpha = 1.0;  // アフィン変換ノード自体はalphaを持たない
                 } else {
                     // 行列モード
                     if (nodeObj["matrix"].typeOf().as<std::string>() != "undefined") {
