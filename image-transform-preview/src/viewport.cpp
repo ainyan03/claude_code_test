@@ -250,7 +250,7 @@ ViewPort ViewPort::fromImage(const Image& img) {
     ViewPort vp(img.width, img.height, PixelFormatIDs::RGBA8_Straight);
 
     // データをコピー
-    if (!img.data.empty()) {
+    if (!img.data.empty() && vp.data != nullptr) {
         std::memcpy(vp.data, img.data.data(), img.data.size());
     }
 
