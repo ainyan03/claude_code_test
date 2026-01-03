@@ -3,6 +3,7 @@
 
 #include "viewport.h"
 #include "image_processor.h"
+#include "image_types.h"
 #include <string>
 #include <vector>
 #include <map>
@@ -12,7 +13,6 @@ namespace ImageTransform {
 
 // 前方宣言（後方互換性）
 struct Image;
-struct AffineParams;
 
 // ========================================================================
 // ノードグラフ構造定義
