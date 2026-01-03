@@ -8,12 +8,6 @@
 
 namespace ImageTransform {
 
-// 旧PixelFormat定義（後方互換性のため維持、将来削除予定）
-enum class PixelFormat {
-    Straight,
-    Premultiplied
-};
-
 // 画像データ構造（8bit RGBA、ストレートアルファ）
 struct Image {
     std::vector<uint8_t> data;  // RGBA format
@@ -24,39 +18,22 @@ struct Image {
     Image(int w, int h) : width(w), height(h), data(w * h * 4, 0) {}
 };
 
-// 16bit プリマルチプライドアルファ画像（内部処理用）
+// 16bit 画像（内部処理用、拡張可能ピクセルフォーマットシステム対応）
 struct Image16 {
     std::vector<uint16_t> data;  // RGBA, 16bit per channel
     int width;
     int height;
+    PixelFormatID formatID;  // ピクセルフォーマット識別子
 
-    // ★新規: 新しいフォーマットシステム（Phase 2）
-    PixelFormatID formatID;
-
-    // ★旧フィールド（deprecated、後方互換性のため維持、将来削除予定）
-    PixelFormat format;
-
-    // デフォルトコンストラクタ
+    // デフォルトコンストラクタ（Premultiplied形式）
     Image16()
         : width(0), height(0),
-          formatID(PixelFormatIDs::RGBA16_Premultiplied),
-          format(PixelFormat::Premultiplied) {}
+          formatID(PixelFormatIDs::RGBA16_Premultiplied) {}
 
-    // ★既存のコンストラクタ（後方互換性維持）
-    // デフォルト引数でPremultipliedを使用
-    Image16(int w, int h, PixelFormat fmt = PixelFormat::Premultiplied)
+    // 標準コンストラクタ（デフォルトはPremultiplied形式）
+    Image16(int w, int h, PixelFormatID fmtID = PixelFormatIDs::RGBA16_Premultiplied)
         : width(w), height(h), data(w * h * 4, 0),
-          formatID(fmt == PixelFormat::Straight ?
-                   PixelFormatIDs::RGBA16_Straight :
-                   PixelFormatIDs::RGBA16_Premultiplied),
-          format(fmt) {}
-
-    // ★新規: フォーマットIDを指定するコンストラクタ（Phase 2以降で使用）
-    Image16(int w, int h, PixelFormatID fmtID)
-        : width(w), height(h), data(w * h * 4, 0),
-          formatID(fmtID),
-          format(fmtID == PixelFormatIDs::RGBA16_Straight ?
-                 PixelFormat::Straight : PixelFormat::Premultiplied) {}
+          formatID(fmtID) {}
 };
 
 // アフィン変換パラメータ
