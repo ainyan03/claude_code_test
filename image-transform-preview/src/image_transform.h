@@ -31,47 +31,77 @@ struct Image16 {
     Image16(int w, int h) : width(w), height(h), data(w * h * 4, 0) {}
 };
 
-// フィルタ基底クラス（純粋な処理のみ、UI情報は含まない）
-class ImageFilter {
-public:
-    virtual ~ImageFilter() = default;
-    virtual Image apply(const Image& input) const = 0;
-    virtual std::string getName() const = 0;
-};
+// ========================================================================
+// 16bit フィルタクラス群（コアアーキテクチャ）
+// 注: すべてのフィルタ処理は16bit premultiplied alphaで実行されます
+// ========================================================================
 
-// グレースケールフィルタ
-class GrayscaleFilter : public ImageFilter {
-public:
-    Image apply(const Image& input) const override;
-    std::string getName() const override { return "Grayscale"; }
-};
-
-// 明るさ調整フィルタ
-class BrightnessFilter : public ImageFilter {
-public:
-    explicit BrightnessFilter(float brightness = 0.0f) : brightness(brightness) {}
-    Image apply(const Image& input) const override;
-    std::string getName() const override { return "Brightness"; }
-
-    void setBrightness(float value) { brightness = value; }
-    float getBrightness() const { return brightness; }
-
-private:
+// フィルタパラメータ構造体
+struct BrightnessFilterParams {
     float brightness;  // -1.0 ~ 1.0
+
+    BrightnessFilterParams(float b = 0.0f) : brightness(b) {}
 };
 
-// ボックスブラーフィルタ
-class BoxBlurFilter : public ImageFilter {
-public:
-    explicit BoxBlurFilter(int radius = 1) : radius(radius) {}
-    Image apply(const Image& input) const override;
-    std::string getName() const override { return "BoxBlur"; }
+struct GrayscaleFilterParams {
+    // パラメータなし（将来の拡張用）
+    GrayscaleFilterParams() {}
+};
 
-    void setRadius(int value) { radius = value > 0 ? value : 1; }
-    int getRadius() const { return radius; }
+struct BoxBlurFilterParams {
+    int radius;  // ブラー半径（1以上）
+
+    BoxBlurFilterParams(int r = 3) : radius(r > 0 ? r : 1) {}
+};
+
+// 16bitフィルタの基底クラス
+class ImageFilter16 {
+protected:
+    ImageFilter16(const char* name) : name_(name) {}
+
+public:
+    virtual ~ImageFilter16() = default;
+    virtual Image16 apply(const Image16& input) const = 0;
+    const char* getName() const { return name_; }
 
 private:
-    int radius;
+    const char* name_;
+};
+
+// 明るさ調整フィルタ（16bit版）
+class BrightnessFilter16 : public ImageFilter16 {
+public:
+    explicit BrightnessFilter16(const BrightnessFilterParams& params)
+        : ImageFilter16("Brightness"), params_(params) {}
+
+    Image16 apply(const Image16& input) const override;
+
+private:
+    BrightnessFilterParams params_;
+};
+
+// グレースケールフィルタ（16bit版）
+class GrayscaleFilter16 : public ImageFilter16 {
+public:
+    explicit GrayscaleFilter16(const GrayscaleFilterParams& params = {})
+        : ImageFilter16("Grayscale"), params_(params) {}
+
+    Image16 apply(const Image16& input) const override;
+
+private:
+    GrayscaleFilterParams params_;
+};
+
+// ボックスブラーフィルタ（16bit版）
+class BoxBlurFilter16 : public ImageFilter16 {
+public:
+    explicit BoxBlurFilter16(const BoxBlurFilterParams& params)
+        : ImageFilter16("BoxBlur"), params_(params) {}
+
+    Image16 apply(const Image16& input) const override;
+
+private:
+    BoxBlurFilterParams params_;
 };
 
 // アフィン変換パラメータ
@@ -111,13 +141,11 @@ struct FilterNodeInfo {
     FilterNodeInfo(int id, double x, double y) : nodeId(id), posX(x), posY(y) {}
 };
 
-// レイヤー情報
+// レイヤー情報（旧アーキテクチャ - 削除予定）
 struct Layer {
     Image image;
     AffineParams params;
     bool visible;
-    std::vector<std::unique_ptr<ImageFilter>> filters;  // フィルタパイプライン（純粋な処理）
-    std::vector<FilterNodeInfo> nodeInfos;              // UI情報（フィルタと1対1対応）
 
     Layer() : visible(true) {}
 };
@@ -149,17 +177,14 @@ public:
     // 画像合成処理
     Image compose();
 
-    // ノードグラフ用の単体処理関数（8bit版、互換性のため残す）
-    Image applyFilterToImage(const Image& input, const std::string& filterType, float param = 0.0f) const;
-    Image applyTransformToImage(const Image& input, const AffineParams& params) const;
-    Image mergeImages(const std::vector<const Image*>& images, const std::vector<double>& alphas) const;
-
-    // ノードグラフ用の高速処理関数（16bit premultiplied alpha版）
-    Image16 toPremultiplied(const Image& input, double alpha = 1.0) const;
-    Image fromPremultiplied(const Image16& input) const;
+    // コア画像処理関数（16bit premultiplied alpha処理）
     Image16 applyFilterToImage16(const Image16& input, const std::string& filterType, float param = 0.0f) const;
     Image16 applyTransformToImage16(const Image16& input, const AffineMatrix& matrix, double alpha = 1.0) const;
     Image16 mergeImages16(const std::vector<const Image16*>& images) const;
+
+    // 8bit ↔ 16bit 変換（入出力用）
+    Image16 toPremultiplied(const Image& input, double alpha = 1.0) const;
+    Image fromPremultiplied(const Image16& input) const;
 
     // ユーティリティ
     void setCanvasSize(int width, int height);
@@ -175,7 +200,6 @@ private:
     void applyAffineTransform(const Image& src, Image& dst, const AffineParams& params);
     void blendPixel(uint8_t* dst, const uint8_t* src, double alpha);
     bool getTransformedPixel(const Image& src, double x, double y, uint8_t* pixel);
-    Image applyFilters(const Image& input, const std::vector<std::unique_ptr<ImageFilter>>& filters);
 };
 
 // ========================================================================

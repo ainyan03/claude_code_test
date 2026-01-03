@@ -107,7 +107,7 @@ public:
         return resultObj;
     }
 
-    // ノードグラフ用の単体処理関数
+    // ノードグラフ用の単体処理関数（内部的には16bit処理を使用）
     val applyFilterToImage(const val& inputImageObj, const std::string& filterType, float param) {
         // JavaScript画像オブジェクトからC++のImageに変換
         val inputData = inputImageObj["data"];
@@ -120,8 +120,10 @@ public:
             input.data[i] = inputData[i].as<uint8_t>();
         }
 
-        // フィルタ適用
-        Image result = processor.applyFilterToImage(input, filterType, param);
+        // 8bit → 16bit変換 → フィルタ適用 → 8bit変換
+        Image16 input16 = processor.toPremultiplied(input);
+        Image16 result16 = processor.applyFilterToImage16(input16, filterType, param);
+        Image result = processor.fromPremultiplied(result16);
 
         // 結果をJavaScriptオブジェクトに変換
         val uint8Array = val::global("Uint8ClampedArray").new_(
@@ -158,8 +160,13 @@ public:
         params.scaleY = scaleY;
         params.alpha = alpha;
 
-        // 変換適用
-        Image result = processor.applyTransformToImage(input, params);
+        // 8bit → 16bit変換 → アフィン変換適用 → 8bit変換
+        Image16 input16 = processor.toPremultiplied(input);
+        double centerX = width / 2.0;
+        double centerY = height / 2.0;
+        AffineMatrix matrix = AffineMatrix::fromParams(params, centerX, centerY);
+        Image16 result16 = processor.applyTransformToImage16(input16, matrix, alpha);
+        Image result = processor.fromPremultiplied(result16);
 
         // 結果をJavaScriptオブジェクトに変換
         val uint8Array = val::global("Uint8ClampedArray").new_(
@@ -177,9 +184,15 @@ public:
     val mergeImages(const val& imagesArray, const val& alphasArray) {
         // JavaScript配列から画像とアルファ値を取得
         unsigned int imageCount = imagesArray["length"].as<unsigned int>();
-        std::vector<Image> images;
-        std::vector<const Image*> imagePtrs;
+        std::vector<Image16> images16;
+        std::vector<const Image16*> imagePtrs16;
         std::vector<double> alphas;
+
+        // アルファ値を取得
+        unsigned int alphaCount = alphasArray["length"].as<unsigned int>();
+        for (unsigned int i = 0; i < alphaCount; i++) {
+            alphas.push_back(alphasArray[i].as<double>());
+        }
 
         for (unsigned int i = 0; i < imageCount; i++) {
             val imageObj = imagesArray[i];
@@ -192,22 +205,21 @@ public:
             for (unsigned int j = 0; j < length; j++) {
                 img.data[j] = imageData[j].as<uint8_t>();
             }
-            images.push_back(std::move(img));
+
+            // 8bit → 16bit変換（アルファ値を適用）
+            double alpha = i < alphas.size() ? alphas[i] : 1.0;
+            Image16 img16 = processor.toPremultiplied(img, alpha);
+            images16.push_back(std::move(img16));
         }
 
         // ポインタ配列を作成
-        for (auto& img : images) {
-            imagePtrs.push_back(&img);
+        for (auto& img : images16) {
+            imagePtrs16.push_back(&img);
         }
 
-        // アルファ値を取得
-        unsigned int alphaCount = alphasArray["length"].as<unsigned int>();
-        for (unsigned int i = 0; i < alphaCount; i++) {
-            alphas.push_back(alphasArray[i].as<double>());
-        }
-
-        // マージ処理
-        Image result = processor.mergeImages(imagePtrs, alphas);
+        // マージ処理（16bit版）→ 8bit変換
+        Image16 result16 = processor.mergeImages16(imagePtrs16);
+        Image result = processor.fromPremultiplied(result16);
 
         // 結果をJavaScriptオブジェクトに変換
         val uint8Array = val::global("Uint8ClampedArray").new_(

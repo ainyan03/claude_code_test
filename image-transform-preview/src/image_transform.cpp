@@ -52,210 +52,60 @@ void ImageProcessor::setCanvasSize(int width, int height) {
     canvasHeight = height;
 }
 
-// フィルタ管理
+// フィルタ管理（旧レイヤーシステム - 削除予定）
 void ImageProcessor::addFilter(int layerId, const std::string& filterType, float param) {
-    if (layerId < 0 || layerId >= static_cast<int>(layers.size())) {
-        return;
-    }
-
-    std::unique_ptr<ImageFilter> filter;
-
-    if (filterType == "grayscale") {
-        filter = std::make_unique<GrayscaleFilter>();
-    } else if (filterType == "brightness") {
-        filter = std::make_unique<BrightnessFilter>(param);
-    } else if (filterType == "blur") {
-        filter = std::make_unique<BoxBlurFilter>(static_cast<int>(param));
-    }
-
-    if (filter) {
-        // フィルタを追加（純粋な処理のみ）
-        layers[layerId].filters.push_back(std::move(filter));
-
-        // UI情報を別途追加
-        int currentNodeId = nextNodeId++;
-        double defaultX = 100.0;
-        double defaultY = 100.0 + layers[layerId].nodeInfos.size() * 80.0;
-        layers[layerId].nodeInfos.emplace_back(currentNodeId, defaultX, defaultY);
-    }
+    // 旧レイヤーシステムの残骸 - NodeGraphEvaluatorを使用してください
 }
 
 void ImageProcessor::removeFilter(int layerId, int filterIndex) {
-    if (layerId >= 0 && layerId < static_cast<int>(layers.size()) &&
-        filterIndex >= 0 && filterIndex < static_cast<int>(layers[layerId].filters.size())) {
-        layers[layerId].filters.erase(layers[layerId].filters.begin() + filterIndex);
-        // UI情報も同期して削除
-        if (filterIndex < static_cast<int>(layers[layerId].nodeInfos.size())) {
-            layers[layerId].nodeInfos.erase(layers[layerId].nodeInfos.begin() + filterIndex);
-        }
-    }
+    // 旧レイヤーシステムの残骸 - NodeGraphEvaluatorを使用してください
 }
 
 void ImageProcessor::clearFilters(int layerId) {
-    if (layerId >= 0 && layerId < static_cast<int>(layers.size())) {
-        layers[layerId].filters.clear();
-        // UI情報もクリア
-        layers[layerId].nodeInfos.clear();
-    }
+    // 旧レイヤーシステムの残骸 - NodeGraphEvaluatorを使用してください
 }
 
 int ImageProcessor::getFilterCount(int layerId) const {
-    if (layerId >= 0 && layerId < static_cast<int>(layers.size())) {
-        return layers[layerId].filters.size();
-    }
+    // 旧レイヤーシステムの残骸 - NodeGraphEvaluatorを使用してください
     return 0;
-}
-
-Image ImageProcessor::applyFilters(const Image& input, const std::vector<std::unique_ptr<ImageFilter>>& filters) {
-    Image result = input;
-    for (const auto& filter : filters) {
-        result = filter->apply(result);
-    }
-    return result;
 }
 
 // ノード管理（UI情報のみ、フィルタ処理には影響しない）
 void ImageProcessor::setFilterNodePosition(int layerId, int filterIndex, double x, double y) {
-    if (layerId >= 0 && layerId < static_cast<int>(layers.size()) &&
-        filterIndex >= 0 && filterIndex < static_cast<int>(layers[layerId].nodeInfos.size())) {
-        layers[layerId].nodeInfos[filterIndex].posX = x;
-        layers[layerId].nodeInfos[filterIndex].posY = y;
-    }
+    // 旧レイヤーシステムの残骸 - 削除予定
 }
 
 int ImageProcessor::getFilterNodeId(int layerId, int filterIndex) const {
-    if (layerId >= 0 && layerId < static_cast<int>(layers.size()) &&
-        filterIndex >= 0 && filterIndex < static_cast<int>(layers[layerId].nodeInfos.size())) {
-        return layers[layerId].nodeInfos[filterIndex].nodeId;
-    }
+    // 旧レイヤーシステムの残骸 - 削除予定
     return -1;
 }
 
 double ImageProcessor::getFilterNodePosX(int layerId, int filterIndex) const {
-    if (layerId >= 0 && layerId < static_cast<int>(layers.size()) &&
-        filterIndex >= 0 && filterIndex < static_cast<int>(layers[layerId].nodeInfos.size())) {
-        return layers[layerId].nodeInfos[filterIndex].posX;
-    }
+    // 旧レイヤーシステムの残骸 - 削除予定
     return 0.0;
 }
 
 double ImageProcessor::getFilterNodePosY(int layerId, int filterIndex) const {
-    if (layerId >= 0 && layerId < static_cast<int>(layers.size()) &&
-        filterIndex >= 0 && filterIndex < static_cast<int>(layers[layerId].nodeInfos.size())) {
-        return layers[layerId].nodeInfos[filterIndex].posY;
-    }
+    // 旧レイヤーシステムの残骸 - 削除予定
     return 0.0;
 }
 
 Image ImageProcessor::compose() {
+    // 旧レイヤーシステムの残骸 - 削除予定
     Image result(canvasWidth, canvasHeight);
-
-    // キャンバスを透明で初期化
     std::fill(result.data.begin(), result.data.end(), 0);
-
-    // 各レイヤーを合成
-    for (const auto& layer : layers) {
-        if (!layer.visible) continue;
-
-        // フィルタを適用
-        Image filtered = applyFilters(layer.image, layer.filters);
-
-        // アフィン変換を適用
-        Image transformed(canvasWidth, canvasHeight);
-        applyAffineTransform(filtered, transformed, layer.params);
-
-        // アルファブレンディング
-        for (int y = 0; y < canvasHeight; y++) {
-            for (int x = 0; x < canvasWidth; x++) {
-                int idx = (y * canvasWidth + x) * 4;
-                blendPixel(&result.data[idx], &transformed.data[idx], layer.params.alpha);
-            }
-        }
-    }
-
     return result;
 }
 
-// ノードグラフ用: 単一画像にフィルタを適用
-Image ImageProcessor::applyFilterToImage(const Image& input, const std::string& filterType, float param) const {
-    std::unique_ptr<ImageFilter> filter;
+// ========================================================================
+// 16bit Premultiplied Alpha 高速処理関数群
+// ========================================================================
 
-    if (filterType == "grayscale") {
-        filter = std::make_unique<GrayscaleFilter>();
-    } else if (filterType == "brightness") {
-        filter = std::make_unique<BrightnessFilter>(param);
-    } else if (filterType == "blur") {
-        filter = std::make_unique<BoxBlurFilter>(static_cast<int>(param));
-    }
-
-    if (filter) {
-        return filter->apply(input);
-    }
-
-    return input;  // フィルタが見つからない場合は入力をそのまま返す
-}
-
-// ノードグラフ用: 単一画像にアフィン変換を適用
-Image ImageProcessor::applyTransformToImage(const Image& input, const AffineParams& params) const {
-    Image result(canvasWidth, canvasHeight);
-    std::fill(result.data.begin(), result.data.end(), 0);
-
-    // アフィン変換を適用
-    Image transformed(canvasWidth, canvasHeight);
-    const_cast<ImageProcessor*>(this)->applyAffineTransform(input, transformed, params);
-
-    return transformed;
-}
-
-// ノードグラフ用: 複数画像をマージ（合成ノード）
-Image ImageProcessor::mergeImages(const std::vector<const Image*>& images, const std::vector<double>& alphas) const {
-    Image result(canvasWidth, canvasHeight);
-
-    // キャンバスを透明で初期化
-    std::fill(result.data.begin(), result.data.end(), 0);
-
-    // 各画像を順番に合成
-    for (size_t i = 0; i < images.size() && i < alphas.size(); i++) {
-        const Image* img = images[i];
-        double alpha = alphas[i];
-
-        if (!img) continue;
-
-        // 画像サイズがキャンバスサイズと異なる場合は中央配置
-        int offsetX = (canvasWidth - img->width) / 2;
-        int offsetY = (canvasHeight - img->height) / 2;
-
-        for (int y = 0; y < img->height && (y + offsetY) < canvasHeight; y++) {
-            for (int x = 0; x < img->width && (x + offsetX) < canvasWidth; x++) {
-                if (offsetX + x < 0 || offsetY + y < 0) continue;
-
-                int srcIdx = (y * img->width + x) * 4;
-                int dstIdx = ((y + offsetY) * canvasWidth + (x + offsetX)) * 4;
-
-                // インライン化されたアルファブレンディング（パフォーマンス最適化）
-                uint8_t* dst = &result.data[dstIdx];
-                const uint8_t* src = &img->data[srcIdx];
-
-                double srcAlpha = (src[3] / 255.0) * alpha;
-                double dstAlpha = dst[3] / 255.0;
-                double outAlpha = srcAlpha + dstAlpha * (1.0 - srcAlpha);
-
-                if (outAlpha > 0.0) {
-                    double invOutAlpha = 1.0 / outAlpha;
-                    double srcWeight = srcAlpha * invOutAlpha;
-                    double dstWeight = dstAlpha * (1.0 - srcAlpha) * invOutAlpha;
-
-                    dst[0] = static_cast<uint8_t>(src[0] * srcWeight + dst[0] * dstWeight);
-                    dst[1] = static_cast<uint8_t>(src[1] * srcWeight + dst[1] * dstWeight);
-                    dst[2] = static_cast<uint8_t>(src[2] * srcWeight + dst[2] * dstWeight);
-                    dst[3] = static_cast<uint8_t>(outAlpha * 255.0);
-                }
-            }
-        }
-    }
-
-    return result;
-}
+// 注: 旧8bitフィルタ処理は削除済み。すべての処理は16bit版を使用します。
+// コア処理関数:
+// - applyFilterToImage16()
+// - applyTransformToImage16()
+// - mergeImages16()
 
 void ImageProcessor::applyAffineTransform(const Image& src, Image& dst, const AffineParams& params) {
     // キャンバス中心を基準点とする
@@ -348,114 +198,6 @@ void ImageProcessor::blendPixel(uint8_t* dst, const uint8_t* src, double alpha) 
         }
         dst[3] = static_cast<uint8_t>(outAlpha * 255.0);
     }
-}
-
-// ========================================
-// フィルタ実装
-// ========================================
-
-// グレースケールフィルタ
-Image GrayscaleFilter::apply(const Image& input) const {
-    Image output = input;
-
-    for (size_t i = 0; i < input.data.size(); i += 4) {
-        // グレースケール変換（平均法）
-        uint8_t gray = static_cast<uint8_t>(
-            (input.data[i] + input.data[i + 1] + input.data[i + 2]) / 3
-        );
-        output.data[i] = gray;       // R
-        output.data[i + 1] = gray;   // G
-        output.data[i + 2] = gray;   // B
-        // Alpha は変更しない
-    }
-
-    return output;
-}
-
-// 明るさ調整フィルタ
-Image BrightnessFilter::apply(const Image& input) const {
-    Image output = input;
-
-    // 明るさ調整値を -255 ~ 255 の範囲に変換
-    int adjustment = static_cast<int>(brightness * 255.0f);
-
-    for (size_t i = 0; i < input.data.size(); i += 4) {
-        // RGB各チャンネルに明るさ調整を適用
-        for (int c = 0; c < 3; c++) {
-            int value = input.data[i + c] + adjustment;
-            output.data[i + c] = static_cast<uint8_t>(std::max(0, std::min(255, value)));
-        }
-        // Alpha は変更しない
-    }
-
-    return output;
-}
-
-// ボックスブラーフィルタ
-Image BoxBlurFilter::apply(const Image& input) const {
-    int width = input.width;
-    int height = input.height;
-
-    // 分離可能ブラー: 水平方向 → 垂直方向の2パスで処理
-    // O(width * height * radius^2) → O(width * height * radius)
-
-    // 中間バッファ（水平ブラー結果）
-    Image temp(width, height);
-
-    // パス1: 水平方向のブラー
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            int sumR = 0, sumG = 0, sumB = 0, sumA = 0;
-            int count = 0;
-
-            int xStart = std::max(0, x - radius);
-            int xEnd = std::min(width - 1, x + radius);
-
-            for (int nx = xStart; nx <= xEnd; nx++) {
-                int idx = (y * width + nx) * 4;
-                sumR += input.data[idx];
-                sumG += input.data[idx + 1];
-                sumB += input.data[idx + 2];
-                sumA += input.data[idx + 3];
-                count++;
-            }
-
-            int outIdx = (y * width + x) * 4;
-            temp.data[outIdx] = sumR / count;
-            temp.data[outIdx + 1] = sumG / count;
-            temp.data[outIdx + 2] = sumB / count;
-            temp.data[outIdx + 3] = sumA / count;
-        }
-    }
-
-    // パス2: 垂直方向のブラー
-    Image output(width, height);
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            int sumR = 0, sumG = 0, sumB = 0, sumA = 0;
-            int count = 0;
-
-            int yStart = std::max(0, y - radius);
-            int yEnd = std::min(height - 1, y + radius);
-
-            for (int ny = yStart; ny <= yEnd; ny++) {
-                int idx = (ny * width + x) * 4;
-                sumR += temp.data[idx];
-                sumG += temp.data[idx + 1];
-                sumB += temp.data[idx + 2];
-                sumA += temp.data[idx + 3];
-                count++;
-            }
-
-            int outIdx = (y * width + x) * 4;
-            output.data[outIdx] = sumR / count;
-            output.data[outIdx + 1] = sumG / count;
-            output.data[outIdx + 2] = sumB / count;
-            output.data[outIdx + 3] = sumA / count;
-        }
-    }
-
-    return output;
 }
 
 // ========================================================================
@@ -661,95 +403,134 @@ Image16 ImageProcessor::applyTransformToImage16(const Image16& input, const Affi
     return output;
 }
 
-// 16bit版フィルタ処理（直接処理、8bit変換なし）
+// 16bit版フィルタ処理（新アーキテクチャ: クラスベース）
 Image16 ImageProcessor::applyFilterToImage16(const Image16& input, const std::string& filterType, float param) const {
-    Image16 output = input;  // コピーコンストラクタで全データをコピー
+    std::unique_ptr<ImageFilter16> filter;
 
+    // フィルタクラスの生成（文字列→クラスのマッピング）
     if (filterType == "brightness") {
-        // 明るさ調整値を 16bit範囲に変換 (-65535 ~ 65535)
-        int adjustment = static_cast<int>(param * 65535.0f);
+        BrightnessFilterParams params(param);
+        filter = std::make_unique<BrightnessFilter16>(params);
+    }
+    else if (filterType == "grayscale") {
+        GrayscaleFilterParams params;
+        filter = std::make_unique<GrayscaleFilter16>(params);
+    }
+    else if (filterType == "blur") {
+        BoxBlurFilterParams params(static_cast<int>(param));
+        filter = std::make_unique<BoxBlurFilter16>(params);
+    }
 
-        for (size_t i = 0; i < input.data.size(); i += 4) {
-            // RGB各チャンネルに明るさ調整を適用（premultiplied alphaなので、RGBのみ）
-            for (int c = 0; c < 3; c++) {
-                int value = static_cast<int>(input.data[i + c]) + adjustment;
-                output.data[i + c] = static_cast<uint16_t>(std::max(0, std::min(65535, value)));
-            }
-            // Alpha は変更しない (i + 3)
+    // フィルタを適用
+    if (filter) {
+        return filter->apply(input);
+    }
+
+    // 未知のフィルタタイプの場合は入力をそのまま返す
+    return input;
+}
+
+// ========================================================================
+// 16bit フィルタクラス実装（コアアーキテクチャ）
+// ========================================================================
+
+// 明るさ調整フィルタ（16bit版）
+Image16 BrightnessFilter16::apply(const Image16& input) const {
+    Image16 output(input.width, input.height);  // データコピーなし
+    int adjustment = static_cast<int>(params_.brightness * 65535.0f);
+
+    for (size_t i = 0; i < input.data.size(); i += 4) {
+        // RGB各チャンネルに明るさ調整を適用（premultiplied alphaなので、RGBのみ）
+        for (int c = 0; c < 3; c++) {
+            int value = static_cast<int>(input.data[i + c]) + adjustment;
+            output.data[i + c] = static_cast<uint16_t>(std::max(0, std::min(65535, value)));
         }
-    } else if (filterType == "grayscale") {
-        for (size_t i = 0; i < input.data.size(); i += 4) {
-            // グレースケール変換（平均法、premultiplied alphaでも同様に適用）
-            uint16_t gray = static_cast<uint16_t>(
-                (static_cast<uint32_t>(input.data[i]) +
-                 static_cast<uint32_t>(input.data[i + 1]) +
-                 static_cast<uint32_t>(input.data[i + 2])) / 3
-            );
-            output.data[i] = gray;       // R
-            output.data[i + 1] = gray;   // G
-            output.data[i + 2] = gray;   // B
-            // Alpha は変更しない
-        }
-    } else if (filterType == "blur") {
-        // ボックスブラーの16bit版実装（分離可能ブラー: 水平→垂直の2パス）
-        int width = input.width;
-        int height = input.height;
-        int radius = static_cast<int>(param);
-        if (radius <= 0) radius = 1;
+        // Alphaはそのままコピー
+        output.data[i + 3] = input.data[i + 3];
+    }
 
-        // 中間バッファ（水平ブラー結果）
-        Image16 temp(width, height);
+    return output;
+}
 
-        // パス1: 水平方向のブラー
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                uint32_t sumR = 0, sumG = 0, sumB = 0, sumA = 0;
-                int count = 0;
+// グレースケールフィルタ（16bit版）
+Image16 GrayscaleFilter16::apply(const Image16& input) const {
+    Image16 output(input.width, input.height);  // データコピーなし
 
-                int xStart = std::max(0, x - radius);
-                int xEnd = std::min(width - 1, x + radius);
+    for (size_t i = 0; i < input.data.size(); i += 4) {
+        // グレースケール変換（平均法、premultiplied alphaでも同様に適用）
+        uint16_t gray = static_cast<uint16_t>(
+            (static_cast<uint32_t>(input.data[i]) +
+             static_cast<uint32_t>(input.data[i + 1]) +
+             static_cast<uint32_t>(input.data[i + 2])) / 3
+        );
+        output.data[i] = gray;       // R
+        output.data[i + 1] = gray;   // G
+        output.data[i + 2] = gray;   // B
+        output.data[i + 3] = input.data[i + 3];  // Alphaはそのままコピー
+    }
 
-                for (int nx = xStart; nx <= xEnd; nx++) {
-                    int idx = (y * width + nx) * 4;
-                    sumR += input.data[idx];
-                    sumG += input.data[idx + 1];
-                    sumB += input.data[idx + 2];
-                    sumA += input.data[idx + 3];
-                    count++;
-                }
+    return output;
+}
 
-                int outIdx = (y * width + x) * 4;
-                temp.data[outIdx] = sumR / count;
-                temp.data[outIdx + 1] = sumG / count;
-                temp.data[outIdx + 2] = sumB / count;
-                temp.data[outIdx + 3] = sumA / count;
+// ボックスブラーフィルタ（16bit版）
+Image16 BoxBlurFilter16::apply(const Image16& input) const {
+    int width = input.width;
+    int height = input.height;
+    int radius = params_.radius;
+
+    // 中間バッファ（水平ブラー結果）
+    Image16 temp(width, height);
+
+    // パス1: 水平方向のブラー
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            uint32_t sumR = 0, sumG = 0, sumB = 0, sumA = 0;
+            int count = 0;
+
+            int xStart = std::max(0, x - radius);
+            int xEnd = std::min(width - 1, x + radius);
+
+            for (int nx = xStart; nx <= xEnd; nx++) {
+                int idx = (y * width + nx) * 4;
+                sumR += input.data[idx];
+                sumG += input.data[idx + 1];
+                sumB += input.data[idx + 2];
+                sumA += input.data[idx + 3];
+                count++;
             }
+
+            int outIdx = (y * width + x) * 4;
+            temp.data[outIdx] = sumR / count;
+            temp.data[outIdx + 1] = sumG / count;
+            temp.data[outIdx + 2] = sumB / count;
+            temp.data[outIdx + 3] = sumA / count;
         }
+    }
 
-        // パス2: 垂直方向のブラー
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                uint32_t sumR = 0, sumG = 0, sumB = 0, sumA = 0;
-                int count = 0;
+    // パス2: 垂直方向のブラー
+    Image16 output(width, height);  // データコピーなし
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            uint32_t sumR = 0, sumG = 0, sumB = 0, sumA = 0;
+            int count = 0;
 
-                int yStart = std::max(0, y - radius);
-                int yEnd = std::min(height - 1, y + radius);
+            int yStart = std::max(0, y - radius);
+            int yEnd = std::min(height - 1, y + radius);
 
-                for (int ny = yStart; ny <= yEnd; ny++) {
-                    int idx = (ny * width + x) * 4;
-                    sumR += temp.data[idx];
-                    sumG += temp.data[idx + 1];
-                    sumB += temp.data[idx + 2];
-                    sumA += temp.data[idx + 3];
-                    count++;
-                }
-
-                int outIdx = (y * width + x) * 4;
-                output.data[outIdx] = sumR / count;
-                output.data[outIdx + 1] = sumG / count;
-                output.data[outIdx + 2] = sumB / count;
-                output.data[outIdx + 3] = sumA / count;
+            for (int ny = yStart; ny <= yEnd; ny++) {
+                int idx = (ny * width + x) * 4;
+                sumR += temp.data[idx];
+                sumG += temp.data[idx + 1];
+                sumB += temp.data[idx + 2];
+                sumA += temp.data[idx + 3];
+                count++;
             }
+
+            int outIdx = (y * width + x) * 4;
+            output.data[outIdx] = sumR / count;
+            output.data[outIdx + 1] = sumG / count;
+            output.data[outIdx + 2] = sumB / count;
+            output.data[outIdx + 3] = sumA / count;
         }
     }
 
