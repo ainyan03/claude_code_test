@@ -104,8 +104,8 @@ private:
     std::vector<GraphConnection> connections;
 
     // レイヤー画像キャッシュ
-    std::map<int, ViewPort> layerImages;       // 元画像（ViewPort形式: RGBA8_Straight）
-    std::map<int, ViewPort> layerPremulCache;  // premultiplied変換済み（ViewPort: RGBA16_Premultiplied）
+    std::map<int, Image> layerImages;         // 元画像（8bit）
+    std::map<int, ViewPort> layerPremulCache;  // premultiplied変換済み（ViewPort）
 
     // ノード評価結果キャッシュ（1回の評価で使い回す）
     std::map<std::string, ViewPort> nodeResultCache;
