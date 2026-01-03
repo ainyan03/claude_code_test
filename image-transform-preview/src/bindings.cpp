@@ -134,9 +134,20 @@ public:
             int width = imageObj["width"].as<int>();
             int height = imageObj["height"].as<int>();
 
+            // 入力検証: 負の値や異常に大きな値を拒否
+            if (width <= 0 || height <= 0 || width > 8192 || height > 8192) {
+                continue; // 不正なサイズの画像はスキップ
+            }
+
             Image img(width, height);
             unsigned int length = imageData["length"].as<unsigned int>();
-            for (unsigned int j = 0; j < length; j++) {
+            unsigned int expectedLength = static_cast<unsigned int>(width * height * 4);
+
+            // 境界チェック: データ長が期待値と一致するか確認
+            unsigned int copyLength = std::min(length, expectedLength);
+            copyLength = std::min(copyLength, static_cast<unsigned int>(img.data.size()));
+
+            for (unsigned int j = 0; j < copyLength; j++) {
                 img.data[j] = imageData[j].as<uint8_t>();
             }
 

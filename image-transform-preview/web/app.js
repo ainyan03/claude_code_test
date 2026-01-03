@@ -214,8 +214,8 @@ function renderImageLibrary() {
     const libraryContainer = document.getElementById('images-library');
     libraryContainer.innerHTML = '';
 
+    const template = document.getElementById('image-item-template');
     uploadedImages.forEach(image => {
-        const template = document.getElementById('image-item-template');
         const item = template.content.cloneNode(true);
 
         // サムネイル設定
@@ -349,7 +349,8 @@ function resizeCanvas() {
     const width = parseInt(document.getElementById('canvas-width').value);
     const height = parseInt(document.getElementById('canvas-height').value);
 
-    if (width < 100 || width > 2000 || height < 100 || height > 2000) {
+    // NaN チェックを追加（空文字やパース失敗時）
+    if (isNaN(width) || isNaN(height) || width < 100 || width > 2000 || height < 100 || height > 2000) {
         alert('キャンバスサイズは100〜2000の範囲で指定してください');
         return;
     }
@@ -580,7 +581,6 @@ function getNodeHeight(node) {
 function getPortPosition(node, portId, portType) {
     const nodeWidth = 160;
     const nodeHeight = getNodeHeight(node); // 動的に計算
-    const portRadius = 6;
 
     const ports = getNodePorts(node);
     const portList = portType === 'input' ? ports.inputs : ports.outputs;
@@ -718,14 +718,29 @@ function drawGlobalNode(node) {
             node.inputs.forEach((input, index) => {
                 const label = document.createElement('label');
                 label.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;';
-                label.innerHTML = `<span style="min-width: 40px;">α${index + 1}:</span><input type="range" class="alpha-slider" data-input-id="${input.id}" min="0" max="1" step="0.01" value="${input.alpha}" style="width: 60px;">`;
 
-                const slider = label.querySelector('.alpha-slider');
+                // XSS対策: DOM APIを使用してHTML構築
+                const span = document.createElement('span');
+                span.style.minWidth = '40px';
+                span.textContent = `α${index + 1}:`;
+
+                const slider = document.createElement('input');
+                slider.type = 'range';
+                slider.className = 'alpha-slider';
+                slider.dataset.inputId = input.id;
+                slider.min = '0';
+                slider.max = '1';
+                slider.step = '0.01';
+                slider.value = String(input.alpha);
+                slider.style.width = '60px';
+
                 slider.addEventListener('input', (e) => {
                     input.alpha = parseFloat(e.target.value);
                     throttledUpdatePreview();
                 });
 
+                label.appendChild(span);
+                label.appendChild(slider);
                 controls.appendChild(label);
             });
         }
@@ -941,13 +956,13 @@ function drawGlobalNode(node) {
     nodeGraphSvg.appendChild(foreignObject);
 
     // ポートを描画
-    drawNodePorts(node, nodeWidth, nodeHeight);
+    drawNodePorts(node, nodeWidth);
 
     // ドラッグ機能
     setupGlobalNodeDrag(nodeBox, foreignObject, node);
 }
 
-function drawNodePorts(node, nodeWidth, unusedNodeHeight) {
+function drawNodePorts(node, nodeWidth) {
     const ns = 'http://www.w3.org/2000/svg';
     const nodeHeight = getNodeHeight(node); // 動的に計算
     const ports = getNodePorts(node);
@@ -973,7 +988,7 @@ function drawNodePorts(node, nodeWidth, unusedNodeHeight) {
         hitArea.style.cursor = 'pointer';
 
         // ポートのドロップターゲット（マウス）
-        hitArea.addEventListener('mouseup', (e) => {
+        hitArea.addEventListener('mouseup', () => {
             if (isDraggingConnection && dragConnectionFrom) {
                 const fromNode = dragConnectionFrom.nodeId;
                 const fromPort = dragConnectionFrom.portId;
