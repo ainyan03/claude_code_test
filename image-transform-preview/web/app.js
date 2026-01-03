@@ -156,7 +156,7 @@ function setupEventListeners() {
             addAffineNode();
         } else if (value === 'composite') {
             addCompositeNode();
-        } else if (value === 'grayscale' || value === 'brightness' || value === 'blur') {
+        } else if (value === 'grayscale' || value === 'brightness' || value === 'blur' || value === 'alpha') {
             addIndependentFilterNode(value);
         }
 
@@ -273,7 +273,6 @@ function addImageNodeFromLibrary(imageId) {
         id: `image-node-${nextImageNodeId++}`,
         type: 'image',
         imageId: imageId,
-        alpha: 1.0,  // 画像ノードのアルファ値
         title: image.name,
         posX: startX + column * 200,  // 列ごとに200pxずつ右に配置
         posY: startY + row * spacing  // 行ごとに120pxずつ下に配置
@@ -606,27 +605,21 @@ function drawGlobalNode(node) {
     header.appendChild(idBadge);
     nodeBox.appendChild(header);
 
-    // 画像ノードの場合、アルファスライダーを追加
+    // 画像ノードの場合、サムネイルを表示
     if (node.type === 'image' && node.imageId !== undefined) {
-        const controls = document.createElement('div');
-        controls.className = 'node-box-controls';
+        const image = uploadedImages.find(img => img.id === node.imageId);
+        if (image && image.imageData) {
+            const thumbnail = document.createElement('div');
+            thumbnail.className = 'node-box-thumbnail';
+            thumbnail.style.cssText = 'padding: 4px; text-align: center;';
 
-        const label = document.createElement('label');
-        label.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;';
-        label.innerHTML = `<span style="min-width: 40px;">α:</span><input type="range" class="image-alpha-slider" min="0" max="1" step="0.01" value="${node.alpha || 1.0}" style="width: 60px;"> <span class="alpha-display">${Math.round((node.alpha || 1.0) * 100)}%</span>`;
+            const img = document.createElement('img');
+            img.src = image.imageData;
+            img.style.cssText = 'max-width: 80px; max-height: 60px; border-radius: 4px;';
 
-        const slider = label.querySelector('.image-alpha-slider');
-        const display = label.querySelector('.alpha-display');
-
-        slider.addEventListener('input', (e) => {
-            const value = parseFloat(e.target.value);
-            node.alpha = value;
-            display.textContent = Math.round(value * 100) + '%';
-            throttledUpdatePreview();
-        });
-
-        controls.appendChild(label);
-        nodeBox.appendChild(controls);
+            thumbnail.appendChild(img);
+            nodeBox.appendChild(thumbnail);
+        }
     }
 
     // 独立フィルタノードの場合、パラメータスライダーを追加
@@ -650,6 +643,14 @@ function drawGlobalNode(node) {
                     <span class="param-display">${Math.round(node.param || 3)}px</span>
                 </label>
             `;
+        } else if (node.filterType === 'alpha') {
+            controls.innerHTML = `
+                <label style="font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;">
+                    <span style="min-width: 40px;">α:</span>
+                    <input type="range" class="filter-param-slider" min="0" max="1" step="0.01" value="${node.param || 1.0}" style="width: 60px;">
+                    <span class="param-display">${Math.round((node.param || 1.0) * 100)}%</span>
+                </label>
+            `;
         }
 
         const slider = controls.querySelector('.filter-param-slider');
@@ -664,6 +665,8 @@ function drawGlobalNode(node) {
                     display.textContent = value.toFixed(2);
                 } else if (node.filterType === 'blur') {
                     display.textContent = Math.round(value) + 'px';
+                } else if (node.filterType === 'alpha') {
+                    display.textContent = Math.round(value * 100) + '%';
                 }
 
                 throttledUpdatePreview();
@@ -1451,6 +1454,8 @@ function addIndependentFilterNode(filterType) {
         defaultParam = 0.0;  // -1.0 ~ 1.0
     } else if (filterType === 'blur') {
         defaultParam = 3.0;  // radius
+    } else if (filterType === 'alpha') {
+        defaultParam = 1.0;  // 0.0 ~ 1.0
     }
 
     // 既存の独立フィルタノードの数を数えて位置をずらす
@@ -1478,7 +1483,8 @@ function getFilterDisplayName(filterType) {
     const names = {
         'grayscale': 'グレースケール',
         'brightness': '明るさ',
-        'blur': 'ぼかし'
+        'blur': 'ぼかし',
+        'alpha': 'アルファ'
     };
     return names[filterType] || filterType;
 }

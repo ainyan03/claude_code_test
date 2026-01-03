@@ -101,13 +101,12 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
     ViewPort result(canvasWidth, canvasHeight, PixelFormatIDs::RGBA16_Premultiplied);
 
     if (node->type == "image") {
-        // 新形式: imageId + alpha（画像ライブラリ対応）
+        // 新形式: imageId（画像ライブラリ対応）
         if (node->imageId >= 0) {
             auto it = layerImages.find(node->imageId);
             if (it != layerImages.end()) {
-                // premultiplied変換してalphaフィルタを適用
-                ViewPort temp = processor.fromImage(it->second);
-                result = processor.applyFilter(temp, "alpha", static_cast<float>(node->imageAlpha));
+                // premultiplied変換のみ（alphaは独立フィルタノードで調整）
+                result = processor.fromImage(it->second);
             }
         }
         // 旧形式: layerId + transform（後方互換性）

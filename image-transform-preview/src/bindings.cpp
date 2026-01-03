@@ -403,12 +403,9 @@ public:
 
             // image用パラメータ
             if (node.type == "image") {
-                // 新形式: imageId + alpha（画像ライブラリ対応）
+                // 新形式: imageId（画像ライブラリ対応）
                 if (nodeObj["imageId"].typeOf().as<std::string>() != "undefined") {
                     node.imageId = nodeObj["imageId"].as<int>();
-                    node.imageAlpha = nodeObj["alpha"].typeOf().as<std::string>() != "undefined"
-                        ? nodeObj["alpha"].as<double>()
-                        : 1.0;
                 }
                 // 旧形式: layerId + params（後方互換性）
                 else if (nodeObj["layerId"].typeOf().as<std::string>() != "undefined") {
