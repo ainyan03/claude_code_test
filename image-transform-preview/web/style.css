@@ -586,12 +586,34 @@ button {
 .node-graph-canvas-container {
     background: #fafafa;
     transition: all 0.3s;
-    overflow: auto;
+    overflow: scroll; /* スクロールバーを常時表示 */
     position: relative;
     height: 400px; /* デフォルト高さ */
     resize: vertical; /* ブラウザ標準のリサイズ機能を有効化 */
     min-height: 200px; /* 最小高さ */
     max-height: 800px; /* 最大高さ */
+    /* macOS/WebKitでスクロールバーを常時表示 */
+    scrollbar-width: auto; /* Firefox */
+}
+
+/* WebKit系ブラウザ（Chrome, Safari）でスクロールバーを常時表示 */
+.node-graph-canvas-container::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+
+.node-graph-canvas-container::-webkit-scrollbar-track {
+    background: #e0e0e0;
+    border-radius: 6px;
+}
+
+.node-graph-canvas-container::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 6px;
+}
+
+.node-graph-canvas-container::-webkit-scrollbar-thumb:hover {
+    background: #666;
 }
 
 .node-graph-canvas-container.hidden {
@@ -605,7 +627,11 @@ button {
         linear-gradient(90deg, #f0f0f0 1px, transparent 1px),
         linear-gradient(#f0f0f0 1px, transparent 1px);
     background-size: 20px 20px;
-    min-height: 1200px; /* SVGの高さに合わせる */
+    /* 固定サイズ: スクロール可能な領域を確保 */
+    width: 1600px;
+    height: 1200px;
+    min-width: 1600px;
+    min-height: 1200px;
 }
 
 /* ノード要素（SVG foreignObject内のHTML） */

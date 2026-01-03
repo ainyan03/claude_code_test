@@ -257,25 +257,18 @@ function addImageNodeFromLibrary(imageId) {
     // 全ての画像ノードの数をカウント（より良い配置のため）
     const existingImageNodes = globalNodes.filter(n => n.type === 'image').length;
 
-    // 画面に収まるように座標を計算（表示領域の安全範囲: 高さ380px）
-    const maxVisibleHeight = 380;
-    const nodeHeight = 100; // 画像ノードの高さ
+    // 画像ノードは縦方向に並べる（中央エリア基準）
     const spacing = 120; // ノード間の間隔
-    const startX = 50;
-    const startY = 50;
-
-    // 1列に収まる最大ノード数を計算
-    const nodesPerColumn = Math.floor((maxVisibleHeight - startY) / spacing);
-    const column = Math.floor(existingImageNodes / nodesPerColumn);
-    const row = existingImageNodes % nodesPerColumn;
+    const startX = 500;  // 1600幅キャンバスの中央寄り左側
+    const startY = 450;  // 1200高さキャンバスの中央付近
 
     const imageNode = {
         id: `image-node-${nextImageNodeId++}`,
         type: 'image',
         imageId: imageId,
         title: image.name,
-        posX: startX + column * 200,  // 列ごとに200pxずつ右に配置
-        posY: startY + row * spacing  // 行ごとに120pxずつ下に配置
+        posX: startX,
+        posY: startY + existingImageNodes * spacing  // 縦方向に並べる
     };
 
     globalNodes.push(imageNode);
@@ -429,6 +422,45 @@ function initializeNodeGraph() {
     });
 
     console.log('Node graph initialized');
+
+    // 初期スクロール位置を中央に設定
+    centerNodeGraphScroll();
+
+    // コンテナのリサイズを監視してスクロール位置を追従
+    if (container) {
+        const resizeObserver = new ResizeObserver(() => {
+            centerNodeGraphScroll();
+        });
+        resizeObserver.observe(container);
+    }
+
+    // ウィンドウリサイズ時もスクロール位置を更新
+    window.addEventListener('resize', () => {
+        centerNodeGraphScroll();
+    });
+}
+
+// ノードグラフのスクロール位置を中央に設定
+function centerNodeGraphScroll() {
+    const container = document.querySelector('.node-graph-canvas-container');
+    if (!container || !nodeGraphSvg) return;
+
+    // SVGのサイズを取得
+    const svgWidth = nodeGraphSvg.width.baseVal.value || 1600;
+    const svgHeight = nodeGraphSvg.height.baseVal.value || 1200;
+
+    // コンテナの表示サイズを取得
+    const containerWidth = container.clientWidth;
+    const containerHeight = container.clientHeight;
+
+    // 中央にスクロール
+    const scrollX = Math.max(0, (svgWidth - containerWidth) / 2);
+    const scrollY = Math.max(0, (svgHeight - containerHeight) / 2);
+
+    container.scrollLeft = scrollX;
+    container.scrollTop = scrollY;
+
+    console.log(`Node graph scroll centered: (${scrollX}, ${scrollY})`);
 }
 
 function renderNodeGraph() {
@@ -448,8 +480,8 @@ function renderNodeGraph() {
             id: 'output',
             type: 'output',
             title: '出力',
-            posX: 500,  // スマートフォン対応：右端にはみ出ないよう調整
-            posY: 200
+            posX: 1000,  // 1600幅キャンバスの中央寄り右側
+            posY: 550   // 1200高さキャンバスの中央付近
         });
     }
 
@@ -1379,8 +1411,8 @@ function addCompositeNode() {
         id: `composite-${nextCompositeId++}`,
         type: 'composite',
         title: '合成',
-        posX: 300,
-        posY: 50 + existingCompositeCount * 150,  // 既存のノードと重ならないように配置
+        posX: 750,  // 1600幅キャンバスの中央エリア
+        posY: 400 + existingCompositeCount * 150,  // 中央付近から配置
         // 動的な入力配列（デフォルトで2つの入力）
         inputs: [
             { id: 'in1', alpha: 1.0 },
@@ -1411,8 +1443,8 @@ function addAffineNode() {
         id: `affine-${Date.now()}`,
         type: 'affine',
         title: 'アフィン変換',
-        posX: 300,
-        posY: 50 + existingAffineCount * 150,
+        posX: 750,  // 1600幅キャンバスの中央エリア
+        posY: 400 + existingAffineCount * 150,  // 中央付近から配置
         matrixMode: false,  // デフォルトはパラメータモード
         // パラメータモード用の初期値
         translateX: 0,
@@ -1470,8 +1502,8 @@ function addIndependentFilterNode(filterType) {
         filterType: filterType,
         param: defaultParam,
         title: getFilterDisplayName(filterType),
-        posX: 200,
-        posY: 50 + existingFilterCount * 120  // 既存のノードと重ならないように配置
+        posX: 700,  // 1600幅キャンバスの中央エリア（画像ノードと出力の中間）
+        posY: 400 + existingFilterCount * 120  // 中央付近から配置
     };
 
     globalNodes.push(filterNode);
