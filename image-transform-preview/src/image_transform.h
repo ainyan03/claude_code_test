@@ -32,7 +32,8 @@ struct Image16 {
 };
 
 // ========================================================================
-// 16bit フィルタクラス群（新アーキテクチャ）
+// 16bit フィルタクラス群（コアアーキテクチャ）
+// 注: すべてのフィルタ処理は16bit premultiplied alphaで実行されます
 // ========================================================================
 
 // フィルタパラメータ構造体
@@ -176,7 +177,7 @@ public:
     // 画像合成処理
     Image compose();
 
-    // ノードグラフ用の処理関数（16bit版）
+    // コア画像処理関数（16bit premultiplied alpha処理）
     Image16 applyFilterToImage16(const Image16& input, const std::string& filterType, float param = 0.0f) const;
     Image16 applyTransformToImage16(const Image16& input, const AffineMatrix& matrix, double alpha = 1.0) const;
     Image16 mergeImages16(const std::vector<const Image16*>& images) const;

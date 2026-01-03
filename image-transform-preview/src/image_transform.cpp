@@ -101,9 +101,8 @@ Image ImageProcessor::compose() {
 // 16bit Premultiplied Alpha 高速処理関数群
 // ========================================================================
 
-// 旧8bit版削除（applyTransformToImage, mergeImages）
-
-// ノードグラフ用の16bit版は以下に実装済み:
+// 注: 旧8bitフィルタ処理は削除済み。すべての処理は16bit版を使用します。
+// コア処理関数:
 // - applyFilterToImage16()
 // - applyTransformToImage16()
 // - mergeImages16()
@@ -432,7 +431,7 @@ Image16 ImageProcessor::applyFilterToImage16(const Image16& input, const std::st
 }
 
 // ========================================================================
-// 16bit フィルタクラス実装（新アーキテクチャ）
+// 16bit フィルタクラス実装（コアアーキテクチャ）
 // ========================================================================
 
 // 明るさ調整フィルタ（16bit版）
