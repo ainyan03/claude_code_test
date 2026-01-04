@@ -566,24 +566,22 @@ function drawConnectionBetweenPorts(fromNode, fromPortId, toNode, toPortId) {
 }
 
 // アフィン変換パラメータから行列を計算
+// 注: 中心補正はC++側(node_graph.cpp)でsrcOriginを基準に行うため、
+//     ここでは基本行列のみを計算する
 function calculateMatrixFromParams(translateX, translateY, rotation, scaleX, scaleY) {
-    // キャンバス中心を基準点とする
-    const centerX = canvasWidth / 2.0;
-    const centerY = canvasHeight / 2.0;
-
     // 回転を度からラジアンに変換
     const rad = rotation * Math.PI / 180.0;
     const cos = Math.cos(rad);
     const sin = Math.sin(rad);
 
-    // 行列要素を計算
-    // 変換の順序：中心に移動 → スケール → 回転 → 元に戻す → 平行移動
+    // 基本行列要素を計算（原点(0,0)基準）
+    // C++側で srcOrigin を中心とした変換 T(origin) × M × T(-origin) を適用
     const a = cos * scaleX;
     const b = -sin * scaleY;
     const c = sin * scaleX;
     const d = cos * scaleY;
-    const tx = -centerX * a - centerY * c + centerX + translateX;
-    const ty = -centerX * b - centerY * d + centerY + translateY;
+    const tx = translateX;
+    const ty = translateY;
 
     return { a, b, c, d, tx, ty };
 }
@@ -994,7 +992,7 @@ function drawGlobalNode(node) {
                 const value = node.matrix && node.matrix[param.name] !== undefined ? node.matrix[param.name] : param.default;
                 const label = document.createElement('label');
                 label.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;';
-                label.innerHTML = `<span style="min-width: 40px;">${param.label}:</span><input type="range" class="affine-matrix-slider" data-param="${param.name}" min="${param.min}" max="${param.max}" step="${param.step}" value="${value}" style="width: 60px;"> <span class="matrix-display">${value.toFixed(param.step >= 1 ? 0 : 1)}</span>`;
+                label.innerHTML = `<span style="min-width: 40px;">${param.label}:</span><input type="range" class="affine-matrix-slider" data-param="${param.name}" min="${param.min}" max="${param.max}" step="${param.step}" value="${value}" style="width: 60px;"> <span class="matrix-display">${value.toFixed(param.step >= 1 ? 0 : 2)}</span>`;
 
                 const slider = label.querySelector('.affine-matrix-slider');
                 const display = label.querySelector('.matrix-display');
@@ -1003,7 +1001,7 @@ function drawGlobalNode(node) {
                     if (!node.matrix) node.matrix = { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
                     const val = parseFloat(e.target.value);
                     node.matrix[param.name] = val;
-                    display.textContent = val.toFixed(param.step >= 1 ? 0 : 1);
+                    display.textContent = val.toFixed(param.step >= 1 ? 0 : 2);
                     throttledUpdatePreview();
                 });
 
@@ -1624,7 +1622,27 @@ function updatePreviewFromGraph() {
     // C++側にノードグラフ構造を渡す（1回のWASM呼び出しで完結）
     const evalStart = performance.now();
 
-    graphEvaluator.setNodes(globalNodes);
+    // アフィンノードのパラメータを行列に統一してからC++に渡す
+    const nodesForCpp = globalNodes.map(node => {
+        if (node.type === 'affine' && !node.matrixMode) {
+            // パラメータモードの場合、JS側で行列に変換
+            const matrix = calculateMatrixFromParams(
+                node.translateX || 0,
+                node.translateY || 0,
+                node.rotation || 0,
+                node.scaleX !== undefined ? node.scaleX : 1,
+                node.scaleY !== undefined ? node.scaleY : 1
+            );
+            return {
+                ...node,
+                matrixMode: true,  // C++には常に行列モードとして渡す
+                matrix: matrix
+            };
+        }
+        return node;
+    });
+
+    graphEvaluator.setNodes(nodesForCpp);
     graphEvaluator.setConnections(globalConnections);
 
     // C++側でノードグラフ全体を評価
