@@ -19,6 +19,10 @@ public:
         evaluator.setCanvasSize(width, height);
     }
 
+    void setDstOrigin(double x, double y) {
+        evaluator.setDstOrigin(x, y);
+    }
+
     void registerImage(int imageId, const val& imageData, int width, int height) {
         unsigned int length = imageData["length"].as<unsigned int>();
         Image img(width, height);
@@ -181,6 +185,7 @@ EMSCRIPTEN_BINDINGS(image_transform) {
     class_<NodeGraphEvaluatorWrapper>("NodeGraphEvaluator")
         .constructor<int, int>()
         .function("setCanvasSize", &NodeGraphEvaluatorWrapper::setCanvasSize)
+        .function("setDstOrigin", &NodeGraphEvaluatorWrapper::setDstOrigin)
         .function("registerImage", &NodeGraphEvaluatorWrapper::registerImage)
         .function("setNodes", &NodeGraphEvaluatorWrapper::setNodes)
         .function("setConnections", &NodeGraphEvaluatorWrapper::setConnections)

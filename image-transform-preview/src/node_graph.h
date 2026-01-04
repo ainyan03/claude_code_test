@@ -86,9 +86,14 @@ public:
     // キャンバスサイズ変更
     void setCanvasSize(int width, int height);
 
+    // 出力先原点（dstOrigin）を設定
+    void setDstOrigin(double x, double y);
+
 private:
     int canvasWidth;
     int canvasHeight;
+    double dstOriginX;  // 出力先の基準点X（ピクセル座標）
+    double dstOriginY;  // 出力先の基準点Y（ピクセル座標）
     ImageProcessor processor;
 
     std::vector<GraphNode> nodes;

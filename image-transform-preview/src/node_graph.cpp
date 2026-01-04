@@ -1,5 +1,6 @@
 #include "node_graph.h"
 #include "image_types.h"
+#include <cmath>
 
 namespace ImageTransform {
 
@@ -8,12 +9,22 @@ namespace ImageTransform {
 // ========================================================================
 
 NodeGraphEvaluator::NodeGraphEvaluator(int width, int height)
-    : canvasWidth(width), canvasHeight(height), processor(width, height) {}
+    : canvasWidth(width), canvasHeight(height),
+      dstOriginX(width / 2.0), dstOriginY(height / 2.0),  // デフォルトはキャンバス中央
+      processor(width, height) {}
 
 void NodeGraphEvaluator::setCanvasSize(int width, int height) {
     canvasWidth = width;
     canvasHeight = height;
+    // dstOrigin も更新（デフォルトは中央）
+    dstOriginX = width / 2.0;
+    dstOriginY = height / 2.0;
     processor.setCanvasSize(width, height);
+}
+
+void NodeGraphEvaluator::setDstOrigin(double x, double y) {
+    dstOriginX = x;
+    dstOriginY = y;
 }
 
 void NodeGraphEvaluator::registerImage(int imageId, const Image& img) {
@@ -145,17 +156,12 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
         }
 
         // 合成
-        // 最初の入力画像の srcOrigin を保持（合成後に継承）
-        double firstOriginX = images.empty() ? 0.0 : images[0].srcOriginX;
-        double firstOriginY = images.empty() ? 0.0 : images[0].srcOriginY;
-
-        if (imagePtrs.size() == 1) {
-            result = images[0];
-        } else if (imagePtrs.size() > 1) {
-            result = processor.mergeImages(imagePtrs);
-            // mergeImages後はキャンバスサイズになるため、最初の入力の srcOrigin を継承
-            result.srcOriginX = firstOriginX;
-            result.srcOriginY = firstOriginY;
+        // mergeImages は各画像の srcOrigin を基準点（dstOrigin）に揃えて配置し、
+        // 結果の srcOrigin を基準点に設定する
+        // 単一入力でも原点処理が必要なため、常に mergeImages を使用
+        if (imagePtrs.size() >= 1) {
+            result = processor.mergeImages(imagePtrs, dstOriginX, dstOriginY);
+            // mergeImages が srcOrigin を設定済み（dstOrigin）
         }
 
         // 合成ノードのアフィン変換
@@ -166,19 +172,50 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
         );
 
         if (needsTransform) {
-            double centerX = canvasWidth / 2.0;
-            double centerY = canvasHeight / 2.0;
-            AffineMatrix matrix = AffineMatrix::fromParams(p, centerX, centerY);
+            // パラメータから基本行列を生成（原点は後で設定）
+            AffineMatrix matrix = AffineMatrix::fromParams(p, 0, 0);
 
-            // srcOrigin を保存
-            double oldOriginX = result.srcOriginX;
-            double oldOriginY = result.srcOriginY;
+            // srcOrigin を中心に変換: T(origin) × M × T(-origin)
+            // mergeImages後のsrcOriginはdstOriginなので、dstOrigin中心の変換になる
+            double ox = result.srcOriginX;
+            double oy = result.srcOriginY;
+            AffineMatrix centeredMatrix;
+            centeredMatrix.a = matrix.a;
+            centeredMatrix.b = matrix.b;
+            centeredMatrix.c = matrix.c;
+            centeredMatrix.d = matrix.d;
+            centeredMatrix.tx = matrix.tx + ox - matrix.a * ox - matrix.b * oy;
+            centeredMatrix.ty = matrix.ty + oy - matrix.c * ox - matrix.d * oy;
 
-            result = processor.applyTransform(result, matrix);
+            // 四隅が変換後に負の座標になるかチェック
+            double corners[4][2] = {
+                {0, 0},
+                {static_cast<double>(result.width), 0},
+                {0, static_cast<double>(result.height)},
+                {static_cast<double>(result.width), static_cast<double>(result.height)}
+            };
+            double minX = 0, minY = 0;
+            for (int i = 0; i < 4; i++) {
+                double tx = centeredMatrix.a * corners[i][0] + centeredMatrix.b * corners[i][1] + centeredMatrix.tx;
+                double ty = centeredMatrix.c * corners[i][0] + centeredMatrix.d * corners[i][1] + centeredMatrix.ty;
+                if (tx < minX) minX = tx;
+                if (ty < minY) minY = ty;
+            }
+            // 負の座標を避けるためのオフセットを適用
+            if (minX < 0) {
+                centeredMatrix.tx -= minX;
+                ox -= minX;
+            }
+            if (minY < 0) {
+                centeredMatrix.ty -= minY;
+                oy -= minY;
+            }
 
-            // srcOrigin もアフィン変換
-            result.srcOriginX = matrix.a * oldOriginX + matrix.b * oldOriginY + matrix.tx;
-            result.srcOriginY = matrix.c * oldOriginX + matrix.d * oldOriginY + matrix.ty;
+            result = processor.applyTransform(result, centeredMatrix);
+
+            // srcOrigin を更新（オフセット込み）
+            result.srcOriginX = ox;
+            result.srcOriginY = oy;
         }
 
     } else if (node->type == "affine") {
@@ -207,21 +244,53 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
                 matrix = node->affineMatrix;
             } else {
                 // パラメータモード: パラメータから行列を生成
-                // 元画像ではなくキャンバスの中心を回転軸にする
-                double centerX = canvasWidth / 2.0;
-                double centerY = canvasHeight / 2.0;
-                matrix = AffineMatrix::fromParams(node->affineParams, centerX, centerY);
+                // srcOrigin を中心として変換（後で統一的に処理）
+                matrix = AffineMatrix::fromParams(node->affineParams, 0, 0);
             }
 
-            // アフィン変換を適用（アフィン変換ノード自体はalphaを持たない）
-            result = processor.applyTransform(inputImage, matrix);
+            // 行列を srcOrigin 中心で適用: T(origin) × M × T(-origin)
+            // これにより srcOrigin が数学的な原点として機能する
+            double ox = inputImage.srcOriginX;
+            double oy = inputImage.srcOriginY;
+            AffineMatrix centeredMatrix;
+            centeredMatrix.a = matrix.a;
+            centeredMatrix.b = matrix.b;
+            centeredMatrix.c = matrix.c;
+            centeredMatrix.d = matrix.d;
+            centeredMatrix.tx = matrix.tx + ox - matrix.a * ox - matrix.b * oy;
+            centeredMatrix.ty = matrix.ty + oy - matrix.c * ox - matrix.d * oy;
 
-            // srcOrigin もアフィン変換で変換
-            // 新座標 = 行列 * 元座標
-            double oldOriginX = inputImage.srcOriginX;
-            double oldOriginY = inputImage.srcOriginY;
-            result.srcOriginX = matrix.a * oldOriginX + matrix.b * oldOriginY + matrix.tx;
-            result.srcOriginY = matrix.c * oldOriginX + matrix.d * oldOriginY + matrix.ty;
+            // 入力画像の四隅が変換後に負の座標になるかチェック
+            // 負になる場合はオフセットを追加して全ピクセルを正の座標に収める
+            double corners[4][2] = {
+                {0, 0},
+                {static_cast<double>(inputImage.width), 0},
+                {0, static_cast<double>(inputImage.height)},
+                {static_cast<double>(inputImage.width), static_cast<double>(inputImage.height)}
+            };
+            double minX = 0, minY = 0;
+            for (int i = 0; i < 4; i++) {
+                double tx = centeredMatrix.a * corners[i][0] + centeredMatrix.b * corners[i][1] + centeredMatrix.tx;
+                double ty = centeredMatrix.c * corners[i][0] + centeredMatrix.d * corners[i][1] + centeredMatrix.ty;
+                if (tx < minX) minX = tx;
+                if (ty < minY) minY = ty;
+            }
+            // 負の座標を避けるためのオフセットを適用
+            if (minX < 0) {
+                centeredMatrix.tx -= minX;
+                ox -= minX;
+            }
+            if (minY < 0) {
+                centeredMatrix.ty -= minY;
+                oy -= minY;
+            }
+
+            // アフィン変換を適用
+            result = processor.applyTransform(inputImage, centeredMatrix);
+
+            // srcOrigin を更新（オフセット込み）
+            result.srcOriginX = ox;
+            result.srcOriginY = oy;
         }
     }
 
@@ -264,6 +333,20 @@ Image NodeGraphEvaluator::evaluateGraph() {
     // グラフを評価
     std::set<std::string> visited;
     ViewPort resultViewPort = evaluateNode(inputConn->fromNodeId, visited);
+
+    // srcOrigin が dstOrigin と一致しない場合、最終配置を適用
+    // （合成ノードを経由した場合は既に適用済みなのでスキップ）
+    const double epsilon = 0.001;
+    if (std::abs(resultViewPort.srcOriginX - dstOriginX) > epsilon ||
+        std::abs(resultViewPort.srcOriginY - dstOriginY) > epsilon) {
+        // Premultiplied形式に変換（必要な場合）
+        if (resultViewPort.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
+            resultViewPort = processor.convertPixelFormat(resultViewPort, PixelFormatIDs::RGBA16_Premultiplied);
+        }
+        // dstOrigin に基づいて配置
+        std::vector<const ViewPort*> singleImage = { &resultViewPort };
+        resultViewPort = processor.mergeImages(singleImage, dstOriginX, dstOriginY);
+    }
 
     // ViewPort → 8bit Image変換（ViewPortのtoImage()を使用）
     return resultViewPort.toImage();

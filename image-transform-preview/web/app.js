@@ -144,9 +144,14 @@ function setupEventListeners() {
         // 9点ボタン押下時：正規化座標からピクセル座標を計算して入力欄に反映
         const w = parseInt(document.getElementById('canvas-width').value) || 800;
         const h = parseInt(document.getElementById('canvas-height').value) || 600;
-        document.getElementById('origin-x').value = Math.round(normalizedOrigin.x * w);
-        document.getElementById('origin-y').value = Math.round(normalizedOrigin.y * h);
-        // 注: canvasOrigin はサイズ変更ボタン押下時に更新される
+        const pixelX = Math.round(normalizedOrigin.x * w);
+        const pixelY = Math.round(normalizedOrigin.y * h);
+        document.getElementById('origin-x').value = pixelX;
+        document.getElementById('origin-y').value = pixelY;
+        // canvasOrigin を即座に更新してプレビューに反映
+        canvasOrigin = { x: pixelX, y: pixelY };
+        graphEvaluator.setDstOrigin(pixelX, pixelY);
+        throttledUpdatePreview();
     });
 
     // 原点座標入力欄の初期値を設定
@@ -385,7 +390,7 @@ function resizeCanvas() {
     canvas.height = height;
 
     graphEvaluator.setCanvasSize(width, height);  // graphEvaluatorのサイズも更新
-    // TODO: 原点座標もバックエンドに渡す（設計決定後に実装）
+    graphEvaluator.setDstOrigin(canvasOrigin.x, canvasOrigin.y);  // dstOriginを設定
     updatePreviewFromGraph();
 }
 
