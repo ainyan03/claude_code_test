@@ -1,6 +1,6 @@
 # TODO リスト
 
-最終更新: 2026-01-02
+最終更新: 2026-01-04
 
 ## ✅ 完了済み（このセッションで達成）
 
@@ -40,6 +40,10 @@
 ### クリーンアップ
 - [x] 旧レイヤーシステムコードの完全削除（461行）
 - [x] 不要なブランチの削除
+- [x] **Phase 6: WebAssemblyバインディング整理**（2026-01-04）
+  - [x] app.jsからImageProcessor依存を削除
+  - [x] ImageProcessorWrapperを完全削除（約410行削減）
+  - [x] NodeGraphEvaluator専用アーキテクチャに移行
 
 ---
 
@@ -307,30 +311,13 @@
 - [x] `app.js`: appInitialized フラグでイベントリスナー重複登録防止（Q5）
 - [x] `node_graph.h`: GraphNode フィールド初期化確認済み（Q4 - 問題なし）
 - [x] `viewport.cpp`: deepCopy にストライド検証アサート追加（Q7）
-
----
-
-### 高優先度
-
-#### Q3. 型安全性: Unsafe型キャスト
-**ファイル**: `bindings.cpp` (lines 203, 259, 298, 339)
-
-**問題**:
-```cpp
-uint16_t* resultData = static_cast<uint16_t*>(result.data);
-```
-`result.formatID` がRGBA16_Premultiplied であることを仮定したキャスト。
-
-**修正案**: formatIDの検証を追加、または型安全なアクセサを実装
-
-**難易度**: 中
-
----
+- [x] `bindings.cpp`: Q3, Q6 - ImageProcessorWrapper削除により解消（Phase 6で削除）
+- [x] `app.js`: processor.setCanvasSize() バグ修正（Phase 6で削除）
 
 ### 中優先度
 
-#### Q6. 後方互換性: imageId/layerId
-**ファイル**: `bindings.cpp` (lines 405-422)
+#### Q6. 後方互換性: imageId/layerId（NodeGraphEvaluatorWrapper内）
+**ファイル**: `bindings.cpp` (setNodes関数)
 
 **問題**: 旧形式（layerId）と新形式（imageId）の両方をサポートしているが、両方存在する場合の挙動が不明確
 

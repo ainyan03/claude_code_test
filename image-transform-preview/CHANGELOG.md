@@ -2,6 +2,101 @@
 
 このプロジェクトの主要な変更を記録します。
 
+## [Unreleased] - 2026-01-04
+
+### 🧹 Phase 6: WebAssemblyバインディングの整理と未使用コード削除
+
+#### 概要
+Phase 5で完了したViewPort移行に続き、JavaScript側をNodeGraphEvaluator専用に移行し、不要となったImageProcessorWrapper関連コードを完全に削除しました。
+
+#### PR #14: JS側のImageProcessor依存削除
+**変更ファイル**: `web/app.js`
+
+**削除内容**:
+- `let processor;` グローバル変数の削除
+- `ImageProcessor` の初期化ブロック削除
+- `processor.setCanvasSize()` 呼び出しの削除（元々バインディングに存在しないバグだった）
+- WebAssemblyタイムアウトチェックを `graphEvaluator` に変更
+
+**結果**: app.jsは`NodeGraphEvaluator`のみを使用するように統一
+
+#### PR #15: C++側の未使用コード削除
+**変更ファイル**: `src/bindings.cpp`
+
+**削除内容**:
+- `ImageProcessorWrapper` クラス全体（9メソッド）
+  - `applyFilterToImage()`
+  - `applyTransformToImage()`
+  - `mergeImages()`
+  - `toPremultiplied()`
+  - `fromPremultiplied()`
+  - `applyFilterToImage16()`
+  - `applyTransformToImage16()`
+  - `mergeImages16()`
+  - `createAffineMatrix()`
+- EMSCRIPTEN_BINDINGS の `ImageProcessor` エントリ
+- `viewPortFromJSImage()` / `viewPortToJSImage()` ヘルパー関数
+- 未使用の `#include` ディレクティブ
+  - `image_processor.h`
+  - `viewport.h`
+  - `pixel_format.h`
+
+**コード削減**: 約410行
+
+#### 現在のアーキテクチャ
+
+**JavaScript側**:
+- `NodeGraphEvaluator` のみを使用
+- `ImageProcessor` への依存なし
+
+**C++バインディング**:
+```cpp
+EMSCRIPTEN_BINDINGS(image_transform) {
+    class_<NodeGraphEvaluatorWrapper>("NodeGraphEvaluator")
+        .constructor<int, int>()
+        .function("setCanvasSize", ...)
+        .function("setLayerImage", ...)
+        .function("setNodes", ...)
+        .function("setConnections", ...)
+        .function("evaluateGraph", ...);
+}
+```
+
+**ファイル構造**:
+```
+src/bindings.cpp: NodeGraphEvaluatorWrapperのみを公開（~200行、以前は~610行）
+```
+
+#### 利点
+- ✅ **コードベースの簡素化**: 410行の未使用コード削除
+- ✅ **バグ修正**: 存在しない`processor.setCanvasSize()`呼び出しを削除
+- ✅ **保守性向上**: 使用されていないコードパスの排除
+- ✅ **ビルドサイズ削減**: 不要なバインディングの削除
+
+#### コミット
+- `a1906ba` - Migrate app.js to use only NodeGraphEvaluator
+- `a328b5f` - Remove unused ImageProcessorWrapper from bindings
+
+---
+
+## [Unreleased] - 2026-01-04
+
+### 🐛 奇数幅画像の斜め歪みバグ修正
+
+#### 問題
+439px幅の画像で45度の斜め線状の歪みが発生していた。
+
+#### 原因
+ViewPortは16バイトアライメントのstrideを持つが、`fromImage()`と`toImage()`がデータをフラット配列として扱っていた。
+
+#### 修正
+`image_processor.cpp`の`fromImage()`と`toImage()`を行ごとのアクセスに修正し、`getPixelPtr()`を使用してstrideを正しく処理するようにした。
+
+#### コミット
+- `c8e0e32` - Fix diagonal distortion bug for odd-width images
+
+---
+
 ## [Unreleased] - 2026-01-03
 
 ### 🎯 Phase 5B-D: ViewPort完全移行とImage16削除

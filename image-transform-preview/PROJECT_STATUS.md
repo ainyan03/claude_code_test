@@ -1,12 +1,12 @@
 # プロジェクトステータス
 
-最終更新: 2026-01-03
+最終更新: 2026-01-04
 
 ## 🎯 現在の状態
 
-**ステータス**: ✅ 安定版（ノードグラフ実装完了）
+**ステータス**: ✅ 安定版（Phase 6完了 - NodeGraphEvaluator専用アーキテクチャ）
 
-このプロジェクトは、レイヤーベースシステムからノードグラフエディタへの大規模リファクタリングを完了しました。
+このプロジェクトは、レイヤーベースシステムからノードグラフエディタへの大規模リファクタリングを完了し、さらにPhase 6でWebAssemblyバインディングの整理を完了しました。
 
 ## 📍 ブランチ構成と運用方針
 
@@ -76,7 +76,7 @@ src/
 ├── filters.h/cpp              # フィルタクラス群（ViewPortベース）
 ├── image_processor.h/cpp      # コア画像処理エンジン（ViewPortベース）
 ├── node_graph.h/cpp           # ノードグラフ評価エンジン（ViewPortベース）
-└── bindings.cpp               # JavaScriptバインディング
+└── bindings.cpp               # JavaScriptバインディング（NodeGraphEvaluatorのみ公開）
 ```
 
 ## 🔄 次のアクション（優先順位順）
@@ -90,11 +90,11 @@ src/
 6. ~~**Phase 5B: ViewPortベース処理関数の実装**~~: ✅ 完了（filters、image_processor移行）
 7. ~~**Phase 5C: 既存コードの段階的移行**~~: ✅ 完了（node_graph、bindings移行）
 8. ~~**Phase 5D: Image16の完全削除**~~: ✅ 完了（Image16とヘルパー関数削除）
+9. ~~**Phase 6: WebAssemblyバインディングの整理**~~: ✅ 完了（ImageProcessorWrapper削除、約410行削減）
 
-**✅ ViewPort移行が完全に完了！Image16は削除され、ViewPortが内部処理の統一画像型として機能しています。**
+**✅ Phase 6まで完全に完了！NodeGraphEvaluatorのみを使用する簡潔なアーキテクチャになりました。**
 
 ### 将来の機能拡張（任意）
-- **Phase 6: WebAssemblyバインディングの更新**: API互換性の維持
 - **Phase 7: 新フォーマットの実装**: RGB565、RGB332、インデックスカラー等
 - **追加ノードタイプ**: トリミング、色調補正、その他のフィルタなど
 - **ノードグラフの保存/読み込み**: JSON形式でのパイプライン保存機能
