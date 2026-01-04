@@ -125,20 +125,26 @@ Image ImageProcessor::toImage(const ViewPort& input) const {
 }
 
 // ViewPort（Premultiplied）画像の合成（超高速版：除算なし）
-ViewPort ImageProcessor::mergeImages(const std::vector<const ViewPort*>& images) const {
+ViewPort ImageProcessor::mergeImages(const std::vector<const ViewPort*>& images, double dstOriginX, double dstOriginY) const {
     ViewPort result(canvasWidth, canvasHeight, PixelFormatIDs::RGBA16_Premultiplied);
 
     // キャンバスを透明で初期化
     std::memset(result.data, 0, result.getTotalBytes());
+
+    // 合成の基準点（dstOrigin）
+    // 各画像の srcOrigin がこの点に揃うように配置
+    double refX = dstOriginX;
+    double refY = dstOriginY;
 
     // 各画像を順番に合成（プリマルチプライド前提なので単純加算）
     for (size_t i = 0; i < images.size(); i++) {
         const ViewPort* img = images[i];
         if (!img || !img->isValid()) continue;
 
-        // 画像サイズがキャンバスサイズと異なる場合は中央配置
-        int offsetX = (canvasWidth - img->width) / 2;
-        int offsetY = (canvasHeight - img->height) / 2;
+        // srcOrigin ベースの配置: 画像の srcOrigin が基準点に来るようにオフセット
+        // オフセット = 基準点 - srcOrigin
+        int offsetX = static_cast<int>(refX - img->srcOriginX);
+        int offsetY = static_cast<int>(refY - img->srcOriginY);
 
         for (int y = 0; y < img->height && (y + offsetY) < canvasHeight; y++) {
             for (int x = 0; x < img->width && (x + offsetX) < canvasWidth; x++) {
@@ -171,6 +177,10 @@ ViewPort ImageProcessor::mergeImages(const std::vector<const ViewPort*>& images)
             }
         }
     }
+
+    // 合成結果の srcOrigin は基準点に設定
+    result.srcOriginX = refX;
+    result.srcOriginY = refY;
 
     return result;
 }
@@ -277,6 +287,10 @@ ViewPort ImageProcessor::convertPixelFormat(const ViewPort& input, PixelFormatID
     }
 
     ViewPort output(input.width, input.height, targetFormat);
+
+    // srcOrigin を継承
+    output.srcOriginX = input.srcOriginX;
+    output.srcOriginY = input.srcOriginY;
 
     // よく使う変換パスの直接最適化
     // RGBA8_Straight → RGBA16_Premultiplied

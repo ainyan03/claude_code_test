@@ -6,6 +6,7 @@ let uploadedImages = [];  // 画像ライブラリ
 let nextImageId = 1;
 let canvasWidth = 800;
 let canvasHeight = 600;
+let canvasOrigin = { x: 400, y: 300 };  // キャンバス原点（ピクセル座標）
 
 // グローバルノードグラフ
 let globalNodes = [];  // すべてのノード（画像、フィルタ、合成、出力）を管理
@@ -137,6 +138,26 @@ function setupEventListeners() {
     // キャンバスサイズ変更
     document.getElementById('resize-canvas').addEventListener('click', resizeCanvas);
 
+    // キャンバス原点選択（9点グリッド）
+    // 初期選択は中央（0.5, 0.5）
+    setupOriginGrid('canvas-origin-grid', { x: 0.5, y: 0.5 }, (normalizedOrigin) => {
+        // 9点ボタン押下時：正規化座標からピクセル座標を計算して入力欄に反映
+        const w = parseInt(document.getElementById('canvas-width').value) || 800;
+        const h = parseInt(document.getElementById('canvas-height').value) || 600;
+        const pixelX = Math.round(normalizedOrigin.x * w);
+        const pixelY = Math.round(normalizedOrigin.y * h);
+        document.getElementById('origin-x').value = pixelX;
+        document.getElementById('origin-y').value = pixelY;
+        // canvasOrigin を即座に更新してプレビューに反映
+        canvasOrigin = { x: pixelX, y: pixelY };
+        graphEvaluator.setDstOrigin(pixelX, pixelY);
+        throttledUpdatePreview();
+    });
+
+    // 原点座標入力欄の初期値を設定
+    document.getElementById('origin-x').value = canvasOrigin.x;
+    document.getElementById('origin-y').value = canvasOrigin.y;
+
     // ダウンロードボタン
     document.getElementById('download-btn').addEventListener('click', downloadComposedImage);
 
@@ -262,7 +283,10 @@ function addImageNodeFromLibrary(imageId) {
         imageId: imageId,
         title: image.name,
         posX: startX,
-        posY: startY + existingImageNodes * spacing  // 縦方向に並べる
+        posY: startY + existingImageNodes * spacing,  // 縦方向に並べる
+        // 元画像の原点（正規化座標 0.0〜1.0）
+        originX: 0.5,
+        originY: 0.5
     };
 
     globalNodes.push(imageNode);
@@ -349,12 +373,24 @@ function resizeCanvas() {
         return;
     }
 
+    // 原点座標を取得（入力欄から）
+    const originX = parseInt(document.getElementById('origin-x').value) || 0;
+    const originY = parseInt(document.getElementById('origin-y').value) || 0;
+
+    // 原点をピクセル座標で保存（将来のバックエンド連携用）
+    canvasOrigin = {
+        x: Math.max(0, Math.min(originX, width)),
+        y: Math.max(0, Math.min(originY, height))
+    };
+    console.log('Canvas resized:', width, 'x', height, 'origin:', canvasOrigin);
+
     canvasWidth = width;
     canvasHeight = height;
     canvas.width = width;
     canvas.height = height;
 
     graphEvaluator.setCanvasSize(width, height);  // graphEvaluatorのサイズも更新
+    graphEvaluator.setDstOrigin(canvasOrigin.x, canvasOrigin.y);  // dstOriginを設定
     updatePreviewFromGraph();
 }
 
@@ -630,20 +666,53 @@ function drawGlobalNode(node) {
     header.appendChild(idBadge);
     nodeBox.appendChild(header);
 
-    // 画像ノードの場合、サムネイルを表示
+    // 画像ノードの場合、サムネイルと原点セレクタを表示
     if (node.type === 'image' && node.imageId !== undefined) {
         const image = uploadedImages.find(img => img.id === node.imageId);
         if (image && image.imageData) {
-            const thumbnail = document.createElement('div');
-            thumbnail.className = 'node-box-thumbnail';
-            thumbnail.style.cssText = 'padding: 4px; text-align: center;';
+            const contentRow = document.createElement('div');
+            contentRow.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 4px;';
 
+            // サムネイル
             const img = document.createElement('img');
             img.src = createThumbnailDataURL(image.imageData);
-            img.style.cssText = 'max-width: 80px; max-height: 60px; border-radius: 4px;';
+            img.style.cssText = 'width: 50px; height: 38px; object-fit: cover; border-radius: 3px;';
+            contentRow.appendChild(img);
 
-            thumbnail.appendChild(img);
-            nodeBox.appendChild(thumbnail);
+            // 原点セレクタ（9点グリッド）
+            const originGrid = document.createElement('div');
+            originGrid.className = 'node-origin-grid';
+            originGrid.dataset.nodeId = node.id;
+
+            const originValues = [
+                { x: 0, y: 0 }, { x: 0.5, y: 0 }, { x: 1, y: 0 },
+                { x: 0, y: 0.5 }, { x: 0.5, y: 0.5 }, { x: 1, y: 0.5 },
+                { x: 0, y: 1 }, { x: 0.5, y: 1 }, { x: 1, y: 1 }
+            ];
+
+            originValues.forEach(({ x, y }) => {
+                const btn = document.createElement('button');
+                btn.className = 'node-origin-point';
+                btn.dataset.x = x;
+                btn.dataset.y = y;
+                if (node.originX === x && node.originY === y) {
+                    btn.classList.add('selected');
+                }
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    // 選択状態を更新
+                    originGrid.querySelectorAll('.node-origin-point').forEach(b => b.classList.remove('selected'));
+                    btn.classList.add('selected');
+                    // ノードの原点を更新
+                    node.originX = x;
+                    node.originY = y;
+                    throttledUpdatePreview();
+                });
+                originGrid.appendChild(btn);
+            });
+
+            contentRow.appendChild(originGrid);
+            nodeBox.appendChild(contentRow);
         }
     }
 
@@ -1784,4 +1853,45 @@ function deleteNode(node) {
     // グラフを再描画
     renderNodeGraph();
     throttledUpdatePreview();
+}
+
+// 原点選択グリッドのセットアップ
+// gridId: グリッド要素のID
+// initialOrigin: 初期値 {x, y}（0.0〜1.0）
+// onChange: 変更時のコールバック (origin) => void
+function setupOriginGrid(gridId, initialOrigin, onChange) {
+    const grid = document.getElementById(gridId);
+    if (!grid) return;
+
+    const points = grid.querySelectorAll('.origin-point');
+
+    // 初期選択状態を設定
+    points.forEach(point => {
+        const x = parseFloat(point.dataset.x);
+        const y = parseFloat(point.dataset.y);
+        if (x === initialOrigin.x && y === initialOrigin.y) {
+            point.classList.add('selected');
+        } else {
+            point.classList.remove('selected');
+        }
+    });
+
+    // クリックイベント
+    points.forEach(point => {
+        point.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            // 選択状態を更新
+            points.forEach(p => p.classList.remove('selected'));
+            point.classList.add('selected');
+
+            // 原点値を取得してコールバック
+            const origin = {
+                x: parseFloat(point.dataset.x),
+                y: parseFloat(point.dataset.y)
+            };
+            onChange(origin);
+        });
+    });
 }

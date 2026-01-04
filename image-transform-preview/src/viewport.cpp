@@ -15,14 +15,16 @@ ViewPort::ViewPort()
     : data(nullptr), capacity(0), allocator(nullptr), ownsData(false),
       formatID(PixelFormatIDs::RGBA16_Premultiplied),
       width(0), height(0), stride(0),
-      offsetX(0), offsetY(0), parent(nullptr) {
+      offsetX(0), offsetY(0), parent(nullptr),
+      srcOriginX(0.0), srcOriginY(0.0) {
 }
 
 ViewPort::ViewPort(int w, int h, PixelFormatID fmtID, ImageAllocator* alloc)
     : data(nullptr), capacity(0), allocator(alloc), ownsData(true),
       formatID(fmtID),
       width(w), height(h), stride(0),
-      offsetX(0), offsetY(0), parent(nullptr) {
+      offsetX(0), offsetY(0), parent(nullptr),
+      srcOriginX(0.0), srcOriginY(0.0) {
 
     if (w <= 0 || h <= 0) {
         throw std::invalid_argument("ViewPort: width and height must be positive");
@@ -47,7 +49,8 @@ ViewPort::ViewPort(const ViewPort& other)
     : data(nullptr), capacity(0), allocator(other.allocator), ownsData(other.ownsData),
       formatID(other.formatID),
       width(other.width), height(other.height), stride(other.stride),
-      offsetX(other.offsetX), offsetY(other.offsetY), parent(other.parent) {
+      offsetX(other.offsetX), offsetY(other.offsetY), parent(other.parent),
+      srcOriginX(other.srcOriginX), srcOriginY(other.srcOriginY) {
 
     if (other.ownsData && other.data) {
         // ルート画像: ディープコピー
@@ -73,6 +76,8 @@ ViewPort& ViewPort::operator=(const ViewPort& other) {
         offsetX = other.offsetX;
         offsetY = other.offsetY;
         parent = other.parent;
+        srcOriginX = other.srcOriginX;
+        srcOriginY = other.srcOriginY;
 
         if (other.ownsData && other.data) {
             // ルート画像: ディープコピー
@@ -93,13 +98,16 @@ ViewPort::ViewPort(ViewPort&& other) noexcept
       ownsData(other.ownsData),
       formatID(other.formatID),
       width(other.width), height(other.height), stride(other.stride),
-      offsetX(other.offsetX), offsetY(other.offsetY), parent(other.parent) {
+      offsetX(other.offsetX), offsetY(other.offsetY), parent(other.parent),
+      srcOriginX(other.srcOriginX), srcOriginY(other.srcOriginY) {
 
     // 所有権を移転
     other.data = nullptr;
     other.capacity = 0;
     other.ownsData = false;
     other.parent = nullptr;
+    other.srcOriginX = 0.0;
+    other.srcOriginY = 0.0;
 }
 
 ViewPort& ViewPort::operator=(ViewPort&& other) noexcept {
@@ -119,11 +127,15 @@ ViewPort& ViewPort::operator=(ViewPort&& other) noexcept {
         offsetX = other.offsetX;
         offsetY = other.offsetY;
         parent = other.parent;
+        srcOriginX = other.srcOriginX;
+        srcOriginY = other.srcOriginY;
 
         other.data = nullptr;
         other.capacity = 0;
         other.ownsData = false;
         other.parent = nullptr;
+        other.srcOriginX = 0.0;
+        other.srcOriginY = 0.0;
     }
     return *this;
 }
@@ -153,6 +165,9 @@ ViewPort ViewPort::createSubView(int x, int y, int w, int h) {
     subView.offsetX = offsetX + x;
     subView.offsetY = offsetY + y;
     subView.parent = this;
+    // サブビューの原点は親からの相対位置で調整
+    subView.srcOriginX = srcOriginX - x;
+    subView.srcOriginY = srcOriginY - y;
 
     return subView;
 }
@@ -258,6 +273,8 @@ ViewPort ViewPort::fromImage(const Image& img) {
     vp.offsetX = 0;
     vp.offsetY = 0;
     vp.parent = nullptr;
+    vp.srcOriginX = 0.0;
+    vp.srcOriginY = 0.0;
     vp.capacity = vp.stride * vp.height;
     vp.data = vp.allocator->allocate(vp.capacity, 16);
 

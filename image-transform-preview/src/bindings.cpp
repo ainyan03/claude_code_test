@@ -19,6 +19,10 @@ public:
         evaluator.setCanvasSize(width, height);
     }
 
+    void setDstOrigin(double x, double y) {
+        evaluator.setDstOrigin(x, y);
+    }
+
     void registerImage(int imageId, const val& imageData, int width, int height) {
         unsigned int length = imageData["length"].as<unsigned int>();
         Image img(width, height);
@@ -45,6 +49,14 @@ public:
             if (node.type == "image") {
                 if (nodeObj["imageId"].typeOf().as<std::string>() != "undefined") {
                     node.imageId = nodeObj["imageId"].as<int>();
+                }
+                // 原点情報（正規化座標 → ピクセル座標への変換は evaluateNode で行う）
+                // ここでは正規化座標のまま受け取る
+                if (nodeObj["originX"].typeOf().as<std::string>() != "undefined") {
+                    node.srcOriginX = nodeObj["originX"].as<double>();
+                }
+                if (nodeObj["originY"].typeOf().as<std::string>() != "undefined") {
+                    node.srcOriginY = nodeObj["originY"].as<double>();
                 }
             }
 
@@ -173,6 +185,7 @@ EMSCRIPTEN_BINDINGS(image_transform) {
     class_<NodeGraphEvaluatorWrapper>("NodeGraphEvaluator")
         .constructor<int, int>()
         .function("setCanvasSize", &NodeGraphEvaluatorWrapper::setCanvasSize)
+        .function("setDstOrigin", &NodeGraphEvaluatorWrapper::setDstOrigin)
         .function("registerImage", &NodeGraphEvaluatorWrapper::registerImage)
         .function("setNodes", &NodeGraphEvaluatorWrapper::setNodes)
         .function("setConnections", &NodeGraphEvaluatorWrapper::setConnections)
