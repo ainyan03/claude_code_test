@@ -91,8 +91,8 @@ private:
     std::vector<GraphNode> nodes;
     std::vector<GraphConnection> connections;
 
-    // 画像ライブラリ
-    std::map<int, Image> imageLibrary;        // 登録済み画像（8bit）
+    // 画像ライブラリ（RGBA8_Straight形式のViewPortで保存）
+    std::map<int, ViewPort> imageLibrary;
 
     // ノード評価結果キャッシュ（1回の評価で使い回す）
     std::map<std::string, ViewPort> nodeResultCache;

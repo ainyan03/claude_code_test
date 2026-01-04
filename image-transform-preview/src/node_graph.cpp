@@ -17,7 +17,8 @@ void NodeGraphEvaluator::setCanvasSize(int width, int height) {
 }
 
 void NodeGraphEvaluator::registerImage(int imageId, const Image& img) {
-    imageLibrary[imageId] = img;
+    // Image → ViewPort(RGBA8_Straight) に変換して保存
+    imageLibrary[imageId] = ViewPort::fromImage(img);
 }
 
 void NodeGraphEvaluator::setNodes(const std::vector<GraphNode>& newNodes) {
@@ -61,7 +62,8 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
         if (node->imageId >= 0) {
             auto it = imageLibrary.find(node->imageId);
             if (it != imageLibrary.end()) {
-                result = processor.fromImage(it->second);
+                // imageLibrary は既に ViewPort(RGBA8_Straight) なのでそのまま使用
+                result = it->second;
             }
         }
 
@@ -229,12 +231,12 @@ Image NodeGraphEvaluator::evaluateGraph() {
         return Image(canvasWidth, canvasHeight);  // 空画像
     }
 
-    // グラフを評価（ViewPort: premultiplied）
+    // グラフを評価
     std::set<std::string> visited;
     ViewPort resultViewPort = evaluateNode(inputConn->fromNodeId, visited);
 
-    // ViewPort → 8bit Image変換
-    return processor.toImage(resultViewPort);
+    // ViewPort → 8bit Image変換（ViewPortのtoImage()を使用）
+    return resultViewPort.toImage();
 }
 
 } // namespace ImageTransform
