@@ -314,16 +314,13 @@
 - [x] `bindings.cpp`: Q3, Q6 - ImageProcessorWrapper削除により解消（Phase 6で削除）
 - [x] `app.js`: processor.setCanvasSize() バグ修正（Phase 6で削除）
 
-### 中優先度
+### ✅ 修正済み（2026-01-04 追加）
 
-#### Q6. 後方互換性: imageId/layerId（NodeGraphEvaluatorWrapper内）
-**ファイル**: `bindings.cpp` (setNodes関数)
-
-**問題**: 旧形式（layerId）と新形式（imageId）の両方をサポートしているが、両方存在する場合の挙動が不明確
-
-**修正案**: 明示的な優先順位とログ出力、または旧形式の非推奨化
-
-**難易度**: 低
+- [x] **Q6. 後方互換性コード削除**: 旧形式（layerId, alpha1/alpha2）を完全削除（PR #16）
+  - bindings.cpp: 旧形式パースコード削除
+  - node_graph.h: 旧フィールド6個、layerPremulCache削除
+  - node_graph.cpp: getLayerPremultiplied関数、旧形式処理削除
+  - 約143行削減
 
 ---
 
