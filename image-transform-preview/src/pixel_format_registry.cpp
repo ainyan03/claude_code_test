@@ -50,6 +50,31 @@ static void rgba16Premul_fromStandard(const uint16_t* src, void* dst, int pixelC
     }
 }
 
+// RGBA8_Straight: 8bit → 16bit変換
+static void rgba8Straight_toStandard(const void* src, uint16_t* dst, int pixelCount) {
+    const uint8_t* s = static_cast<const uint8_t*>(src);
+    for (int i = 0; i < pixelCount; i++) {
+        int idx = i * 4;
+        // 8bit → 16bit: 0-255 → 0-65535 (val << 8 | val)
+        dst[idx]     = (s[idx]     << 8) | s[idx];
+        dst[idx + 1] = (s[idx + 1] << 8) | s[idx + 1];
+        dst[idx + 2] = (s[idx + 2] << 8) | s[idx + 2];
+        dst[idx + 3] = (s[idx + 3] << 8) | s[idx + 3];
+    }
+}
+
+static void rgba8Straight_fromStandard(const uint16_t* src, void* dst, int pixelCount) {
+    uint8_t* d = static_cast<uint8_t*>(dst);
+    for (int i = 0; i < pixelCount; i++) {
+        int idx = i * 4;
+        // 16bit → 8bit: 上位8bitを取得
+        d[idx]     = src[idx]     >> 8;
+        d[idx + 1] = src[idx + 1] >> 8;
+        d[idx + 2] = src[idx + 2] >> 8;
+        d[idx + 3] = src[idx + 3] >> 8;
+    }
+}
+
 // ========================================================================
 // 組み込みフォーマット定義
 // ========================================================================
@@ -100,8 +125,31 @@ static PixelFormatDescriptor createRGBA16_Premultiplied() {
     return desc;
 }
 
+static PixelFormatDescriptor createRGBA8_Straight() {
+    PixelFormatDescriptor desc;
+    desc.id = PixelFormatIDs::RGBA8_Straight;
+    desc.name = "RGBA8_Straight";
+    desc.bitsPerPixel = 32;
+    desc.pixelsPerUnit = 1;
+    desc.bytesPerUnit = 4;
+    desc.channels[0] = ChannelDescriptor(8, 0);   // R
+    desc.channels[1] = ChannelDescriptor(8, 0);   // G
+    desc.channels[2] = ChannelDescriptor(8, 0);   // B
+    desc.channels[3] = ChannelDescriptor(8, 0);   // A
+    desc.hasAlpha = true;
+    desc.isPremultiplied = false;
+    desc.isIndexed = false;
+    desc.maxPaletteSize = 0;
+    desc.bitOrder = BitOrder::MSBFirst;
+    desc.byteOrder = ByteOrder::Native;
+    desc.toStandard = rgba8Straight_toStandard;
+    desc.fromStandard = rgba8Straight_fromStandard;
+    return desc;
+}
+
 static const PixelFormatDescriptor RGBA16_Straight = createRGBA16_Straight();
 static const PixelFormatDescriptor RGBA16_Premultiplied = createRGBA16_Premultiplied();
+static const PixelFormatDescriptor RGBA8_Straight = createRGBA8_Straight();
 
 } // namespace BuiltinFormats
 
@@ -115,6 +163,7 @@ PixelFormatRegistry::PixelFormatRegistry()
     // 組み込みフォーマットを登録
     formats_[PixelFormatIDs::RGBA16_Straight] = BuiltinFormats::RGBA16_Straight;
     formats_[PixelFormatIDs::RGBA16_Premultiplied] = BuiltinFormats::RGBA16_Premultiplied;
+    formats_[PixelFormatIDs::RGBA8_Straight] = BuiltinFormats::RGBA8_Straight;
 }
 
 PixelFormatRegistry& PixelFormatRegistry::getInstance() {

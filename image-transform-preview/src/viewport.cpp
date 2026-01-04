@@ -265,18 +265,54 @@ ViewPort ViewPort::fromImage(const Image& img) {
 Image ViewPort::toImage() const {
     Image img(width, height);
 
-    if (formatID == PixelFormatIDs::RGBA8_Straight ||
-        formatID == PixelFormatIDs::RGBA8_Premultiplied) {
+    if (formatID == PixelFormatIDs::RGBA8_Straight) {
         // 同じ形式の場合は直接コピー
         for (int y = 0; y < height; y++) {
             const uint8_t* srcRow = getPixelPtr<uint8_t>(0, y);
             uint8_t* dstRow = &img.data[y * width * 4];
             std::memcpy(dstRow, srcRow, width * 4);
         }
+    } else if (formatID == PixelFormatIDs::RGBA16_Premultiplied) {
+        // RGBA16_Premultiplied → RGBA8_Straight 変換（unpremultiply + 16bit→8bit）
+        for (int y = 0; y < height; y++) {
+            const uint16_t* srcRow = getPixelPtr<uint16_t>(0, y);
+            uint8_t* dstRow = &img.data[y * width * 4];
+            for (int x = 0; x < width; x++) {
+                int idx = x * 4;
+                uint16_t r16 = srcRow[idx];
+                uint16_t g16 = srcRow[idx + 1];
+                uint16_t b16 = srcRow[idx + 2];
+                uint16_t a16 = srcRow[idx + 3];
+                // unpremultiply + 16bit → 8bit
+                if (a16 > 0) {
+                    uint32_t r_unpre = ((uint32_t)r16 * 65535) / a16;
+                    uint32_t g_unpre = ((uint32_t)g16 * 65535) / a16;
+                    uint32_t b_unpre = ((uint32_t)b16 * 65535) / a16;
+                    dstRow[idx]     = std::min(r_unpre >> 8, 255u);
+                    dstRow[idx + 1] = std::min(g_unpre >> 8, 255u);
+                    dstRow[idx + 2] = std::min(b_unpre >> 8, 255u);
+                } else {
+                    dstRow[idx] = dstRow[idx + 1] = dstRow[idx + 2] = 0;
+                }
+                dstRow[idx + 3] = a16 >> 8;
+            }
+        }
+    } else if (formatID == PixelFormatIDs::RGBA16_Straight) {
+        // RGBA16_Straight → RGBA8_Straight 変換（16bit→8bit のみ）
+        for (int y = 0; y < height; y++) {
+            const uint16_t* srcRow = getPixelPtr<uint16_t>(0, y);
+            uint8_t* dstRow = &img.data[y * width * 4];
+            for (int x = 0; x < width; x++) {
+                int idx = x * 4;
+                dstRow[idx]     = srcRow[idx]     >> 8;
+                dstRow[idx + 1] = srcRow[idx + 1] >> 8;
+                dstRow[idx + 2] = srcRow[idx + 2] >> 8;
+                dstRow[idx + 3] = srcRow[idx + 3] >> 8;
+            }
+        }
     } else {
-        // 異なる形式の場合は変換が必要
-        // TODO: PixelFormatRegistryを使用した変換
-        throw std::runtime_error("ViewPort::toImage: format conversion not yet implemented");
+        // その他の形式は未対応
+        throw std::runtime_error("ViewPort::toImage: unsupported format");
     }
 
     return img;

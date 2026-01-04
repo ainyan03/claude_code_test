@@ -278,7 +278,60 @@ ViewPort ImageProcessor::convertPixelFormat(const ViewPort& input, PixelFormatID
 
     ViewPort output(input.width, input.height, targetFormat);
 
-    // レジストリインスタンスを取得（ループ外で1回だけ）
+    // よく使う変換パスの直接最適化
+    // RGBA8_Straight → RGBA16_Premultiplied
+    if (input.formatID == PixelFormatIDs::RGBA8_Straight &&
+        targetFormat == PixelFormatIDs::RGBA16_Premultiplied) {
+        for (int y = 0; y < input.height; y++) {
+            const uint8_t* srcRow = input.getPixelPtr<uint8_t>(0, y);
+            uint16_t* dstRow = output.getPixelPtr<uint16_t>(0, y);
+            for (int x = 0; x < input.width; x++) {
+                int idx = x * 4;
+                uint16_t r8 = srcRow[idx];
+                uint16_t g8 = srcRow[idx + 1];
+                uint16_t b8 = srcRow[idx + 2];
+                uint16_t a8 = srcRow[idx + 3];
+                // 8bit → 16bit + premultiply
+                uint16_t a16 = (a8 << 8) | a8;
+                dstRow[idx]     = (r8 * a16) >> 8;
+                dstRow[idx + 1] = (g8 * a16) >> 8;
+                dstRow[idx + 2] = (b8 * a16) >> 8;
+                dstRow[idx + 3] = a16;
+            }
+        }
+        return output;
+    }
+
+    // RGBA16_Premultiplied → RGBA8_Straight
+    if (input.formatID == PixelFormatIDs::RGBA16_Premultiplied &&
+        targetFormat == PixelFormatIDs::RGBA8_Straight) {
+        for (int y = 0; y < input.height; y++) {
+            const uint16_t* srcRow = input.getPixelPtr<uint16_t>(0, y);
+            uint8_t* dstRow = output.getPixelPtr<uint8_t>(0, y);
+            for (int x = 0; x < input.width; x++) {
+                int idx = x * 4;
+                uint16_t r16 = srcRow[idx];
+                uint16_t g16 = srcRow[idx + 1];
+                uint16_t b16 = srcRow[idx + 2];
+                uint16_t a16 = srcRow[idx + 3];
+                // unpremultiply + 16bit → 8bit
+                if (a16 > 0) {
+                    uint32_t r_unpre = ((uint32_t)r16 * 65535) / a16;
+                    uint32_t g_unpre = ((uint32_t)g16 * 65535) / a16;
+                    uint32_t b_unpre = ((uint32_t)b16 * 65535) / a16;
+                    dstRow[idx]     = std::min(r_unpre >> 8, 255u);
+                    dstRow[idx + 1] = std::min(g_unpre >> 8, 255u);
+                    dstRow[idx + 2] = std::min(b_unpre >> 8, 255u);
+                } else {
+                    dstRow[idx] = dstRow[idx + 1] = dstRow[idx + 2] = 0;
+                }
+                dstRow[idx + 3] = a16 >> 8;
+            }
+        }
+        return output;
+    }
+
+    // その他の変換: レジストリ経由（標準形式を経由）
     PixelFormatRegistry& registry = PixelFormatRegistry::getInstance();
 
     // 行ごとに変換（ストライドの違いを吸収）

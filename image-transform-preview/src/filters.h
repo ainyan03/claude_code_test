@@ -48,12 +48,12 @@ public:
 
     // このフィルタが要求する入力形式
     virtual PixelFormatID getPreferredInputFormat() const {
-        return PixelFormatIDs::RGBA16_Straight;  // デフォルト: Straight
+        return PixelFormatIDs::RGBA8_Straight;  // デフォルト: 8bit Straight
     }
 
     // このフィルタが出力する形式
     virtual PixelFormatID getOutputFormat() const {
-        return PixelFormatIDs::RGBA16_Straight;  // デフォルト: Straight
+        return PixelFormatIDs::RGBA8_Straight;  // デフォルト: 8bit Straight
     }
 
 private:
