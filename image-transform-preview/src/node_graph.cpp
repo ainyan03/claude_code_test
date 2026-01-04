@@ -164,13 +164,14 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
                             img = processor.convertPixelFormat(img, PixelFormatIDs::RGBA16_Premultiplied);
                         }
 
-                        // アルファ値を適用
+                        // アルファ値を適用（行ごとにアクセス、ストライド考慮）
                         if (input.alpha != 1.0) {
                             uint16_t alphaU16 = static_cast<uint16_t>(input.alpha * 65535);
-                            uint16_t* imgData = static_cast<uint16_t*>(img.data);
-                            int pixelCount = img.width * img.height * 4;
-                            for (int i = 0; i < pixelCount; i++) {
-                                imgData[i] = (imgData[i] * alphaU16) >> 16;
+                            for (int y = 0; y < img.height; y++) {
+                                uint16_t* row = img.getPixelPtr<uint16_t>(0, y);
+                                for (int x = 0; x < img.width * 4; x++) {
+                                    row[x] = (row[x] * alphaU16) >> 16;
+                                }
                             }
                         }
 
@@ -191,13 +192,14 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
                         img1 = processor.convertPixelFormat(img1, PixelFormatIDs::RGBA16_Premultiplied);
                     }
 
-                    // alpha1を適用
+                    // alpha1を適用（行ごとにアクセス、ストライド考慮）
                     if (node->alpha1 != 1.0) {
                         uint16_t alphaU16 = static_cast<uint16_t>(node->alpha1 * 65535);
-                        uint16_t* imgData = static_cast<uint16_t*>(img1.data);
-                        int pixelCount = img1.width * img1.height * 4;
-                        for (int i = 0; i < pixelCount; i++) {
-                            imgData[i] = (imgData[i] * alphaU16) >> 16;
+                        for (int y = 0; y < img1.height; y++) {
+                            uint16_t* row = img1.getPixelPtr<uint16_t>(0, y);
+                            for (int x = 0; x < img1.width * 4; x++) {
+                                row[x] = (row[x] * alphaU16) >> 16;
+                            }
                         }
                     }
 
@@ -216,13 +218,14 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
                         img2 = processor.convertPixelFormat(img2, PixelFormatIDs::RGBA16_Premultiplied);
                     }
 
-                    // alpha2を適用
+                    // alpha2を適用（行ごとにアクセス、ストライド考慮）
                     if (node->alpha2 != 1.0) {
                         uint16_t alphaU16 = static_cast<uint16_t>(node->alpha2 * 65535);
-                        uint16_t* imgData = static_cast<uint16_t*>(img2.data);
-                        int pixelCount = img2.width * img2.height * 4;
-                        for (int i = 0; i < pixelCount; i++) {
-                            imgData[i] = (imgData[i] * alphaU16) >> 16;
+                        for (int y = 0; y < img2.height; y++) {
+                            uint16_t* row = img2.getPixelPtr<uint16_t>(0, y);
+                            for (int x = 0; x < img2.width * 4; x++) {
+                                row[x] = (row[x] * alphaU16) >> 16;
+                            }
                         }
                     }
 

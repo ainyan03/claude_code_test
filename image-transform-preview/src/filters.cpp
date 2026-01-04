@@ -14,11 +14,15 @@ ViewPort BrightnessFilter::apply(const ViewPort& input) const {
     ViewPort working;
     if (input.formatID != PixelFormatIDs::RGBA16_Straight) {
         working = ViewPort(input.width, input.height, PixelFormatIDs::RGBA16_Straight);
-        PixelFormatRegistry::getInstance().convert(
-            input.data, input.formatID,
-            working.data, PixelFormatIDs::RGBA16_Straight,
-            input.width * input.height
-        );
+        PixelFormatRegistry& registry = PixelFormatRegistry::getInstance();
+        // 行ごとに変換（ストライドの違いを吸収）
+        for (int y = 0; y < input.height; y++) {
+            const void* srcRow = input.getPixelPtr<uint8_t>(0, y);
+            void* dstRow = working.getPixelPtr<uint8_t>(0, y);
+            registry.convert(srcRow, input.formatID,
+                           dstRow, PixelFormatIDs::RGBA16_Straight,
+                           input.width);
+        }
     } else {
         // 入力が既にStraight形式の場合、そのまま参照（コピー不要）
         working = ViewPort(input);
@@ -53,11 +57,15 @@ ViewPort GrayscaleFilter::apply(const ViewPort& input) const {
     ViewPort working;
     if (input.formatID != PixelFormatIDs::RGBA16_Straight) {
         working = ViewPort(input.width, input.height, PixelFormatIDs::RGBA16_Straight);
-        PixelFormatRegistry::getInstance().convert(
-            input.data, input.formatID,
-            working.data, PixelFormatIDs::RGBA16_Straight,
-            input.width * input.height
-        );
+        PixelFormatRegistry& registry = PixelFormatRegistry::getInstance();
+        // 行ごとに変換（ストライドの違いを吸収）
+        for (int y = 0; y < input.height; y++) {
+            const void* srcRow = input.getPixelPtr<uint8_t>(0, y);
+            void* dstRow = working.getPixelPtr<uint8_t>(0, y);
+            registry.convert(srcRow, input.formatID,
+                           dstRow, PixelFormatIDs::RGBA16_Straight,
+                           input.width);
+        }
     } else {
         // 入力が既にStraight形式の場合、そのまま参照（コピー不要）
         working = ViewPort(input);
@@ -166,11 +174,15 @@ ViewPort AlphaFilter::apply(const ViewPort& input) const {
     ViewPort working;
     if (input.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
         working = ViewPort(input.width, input.height, PixelFormatIDs::RGBA16_Premultiplied);
-        PixelFormatRegistry::getInstance().convert(
-            input.data, input.formatID,
-            working.data, PixelFormatIDs::RGBA16_Premultiplied,
-            input.width * input.height
-        );
+        PixelFormatRegistry& registry = PixelFormatRegistry::getInstance();
+        // 行ごとに変換（ストライドの違いを吸収）
+        for (int y = 0; y < input.height; y++) {
+            const void* srcRow = input.getPixelPtr<uint8_t>(0, y);
+            void* dstRow = working.getPixelPtr<uint8_t>(0, y);
+            registry.convert(srcRow, input.formatID,
+                           dstRow, PixelFormatIDs::RGBA16_Premultiplied,
+                           input.width);
+        }
     } else {
         working = ViewPort(input);
     }

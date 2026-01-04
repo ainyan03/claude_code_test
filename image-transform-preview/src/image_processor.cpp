@@ -269,14 +269,22 @@ ViewPort ImageProcessor::convertPixelFormat(const ViewPort& input, PixelFormatID
         return ViewPort(input);
     }
 
-    // レジストリから変換を実行
     ViewPort output(input.width, input.height, targetFormat);
 
-    PixelFormatRegistry::getInstance().convert(
-        input.data, input.formatID,
-        output.data, targetFormat,
-        input.width * input.height
-    );
+    // レジストリインスタンスを取得（ループ外で1回だけ）
+    PixelFormatRegistry& registry = PixelFormatRegistry::getInstance();
+
+    // 行ごとに変換（ストライドの違いを吸収）
+    for (int y = 0; y < input.height; y++) {
+        const void* srcRow = input.getPixelPtr<uint8_t>(0, y);
+        void* dstRow = output.getPixelPtr<uint8_t>(0, y);
+
+        registry.convert(
+            srcRow, input.formatID,
+            dstRow, targetFormat,
+            input.width  // 1行分のピクセル数
+        );
+    }
 
     return output;
 }
