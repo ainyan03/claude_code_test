@@ -248,10 +248,25 @@ ViewPort ViewPort::fromExternalData(const void* externalData, int w, int h,
 // ========================================================================
 
 ViewPort ViewPort::fromImage(const Image& img) {
-    ViewPort vp(img.width, img.height, PixelFormatIDs::RGBA8_Straight);
+    ViewPort vp;
+    vp.width = img.width;
+    vp.height = img.height;
+    vp.formatID = PixelFormatIDs::RGBA8_Straight;
+    vp.stride = img.width * 4;  // Image に合わせる（パディングなし）
+    vp.allocator = &DefaultAllocator::getInstance();
+    vp.ownsData = true;
+    vp.offsetX = 0;
+    vp.offsetY = 0;
+    vp.parent = nullptr;
+    vp.capacity = vp.stride * vp.height;
+    vp.data = vp.allocator->allocate(vp.capacity, 16);
 
-    // データをコピー
-    if (!img.data.empty() && vp.data != nullptr) {
+    if (!vp.data) {
+        throw std::bad_alloc();
+    }
+
+    // データをコピー（stride が同じなので一括コピー可能）
+    if (!img.data.empty()) {
         std::memcpy(vp.data, img.data.data(), img.data.size());
     }
 
