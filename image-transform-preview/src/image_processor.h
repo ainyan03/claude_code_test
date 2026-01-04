@@ -9,7 +9,7 @@
 
 namespace ImageTransform {
 
-// 前方宣言（後方互換性）
+// 前方宣言
 struct Image;
 struct AffineMatrix;
 

@@ -196,8 +196,8 @@ function addImageToLibrary(imageData) {
 
     uploadedImages.push(image);
 
-    // C++側に画像を登録（後方互換性）
-    graphEvaluator.setLayerImage(imageId, imageData.data, imageData.width, imageData.height);
+    // C++側の画像ライブラリに登録
+    graphEvaluator.registerImage(imageId, imageData.data, imageData.width, imageData.height);
 
     // UIを更新
     renderImageLibrary();

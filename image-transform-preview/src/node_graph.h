@@ -11,7 +11,7 @@
 
 namespace ImageTransform {
 
-// 前方宣言（後方互換性）
+// 前方宣言
 struct Image;
 
 // ========================================================================
@@ -71,7 +71,7 @@ public:
     NodeGraphEvaluator(int canvasWidth, int canvasHeight);
 
     // 画像ライブラリに画像を登録（8bit RGBA）
-    void setLayerImage(int imageId, const Image& img);
+    void registerImage(int imageId, const Image& img);
 
     // ノードグラフ構造を設定
     void setNodes(const std::vector<GraphNode>& nodes);
@@ -91,8 +91,8 @@ private:
     std::vector<GraphNode> nodes;
     std::vector<GraphConnection> connections;
 
-    // レイヤー画像キャッシュ
-    std::map<int, Image> layerImages;         // 元画像（8bit）
+    // 画像ライブラリ
+    std::map<int, Image> imageLibrary;        // 登録済み画像（8bit）
 
     // ノード評価結果キャッシュ（1回の評価で使い回す）
     std::map<std::string, ViewPort> nodeResultCache;
