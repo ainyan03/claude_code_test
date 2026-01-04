@@ -19,7 +19,7 @@ public:
         evaluator.setCanvasSize(width, height);
     }
 
-    void setLayerImage(int layerId, const val& imageData, int width, int height) {
+    void registerImage(int imageId, const val& imageData, int width, int height) {
         unsigned int length = imageData["length"].as<unsigned int>();
         Image img(width, height);
 
@@ -27,7 +27,7 @@ public:
             img.data[i] = imageData[i].as<uint8_t>();
         }
 
-        evaluator.setLayerImage(layerId, img);
+        evaluator.registerImage(imageId, img);
     }
 
     void setNodes(const val& nodesArray) {
@@ -173,7 +173,7 @@ EMSCRIPTEN_BINDINGS(image_transform) {
     class_<NodeGraphEvaluatorWrapper>("NodeGraphEvaluator")
         .constructor<int, int>()
         .function("setCanvasSize", &NodeGraphEvaluatorWrapper::setCanvasSize)
-        .function("setLayerImage", &NodeGraphEvaluatorWrapper::setLayerImage)
+        .function("registerImage", &NodeGraphEvaluatorWrapper::registerImage)
         .function("setNodes", &NodeGraphEvaluatorWrapper::setNodes)
         .function("setConnections", &NodeGraphEvaluatorWrapper::setConnections)
         .function("evaluateGraph", &NodeGraphEvaluatorWrapper::evaluateGraph);

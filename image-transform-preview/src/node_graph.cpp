@@ -16,8 +16,8 @@ void NodeGraphEvaluator::setCanvasSize(int width, int height) {
     processor.setCanvasSize(width, height);
 }
 
-void NodeGraphEvaluator::setLayerImage(int imageId, const Image& img) {
-    layerImages[imageId] = img;
+void NodeGraphEvaluator::registerImage(int imageId, const Image& img) {
+    imageLibrary[imageId] = img;
 }
 
 void NodeGraphEvaluator::setNodes(const std::vector<GraphNode>& newNodes) {
@@ -59,8 +59,8 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
 
     if (node->type == "image") {
         if (node->imageId >= 0) {
-            auto it = layerImages.find(node->imageId);
-            if (it != layerImages.end()) {
+            auto it = imageLibrary.find(node->imageId);
+            if (it != imageLibrary.end()) {
                 result = processor.fromImage(it->second);
             }
         }
@@ -87,7 +87,7 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
                 filterType = node->filterType;
                 filterParam = node->filterParam;
             } else {
-                // レイヤー付帯フィルタノード（未実装：簡略化のためスキップ）
+                // 非独立フィルタノード（未使用：スキップ）
                 result = inputImage;
                 nodeResultCache[nodeId] = result;
                 return result;
