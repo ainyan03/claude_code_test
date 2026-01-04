@@ -1,5 +1,4 @@
 // グローバル変数
-let processor;
 let graphEvaluator;  // ノードグラフ評価エンジン（C++側）
 let canvas;
 let ctx;
@@ -59,7 +58,7 @@ if (typeof Module === 'function') {
 
 // WebAssembly読み込みタイムアウト（10秒）
 setTimeout(() => {
-    if (!processor) {
+    if (!graphEvaluator) {
         console.error('WebAssembly loading timeout');
         const loadingEl = document.getElementById('loading');
         if (loadingEl) {
@@ -69,7 +68,7 @@ setTimeout(() => {
 }, 10000);
 
 function initializeApp() {
-    // 初期化フラグで重複実行を防止（processorより早い段階でチェック）
+    // 初期化フラグで重複実行を防止
     if (appInitialized) {
         console.log('App already initialized');
         return;
@@ -93,23 +92,13 @@ function initializeApp() {
     canvas.width = canvasWidth;
     canvas.height = canvasHeight;
 
-    // ImageProcessor初期化（WebAssemblyのみ）
-    if (typeof WasmModule !== 'undefined' && WasmModule.ImageProcessor) {
-        processor = new WasmModule.ImageProcessor(canvasWidth, canvasHeight);
-        console.log('Using WebAssembly backend');
-    } else {
-        console.error('WebAssembly module not loaded!', typeof WasmModule);
-        alert('エラー: WebAssemblyモジュールの読み込みに失敗しました。ページを再読み込みしてください。');
-        return;
-    }
-
-    // NodeGraphEvaluator初期化（C++側でグラフ評価）
+    // NodeGraphEvaluator初期化（WebAssemblyモジュール）
     if (typeof WasmModule !== 'undefined' && WasmModule.NodeGraphEvaluator) {
         graphEvaluator = new WasmModule.NodeGraphEvaluator(canvasWidth, canvasHeight);
         console.log('NodeGraphEvaluator initialized');
     } else {
-        console.error('NodeGraphEvaluator not found in WebAssembly module');
-        alert('エラー: NodeGraphEvaluatorの読み込みに失敗しました。');
+        console.error('WebAssembly module not loaded!', typeof WasmModule);
+        alert('エラー: WebAssemblyモジュールの読み込みに失敗しました。ページを再読み込みしてください。');
         return;
     }
 
@@ -365,7 +354,6 @@ function resizeCanvas() {
     canvas.width = width;
     canvas.height = height;
 
-    processor.setCanvasSize(width, height);
     graphEvaluator.setCanvasSize(width, height);  // graphEvaluatorのサイズも更新
     updatePreviewFromGraph();
 }
