@@ -51,29 +51,32 @@ void ImageProcessor::setCanvasSize(int width, int height) {
 // 純粋な型変換のみ（アルファ調整はAlphaFilterを使用）
 ViewPort ImageProcessor::fromImage(const Image& input) const {
     ViewPort output(input.width, input.height, PixelFormatIDs::RGBA16_Premultiplied);
-    int pixelCount = input.width * input.height;
 
     const uint8_t* srcData = input.data.data();
-    uint16_t* dstData = static_cast<uint16_t*>(output.data);
 
-    for (int i = 0; i < pixelCount; i++) {
-        int idx8 = i * 4;
-        int idx16 = i * 4;
+    // 行ごとにアクセス（Image:flat, ViewPort:stride付き）
+    for (int y = 0; y < input.height; y++) {
+        const uint8_t* srcRow = srcData + y * input.width * 4;
+        uint16_t* dstRow = output.getPixelPtr<uint16_t>(0, y);
 
-        uint16_t r8 = srcData[idx8];
-        uint16_t g8 = srcData[idx8 + 1];
-        uint16_t b8 = srcData[idx8 + 2];
-        uint16_t a8 = srcData[idx8 + 3];
+        for (int x = 0; x < input.width; x++) {
+            int idx = x * 4;
 
-        // 8bit → 16bit変換（0-255 → 0-65535）
-        uint16_t a16 = (a8 << 8) | a8;
+            uint16_t r8 = srcRow[idx];
+            uint16_t g8 = srcRow[idx + 1];
+            uint16_t b8 = srcRow[idx + 2];
+            uint16_t a8 = srcRow[idx + 3];
 
-        // プリマルチプライド: RGB * alpha
-        // (r8 * a16) / 65535 を高速計算
-        dstData[idx16]     = (r8 * a16) >> 8;  // (r8 * a16) / 256（近似）
-        dstData[idx16 + 1] = (g8 * a16) >> 8;
-        dstData[idx16 + 2] = (b8 * a16) >> 8;
-        dstData[idx16 + 3] = a16;
+            // 8bit → 16bit変換（0-255 → 0-65535）
+            uint16_t a16 = (a8 << 8) | a8;
+
+            // プリマルチプライド: RGB * alpha
+            // (r8 * a16) / 65535 を高速計算
+            dstRow[idx]     = (r8 * a16) >> 8;  // (r8 * a16) / 256（近似）
+            dstRow[idx + 1] = (g8 * a16) >> 8;
+            dstRow[idx + 2] = (b8 * a16) >> 8;
+            dstRow[idx + 3] = a16;
+        }
     }
 
     return output;
@@ -82,36 +85,40 @@ ViewPort ImageProcessor::fromImage(const Image& input) const {
 // ViewPort（16bit Premultiplied RGBA）→ 8bit RGBA変換
 Image ImageProcessor::toImage(const ViewPort& input) const {
     Image output(input.width, input.height);
-    int pixelCount = input.width * input.height;
 
-    const uint16_t* srcData = static_cast<const uint16_t*>(input.data);
     uint8_t* dstData = output.data.data();
 
-    for (int i = 0; i < pixelCount; i++) {
-        int idx = i * 4;
+    // 行ごとにアクセス（ViewPort:stride付き, Image:flat）
+    for (int y = 0; y < input.height; y++) {
+        const uint16_t* srcRow = input.getPixelPtr<uint16_t>(0, y);
+        uint8_t* dstRow = dstData + y * input.width * 4;
 
-        uint16_t r16 = srcData[idx];
-        uint16_t g16 = srcData[idx + 1];
-        uint16_t b16 = srcData[idx + 2];
-        uint16_t a16 = srcData[idx + 3];
+        for (int x = 0; x < input.width; x++) {
+            int idx = x * 4;
 
-        // アンプリマルチプライド: RGB / alpha
-        if (a16 > 0) {
-            // (r16 * 65535) / a16 を計算して8bitに変換
-            uint32_t r_unpre = ((uint32_t)r16 * 65535) / a16;
-            uint32_t g_unpre = ((uint32_t)g16 * 65535) / a16;
-            uint32_t b_unpre = ((uint32_t)b16 * 65535) / a16;
+            uint16_t r16 = srcRow[idx];
+            uint16_t g16 = srcRow[idx + 1];
+            uint16_t b16 = srcRow[idx + 2];
+            uint16_t a16 = srcRow[idx + 3];
 
-            dstData[idx]     = std::min(r_unpre >> 8, 255u);
-            dstData[idx + 1] = std::min(g_unpre >> 8, 255u);
-            dstData[idx + 2] = std::min(b_unpre >> 8, 255u);
-        } else {
-            dstData[idx]     = 0;
-            dstData[idx + 1] = 0;
-            dstData[idx + 2] = 0;
+            // アンプリマルチプライド: RGB / alpha
+            if (a16 > 0) {
+                // (r16 * 65535) / a16 を計算して8bitに変換
+                uint32_t r_unpre = ((uint32_t)r16 * 65535) / a16;
+                uint32_t g_unpre = ((uint32_t)g16 * 65535) / a16;
+                uint32_t b_unpre = ((uint32_t)b16 * 65535) / a16;
+
+                dstRow[idx]     = std::min(r_unpre >> 8, 255u);
+                dstRow[idx + 1] = std::min(g_unpre >> 8, 255u);
+                dstRow[idx + 2] = std::min(b_unpre >> 8, 255u);
+            } else {
+                dstRow[idx]     = 0;
+                dstRow[idx + 1] = 0;
+                dstRow[idx + 2] = 0;
+            }
+
+            dstRow[idx + 3] = a16 >> 8;  // 16bit → 8bit
         }
-
-        dstData[idx + 3] = a16 >> 8;  // 16bit → 8bit
     }
 
     return output;
@@ -269,14 +276,22 @@ ViewPort ImageProcessor::convertPixelFormat(const ViewPort& input, PixelFormatID
         return ViewPort(input);
     }
 
-    // レジストリから変換を実行
     ViewPort output(input.width, input.height, targetFormat);
 
-    PixelFormatRegistry::getInstance().convert(
-        input.data, input.formatID,
-        output.data, targetFormat,
-        input.width * input.height
-    );
+    // レジストリインスタンスを取得（ループ外で1回だけ）
+    PixelFormatRegistry& registry = PixelFormatRegistry::getInstance();
+
+    // 行ごとに変換（ストライドの違いを吸収）
+    for (int y = 0; y < input.height; y++) {
+        const void* srcRow = input.getPixelPtr<uint8_t>(0, y);
+        void* dstRow = output.getPixelPtr<uint8_t>(0, y);
+
+        registry.convert(
+            srcRow, input.formatID,
+            dstRow, targetFormat,
+            input.width  // 1行分のピクセル数
+        );
+    }
 
     return output;
 }
