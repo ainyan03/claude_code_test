@@ -278,7 +278,10 @@ function addImageNodeFromLibrary(imageId) {
         imageId: imageId,
         title: image.name,
         posX: startX,
-        posY: startY + existingImageNodes * spacing  // 縦方向に並べる
+        posY: startY + existingImageNodes * spacing,  // 縦方向に並べる
+        // 元画像の原点（正規化座標 0.0〜1.0）
+        originX: 0.5,
+        originY: 0.5
     };
 
     globalNodes.push(imageNode);
@@ -658,20 +661,53 @@ function drawGlobalNode(node) {
     header.appendChild(idBadge);
     nodeBox.appendChild(header);
 
-    // 画像ノードの場合、サムネイルを表示
+    // 画像ノードの場合、サムネイルと原点セレクタを表示
     if (node.type === 'image' && node.imageId !== undefined) {
         const image = uploadedImages.find(img => img.id === node.imageId);
         if (image && image.imageData) {
-            const thumbnail = document.createElement('div');
-            thumbnail.className = 'node-box-thumbnail';
-            thumbnail.style.cssText = 'padding: 4px; text-align: center;';
+            const contentRow = document.createElement('div');
+            contentRow.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 4px;';
 
+            // サムネイル
             const img = document.createElement('img');
             img.src = createThumbnailDataURL(image.imageData);
-            img.style.cssText = 'max-width: 80px; max-height: 60px; border-radius: 4px;';
+            img.style.cssText = 'width: 50px; height: 38px; object-fit: cover; border-radius: 3px;';
+            contentRow.appendChild(img);
 
-            thumbnail.appendChild(img);
-            nodeBox.appendChild(thumbnail);
+            // 原点セレクタ（9点グリッド）
+            const originGrid = document.createElement('div');
+            originGrid.className = 'node-origin-grid';
+            originGrid.dataset.nodeId = node.id;
+
+            const originValues = [
+                { x: 0, y: 0 }, { x: 0.5, y: 0 }, { x: 1, y: 0 },
+                { x: 0, y: 0.5 }, { x: 0.5, y: 0.5 }, { x: 1, y: 0.5 },
+                { x: 0, y: 1 }, { x: 0.5, y: 1 }, { x: 1, y: 1 }
+            ];
+
+            originValues.forEach(({ x, y }) => {
+                const btn = document.createElement('button');
+                btn.className = 'node-origin-point';
+                btn.dataset.x = x;
+                btn.dataset.y = y;
+                if (node.originX === x && node.originY === y) {
+                    btn.classList.add('selected');
+                }
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    // 選択状態を更新
+                    originGrid.querySelectorAll('.node-origin-point').forEach(b => b.classList.remove('selected'));
+                    btn.classList.add('selected');
+                    // ノードの原点を更新
+                    node.originX = x;
+                    node.originY = y;
+                    throttledUpdatePreview();
+                });
+                originGrid.appendChild(btn);
+            });
+
+            contentRow.appendChild(originGrid);
+            nodeBox.appendChild(contentRow);
         }
     }
 

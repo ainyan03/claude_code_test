@@ -903,6 +903,60 @@ button {
     height: 10px;
 }
 
+/* ノード内の原点セレクタ（コンパクト版） */
+.node-origin-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: #ccc;
+    padding: 1px;
+    border-radius: 3px;
+    width: 42px;
+    height: 42px;
+}
+
+.node-origin-point {
+    padding: 0;
+    border: none;
+    background: #e8e8e8;
+    cursor: pointer;
+    transition: all 0.15s;
+    position: relative;
+}
+
+.node-origin-point::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 4px;
+    height: 4px;
+    background: #999;
+    border-radius: 50%;
+    transition: all 0.15s;
+}
+
+.node-origin-point:hover {
+    background: #d0d0d0;
+}
+
+.node-origin-point:hover::after {
+    background: #48bb78;
+    width: 6px;
+    height: 6px;
+}
+
+.node-origin-point.selected {
+    background: #48bb78;
+}
+
+.node-origin-point.selected::after {
+    background: white;
+    width: 6px;
+    height: 6px;
+}
+
 /* レスポンシブ対応: キャンバスコントロール */
 @media (max-width: 768px) {
     .canvas-controls {
