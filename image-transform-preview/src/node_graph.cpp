@@ -14,14 +14,10 @@ void NodeGraphEvaluator::setCanvasSize(int width, int height) {
     canvasWidth = width;
     canvasHeight = height;
     processor.setCanvasSize(width, height);
-    // キャンバスサイズ変更時はpremultipliedキャッシュをクリア
-    layerPremulCache.clear();
 }
 
-void NodeGraphEvaluator::setLayerImage(int layerId, const Image& img) {
-    layerImages[layerId] = img;
-    // 画像更新時は該当レイヤーのキャッシュをクリア
-    layerPremulCache.erase(layerId);
+void NodeGraphEvaluator::setLayerImage(int imageId, const Image& img) {
+    layerImages[imageId] = img;
 }
 
 void NodeGraphEvaluator::setNodes(const std::vector<GraphNode>& newNodes) {
@@ -30,45 +26,6 @@ void NodeGraphEvaluator::setNodes(const std::vector<GraphNode>& newNodes) {
 
 void NodeGraphEvaluator::setConnections(const std::vector<GraphConnection>& newConnections) {
     connections = newConnections;
-}
-
-// レイヤー画像のpremultiplied変換（変換パラメータ付き、キャッシュ使用）
-ViewPort NodeGraphEvaluator::getLayerPremultiplied(int layerId, const AffineParams& transform) {
-    // レイヤー画像を取得
-    auto it = layerImages.find(layerId);
-    if (it == layerImages.end()) {
-        return ViewPort(canvasWidth, canvasHeight, PixelFormatIDs::RGBA16_Premultiplied);  // 空画像
-    }
-
-    const Image& img = it->second;
-
-    // premultiplied変換（キャッシュを使用）
-    ViewPort premul;
-    auto cacheIt = layerPremulCache.find(layerId);
-    if (cacheIt != layerPremulCache.end()) {
-        premul = cacheIt->second;
-    } else {
-        premul = processor.fromImage(img);
-        layerPremulCache[layerId] = premul;
-    }
-
-    // アフィン変換が必要かチェック
-    const bool needsTransform = (
-        transform.translateX != 0 || transform.translateY != 0 ||
-        transform.rotation != 0 || transform.scaleX != 1.0 ||
-        transform.scaleY != 1.0
-    );
-
-    if (needsTransform) {
-        // 元画像の中心を回転軸にする
-        const Image& originalImg = layerImages.at(layerId);
-        double centerX = originalImg.width / 2.0;
-        double centerY = originalImg.height / 2.0;
-        AffineMatrix matrix = AffineMatrix::fromParams(transform, centerX, centerY);
-        return processor.applyTransform(premul, matrix);
-    }
-
-    return premul;
 }
 
 // ノードを再帰的に評価
@@ -101,17 +58,11 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
     ViewPort result(canvasWidth, canvasHeight, PixelFormatIDs::RGBA16_Premultiplied);
 
     if (node->type == "image") {
-        // 新形式: imageId（画像ライブラリ対応）
         if (node->imageId >= 0) {
             auto it = layerImages.find(node->imageId);
             if (it != layerImages.end()) {
-                // premultiplied変換のみ（alphaは独立フィルタノードで調整）
                 result = processor.fromImage(it->second);
             }
-        }
-        // 旧形式: layerId + transform（後方互換性）
-        else if (node->layerId >= 0) {
-            result = getLayerPremultiplied(node->layerId, node->transform);
         }
 
     } else if (node->type == "filter") {
@@ -150,86 +101,30 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
         std::vector<ViewPort> images;
         std::vector<const ViewPort*> imagePtrs;
 
-        // 動的な入力配列を使用（compositeInputsが空の場合は旧形式の互換性処理）
-        if (!node->compositeInputs.empty()) {
-            // 新形式: 動的な入力配列
-            for (const auto& input : node->compositeInputs) {
-                // この入力ポートへの接続を検索
-                for (const auto& conn : connections) {
-                    if (conn.toNodeId == nodeId && conn.toPort == input.id) {
-                        ViewPort img = evaluateNode(conn.fromNodeId, visited);
-
-                        // 合成にはPremultiplied形式が必要
-                        if (img.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
-                            img = processor.convertPixelFormat(img, PixelFormatIDs::RGBA16_Premultiplied);
-                        }
-
-                        // アルファ値を適用（行ごとにアクセス、ストライド考慮）
-                        if (input.alpha != 1.0) {
-                            uint16_t alphaU16 = static_cast<uint16_t>(input.alpha * 65535);
-                            for (int y = 0; y < img.height; y++) {
-                                uint16_t* row = img.getPixelPtr<uint16_t>(0, y);
-                                for (int x = 0; x < img.width * 4; x++) {
-                                    row[x] = (row[x] * alphaU16) >> 16;
-                                }
-                            }
-                        }
-
-                        images.push_back(std::move(img));
-                        break;
-                    }
-                }
-            }
-        } else {
-            // 旧形式: alpha1, alpha2（後方互換性）
-            // 入力1を取得
+        // 動的な入力配列を使用
+        for (const auto& input : node->compositeInputs) {
+            // この入力ポートへの接続を検索
             for (const auto& conn : connections) {
-                if (conn.toNodeId == nodeId && conn.toPort == "in1") {
-                    ViewPort img1 = evaluateNode(conn.fromNodeId, visited);
+                if (conn.toNodeId == nodeId && conn.toPort == input.id) {
+                    ViewPort img = evaluateNode(conn.fromNodeId, visited);
 
                     // 合成にはPremultiplied形式が必要
-                    if (img1.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
-                        img1 = processor.convertPixelFormat(img1, PixelFormatIDs::RGBA16_Premultiplied);
+                    if (img.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
+                        img = processor.convertPixelFormat(img, PixelFormatIDs::RGBA16_Premultiplied);
                     }
 
-                    // alpha1を適用（行ごとにアクセス、ストライド考慮）
-                    if (node->alpha1 != 1.0) {
-                        uint16_t alphaU16 = static_cast<uint16_t>(node->alpha1 * 65535);
-                        for (int y = 0; y < img1.height; y++) {
-                            uint16_t* row = img1.getPixelPtr<uint16_t>(0, y);
-                            for (int x = 0; x < img1.width * 4; x++) {
+                    // アルファ値を適用（行ごとにアクセス、ストライド考慮）
+                    if (input.alpha != 1.0) {
+                        uint16_t alphaU16 = static_cast<uint16_t>(input.alpha * 65535);
+                        for (int y = 0; y < img.height; y++) {
+                            uint16_t* row = img.getPixelPtr<uint16_t>(0, y);
+                            for (int x = 0; x < img.width * 4; x++) {
                                 row[x] = (row[x] * alphaU16) >> 16;
                             }
                         }
                     }
 
-                    images.push_back(std::move(img1));
-                    break;
-                }
-            }
-
-            // 入力2を取得
-            for (const auto& conn : connections) {
-                if (conn.toNodeId == nodeId && conn.toPort == "in2") {
-                    ViewPort img2 = evaluateNode(conn.fromNodeId, visited);
-
-                    // 合成にはPremultiplied形式が必要
-                    if (img2.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
-                        img2 = processor.convertPixelFormat(img2, PixelFormatIDs::RGBA16_Premultiplied);
-                    }
-
-                    // alpha2を適用（行ごとにアクセス、ストライド考慮）
-                    if (node->alpha2 != 1.0) {
-                        uint16_t alphaU16 = static_cast<uint16_t>(node->alpha2 * 65535);
-                        for (int y = 0; y < img2.height; y++) {
-                            uint16_t* row = img2.getPixelPtr<uint16_t>(0, y);
-                            for (int x = 0; x < img2.width * 4; x++) {
-                                row[x] = (row[x] * alphaU16) >> 16;
-                            }
-                        }
-                    }
-
-                    images.push_back(std::move(img2));
+                    images.push_back(std::move(img));
                     break;
                 }
             }

@@ -43,22 +43,8 @@ public:
 
             // image用パラメータ
             if (node.type == "image") {
-                // 新形式: imageId（画像ライブラリ対応）
                 if (nodeObj["imageId"].typeOf().as<std::string>() != "undefined") {
                     node.imageId = nodeObj["imageId"].as<int>();
-                }
-                // 旧形式: layerId + params（後方互換性）
-                else if (nodeObj["layerId"].typeOf().as<std::string>() != "undefined") {
-                    node.layerId = nodeObj["layerId"].as<int>();
-
-                    if (nodeObj["params"].typeOf().as<std::string>() != "undefined") {
-                        val params = nodeObj["params"];
-                        node.transform.translateX = params["translateX"].as<double>();
-                        node.transform.translateY = params["translateY"].as<double>();
-                        node.transform.rotation = params["rotation"].as<double>();
-                        node.transform.scaleX = params["scaleX"].as<double>();
-                        node.transform.scaleY = params["scaleY"].as<double>();
-                    }
                 }
             }
 
@@ -76,15 +62,7 @@ public:
 
             // composite用パラメータ
             if (node.type == "composite") {
-                // 旧形式のalpha1, alpha2（後方互換性）
-                if (nodeObj["alpha1"].typeOf().as<std::string>() != "undefined") {
-                    node.alpha1 = nodeObj["alpha1"].as<double>();
-                }
-                if (nodeObj["alpha2"].typeOf().as<std::string>() != "undefined") {
-                    node.alpha2 = nodeObj["alpha2"].as<double>();
-                }
-
-                // 新形式の動的入力配列
+                // 動的入力配列
                 if (nodeObj["inputs"].typeOf().as<std::string>() != "undefined") {
                     val inputsArray = nodeObj["inputs"];
                     unsigned int inputCount = inputsArray["length"].as<unsigned int>();
