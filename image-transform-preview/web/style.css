@@ -46,7 +46,7 @@ header p {
 
 .main-content {
     display: grid;
-    grid-template-columns: 1fr 400px;
+    grid-template-columns: 1fr 260px;
     gap: 20px;
     padding: 20px;
 }
@@ -80,27 +80,71 @@ header p {
     padding: 15px;
     border-radius: 8px;
     display: flex;
+    gap: 30px;
+}
+
+.canvas-control-column {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.canvas-control-header {
+    font-size: 12px;
+    font-weight: 600;
+    color: #667eea;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.canvas-control-field {
+    display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
+}
+
+.canvas-control-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: #666;
+    min-width: 24px;
 }
 
 .canvas-controls input[type="number"] {
-    width: 80px;
-    padding: 8px;
+    width: 70px;
+    padding: 5px 8px;
     border: 1px solid #ddd;
     border-radius: 4px;
-    font-size: 14px;
+    font-size: 13px;
+    text-align: right;
 }
 
-.output-controls {
+.canvas-controls input[type="number"]:focus {
+    border-color: #667eea;
+    outline: none;
+}
+
+.canvas-controls button#resize-canvas {
+    padding: 6px 16px;
+    font-size: 13px;
+    margin-top: auto;
+}
+
+.canvas-download {
     display: flex;
-    justify-content: center;
+    justify-content: flex-end;
+    margin-top: 8px;
+}
+
+.canvas-download .primary-btn {
+    padding: 8px 16px;
+    font-size: 13px;
 }
 
 /* 画像管理セクション */
 .images-section {
     background: #f9f9f9;
-    padding: 20px;
+    padding: 15px;
     border-radius: 8px;
     max-height: 80vh;
     overflow-y: auto;
@@ -108,14 +152,19 @@ header p {
 
 .section-header {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    flex-direction: column;
+    gap: 10px;
     margin-bottom: 15px;
 }
 
 .section-header h2 {
-    font-size: 1.3em;
+    font-size: 1.1em;
     color: #333;
+    margin: 0;
+}
+
+.section-header .primary-btn {
+    width: 100%;
 }
 
 /* 画像ライブラリ */
@@ -129,10 +178,10 @@ header p {
     background: white;
     border: 2px solid #e0e0e0;
     border-radius: 8px;
-    padding: 12px;
+    padding: 10px;
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
     transition: all 0.2s;
 }
 
@@ -142,8 +191,8 @@ header p {
 }
 
 .image-thumbnail {
-    width: 80px;
-    height: 60px;
+    width: 60px;
+    height: 45px;
     border-radius: 4px;
     overflow: hidden;
     background: #f0f0f0;
@@ -160,13 +209,17 @@ header p {
     flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
+    min-width: 0;
 }
 
 .image-name {
     font-weight: 500;
     color: #333;
-    font-size: 0.95em;
+    font-size: 0.85em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .image-actions {
@@ -792,4 +845,71 @@ button {
     display: flex;
     flex-direction: column;
     gap: 10px;
+}
+
+/* 原点選択グリッド */
+.origin-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2px;
+    background: #ccc;
+    padding: 2px;
+    border-radius: 4px;
+    width: 100%;
+    max-width: 100px;
+}
+
+.origin-point {
+    aspect-ratio: 1;
+    padding: 0;
+    border: none;
+    background: #f0f0f0;
+    cursor: pointer;
+    transition: all 0.15s;
+    position: relative;
+    min-height: 28px;
+}
+
+.origin-point::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 6px;
+    height: 6px;
+    background: #aaa;
+    border-radius: 50%;
+    transition: all 0.15s;
+}
+
+.origin-point:hover {
+    background: #e0e0e0;
+}
+
+.origin-point:hover::after {
+    background: #667eea;
+    width: 10px;
+    height: 10px;
+}
+
+.origin-point.selected {
+    background: #667eea;
+}
+
+.origin-point.selected::after {
+    background: white;
+    width: 10px;
+    height: 10px;
+}
+
+/* レスポンシブ対応: キャンバスコントロール */
+@media (max-width: 768px) {
+    .canvas-controls {
+        gap: 20px;
+    }
+
+    .canvas-control-column {
+        flex: 1;
+    }
 }

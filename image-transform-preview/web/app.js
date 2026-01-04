@@ -6,6 +6,7 @@ let uploadedImages = [];  // 画像ライブラリ
 let nextImageId = 1;
 let canvasWidth = 800;
 let canvasHeight = 600;
+let canvasOrigin = { x: 400, y: 300 };  // キャンバス原点（ピクセル座標）
 
 // グローバルノードグラフ
 let globalNodes = [];  // すべてのノード（画像、フィルタ、合成、出力）を管理
@@ -136,6 +137,21 @@ function setupEventListeners() {
 
     // キャンバスサイズ変更
     document.getElementById('resize-canvas').addEventListener('click', resizeCanvas);
+
+    // キャンバス原点選択（9点グリッド）
+    // 初期選択は中央（0.5, 0.5）
+    setupOriginGrid('canvas-origin-grid', { x: 0.5, y: 0.5 }, (normalizedOrigin) => {
+        // 9点ボタン押下時：正規化座標からピクセル座標を計算して入力欄に反映
+        const w = parseInt(document.getElementById('canvas-width').value) || 800;
+        const h = parseInt(document.getElementById('canvas-height').value) || 600;
+        document.getElementById('origin-x').value = Math.round(normalizedOrigin.x * w);
+        document.getElementById('origin-y').value = Math.round(normalizedOrigin.y * h);
+        // 注: canvasOrigin はサイズ変更ボタン押下時に更新される
+    });
+
+    // 原点座標入力欄の初期値を設定
+    document.getElementById('origin-x').value = canvasOrigin.x;
+    document.getElementById('origin-y').value = canvasOrigin.y;
 
     // ダウンロードボタン
     document.getElementById('download-btn').addEventListener('click', downloadComposedImage);
@@ -349,12 +365,24 @@ function resizeCanvas() {
         return;
     }
 
+    // 原点座標を取得（入力欄から）
+    const originX = parseInt(document.getElementById('origin-x').value) || 0;
+    const originY = parseInt(document.getElementById('origin-y').value) || 0;
+
+    // 原点をピクセル座標で保存（将来のバックエンド連携用）
+    canvasOrigin = {
+        x: Math.max(0, Math.min(originX, width)),
+        y: Math.max(0, Math.min(originY, height))
+    };
+    console.log('Canvas resized:', width, 'x', height, 'origin:', canvasOrigin);
+
     canvasWidth = width;
     canvasHeight = height;
     canvas.width = width;
     canvas.height = height;
 
     graphEvaluator.setCanvasSize(width, height);  // graphEvaluatorのサイズも更新
+    // TODO: 原点座標もバックエンドに渡す（設計決定後に実装）
     updatePreviewFromGraph();
 }
 
@@ -1784,4 +1812,45 @@ function deleteNode(node) {
     // グラフを再描画
     renderNodeGraph();
     throttledUpdatePreview();
+}
+
+// 原点選択グリッドのセットアップ
+// gridId: グリッド要素のID
+// initialOrigin: 初期値 {x, y}（0.0〜1.0）
+// onChange: 変更時のコールバック (origin) => void
+function setupOriginGrid(gridId, initialOrigin, onChange) {
+    const grid = document.getElementById(gridId);
+    if (!grid) return;
+
+    const points = grid.querySelectorAll('.origin-point');
+
+    // 初期選択状態を設定
+    points.forEach(point => {
+        const x = parseFloat(point.dataset.x);
+        const y = parseFloat(point.dataset.y);
+        if (x === initialOrigin.x && y === initialOrigin.y) {
+            point.classList.add('selected');
+        } else {
+            point.classList.remove('selected');
+        }
+    });
+
+    // クリックイベント
+    points.forEach(point => {
+        point.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            // 選択状態を更新
+            points.forEach(p => p.classList.remove('selected'));
+            point.classList.add('selected');
+
+            // 原点値を取得してコールバック
+            const origin = {
+                x: parseFloat(point.dataset.x),
+                y: parseFloat(point.dataset.y)
+            };
+            onChange(origin);
+        });
+    });
 }
