@@ -64,6 +64,10 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
             if (it != imageLibrary.end()) {
                 // imageLibrary は既に ViewPort(RGBA8_Straight) なのでそのまま使用
                 result = it->second;
+                // 正規化座標をピクセル座標に変換して設定
+                // node->srcOriginX/Y は 0.0〜1.0 の正規化座標
+                result.srcOriginX = node->srcOriginX * result.width;
+                result.srcOriginY = node->srcOriginY * result.height;
             }
         }
 
@@ -96,6 +100,9 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
             }
 
             result = processor.applyFilter(inputImage, filterType, filterParam);
+            // フィルタは画像サイズを変えないので srcOrigin をそのまま継承
+            result.srcOriginX = inputImage.srcOriginX;
+            result.srcOriginY = inputImage.srcOriginY;
         }
 
     } else if (node->type == "composite") {
@@ -138,10 +145,17 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
         }
 
         // 合成
+        // 最初の入力画像の srcOrigin を保持（合成後に継承）
+        double firstOriginX = images.empty() ? 0.0 : images[0].srcOriginX;
+        double firstOriginY = images.empty() ? 0.0 : images[0].srcOriginY;
+
         if (imagePtrs.size() == 1) {
             result = images[0];
         } else if (imagePtrs.size() > 1) {
             result = processor.mergeImages(imagePtrs);
+            // mergeImages後はキャンバスサイズになるため、最初の入力の srcOrigin を継承
+            result.srcOriginX = firstOriginX;
+            result.srcOriginY = firstOriginY;
         }
 
         // 合成ノードのアフィン変換
@@ -155,7 +169,16 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
             double centerX = canvasWidth / 2.0;
             double centerY = canvasHeight / 2.0;
             AffineMatrix matrix = AffineMatrix::fromParams(p, centerX, centerY);
+
+            // srcOrigin を保存
+            double oldOriginX = result.srcOriginX;
+            double oldOriginY = result.srcOriginY;
+
             result = processor.applyTransform(result, matrix);
+
+            // srcOrigin もアフィン変換
+            result.srcOriginX = matrix.a * oldOriginX + matrix.b * oldOriginY + matrix.tx;
+            result.srcOriginY = matrix.c * oldOriginX + matrix.d * oldOriginY + matrix.ty;
         }
 
     } else if (node->type == "affine") {
@@ -192,6 +215,13 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
 
             // アフィン変換を適用（アフィン変換ノード自体はalphaを持たない）
             result = processor.applyTransform(inputImage, matrix);
+
+            // srcOrigin もアフィン変換で変換
+            // 新座標 = 行列 * 元座標
+            double oldOriginX = inputImage.srcOriginX;
+            double oldOriginY = inputImage.srcOriginY;
+            result.srcOriginX = matrix.a * oldOriginX + matrix.b * oldOriginY + matrix.tx;
+            result.srcOriginY = matrix.c * oldOriginX + matrix.d * oldOriginY + matrix.ty;
         }
     }
 

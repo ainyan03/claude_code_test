@@ -46,6 +46,14 @@ public:
                 if (nodeObj["imageId"].typeOf().as<std::string>() != "undefined") {
                     node.imageId = nodeObj["imageId"].as<int>();
                 }
+                // 原点情報（正規化座標 → ピクセル座標への変換は evaluateNode で行う）
+                // ここでは正規化座標のまま受け取る
+                if (nodeObj["originX"].typeOf().as<std::string>() != "undefined") {
+                    node.srcOriginX = nodeObj["originX"].as<double>();
+                }
+                if (nodeObj["originY"].typeOf().as<std::string>() != "undefined") {
+                    node.srcOriginY = nodeObj["originY"].as<double>();
+                }
             }
 
             // filter用パラメータ

@@ -35,6 +35,8 @@ struct GraphNode {
 
     // image用
     int imageId;       // 画像ライブラリのID
+    double srcOriginX; // 画像の原点X（ピクセル座標）
+    double srcOriginY; // 画像の原点Y（ピクセル座標）
 
     // filter用
     std::string filterType;
@@ -50,7 +52,8 @@ struct GraphNode {
     AffineParams affineParams; // パラメータモード用
     AffineMatrix affineMatrix; // 行列モード用
 
-    GraphNode() : imageId(-1), filterParam(0.0f), independent(false),
+    GraphNode() : imageId(-1), srcOriginX(0.0), srcOriginY(0.0),
+                  filterParam(0.0f), independent(false),
                   matrixMode(false) {}
 };
 
