@@ -1,7 +1,7 @@
 // Build information - auto-generated
 const BUILD_INFO = {
-  buildDate: '2026-01-03 23:41:30 UTC',
-  gitCommit: 'e0b2ce6',
-  gitBranch: 'main',
+  buildDate: '2026-01-04 00:01:06 UTC',
+  gitCommit: 'ab76718',
+  gitBranch: 'claude/fix-odd-width-image-distortion',
   backend: 'WebAssembly'
 };

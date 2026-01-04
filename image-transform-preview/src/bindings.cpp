@@ -25,22 +25,30 @@ ViewPort viewPortFromJSImage(const val& imageObj) {
         return ViewPort(1, 1, PixelFormatIDs::RGBA8_Straight);
     }
 
-    // オーバーフロー防止のためsize_tで計算
-    size_t expectedSize = static_cast<size_t>(width) * static_cast<size_t>(height) * 4;
+    // ViewPortを直接生成（strideは16バイトアライメント）
+    ViewPort vp(width, height, PixelFormatIDs::RGBA8_Straight);
 
-    // JavaScriptからデータを一時バッファにコピー
-    std::vector<uint8_t> buffer(expectedSize);
-    unsigned int length = inputData["length"].as<unsigned int>();
+    // JSデータの情報
+    unsigned int jsLength = inputData["length"].as<unsigned int>();
+    size_t srcBytesPerRow = static_cast<size_t>(width) * 4;  // JSデータはパディングなし
+    size_t expectedSize = srcBytesPerRow * static_cast<size_t>(height);
 
-    // 境界チェック: コピー量を制限
-    size_t copyLength = std::min(static_cast<size_t>(length), expectedSize);
-    for (size_t i = 0; i < copyLength; i++) {
-        buffer[i] = inputData[static_cast<unsigned int>(i)].as<uint8_t>();
+    // 境界チェック: JSデータが十分なサイズか確認
+    if (jsLength < expectedSize) {
+        // データ不足の場合は空のViewPortを返す
+        return vp;
     }
 
-    // 外部データからViewPortを構築
-    return ViewPort::fromExternalData(buffer.data(), width, height,
-                                       PixelFormatIDs::RGBA8_Straight);
+    // 行ごとにJSデータから直接コピー（ストライドの違いを吸収）
+    for (int y = 0; y < height; y++) {
+        uint8_t* dstRow = vp.getPixelPtr<uint8_t>(0, y);
+        size_t srcOffset = static_cast<size_t>(y) * srcBytesPerRow;
+        for (size_t x = 0; x < srcBytesPerRow; x++) {
+            dstRow[x] = inputData[static_cast<unsigned int>(srcOffset + x)].as<uint8_t>();
+        }
+    }
+
+    return vp;
 }
 
 // ViewPort → JavaScript画像オブジェクト（Uint8ClampedArray）
