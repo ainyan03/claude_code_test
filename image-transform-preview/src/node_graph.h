@@ -33,25 +33,15 @@ struct GraphNode {
     std::string type;  // "image", "filter", "composite", "affine", "output"
     std::string id;
 
-    // image用（新形式: imageId）
+    // image用
     int imageId;       // 画像ライブラリのID
 
-    // image用（旧形式: 後方互換性のため保持）
-    int layerId;
-    AffineParams transform;
-
-    // filter用（独立フィルタノード）
+    // filter用
     std::string filterType;
     float filterParam;
     bool independent;
 
-    // filter用（レイヤー付帯フィルタノード）
-    int filterLayerId;
-    int filterIndex;
-
     // composite用
-    double alpha1;  // 後方互換性のため保持（非推奨）
-    double alpha2;  // 後方互換性のため保持（非推奨）
     std::vector<CompositeInput> compositeInputs;  // 動的な入力配列
     AffineParams compositeTransform;
 
@@ -60,9 +50,7 @@ struct GraphNode {
     AffineParams affineParams; // パラメータモード用
     AffineMatrix affineMatrix; // 行列モード用
 
-    GraphNode() : imageId(-1),
-                  layerId(-1), filterParam(0.0f), independent(false),
-                  filterLayerId(-1), filterIndex(-1), alpha1(1.0), alpha2(1.0),
+    GraphNode() : imageId(-1), filterParam(0.0f), independent(false),
                   matrixMode(false) {}
 };
 
@@ -82,8 +70,8 @@ class NodeGraphEvaluator {
 public:
     NodeGraphEvaluator(int canvasWidth, int canvasHeight);
 
-    // レイヤー画像を登録（8bit RGBA）
-    void setLayerImage(int layerId, const Image& img);
+    // 画像ライブラリに画像を登録（8bit RGBA）
+    void setLayerImage(int imageId, const Image& img);
 
     // ノードグラフ構造を設定
     void setNodes(const std::vector<GraphNode>& nodes);
@@ -105,16 +93,12 @@ private:
 
     // レイヤー画像キャッシュ
     std::map<int, Image> layerImages;         // 元画像（8bit）
-    std::map<int, ViewPort> layerPremulCache;  // premultiplied変換済み（ViewPort）
 
     // ノード評価結果キャッシュ（1回の評価で使い回す）
     std::map<std::string, ViewPort> nodeResultCache;
 
     // 内部評価関数（再帰的にノードを評価）
     ViewPort evaluateNode(const std::string& nodeId, std::set<std::string>& visited);
-
-    // レイヤー画像のpremultiplied変換（キャッシュ付き）
-    ViewPort getLayerPremultiplied(int layerId, const AffineParams& transform);
 };
 
 } // namespace ImageTransform
