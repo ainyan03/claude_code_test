@@ -48,13 +48,11 @@ struct GraphNode {
     AffineParams compositeTransform;
 
     // affine用（アフィン変換ノード）
-    bool matrixMode;           // false: パラメータモード, true: 行列モード
-    AffineParams affineParams; // パラメータモード用
-    AffineMatrix affineMatrix; // 行列モード用
+    // JS側で行列に統一されるため、行列のみ保持
+    AffineMatrix affineMatrix;
 
     GraphNode() : imageId(-1), srcOriginX(0.0), srcOriginY(0.0),
-                  filterParam(0.0f), independent(false),
-                  matrixMode(false) {}
+                  filterParam(0.0f), independent(false) {}
 };
 
 // ノードグラフの接続定義

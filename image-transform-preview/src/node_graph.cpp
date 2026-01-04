@@ -237,16 +237,8 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
                 inputImage = processor.convertPixelFormat(inputImage, PixelFormatIDs::RGBA16_Premultiplied);
             }
 
-            // 変換行列を取得
-            AffineMatrix matrix;
-            if (node->matrixMode) {
-                // 行列モード: 直接指定された行列を使用
-                matrix = node->affineMatrix;
-            } else {
-                // パラメータモード: パラメータから行列を生成
-                // srcOrigin を中心として変換（後で統一的に処理）
-                matrix = AffineMatrix::fromParams(node->affineParams, 0, 0);
-            }
+            // 変換行列を取得（JS側で行列に統一済み）
+            AffineMatrix matrix = node->affineMatrix;
 
             // 行列を srcOrigin 中心で適用: T(origin) × M × T(-origin)
             // これにより srcOrigin が数学的な原点として機能する

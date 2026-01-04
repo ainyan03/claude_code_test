@@ -1,7 +1,7 @@
 // Build information - auto-generated
 const BUILD_INFO = {
-  buildDate: '2026-01-04 01:33:42 UTC',
-  gitCommit: '2bcc3b8',
-  gitBranch: 'claude/remove-unused-image-processor-bindings',
+  buildDate: '2026-01-04 08:47:34 UTC',
+  gitCommit: 'ebfb090',
+  gitBranch: 'claude/add-origin-selector-ui',
   backend: 'WebAssembly'
 };
