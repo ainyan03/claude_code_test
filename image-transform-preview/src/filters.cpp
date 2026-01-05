@@ -1,5 +1,4 @@
 #include "filters.h"
-#include "pixel_format_registry.h"
 #include <algorithm>
 
 namespace ImageTransform {
@@ -10,23 +9,8 @@ namespace ImageTransform {
 
 // 明るさ調整フィルタ（8bit Straight形式で処理）
 ViewPort BrightnessFilter::apply(const ViewPort& input) const {
-    // 入力が要求形式でない場合は変換
-    ViewPort working;
-    if (input.formatID != PixelFormatIDs::RGBA8_Straight) {
-        working = ViewPort(input.width, input.height, PixelFormatIDs::RGBA8_Straight);
-        PixelFormatRegistry& registry = PixelFormatRegistry::getInstance();
-        // 行ごとに変換（ストライドの違いを吸収）
-        for (int y = 0; y < input.height; y++) {
-            const void* srcRow = input.getPixelPtr<uint8_t>(0, y);
-            void* dstRow = working.getPixelPtr<uint8_t>(0, y);
-            registry.convert(srcRow, input.formatID,
-                           dstRow, PixelFormatIDs::RGBA8_Straight,
-                           input.width);
-        }
-    } else {
-        // 入力が既に8bit Straight形式の場合、そのまま参照
-        working = ViewPort(input);
-    }
+    // 入力を要求形式に変換（既に同じ形式ならコピー）
+    ViewPort working = input.convertTo(PixelFormatIDs::RGBA8_Straight);
 
     // 8bit Straight形式での処理
     ViewPort output(working.width, working.height, PixelFormatIDs::RGBA8_Straight);
@@ -53,23 +37,8 @@ ViewPort BrightnessFilter::apply(const ViewPort& input) const {
 
 // グレースケールフィルタ（8bit Straight形式で処理）
 ViewPort GrayscaleFilter::apply(const ViewPort& input) const {
-    // 入力が要求形式でない場合は変換
-    ViewPort working;
-    if (input.formatID != PixelFormatIDs::RGBA8_Straight) {
-        working = ViewPort(input.width, input.height, PixelFormatIDs::RGBA8_Straight);
-        PixelFormatRegistry& registry = PixelFormatRegistry::getInstance();
-        // 行ごとに変換（ストライドの違いを吸収）
-        for (int y = 0; y < input.height; y++) {
-            const void* srcRow = input.getPixelPtr<uint8_t>(0, y);
-            void* dstRow = working.getPixelPtr<uint8_t>(0, y);
-            registry.convert(srcRow, input.formatID,
-                           dstRow, PixelFormatIDs::RGBA8_Straight,
-                           input.width);
-        }
-    } else {
-        // 入力が既に8bit Straight形式の場合、そのまま参照
-        working = ViewPort(input);
-    }
+    // 入力を要求形式に変換（既に同じ形式ならコピー）
+    ViewPort working = input.convertTo(PixelFormatIDs::RGBA8_Straight);
 
     // 8bit Straight形式での処理
     ViewPort output(working.width, working.height, PixelFormatIDs::RGBA8_Straight);
@@ -98,21 +67,8 @@ ViewPort GrayscaleFilter::apply(const ViewPort& input) const {
 
 // ボックスブラーフィルタ（8bit Straight形式で処理）
 ViewPort BoxBlurFilter::apply(const ViewPort& input) const {
-    // 入力が要求形式でない場合は変換
-    ViewPort working;
-    if (input.formatID != PixelFormatIDs::RGBA8_Straight) {
-        working = ViewPort(input.width, input.height, PixelFormatIDs::RGBA8_Straight);
-        PixelFormatRegistry& registry = PixelFormatRegistry::getInstance();
-        for (int y = 0; y < input.height; y++) {
-            const void* srcRow = input.getPixelPtr<uint8_t>(0, y);
-            void* dstRow = working.getPixelPtr<uint8_t>(0, y);
-            registry.convert(srcRow, input.formatID,
-                           dstRow, PixelFormatIDs::RGBA8_Straight,
-                           input.width);
-        }
-    } else {
-        working = ViewPort(input);
-    }
+    // 入力を要求形式に変換（既に同じ形式ならコピー）
+    ViewPort working = input.convertTo(PixelFormatIDs::RGBA8_Straight);
 
     int width = working.width;
     int height = working.height;
@@ -185,22 +141,8 @@ ViewPort BoxBlurFilter::apply(const ViewPort& input) const {
 
 // アルファ調整フィルタ（Premultiplied形式で処理）
 ViewPort AlphaFilter::apply(const ViewPort& input) const {
-    // 入力が要求形式でない場合は変換
-    ViewPort working;
-    if (input.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
-        working = ViewPort(input.width, input.height, PixelFormatIDs::RGBA16_Premultiplied);
-        PixelFormatRegistry& registry = PixelFormatRegistry::getInstance();
-        // 行ごとに変換（ストライドの違いを吸収）
-        for (int y = 0; y < input.height; y++) {
-            const void* srcRow = input.getPixelPtr<uint8_t>(0, y);
-            void* dstRow = working.getPixelPtr<uint8_t>(0, y);
-            registry.convert(srcRow, input.formatID,
-                           dstRow, PixelFormatIDs::RGBA16_Premultiplied,
-                           input.width);
-        }
-    } else {
-        working = ViewPort(input);
-    }
+    // 入力を要求形式に変換（既に同じ形式ならコピー）
+    ViewPort working = input.convertTo(PixelFormatIDs::RGBA16_Premultiplied);
 
     // Premultiplied形式での処理
     // RGB値もアルファに応じてスケールされるため、すべてのチャンネルに乗算を適用

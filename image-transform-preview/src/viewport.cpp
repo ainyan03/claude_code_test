@@ -351,6 +351,34 @@ Image ViewPort::toImage() const {
 }
 
 // ========================================================================
+// フォーマット変換
+// ========================================================================
+
+ViewPort ViewPort::convertTo(PixelFormatID targetFormat) const {
+    // 既に同じフォーマットの場合はコピーを返す
+    if (formatID == targetFormat) {
+        return ViewPort(*this);
+    }
+
+    // 新しいViewPortを作成
+    ViewPort result(width, height, targetFormat);
+
+    // 原点情報を引き継ぐ
+    result.srcOriginX = srcOriginX;
+    result.srcOriginY = srcOriginY;
+
+    // PixelFormatRegistryを使って行ごとに変換
+    PixelFormatRegistry& registry = PixelFormatRegistry::getInstance();
+    for (int y = 0; y < height; y++) {
+        const void* srcRow = getPixelPtr<uint8_t>(0, y);
+        void* dstRow = result.getPixelPtr<uint8_t>(0, y);
+        registry.convert(srcRow, formatID, dstRow, targetFormat, width);
+    }
+
+    return result;
+}
+
+// ========================================================================
 // 内部ヘルパー
 // ========================================================================
 
