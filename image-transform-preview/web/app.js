@@ -324,12 +324,35 @@ function initializeApp() {
     // グローバルノードグラフ初期化
     initializeNodeGraph();
 
-    // デバッグ用テストパターン画像を生成
+    // 状態復元を試みる（URLパラメータ優先、次にLocalStorage）
+    tryRestoreState();
+}
+
+// 状態復元を試みる
+async function tryRestoreState() {
+    // URLパラメータから状態を取得
+    let state = getStateFromURL();
+    let stateSource = 'URL';
+
+    // URLパラメータがなければLocalStorageから取得
+    if (!state) {
+        state = loadStateFromLocalStorage();
+        stateSource = 'LocalStorage';
+    }
+
+    if (state) {
+        console.log(`Restoring state from ${stateSource}...`);
+        const restored = await restoreAppState(state);
+        if (restored) {
+            console.log('App initialized with restored state');
+            return;
+        }
+    }
+
+    // 状態が復元できなかった場合はデフォルト初期化
+    console.log('No saved state found, initializing with defaults');
     generateTestPatterns();
-
-    // 初期プレビュー
     updatePreviewFromGraph();
-
     console.log('App initialized successfully');
 }
 
@@ -386,6 +409,32 @@ function setupEventListeners() {
             scaleValue.textContent = previewScale + 'x';
             updateCanvasDisplayScale();
             centerPreviewScroll();
+        });
+    }
+
+    // 状態管理ボタン
+    const copyStateUrlBtn = document.getElementById('copy-state-url-btn');
+    if (copyStateUrlBtn) {
+        copyStateUrlBtn.addEventListener('click', () => {
+            setStateToURL();
+            // URLをクリップボードにコピー
+            navigator.clipboard.writeText(window.location.href).then(() => {
+                alert('URLをクリップボードにコピーしました');
+            }).catch(err => {
+                console.error('Failed to copy URL:', err);
+                prompt('以下のURLをコピーしてください:', window.location.href);
+            });
+        });
+    }
+
+    const resetStateBtn = document.getElementById('reset-state-btn');
+    if (resetStateBtn) {
+        resetStateBtn.addEventListener('click', () => {
+            if (confirm('保存された状態をクリアして初期状態にリセットしますか？')) {
+                clearSavedState();
+                clearStateFromURL();
+                window.location.reload();
+            }
         });
     }
 
@@ -683,6 +732,7 @@ function addImageNodeFromLibrary(imageId) {
 
     globalNodes.push(imageNode);
     renderNodeGraph();
+    scheduleAutoSave();
 }
 
 // 画像ライブラリから画像を削除
@@ -702,6 +752,7 @@ function deleteImageFromLibrary(imageId) {
 
     renderImageLibrary();
     renderNodeGraph();
+    scheduleAutoSave();
 }
 
 function loadImage(file) {
@@ -1955,6 +2006,7 @@ function addCompositeNode() {
 
     globalNodes.push(compositeNode);
     renderNodeGraph();
+    scheduleAutoSave();
 }
 
 // アフィン変換ノードを追加
@@ -1985,6 +2037,7 @@ function addAffineNode() {
 
     globalNodes.push(affineNode);
     renderNodeGraph();
+    scheduleAutoSave();
 }
 
 // 合成ノードに入力を追加
@@ -2001,6 +2054,7 @@ function addCompositeInput(node) {
 
     // ノードグラフを再描画
     renderNodeGraph();
+    scheduleAutoSave();
 }
 
 // 独立フィルタノードを追加（レイヤーに属さない）
@@ -2035,6 +2089,7 @@ function addIndependentFilterNode(filterType) {
 
     globalNodes.push(filterNode);
     renderNodeGraph();
+    scheduleAutoSave();
 }
 
 // フィルタ表示名を取得
@@ -2145,6 +2200,9 @@ function updatePreviewFromGraph() {
     } else {
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     }
+
+    // 状態を自動保存
+    scheduleAutoSave();
 }
 
 // ========================================
@@ -2268,4 +2326,273 @@ function setupOriginGrid(gridId, initialOrigin, onChange) {
             onChange(origin);
         });
     });
+}
+
+// ========================================
+// 状態管理（LocalStorage / URLパラメータ）
+// ========================================
+
+const STATE_STORAGE_KEY = 'imageTransformPreviewState';
+const STATE_VERSION = 1;
+
+// アプリ状態をオブジェクトとして取得
+function getAppState() {
+    return {
+        version: STATE_VERSION,
+        timestamp: Date.now(),
+        canvas: {
+            width: canvasWidth,
+            height: canvasHeight,
+            origin: canvasOrigin,
+            scale: previewScale
+        },
+        images: uploadedImages.map(img => ({
+            id: img.id,
+            name: img.name,
+            width: img.width,
+            height: img.height,
+            dataURL: imageDataToDataURL(img.imageData)
+        })),
+        nodes: globalNodes.map(node => ({...node})),
+        connections: globalConnections.map(conn => ({...conn})),
+        nextIds: {
+            imageId: nextImageId,
+            globalNodeId: nextGlobalNodeId,
+            compositeId: nextCompositeId,
+            independentFilterId: nextIndependentFilterId,
+            imageNodeId: nextImageNodeId
+        }
+    };
+}
+
+// ImageDataまたは{data, width, height}形式のオブジェクトをDataURLに変換
+function imageDataToDataURL(imageData) {
+    if (!imageData) return null;
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = imageData.width;
+    tempCanvas.height = imageData.height;
+    const tempCtx = tempCanvas.getContext('2d');
+
+    // ImageDataオブジェクトかどうかをチェック
+    if (imageData instanceof ImageData) {
+        tempCtx.putImageData(imageData, 0, 0);
+    } else if (imageData.data) {
+        // {data, width, height}形式のオブジェクト
+        const imgData = new ImageData(
+            new Uint8ClampedArray(imageData.data),
+            imageData.width,
+            imageData.height
+        );
+        tempCtx.putImageData(imgData, 0, 0);
+    } else {
+        return null;
+    }
+    return tempCanvas.toDataURL('image/png');
+}
+
+// DataURLをImageDataに変換（非同期）
+function dataURLToImageData(dataURL, width, height) {
+    return new Promise((resolve, reject) => {
+        if (!dataURL) {
+            reject(new Error('No dataURL provided'));
+            return;
+        }
+        const img = new Image();
+        img.onload = () => {
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = width;
+            tempCanvas.height = height;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(img, 0, 0);
+            resolve(tempCtx.getImageData(0, 0, width, height));
+        };
+        img.onerror = reject;
+        img.src = dataURL;
+    });
+}
+
+// LocalStorageに状態を保存
+function saveStateToLocalStorage() {
+    try {
+        const state = getAppState();
+        localStorage.setItem(STATE_STORAGE_KEY, JSON.stringify(state));
+        console.log('State saved to LocalStorage');
+    } catch (e) {
+        console.warn('Failed to save state to LocalStorage:', e);
+    }
+}
+
+// LocalStorageから状態を読み込み
+function loadStateFromLocalStorage() {
+    try {
+        const stateJson = localStorage.getItem(STATE_STORAGE_KEY);
+        if (!stateJson) return null;
+        const state = JSON.parse(stateJson);
+        if (state.version !== STATE_VERSION) {
+            console.warn('State version mismatch, ignoring saved state');
+            return null;
+        }
+        return state;
+    } catch (e) {
+        console.warn('Failed to load state from LocalStorage:', e);
+        return null;
+    }
+}
+
+// 状態をURLパラメータにエンコード（圧縮）
+function encodeStateToURL() {
+    const state = getAppState();
+    // 画像データを除外した軽量版（URLが長くなりすぎるため）
+    const lightState = {
+        ...state,
+        images: state.images.map(img => ({
+            id: img.id,
+            name: img.name,
+            width: img.width,
+            height: img.height
+            // dataURLは除外
+        }))
+    };
+    const json = JSON.stringify(lightState);
+    const encoded = btoa(encodeURIComponent(json));
+    return encoded;
+}
+
+// URLパラメータから状態をデコード
+function decodeStateFromURL(encoded) {
+    try {
+        const json = decodeURIComponent(atob(encoded));
+        return JSON.parse(json);
+    } catch (e) {
+        console.warn('Failed to decode state from URL:', e);
+        return null;
+    }
+}
+
+// URLに状態を設定
+function setStateToURL() {
+    const encoded = encodeStateToURL();
+    const url = new URL(window.location.href);
+    url.searchParams.set('state', encoded);
+    window.history.replaceState({}, '', url.toString());
+    console.log('State encoded to URL');
+}
+
+// URLから状態を取得
+function getStateFromURL() {
+    const url = new URL(window.location.href);
+    const encoded = url.searchParams.get('state');
+    if (!encoded) return null;
+    return decodeStateFromURL(encoded);
+}
+
+// 状態を復元（非同期）
+async function restoreAppState(state) {
+    if (!state) return false;
+
+    console.log('Restoring app state...');
+
+    // キャンバス設定を復元
+    canvasWidth = state.canvas.width;
+    canvasHeight = state.canvas.height;
+    canvasOrigin = state.canvas.origin;
+    previewScale = state.canvas.scale;
+
+    // キャンバスサイズを更新
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+    updateCanvasDisplayScale();
+    graphEvaluator.setCanvasSize(canvasWidth, canvasHeight);
+    graphEvaluator.setDstOrigin(canvasOrigin.x, canvasOrigin.y);
+
+    // UI入力欄を更新
+    document.getElementById('sidebar-origin-x').value = canvasOrigin.x;
+    document.getElementById('sidebar-origin-y').value = canvasOrigin.y;
+    document.getElementById('sidebar-canvas-width').value = canvasWidth;
+    document.getElementById('sidebar-canvas-height').value = canvasHeight;
+
+    // 次のID値を復元
+    nextImageId = state.nextIds.imageId;
+    nextGlobalNodeId = state.nextIds.globalNodeId;
+    nextCompositeId = state.nextIds.compositeId;
+    nextIndependentFilterId = state.nextIds.independentFilterId;
+    nextImageNodeId = state.nextIds.imageNodeId;
+
+    // 画像ライブラリを復元
+    // URLパラメータからの復元時は画像データがないため、LocalStorageから補完を試みる
+    const localState = loadStateFromLocalStorage();
+    const localImages = localState ? localState.images : [];
+
+    uploadedImages = [];
+    let missingImages = [];
+    for (const imgState of state.images) {
+        let dataURL = imgState.dataURL;
+
+        // 画像データがない場合、LocalStorageから同じIDの画像を探す
+        if (!dataURL) {
+            const localImg = localImages.find(li => li.id === imgState.id);
+            if (localImg && localImg.dataURL) {
+                dataURL = localImg.dataURL;
+                console.log(`Image ${imgState.id} (${imgState.name}) loaded from LocalStorage`);
+            }
+        }
+
+        if (dataURL) {
+            const imageData = await dataURLToImageData(dataURL, imgState.width, imgState.height);
+            const image = {
+                id: imgState.id,
+                name: imgState.name,
+                imageData: imageData,
+                width: imgState.width,
+                height: imgState.height
+            };
+            uploadedImages.push(image);
+            graphEvaluator.registerImage(imgState.id, imageData.data, imgState.width, imgState.height);
+        } else {
+            // 画像データが見つからない場合は警告
+            missingImages.push(imgState.name);
+            console.warn(`Image ${imgState.id} (${imgState.name}) not found in LocalStorage`);
+        }
+    }
+
+    if (missingImages.length > 0) {
+        console.warn(`Missing images: ${missingImages.join(', ')}`);
+    }
+    renderImageLibrary();
+
+    // ノードとコネクションを復元
+    globalNodes = state.nodes;
+    globalConnections = state.connections;
+    renderNodeGraph();
+
+    // プレビュー更新
+    updatePreviewFromGraph();
+
+    console.log('App state restored successfully');
+    return true;
+}
+
+// 自動保存の設定（状態変更時に保存）
+let autoSaveTimeout = null;
+function scheduleAutoSave() {
+    if (autoSaveTimeout) {
+        clearTimeout(autoSaveTimeout);
+    }
+    // 500ms後に保存（頻繁な更新を防ぐ）
+    autoSaveTimeout = setTimeout(() => {
+        saveStateToLocalStorage();
+    }, 500);
+}
+
+// LocalStorageをクリア
+function clearSavedState() {
+    localStorage.removeItem(STATE_STORAGE_KEY);
+    console.log('Saved state cleared');
+}
+
+// URLから状態パラメータを除去
+function clearStateFromURL() {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('state');
+    window.history.replaceState({}, '', url.toString());
 }
