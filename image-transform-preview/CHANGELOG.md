@@ -160,10 +160,11 @@ EMSCRIPTEN_BINDINGS(image_transform) {
     class_<NodeGraphEvaluatorWrapper>("NodeGraphEvaluator")
         .constructor<int, int>()
         .function("setCanvasSize", ...)
-        .function("setLayerImage", ...)
+        .function("registerImage", ...)
         .function("setNodes", ...)
         .function("setConnections", ...)
-        .function("evaluateGraph", ...);
+        .function("evaluateGraph", ...)
+        .function("getPerfMetrics", ...);
 }
 ```
 

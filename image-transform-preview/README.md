@@ -182,12 +182,12 @@ image-transform-preview/
 モジュラー設計のC++コアは、標準C++のみを使用しており、以下の機能を提供します：
 
 - **基本型**（`image_types.h`）:
-  - Image/Image16構造体: 8bit/16bit RGBAピクセルデータ
+  - Image構造体: 8bit RGBAピクセルデータ（API境界用）
   - AffineParams/AffineMatrix構造体: アフィン変換パラメータ
 - **フィルタシステム**（`filters.h/cpp`）:
-  - ImageFilter16基底クラス
-  - BrightnessFilter16, GrayscaleFilter16, BoxBlurFilter16
-  - 16bit premultiplied alpha処理
+  - ImageFilter基底クラス（ViewPortベース）
+  - BrightnessFilter, GrayscaleFilter, BoxBlurFilter, AlphaFilter
+  - Straight alpha形式で処理（数学的に正確）
 - **画像処理エンジン**（`image_processor.h/cpp`）:
   - フィルタ適用、アフィン変換、画像合成
   - 8bit ↔ 16bit変換機能
