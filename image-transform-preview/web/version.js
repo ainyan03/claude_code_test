@@ -1,7 +1,7 @@
 // Build information - auto-generated
 const BUILD_INFO = {
-  buildDate: '2026-01-05 08:56:23 UTC',
-  gitCommit: '45257e5',
-  gitBranch: 'claude/remove-unused-imageprocessor-methods',
+  buildDate: '2026-01-05 13:23:38 UTC',
+  gitCommit: '1e03407',
+  gitBranch: 'claude/state-persistence',
   backend: 'WebAssembly'
 };
