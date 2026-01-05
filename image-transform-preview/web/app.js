@@ -773,7 +773,7 @@ function drawAllConnections() {
 function calculateConnectionPath(fromPos, toPos) {
     const dx = toPos.x - fromPos.x;
     const dy = Math.abs(toPos.y - fromPos.y);
-    const minOffset = 50;
+    const minOffset = 80;
 
     // オフセットは以下の最大値を使用：
     // - 最小オフセット（常に確保）
