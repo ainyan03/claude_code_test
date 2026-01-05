@@ -8,34 +8,6 @@
 namespace ImageTransform {
 
 // ========================================================================
-// AffineMatrix実装
-// ========================================================================
-
-// AffineParamsから2x3行列を生成
-AffineMatrix AffineMatrix::fromParams(const AffineParams& params, double centerX, double centerY) {
-    // 変換順序: 中心に移動 → スケール → 回転 → 平行移動 → 元の位置に戻す
-    // 行列計算: T(tx,ty) * R(rot) * S(sx,sy) * T(-cx,-cy)
-
-    double cosR = std::cos(params.rotation);
-    double sinR = std::sin(params.rotation);
-    double sx = params.scaleX;
-    double sy = params.scaleY;
-
-    AffineMatrix m;
-    // 合成行列の要素を直接計算
-    m.a = sx * cosR;
-    m.b = -sy * sinR;
-    m.c = sx * sinR;
-    m.d = sy * cosR;
-
-    // 平行移動成分（中心基準の回転・スケール + ユーザー指定の平行移動）
-    m.tx = -centerX * m.a - centerY * m.b + centerX + params.translateX;
-    m.ty = -centerX * m.c - centerY * m.d + centerY + params.translateY;
-
-    return m;
-}
-
-// ========================================================================
 // ImageProcessor実装
 // ========================================================================
 

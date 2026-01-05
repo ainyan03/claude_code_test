@@ -28,8 +28,6 @@ public:
 
     // キャンバスサイズ管理
     void setCanvasSize(int width, int height);
-    int getCanvasWidth() const { return canvasWidth; }
-    int getCanvasHeight() const { return canvasHeight; }
 
 private:
     int canvasWidth;
