@@ -1,7 +1,7 @@
 // Build information - auto-generated
 const BUILD_INFO = {
-  buildDate: '2026-01-05 03:50:06 UTC',
-  gitCommit: '664b91d',
-  gitBranch: 'claude/optimize-merge-images',
+  buildDate: '2026-01-05 08:00:04 UTC',
+  gitCommit: 'fa156d8',
+  gitBranch: 'claude/remove-unused-imageprocessor-methods',
   backend: 'WebAssembly'
 };

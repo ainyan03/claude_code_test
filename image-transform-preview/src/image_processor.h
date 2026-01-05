@@ -23,10 +23,6 @@ public:
     ViewPort applyTransform(const ViewPort& input, const AffineMatrix& matrix) const;
     ViewPort mergeImages(const std::vector<const ViewPort*>& images, double dstOriginX, double dstOriginY) const;
 
-    // 8bit Image ↔ ViewPort 変換（入出力用、純粋な型変換）
-    ViewPort fromImage(const Image& input) const;
-    Image toImage(const ViewPort& input) const;
-
     // ピクセルフォーマット変換
     ViewPort convertPixelFormat(const ViewPort& input, PixelFormatID targetFormat) const;
 
