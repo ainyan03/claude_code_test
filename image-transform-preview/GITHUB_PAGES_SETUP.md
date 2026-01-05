@@ -60,7 +60,7 @@ https://[ユーザー名].github.io/[リポジトリ名]/
 
 以下の場合に自動的にビルド＆デプロイされます：
 
-1. `claude/image-transform-preview-7sfw5` ブランチにプッシュしたとき
+1. `main` または `claude/*` ブランチにプッシュしたとき
 2. GitHub上で手動実行したとき
 
 ### ビルドプロセス
