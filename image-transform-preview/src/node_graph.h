@@ -8,11 +8,38 @@
 #include <vector>
 #include <map>
 #include <set>
+#include <chrono>
 
 namespace ImageTransform {
 
 // 前方宣言
 struct Image;
+
+// ========================================================================
+// パフォーマンス計測構造体
+// ========================================================================
+
+struct PerfMetrics {
+    double filterTime;        // フィルタ処理時間（ms）
+    double affineTime;        // アフィン変換時間（ms）
+    double compositeTime;     // 合成処理時間（ms）
+    double convertTime;       // フォーマット変換時間（ms）
+    double outputTime;        // 最終出力変換時間（ms）
+    int filterCount;          // フィルタ処理回数
+    int affineCount;          // アフィン変換回数
+    int compositeCount;       // 合成処理回数
+    int convertCount;         // フォーマット変換回数
+
+    PerfMetrics()
+        : filterTime(0), affineTime(0), compositeTime(0),
+          convertTime(0), outputTime(0),
+          filterCount(0), affineCount(0), compositeCount(0), convertCount(0) {}
+
+    void reset() {
+        filterTime = affineTime = compositeTime = convertTime = outputTime = 0;
+        filterCount = affineCount = compositeCount = convertCount = 0;
+    }
+};
 
 // ========================================================================
 // ノードグラフ構造定義
@@ -86,6 +113,9 @@ public:
     // 出力先原点（dstOrigin）を設定
     void setDstOrigin(double x, double y);
 
+    // パフォーマンス計測結果を取得
+    const PerfMetrics& getPerfMetrics() const { return perfMetrics; }
+
 private:
     int canvasWidth;
     int canvasHeight;
@@ -101,6 +131,9 @@ private:
 
     // ノード評価結果キャッシュ（1回の評価で使い回す）
     std::map<std::string, ViewPort> nodeResultCache;
+
+    // パフォーマンス計測
+    PerfMetrics perfMetrics;
 
     // 内部評価関数（再帰的にノードを評価）
     ViewPort evaluateNode(const std::string& nodeId, std::set<std::string>& visited);

@@ -110,7 +110,11 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
                 return result;
             }
 
+            auto filterStart = std::chrono::high_resolution_clock::now();
             result = processor.applyFilter(inputImage, filterType, filterParam);
+            auto filterEnd = std::chrono::high_resolution_clock::now();
+            perfMetrics.filterTime += std::chrono::duration<double, std::milli>(filterEnd - filterStart).count();
+            perfMetrics.filterCount++;
             // フィルタは画像サイズを変えないので srcOrigin をそのまま継承
             result.srcOriginX = inputImage.srcOriginX;
             result.srcOriginY = inputImage.srcOriginY;
@@ -130,7 +134,11 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
 
                     // 合成にはPremultiplied形式が必要
                     if (img.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
+                        auto convStart = std::chrono::high_resolution_clock::now();
                         img = processor.convertPixelFormat(img, PixelFormatIDs::RGBA16_Premultiplied);
+                        auto convEnd = std::chrono::high_resolution_clock::now();
+                        perfMetrics.convertTime += std::chrono::duration<double, std::milli>(convEnd - convStart).count();
+                        perfMetrics.convertCount++;
                     }
 
                     // アルファ値を適用（行ごとにアクセス、ストライド考慮）
@@ -160,7 +168,11 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
         // 結果の srcOrigin を基準点に設定する
         // 単一入力でも原点処理が必要なため、常に mergeImages を使用
         if (imagePtrs.size() >= 1) {
+            auto compStart = std::chrono::high_resolution_clock::now();
             result = processor.mergeImages(imagePtrs, dstOriginX, dstOriginY);
+            auto compEnd = std::chrono::high_resolution_clock::now();
+            perfMetrics.compositeTime += std::chrono::duration<double, std::milli>(compEnd - compStart).count();
+            perfMetrics.compositeCount++;
             // mergeImages が srcOrigin を設定済み（dstOrigin）
         }
 
@@ -180,7 +192,11 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
 
             // アフィン変換にはPremultiplied形式が必要
             if (inputImage.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
+                auto convStart = std::chrono::high_resolution_clock::now();
                 inputImage = processor.convertPixelFormat(inputImage, PixelFormatIDs::RGBA16_Premultiplied);
+                auto convEnd = std::chrono::high_resolution_clock::now();
+                perfMetrics.convertTime += std::chrono::duration<double, std::milli>(convEnd - convStart).count();
+                perfMetrics.convertCount++;
             }
 
             // 変換行列を取得（JS側で行列に統一済み）
@@ -224,7 +240,11 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
             }
 
             // アフィン変換を適用
+            auto affineStart = std::chrono::high_resolution_clock::now();
             result = processor.applyTransform(inputImage, centeredMatrix);
+            auto affineEnd = std::chrono::high_resolution_clock::now();
+            perfMetrics.affineTime += std::chrono::duration<double, std::milli>(affineEnd - affineStart).count();
+            perfMetrics.affineCount++;
 
             // srcOrigin を更新（オフセット込み）
             result.srcOriginX = ox;
@@ -239,6 +259,9 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
 
 // ノードグラフ全体を評価（1回のWASM呼び出しで完結）
 Image NodeGraphEvaluator::evaluateGraph() {
+    // パフォーマンス計測をリセット
+    perfMetrics.reset();
+
     // ノード評価キャッシュをクリア
     nodeResultCache.clear();
 
@@ -279,15 +302,28 @@ Image NodeGraphEvaluator::evaluateGraph() {
         std::abs(resultViewPort.srcOriginY - dstOriginY) > epsilon) {
         // Premultiplied形式に変換（必要な場合）
         if (resultViewPort.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
+            auto convStart = std::chrono::high_resolution_clock::now();
             resultViewPort = processor.convertPixelFormat(resultViewPort, PixelFormatIDs::RGBA16_Premultiplied);
+            auto convEnd = std::chrono::high_resolution_clock::now();
+            perfMetrics.convertTime += std::chrono::duration<double, std::milli>(convEnd - convStart).count();
+            perfMetrics.convertCount++;
         }
         // dstOrigin に基づいて配置
         std::vector<const ViewPort*> singleImage = { &resultViewPort };
+        auto compStart = std::chrono::high_resolution_clock::now();
         resultViewPort = processor.mergeImages(singleImage, dstOriginX, dstOriginY);
+        auto compEnd = std::chrono::high_resolution_clock::now();
+        perfMetrics.compositeTime += std::chrono::duration<double, std::milli>(compEnd - compStart).count();
+        perfMetrics.compositeCount++;
     }
 
     // ViewPort → 8bit Image変換（ViewPortのtoImage()を使用）
-    return resultViewPort.toImage();
+    auto outputStart = std::chrono::high_resolution_clock::now();
+    Image result = resultViewPort.toImage();
+    auto outputEnd = std::chrono::high_resolution_clock::now();
+    perfMetrics.outputTime = std::chrono::duration<double, std::milli>(outputEnd - outputStart).count();
+
+    return result;
 }
 
 } // namespace ImageTransform

@@ -4,6 +4,40 @@
 
 ## [Unreleased] - 2026-01-05
 
+### 📊 デバッグ機能強化: 詳細パフォーマンス計測
+
+#### 概要
+WASM内部の処理時間を工程ごとに計測し、コンソールに詳細ログを出力する機能を追加しました。
+
+#### 計測対象
+- **Filter**: フィルタ処理（明るさ、グレースケール、ボックスブラー、アルファ調整）
+- **Affine**: アフィン変換処理
+- **Composite**: 画像合成処理（mergeImages）
+- **Convert**: ピクセルフォーマット変換（RGBA8_Straight ↔ RGBA16_Premultiplied）
+- **Output**: 最終出力変換（ViewPort → Image）
+
+#### 実装内容
+
+**C++ (node_graph.h)**:
+- `PerfMetrics`構造体を追加（各工程の累積時間と実行回数を保持）
+- `getPerfMetrics()`メソッドで計測結果を取得可能
+
+**C++ (node_graph.cpp)**:
+- 各処理の前後で`std::chrono::high_resolution_clock`による計測を実装
+
+**C++ (bindings.cpp)**:
+- `getPerfMetrics()`をJavaScript側に公開
+
+**JavaScript (app.js)**:
+- 詳細ログ出力を実装
+
+#### コンソール出力例
+```
+[Perf] Total: 45.2ms | WASM: 38.5ms (Affine: 12.34ms (x1), Composite: 8.56ms (x1), Convert: 5.23ms (x2), Output: 10.12ms) | Draw: 6.5ms
+```
+
+---
+
 ### 🎨 UI/UX改善: サイドバーメニューとレイアウト最適化
 
 #### 概要
