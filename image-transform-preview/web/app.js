@@ -88,22 +88,55 @@ function setupSidebar() {
 }
 
 // スプリッターによるリサイズ処理
+// 比率ベースで管理し、画面回転時も追従する
+let splitterRatio = null;  // ノードグラフセクションの比率（0〜1）、nullは未操作状態
+
 function setupSplitter() {
     const splitter = document.getElementById('splitter');
     const nodeGraphSection = document.querySelector('.node-graph-section');
     const mainContent = document.querySelector('.main-content');
     const container = document.querySelector('.container');
+    const header = document.querySelector('header');
 
     let isDragging = false;
     let startY = 0;
-    let startNodeGraphHeight = 0;
-    let startMainContentHeight = 0;
+    let startRatio = 0;
+
+    // 利用可能な高さを計算（ヘッダーとスプリッター分を除く）
+    function getAvailableHeight() {
+        const containerHeight = container.offsetHeight;
+        const headerHeight = header ? header.offsetHeight : 0;
+        const splitterHeight = splitter.offsetHeight;
+        return containerHeight - headerHeight - splitterHeight;
+    }
+
+    // 比率に基づいてflex値を適用
+    function applyRatio(ratio) {
+        if (ratio === null) return;  // 未操作時は何もしない（CSSのflex: 1が有効）
+
+        const availableHeight = getAvailableHeight();
+        const minHeight = 150;
+
+        // 最小高さを確保した比率に補正
+        const minRatio = minHeight / availableHeight;
+        const maxRatio = 1 - minRatio;
+        const clampedRatio = Math.max(minRatio, Math.min(maxRatio, ratio));
+
+        const nodeGraphHeight = Math.round(availableHeight * clampedRatio);
+        const mainContentHeight = availableHeight - nodeGraphHeight;
+
+        nodeGraphSection.style.flex = `0 0 ${nodeGraphHeight}px`;
+        mainContent.style.flex = `0 0 ${mainContentHeight}px`;
+    }
 
     function onMouseDown(e) {
         isDragging = true;
         startY = e.clientY || e.touches?.[0]?.clientY;
-        startNodeGraphHeight = nodeGraphSection.offsetHeight;
-        startMainContentHeight = mainContent.offsetHeight;
+
+        // 現在の比率を計算
+        const availableHeight = getAvailableHeight();
+        startRatio = nodeGraphSection.offsetHeight / availableHeight;
+
         splitter.classList.add('dragging');
         document.body.style.cursor = 'row-resize';
         document.body.style.userSelect = 'none';
@@ -115,24 +148,14 @@ function setupSplitter() {
 
         const clientY = e.clientY || e.touches?.[0]?.clientY;
         const deltaY = clientY - startY;
+        const availableHeight = getAvailableHeight();
 
-        // 最小高さを確保
-        const minHeight = 150;
-        let newNodeGraphHeight = startNodeGraphHeight + deltaY;
-        let newMainContentHeight = startMainContentHeight - deltaY;
+        // ピクセル差分を比率差分に変換
+        const deltaRatio = deltaY / availableHeight;
+        splitterRatio = startRatio + deltaRatio;
 
-        if (newNodeGraphHeight < minHeight) {
-            newNodeGraphHeight = minHeight;
-            newMainContentHeight = startNodeGraphHeight + startMainContentHeight - minHeight;
-        }
-        if (newMainContentHeight < minHeight) {
-            newMainContentHeight = minHeight;
-            newNodeGraphHeight = startNodeGraphHeight + startMainContentHeight - minHeight;
-        }
-
-        // flex-basisで高さを設定
-        nodeGraphSection.style.flex = `0 0 ${newNodeGraphHeight}px`;
-        mainContent.style.flex = `0 0 ${newMainContentHeight}px`;
+        // 比率を適用
+        applyRatio(splitterRatio);
     }
 
     function onMouseUp() {
@@ -152,6 +175,19 @@ function setupSplitter() {
     splitter.addEventListener('touchstart', onMouseDown, { passive: false });
     document.addEventListener('touchmove', onMouseMove, { passive: false });
     document.addEventListener('touchend', onMouseUp);
+
+    // 画面リサイズ・回転時に比率を再適用
+    function onResize() {
+        if (splitterRatio !== null) {
+            applyRatio(splitterRatio);
+        }
+    }
+
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', () => {
+        // orientationchange後にレイアウトが確定するまで少し待つ
+        setTimeout(onResize, 100);
+    });
 }
 
 // WebAssemblyモジュールを初期化
