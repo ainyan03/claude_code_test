@@ -102,7 +102,8 @@ ViewPort ImageProcessor::mergeImages(const std::vector<const ViewPort*>& images,
 
 // 行列ベース + 固定小数点アフィン変換（ViewPortベース）
 // 純粋な幾何変換のみ（アルファ調整はAlphaFilterを使用）
-ViewPort ImageProcessor::applyTransform(const ViewPort& input, const AffineMatrix& matrix) const {
+// originX, originY: 変換の中心点（この点を中心に回転・拡縮が適用される）
+ViewPort ImageProcessor::applyTransform(const ViewPort& input, const AffineMatrix& matrix, double originX, double originY) const {
     ViewPort output(canvasWidth, canvasHeight, PixelFormatIDs::RGBA16_Premultiplied);
     std::memset(output.data, 0, output.getTotalBytes());
 
@@ -120,27 +121,47 @@ ViewPort ImageProcessor::applyTransform(const ViewPort& input, const AffineMatri
     double invTx = (-matrix.d * matrix.tx + matrix.b * matrix.ty) * invDet;
     double invTy = (matrix.c * matrix.tx - matrix.a * matrix.ty) * invDet;
 
-    // 固定小数点16.16形式に変換（上位16bit: 整数、下位16bit: 小数）
-    int32_t fixedInvA  = static_cast<int32_t>(invA * 65536);
-    int32_t fixedInvB  = static_cast<int32_t>(invB * 65536);
-    int32_t fixedInvC  = static_cast<int32_t>(invC * 65536);
-    int32_t fixedInvD  = static_cast<int32_t>(invD * 65536);
+    // 固定小数点の小数部ビット数（デバッグ用に変更可能）
+    constexpr int FIXED_POINT_BITS = 16;  // 通常は16、デバッグ時は4など
+    constexpr int32_t FIXED_POINT_SCALE = 1 << FIXED_POINT_BITS;
+
+    // 固定小数点形式に変換（roundで四捨五入して精度向上）
+    int32_t fixedInvA  = static_cast<int32_t>(std::round(invA * FIXED_POINT_SCALE));
+    int32_t fixedInvB  = static_cast<int32_t>(std::round(invB * FIXED_POINT_SCALE));
+    int32_t fixedInvC  = static_cast<int32_t>(std::round(invC * FIXED_POINT_SCALE));
+    int32_t fixedInvD  = static_cast<int32_t>(std::round(invD * FIXED_POINT_SCALE));
+    int32_t fixedInvTx = static_cast<int32_t>(std::round(invTx * FIXED_POINT_SCALE));
+    int32_t fixedInvTy = static_cast<int32_t>(std::round(invTy * FIXED_POINT_SCALE));
+
+    // 原点中心の変換を固定小数点で適用: T(origin) × M × T(-origin) の逆変換
+    // 入力座標系の原点を使用（整数のまま、シフト演算を最小限に）
+    int32_t originXInt = static_cast<int32_t>(std::round(originX));
+    int32_t originYInt = static_cast<int32_t>(std::round(originY));
+    // P_in = M^-1 × P_out + (origin - M^-1 × origin) - M^-1 × t
+    // 原点オフセット: origin - M^-1 × origin = origin - (invA × originX + invB × originY, ...)
+    fixedInvTx += (originXInt << FIXED_POINT_BITS) - originXInt * fixedInvA - fixedInvB * originYInt;
+    fixedInvTy += (originYInt << FIXED_POINT_BITS) - originYInt * fixedInvD - fixedInvC * originXInt;
+
+    // DDA増分の半分を加算: 切り捨て時の誤差を平均化
+    // X方向ループの増分 fixedInvA/fixedInvC の半分を初期値に加える
+    fixedInvTx += fixedInvA >> 1;
+    fixedInvTy += fixedInvC >> 1;
 
     // 入力データへのポインタ取得
     const uint16_t* inputData = static_cast<const uint16_t*>(input.data);
 
     // 出力画像の各ピクセルをスキャン
     for (int dy = 0; dy < canvasHeight; dy++) {
-        // 行の開始座標を固定小数点で計算
-        int32_t srcX_fixed = static_cast<int32_t>((invA * 0 + invB * dy + invTx) * 65536);
-        int32_t srcY_fixed = static_cast<int32_t>((invC * 0 + invD * dy + invTy) * 65536);
+        // 行の開始座標を固定小数点で計算（ループ内でdoubleを使わない）
+        int32_t srcX_fixed = fixedInvB * dy + fixedInvTx;
+        int32_t srcY_fixed = fixedInvD * dy + fixedInvTy;
 
         uint16_t* dstRow = output.getPixelPtr<uint16_t>(0, dy);
 
         for (int dx = 0; dx < canvasWidth; dx++) {
-            // 固定小数点から整数座標を抽出（上位16bit）
-            int sx = srcX_fixed >> 16;
-            int sy = srcY_fixed >> 16;
+            // 固定小数点から整数座標を抽出
+            int sx = srcX_fixed >> FIXED_POINT_BITS;
+            int sy = srcY_fixed >> FIXED_POINT_BITS;
 
             // 範囲チェック
             if (sx >= 0 && sx < input.width && sy >= 0 && sy < input.height) {
