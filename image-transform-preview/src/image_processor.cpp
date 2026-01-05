@@ -1,5 +1,6 @@
 #include "image_processor.h"
 #include "image_types.h"
+#include "filter_registry.h"
 #include <algorithm>
 #include <cstring>
 #include <memory>
@@ -267,27 +268,11 @@ ViewPort ImageProcessor::applyTransform(const ViewPort& input, const AffineMatri
     return output;
 }
 
-// ViewPortベースフィルタ処理（ファクトリパターン）
-ViewPort ImageProcessor::applyFilter(const ViewPort& input, const std::string& filterType, float param) const {
-    std::unique_ptr<ImageFilter> filter;
-
-    // フィルタクラスの生成（文字列→クラスのマッピング）
-    if (filterType == "brightness") {
-        BrightnessFilterParams params(param);
-        filter = std::make_unique<BrightnessFilter>(params);
-    }
-    else if (filterType == "grayscale") {
-        GrayscaleFilterParams params;
-        filter = std::make_unique<GrayscaleFilter>(params);
-    }
-    else if (filterType == "blur") {
-        BoxBlurFilterParams params(static_cast<int>(param));
-        filter = std::make_unique<BoxBlurFilter>(params);
-    }
-    else if (filterType == "alpha") {
-        AlphaFilterParams params(param);
-        filter = std::make_unique<AlphaFilter>(params);
-    }
+// ViewPortベースフィルタ処理（FilterRegistryを使用）
+// params: フィルタパラメータ配列（各フィルタが必要なパラメータをインデックスで取得）
+ViewPort ImageProcessor::applyFilter(const ViewPort& input, const std::string& filterType, const std::vector<float>& params) const {
+    // FilterRegistryからフィルタを生成
+    auto filter = FilterRegistry::getInstance().createFilter(filterType, params);
 
     // フィルタを適用
     if (filter) {

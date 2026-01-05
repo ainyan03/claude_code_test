@@ -186,10 +186,11 @@ image-transform-preview/
 - **基本型**（`image_types.h`）:
   - Image構造体: 8bit RGBAピクセルデータ（API境界用）
   - AffineParams/AffineMatrix構造体: アフィン変換パラメータ
-- **フィルタシステム**（`filters.h/cpp`）:
+- **フィルタシステム**（`filters.h/cpp`, `filter_registry.h/cpp`）:
   - ImageFilter基底クラス（ViewPortベース）
+  - FilterRegistryによる一元管理（ファクトリパターン）
   - BrightnessFilter, GrayscaleFilter, BoxBlurFilter, AlphaFilter
-  - Straight alpha形式で処理（数学的に正確）
+  - 複数パラメータ対応、Straight alpha形式で処理（数学的に正確）
 - **画像処理エンジン**（`image_processor.h/cpp`）:
   - フィルタ適用、アフィン変換、画像合成
   - 8bit ↔ 16bit変換機能

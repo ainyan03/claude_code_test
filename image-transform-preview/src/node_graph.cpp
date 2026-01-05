@@ -97,12 +97,12 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
             ViewPort inputImage = evaluateNode(inputConn->fromNodeId, visited);
 
             std::string filterType;
-            float filterParam;
+            std::vector<float> filterParams;
 
             if (node->independent) {
                 // 独立フィルタノード
                 filterType = node->filterType;
-                filterParam = node->filterParam;
+                filterParams = node->filterParams;
             } else {
                 // 非独立フィルタノード（未使用：スキップ）
                 result = inputImage;
@@ -111,7 +111,7 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
             }
 
             auto filterStart = std::chrono::high_resolution_clock::now();
-            result = processor.applyFilter(inputImage, filterType, filterParam);
+            result = processor.applyFilter(inputImage, filterType, filterParams);
             auto filterEnd = std::chrono::high_resolution_clock::now();
             perfMetrics.filterTime += std::chrono::duration<double, std::milli>(filterEnd - filterStart).count();
             perfMetrics.filterCount++;

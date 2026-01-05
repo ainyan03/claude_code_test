@@ -9,6 +9,69 @@ let canvasHeight = 600;
 let canvasOrigin = { x: 400, y: 300 };  // キャンバス原点（ピクセル座標）
 let previewScale = 1;  // 表示倍率（1〜5）
 
+// ========================================
+// フィルタ定義（一元管理）
+// 新規フィルタ追加時はここに定義を追加するだけでOK
+// ========================================
+const FILTER_DEFINITIONS = {
+    grayscale: {
+        id: 'grayscale',
+        name: 'グレースケール',
+        category: 'color',
+        params: []  // パラメータなし
+    },
+    brightness: {
+        id: 'brightness',
+        name: '明るさ',
+        category: 'color',
+        params: [
+            {
+                name: 'brightness',
+                label: '明るさ',
+                min: -1,
+                max: 1,
+                step: 0.01,
+                default: 0,
+                format: v => v.toFixed(2)
+            }
+        ]
+    },
+    blur: {
+        id: 'blur',
+        name: 'ぼかし',
+        category: 'blur',
+        params: [
+            {
+                name: 'radius',
+                label: '半径',
+                min: 1,
+                max: 20,
+                step: 1,
+                default: 3,
+                format: v => `${Math.round(v)}px`
+            }
+        ]
+    },
+    alpha: {
+        id: 'alpha',
+        name: 'アルファ',
+        category: 'other',
+        params: [
+            {
+                name: 'alpha',
+                label: 'α',
+                min: 0,
+                max: 1,
+                step: 0.01,
+                default: 1,
+                format: v => `${Math.round(v * 100)}%`
+            }
+        ]
+    }
+    // 新規フィルタはここに追加
+    // contrast: { id: 'contrast', name: 'コントラスト', category: 'color', params: [...] }
+};
+
 // グローバルノードグラフ
 let globalNodes = [];  // すべてのノード（画像、フィルタ、合成、出力）を管理
 let globalConnections = [];  // ノード間の接続
@@ -329,7 +392,9 @@ function setupEventListeners() {
     // ダウンロードボタン
     document.getElementById('download-btn').addEventListener('click', downloadComposedImage);
 
-    // ノード追加プルダウンメニュー
+    // ノード追加プルダウンメニューを動的に構築
+    populateNodeSelectOptions();
+
     document.getElementById('add-node-select').addEventListener('change', (e) => {
         const value = e.target.value;
         if (!value) return;
@@ -339,12 +404,32 @@ function setupEventListeners() {
             addAffineNode();
         } else if (value === 'composite') {
             addCompositeNode();
-        } else if (value === 'grayscale' || value === 'brightness' || value === 'blur' || value === 'alpha') {
+        } else if (FILTER_DEFINITIONS[value]) {
+            // FILTER_DEFINITIONSに定義されているフィルタ
             addIndependentFilterNode(value);
         }
 
         // セレクトをリセット
         e.target.value = '';
+    });
+}
+
+// ノード追加セレクトのオプションを動的生成
+function populateNodeSelectOptions() {
+    const select = document.getElementById('add-node-select');
+    if (!select) return;
+
+    // 既存のフィルタオプションをクリア（静的に定義されたものを削除）
+    const existingFilterOptions = select.querySelectorAll('option[data-filter]');
+    existingFilterOptions.forEach(opt => opt.remove());
+
+    // FILTER_DEFINITIONSからフィルタオプションを追加
+    Object.values(FILTER_DEFINITIONS).forEach(def => {
+        const option = document.createElement('option');
+        option.value = def.id;
+        option.textContent = `フィルタ: ${def.name}`;
+        option.dataset.filter = 'true';  // フィルタオプションであることをマーク
+        select.appendChild(option);
     });
 }
 
@@ -1109,49 +1194,43 @@ function drawGlobalNode(node) {
         const controls = document.createElement('div');
         controls.className = 'node-box-controls';
 
-        if (node.filterType === 'brightness') {
-            controls.innerHTML = `
-                <label style="font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;">
-                    <span style="min-width: 40px;">明るさ:</span>
-                    <input type="range" class="filter-param-slider" min="-1" max="1" step="0.01" value="${node.param || 0}" style="width: 60px;">
-                    <span class="param-display">${(node.param || 0).toFixed(2)}</span>
-                </label>
-            `;
-        } else if (node.filterType === 'blur') {
-            controls.innerHTML = `
-                <label style="font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;">
-                    <span style="min-width: 40px;">半径:</span>
-                    <input type="range" class="filter-param-slider" min="1" max="10" step="1" value="${node.param || 3}" style="width: 60px;">
-                    <span class="param-display">${Math.round(node.param || 3)}px</span>
-                </label>
-            `;
-        } else if (node.filterType === 'alpha') {
-            controls.innerHTML = `
-                <label style="font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;">
-                    <span style="min-width: 40px;">α:</span>
-                    <input type="range" class="filter-param-slider" min="0" max="1" step="0.01" value="${node.param || 1.0}" style="width: 60px;">
-                    <span class="param-display">${Math.round((node.param || 1.0) * 100)}%</span>
-                </label>
-            `;
-        }
+        // FILTER_DEFINITIONSからパラメータ定義を取得して動的生成
+        const filterDef = FILTER_DEFINITIONS[node.filterType];
+        if (filterDef && filterDef.params.length > 0) {
+            filterDef.params.forEach((paramDef, index) => {
+                const currentValue = node.param ?? paramDef.default;
 
-        const slider = controls.querySelector('.filter-param-slider');
-        const display = controls.querySelector('.param-display');
+                const label = document.createElement('label');
+                label.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;';
 
-        if (slider && display) {
-            slider.addEventListener('input', (e) => {
-                const value = parseFloat(e.target.value);
-                node.param = value;
+                const span = document.createElement('span');
+                span.style.minWidth = '40px';
+                span.textContent = `${paramDef.label}:`;
 
-                if (node.filterType === 'brightness') {
-                    display.textContent = value.toFixed(2);
-                } else if (node.filterType === 'blur') {
-                    display.textContent = Math.round(value) + 'px';
-                } else if (node.filterType === 'alpha') {
-                    display.textContent = Math.round(value * 100) + '%';
-                }
+                const slider = document.createElement('input');
+                slider.type = 'range';
+                slider.className = 'filter-param-slider';
+                slider.min = String(paramDef.min);
+                slider.max = String(paramDef.max);
+                slider.step = String(paramDef.step);
+                slider.value = String(currentValue);
+                slider.style.width = '60px';
 
-                throttledUpdatePreview();
+                const display = document.createElement('span');
+                display.className = 'param-display';
+                display.textContent = paramDef.format ? paramDef.format(currentValue) : String(currentValue);
+
+                slider.addEventListener('input', (e) => {
+                    const value = parseFloat(e.target.value);
+                    node.param = value;
+                    display.textContent = paramDef.format ? paramDef.format(value) : String(value);
+                    throttledUpdatePreview();
+                });
+
+                label.appendChild(span);
+                label.appendChild(slider);
+                label.appendChild(display);
+                controls.appendChild(label);
             });
         }
 
@@ -1926,15 +2005,17 @@ function addCompositeInput(node) {
 
 // 独立フィルタノードを追加（レイヤーに属さない）
 function addIndependentFilterNode(filterType) {
-    // デフォルトパラメータ
-    let defaultParam = 0.0;
-    if (filterType === 'brightness') {
-        defaultParam = 0.0;  // -1.0 ~ 1.0
-    } else if (filterType === 'blur') {
-        defaultParam = 3.0;  // radius
-    } else if (filterType === 'alpha') {
-        defaultParam = 1.0;  // 0.0 ~ 1.0
+    const filterDef = FILTER_DEFINITIONS[filterType];
+    if (!filterDef) {
+        console.warn(`Unknown filter type: ${filterType}`);
+        return;
     }
+
+    // デフォルトパラメータをFILTER_DEFINITIONSから取得
+    // 複数パラメータ対応: params配列からデフォルト値を取得
+    const defaultParam = filterDef.params.length > 0
+        ? filterDef.params[0].default
+        : 0.0;
 
     // 既存の独立フィルタノードの数を数えて位置をずらす
     const existingFilterCount = globalNodes.filter(
@@ -1958,13 +2039,8 @@ function addIndependentFilterNode(filterType) {
 
 // フィルタ表示名を取得
 function getFilterDisplayName(filterType) {
-    const names = {
-        'grayscale': 'グレースケール',
-        'brightness': '明るさ',
-        'blur': 'ぼかし',
-        'alpha': 'アルファ'
-    };
-    return names[filterType] || filterType;
+    const filterDef = FILTER_DEFINITIONS[filterType];
+    return filterDef ? filterDef.name : filterType;
 }
 
 
@@ -1993,10 +2069,10 @@ function updatePreviewFromGraph() {
     // C++側にノードグラフ構造を渡す（1回のWASM呼び出しで完結）
     const evalStart = performance.now();
 
-    // アフィンノードのパラメータを行列に統一してからC++に渡す
+    // ノードデータをC++に渡す形式に変換
     const nodesForCpp = globalNodes.map(node => {
+        // アフィンノード: パラメータを行列に統一
         if (node.type === 'affine' && !node.matrixMode) {
-            // パラメータモードの場合、JS側で行列に変換
             const matrix = calculateMatrixFromParams(
                 node.translateX || 0,
                 node.translateY || 0,
@@ -2008,6 +2084,17 @@ function updatePreviewFromGraph() {
                 ...node,
                 matrixMode: true,  // C++には常に行列モードとして渡す
                 matrix: matrix
+            };
+        }
+        // フィルタノード: paramをfilterParams配列に変換
+        if (node.type === 'filter' && node.independent) {
+            const filterDef = FILTER_DEFINITIONS[node.filterType];
+            // 現在のパラメータを配列形式に変換
+            // 将来的に複数パラメータ対応する際はnode.paramsを使用
+            const filterParams = node.param !== undefined ? [node.param] : [];
+            return {
+                ...node,
+                filterParams: filterParams
             };
         }
         return node;
