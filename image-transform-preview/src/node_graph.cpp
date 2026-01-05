@@ -209,38 +209,16 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
             double outputOriginX = inputOriginX;
             double outputOriginY = inputOriginY;
 
-            // 入力画像の四隅が変換後に負の座標になるかチェック
-            // 原点中心変換 T(origin) × M × T(-origin) を考慮した座標計算
-            // 変換後座標 = M × (P - origin) + origin + t
-            //            = M × P + origin - M × origin + t
-            double corners[4][2] = {
-                {0, 0},
-                {static_cast<double>(inputImage.width), 0},
-                {0, static_cast<double>(inputImage.height)},
-                {static_cast<double>(inputImage.width), static_cast<double>(inputImage.height)}
-            };
-            double minX = 0, minY = 0;
-            for (int i = 0; i < 4; i++) {
-                double tx = matrix.a * corners[i][0] + matrix.b * corners[i][1]
-                          + matrix.tx + inputOriginX - matrix.a * inputOriginX - matrix.b * inputOriginY;
-                double ty = matrix.c * corners[i][0] + matrix.d * corners[i][1]
-                          + matrix.ty + inputOriginY - matrix.c * inputOriginX - matrix.d * inputOriginY;
-                if (tx < minX) minX = tx;
-                if (ty < minY) minY = ty;
-            }
-            // 負の座標を避けるためのオフセットを行列の並進成分に適用
-            if (minX < 0) {
-                matrix.tx -= minX;
-                outputOriginX -= minX;
-            }
-            if (minY < 0) {
-                matrix.ty -= minY;
-                outputOriginY -= minY;
-            }
-
-            // アフィン変換を適用（入力座標系の原点を渡す - 逆変換の中心として使用）
+            // 負の座標を避けるためのオフセットを出力座標系で適用
+            // matrix.tx/tyには加算しない（逆行列計算に影響し原点が不安定になるため）
+            // 画像サイズに基づく固定オフセットを使用（動的計算は揺らぎの原因となる）
+            double fixedOffset = std::max(inputImage.width, inputImage.height);
+            double outputOffsetX = fixedOffset;
+            double outputOffsetY = fixedOffset;
+            outputOriginX += fixedOffset;
+            outputOriginY += fixedOffset;
             auto affineStart = std::chrono::high_resolution_clock::now();
-            result = processor.applyTransform(inputImage, matrix, inputOriginX, inputOriginY);
+            result = processor.applyTransform(inputImage, matrix, inputOriginX, inputOriginY, outputOffsetX, outputOffsetY);
             auto affineEnd = std::chrono::high_resolution_clock::now();
             perfMetrics.affineTime += std::chrono::duration<double, std::milli>(affineEnd - affineStart).count();
             perfMetrics.affineCount++;
