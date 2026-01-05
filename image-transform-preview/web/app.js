@@ -769,21 +769,22 @@ function drawAllConnections() {
 // 接続線のSVGパス文字列を計算
 // 出力ポート（右側）からは必ず右向きに出る
 // 入力ポート（左側）には必ず左向きから入る
+// 条件分岐なしの連続的な計算で、ノード位置に関わらず滑らかな曲線を生成
 function calculateConnectionPath(fromPos, toPos) {
-    const minOffset = 50;  // 最小オフセット量
+    const dx = toPos.x - fromPos.x;
+    const dy = Math.abs(toPos.y - fromPos.y);
+    const minOffset = 50;
 
-    if (fromPos.x + minOffset < toPos.x) {
-        // 通常ケース：出力が入力の左側にある
-        const midX = (fromPos.x + toPos.x) / 2;
-        return `M ${fromPos.x} ${fromPos.y} C ${midX} ${fromPos.y}, ${midX} ${toPos.y}, ${toPos.x} ${toPos.y}`;
-    } else {
-        // 逆転ケース：出力が入力の右側または近い位置にある
-        // 出力から右に進み、ループして入力に左から入る
-        const offset = Math.max(minOffset, Math.abs(fromPos.y - toPos.y) / 2);
-        const cp1x = fromPos.x + offset;  // 出力から右に進む
-        const cp2x = toPos.x - offset;    // 入力に左から入る
-        return `M ${fromPos.x} ${fromPos.y} C ${cp1x} ${fromPos.y}, ${cp2x} ${toPos.y}, ${toPos.x} ${toPos.y}`;
-    }
+    // オフセットは以下の最大値を使用：
+    // - 最小オフセット（常に確保）
+    // - 水平距離の半分（通常のS字用）
+    // - 垂直距離の比率（ループの膨らみ用）
+    const offset = Math.max(minOffset, dx / 2, dy * 0.3);
+
+    const cp1x = fromPos.x + offset;  // 常に右へ
+    const cp2x = toPos.x - offset;    // 常に左から
+
+    return `M ${fromPos.x} ${fromPos.y} C ${cp1x} ${fromPos.y}, ${cp2x} ${toPos.y}, ${toPos.x} ${toPos.y}`;
 }
 
 function drawConnectionBetweenPorts(fromNode, fromPortId, toNode, toPortId) {
