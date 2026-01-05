@@ -225,9 +225,6 @@ function initializeApp() {
     // グローバルノードグラフ初期化
     initializeNodeGraph();
 
-    // 合成ノード編集パネル初期化
-    initializeCompositeEditPanel();
-
     // 初期プレビュー
     updatePreviewFromGraph();
 
@@ -1015,17 +1012,7 @@ function drawGlobalNode(node) {
             addCompositeInput(node);
         });
 
-        // 詳細編集ボタン
-        const editBtn = document.createElement('button');
-        editBtn.textContent = '⚙️ 詳細';
-        editBtn.style.cssText = 'font-size: 9px; padding: 2px 4px; flex: 1;';
-        editBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            openCompositeEditPanel(node);
-        });
-
         btnContainer.appendChild(addInputBtn);
-        btnContainer.appendChild(editBtn);
         controls.appendChild(btnContainer);
 
         nodeBox.appendChild(controls);
@@ -1689,15 +1676,7 @@ function addCompositeNode() {
         inputs: [
             { id: 'in1', alpha: 1.0 },
             { id: 'in2', alpha: 1.0 }
-        ],
-        affineParams: {
-            translateX: 0,
-            translateY: 0,
-            rotation: 0,
-            scaleX: 1.0,
-            scaleY: 1.0,
-            alpha: 1.0
-        }
+        ]
     };
 
     globalNodes.push(compositeNode);
@@ -1865,127 +1844,6 @@ function updatePreviewFromGraph() {
     } else {
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     }
-}
-
-// ========================================
-// 合成ノード編集パネル
-// ========================================
-
-let currentEditingComposite = null;
-
-function initializeCompositeEditPanel() {
-    const closeBtn = document.getElementById('close-composite-panel');
-    if (closeBtn) {
-        closeBtn.addEventListener('click', closeCompositeEditPanel);
-    }
-
-    // 各パラメータスライダーのイベントリスナー
-    const translateX = document.getElementById('composite-translatex');
-    const translateY = document.getElementById('composite-translatey');
-    const rotation = document.getElementById('composite-rotation');
-    const scaleX = document.getElementById('composite-scalex');
-    const scaleY = document.getElementById('composite-scaley');
-    const alpha = document.getElementById('composite-alpha');
-
-    if (translateX) {
-        translateX.addEventListener('input', (e) => {
-            if (!currentEditingComposite) return;
-            const value = parseFloat(e.target.value);
-            currentEditingComposite.affineParams.translateX = value;
-            document.getElementById('composite-translatex-value').textContent = value.toFixed(0);
-            throttledUpdatePreview();
-        });
-    }
-
-    if (translateY) {
-        translateY.addEventListener('input', (e) => {
-            if (!currentEditingComposite) return;
-            const value = parseFloat(e.target.value);
-            currentEditingComposite.affineParams.translateY = value;
-            document.getElementById('composite-translatey-value').textContent = value.toFixed(0);
-            throttledUpdatePreview();
-        });
-    }
-
-    if (rotation) {
-        rotation.addEventListener('input', (e) => {
-            if (!currentEditingComposite) return;
-            const value = parseFloat(e.target.value);
-            currentEditingComposite.affineParams.rotation = value;  // 度数法で保存
-            document.getElementById('composite-rotation-value').textContent = value.toFixed(0) + '°';
-            throttledUpdatePreview();
-        });
-    }
-
-    if (scaleX) {
-        scaleX.addEventListener('input', (e) => {
-            if (!currentEditingComposite) return;
-            const value = parseFloat(e.target.value);
-            currentEditingComposite.affineParams.scaleX = value;
-            document.getElementById('composite-scalex-value').textContent = value.toFixed(2);
-            throttledUpdatePreview();
-        });
-    }
-
-    if (scaleY) {
-        scaleY.addEventListener('input', (e) => {
-            if (!currentEditingComposite) return;
-            const value = parseFloat(e.target.value);
-            currentEditingComposite.affineParams.scaleY = value;
-            document.getElementById('composite-scaley-value').textContent = value.toFixed(2);
-            throttledUpdatePreview();
-        });
-    }
-
-    if (alpha) {
-        alpha.addEventListener('input', (e) => {
-            if (!currentEditingComposite) return;
-            const value = parseFloat(e.target.value);
-            currentEditingComposite.affineParams.alpha = value;
-            document.getElementById('composite-alpha-value').textContent = value.toFixed(2);
-            throttledUpdatePreview();
-        });
-    }
-}
-
-function openCompositeEditPanel(node) {
-    currentEditingComposite = node;
-    const panel = document.getElementById('composite-edit-panel');
-
-    if (!panel) return;
-
-    // パネルを表示
-    panel.classList.remove('hidden');
-
-    // 現在の値をスライダーに反映
-    const params = node.affineParams;
-    if (params) {
-        document.getElementById('composite-translatex').value = params.translateX;
-        document.getElementById('composite-translatex-value').textContent = params.translateX.toFixed(0);
-
-        document.getElementById('composite-translatey').value = params.translateY;
-        document.getElementById('composite-translatey-value').textContent = params.translateY.toFixed(0);
-
-        document.getElementById('composite-rotation').value = params.rotation;
-        document.getElementById('composite-rotation-value').textContent = params.rotation.toFixed(0) + '°';
-
-        document.getElementById('composite-scalex').value = params.scaleX;
-        document.getElementById('composite-scalex-value').textContent = params.scaleX.toFixed(2);
-
-        document.getElementById('composite-scaley').value = params.scaleY;
-        document.getElementById('composite-scaley-value').textContent = params.scaleY.toFixed(2);
-
-        document.getElementById('composite-alpha').value = params.alpha;
-        document.getElementById('composite-alpha-value').textContent = params.alpha.toFixed(2);
-    }
-}
-
-function closeCompositeEditPanel() {
-    const panel = document.getElementById('composite-edit-panel');
-    if (panel) {
-        panel.classList.add('hidden');
-    }
-    currentEditingComposite = null;
 }
 
 // ========================================

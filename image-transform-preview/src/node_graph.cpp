@@ -164,60 +164,6 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
             // mergeImages が srcOrigin を設定済み（dstOrigin）
         }
 
-        // 合成ノードのアフィン変換
-        const AffineParams& p = node->compositeTransform;
-        const bool needsTransform = (
-            p.translateX != 0 || p.translateY != 0 || p.rotation != 0 ||
-            p.scaleX != 1.0 || p.scaleY != 1.0
-        );
-
-        if (needsTransform) {
-            // パラメータから基本行列を生成（原点は後で設定）
-            AffineMatrix matrix = AffineMatrix::fromParams(p, 0, 0);
-
-            // srcOrigin を中心に変換: T(origin) × M × T(-origin)
-            // mergeImages後のsrcOriginはdstOriginなので、dstOrigin中心の変換になる
-            double ox = result.srcOriginX;
-            double oy = result.srcOriginY;
-            AffineMatrix centeredMatrix;
-            centeredMatrix.a = matrix.a;
-            centeredMatrix.b = matrix.b;
-            centeredMatrix.c = matrix.c;
-            centeredMatrix.d = matrix.d;
-            centeredMatrix.tx = matrix.tx + ox - matrix.a * ox - matrix.b * oy;
-            centeredMatrix.ty = matrix.ty + oy - matrix.c * ox - matrix.d * oy;
-
-            // 四隅が変換後に負の座標になるかチェック
-            double corners[4][2] = {
-                {0, 0},
-                {static_cast<double>(result.width), 0},
-                {0, static_cast<double>(result.height)},
-                {static_cast<double>(result.width), static_cast<double>(result.height)}
-            };
-            double minX = 0, minY = 0;
-            for (int i = 0; i < 4; i++) {
-                double tx = centeredMatrix.a * corners[i][0] + centeredMatrix.b * corners[i][1] + centeredMatrix.tx;
-                double ty = centeredMatrix.c * corners[i][0] + centeredMatrix.d * corners[i][1] + centeredMatrix.ty;
-                if (tx < minX) minX = tx;
-                if (ty < minY) minY = ty;
-            }
-            // 負の座標を避けるためのオフセットを適用
-            if (minX < 0) {
-                centeredMatrix.tx -= minX;
-                ox -= minX;
-            }
-            if (minY < 0) {
-                centeredMatrix.ty -= minY;
-                oy -= minY;
-            }
-
-            result = processor.applyTransform(result, centeredMatrix);
-
-            // srcOrigin を更新（オフセット込み）
-            result.srcOriginX = ox;
-            result.srcOriginY = oy;
-        }
-
     } else if (node->type == "affine") {
         // アフィン変換ノード: 入力画像にアフィン変換を適用
         // 入力接続を検索
