@@ -83,6 +83,31 @@
 
 ---
 
+## 🔄 リファクタリング計画
+
+### ピクセルフォーマット最適化
+
+**方針**: 入出力がRGBA8_Straightのため、Premultiplied処理が不要な場面ではRGBA8_Straightを基本とする
+
+- [ ] PixelFormatRegistryの中間形式をRGBA16_Straight → RGBA8_Straightに変更
+- [ ] RGBA8_Straight ↔ RGBA16_Premultiplied の直接変換パスをレジストリに追加
+- [ ] RGBA16_Straightを廃止
+- [ ] `ImageProcessor::convertPixelFormat()` を廃止し `ViewPort::convertTo()` に統一
+
+### 処理の両フォーマット対応
+
+**方針**: アフィン変換とアルファフィルタは、RGBA8_StraightとRGBA16_Premultipliedの両方に対応
+
+- [ ] アフィン変換: 入力フォーマットに応じた処理分岐（8bit/16bit）
+- [ ] アルファフィルタ: 入力フォーマットに応じた処理分岐（8bit/16bit）
+
+### ImageProcessor撤去（長期目標）
+
+- [ ] 残存機能をNodeGraphEvaluatorまたはフィルタに移行
+- [ ] ImageProcessorクラス削除
+
+---
+
 ## 📌 注意事項
 
 - 新機能追加前に、`main` ブランチから新しいブランチを作成
