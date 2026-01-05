@@ -7,7 +7,7 @@ let nextImageId = 1;
 let canvasWidth = 800;
 let canvasHeight = 600;
 let canvasOrigin = { x: 400, y: 300 };  // キャンバス原点（ピクセル座標）
-let previewScale = 3;  // 表示倍率（1〜5）
+let previewScale = 1;  // 表示倍率（1〜5）
 
 // グローバルノードグラフ
 let globalNodes = [];  // すべてのノード（画像、フィルタ、合成、出力）を管理
@@ -88,22 +88,55 @@ function setupSidebar() {
 }
 
 // スプリッターによるリサイズ処理
+// 比率ベースで管理し、画面回転時も追従する
+let splitterRatio = null;  // ノードグラフセクションの比率（0〜1）、nullは未操作状態
+
 function setupSplitter() {
     const splitter = document.getElementById('splitter');
     const nodeGraphSection = document.querySelector('.node-graph-section');
     const mainContent = document.querySelector('.main-content');
     const container = document.querySelector('.container');
+    const header = document.querySelector('header');
 
     let isDragging = false;
     let startY = 0;
-    let startNodeGraphHeight = 0;
-    let startMainContentHeight = 0;
+    let startRatio = 0;
+
+    // 利用可能な高さを計算（ヘッダーとスプリッター分を除く）
+    function getAvailableHeight() {
+        const containerHeight = container.offsetHeight;
+        const headerHeight = header ? header.offsetHeight : 0;
+        const splitterHeight = splitter.offsetHeight;
+        return containerHeight - headerHeight - splitterHeight;
+    }
+
+    // 比率に基づいてflex値を適用
+    function applyRatio(ratio) {
+        if (ratio === null) return;  // 未操作時は何もしない（CSSのflex: 1が有効）
+
+        const availableHeight = getAvailableHeight();
+        const minHeight = 150;
+
+        // 最小高さを確保した比率に補正
+        const minRatio = minHeight / availableHeight;
+        const maxRatio = 1 - minRatio;
+        const clampedRatio = Math.max(minRatio, Math.min(maxRatio, ratio));
+
+        const nodeGraphHeight = Math.round(availableHeight * clampedRatio);
+        const mainContentHeight = availableHeight - nodeGraphHeight;
+
+        nodeGraphSection.style.flex = `0 0 ${nodeGraphHeight}px`;
+        mainContent.style.flex = `0 0 ${mainContentHeight}px`;
+    }
 
     function onMouseDown(e) {
         isDragging = true;
         startY = e.clientY || e.touches?.[0]?.clientY;
-        startNodeGraphHeight = nodeGraphSection.offsetHeight;
-        startMainContentHeight = mainContent.offsetHeight;
+
+        // 現在の比率を計算
+        const availableHeight = getAvailableHeight();
+        startRatio = nodeGraphSection.offsetHeight / availableHeight;
+
         splitter.classList.add('dragging');
         document.body.style.cursor = 'row-resize';
         document.body.style.userSelect = 'none';
@@ -115,24 +148,14 @@ function setupSplitter() {
 
         const clientY = e.clientY || e.touches?.[0]?.clientY;
         const deltaY = clientY - startY;
+        const availableHeight = getAvailableHeight();
 
-        // 最小高さを確保
-        const minHeight = 150;
-        let newNodeGraphHeight = startNodeGraphHeight + deltaY;
-        let newMainContentHeight = startMainContentHeight - deltaY;
+        // ピクセル差分を比率差分に変換
+        const deltaRatio = deltaY / availableHeight;
+        splitterRatio = startRatio + deltaRatio;
 
-        if (newNodeGraphHeight < minHeight) {
-            newNodeGraphHeight = minHeight;
-            newMainContentHeight = startNodeGraphHeight + startMainContentHeight - minHeight;
-        }
-        if (newMainContentHeight < minHeight) {
-            newMainContentHeight = minHeight;
-            newNodeGraphHeight = startNodeGraphHeight + startMainContentHeight - minHeight;
-        }
-
-        // flex-basisで高さを設定
-        nodeGraphSection.style.flex = `0 0 ${newNodeGraphHeight}px`;
-        mainContent.style.flex = `0 0 ${newMainContentHeight}px`;
+        // 比率を適用
+        applyRatio(splitterRatio);
     }
 
     function onMouseUp() {
@@ -152,6 +175,19 @@ function setupSplitter() {
     splitter.addEventListener('touchstart', onMouseDown, { passive: false });
     document.addEventListener('touchmove', onMouseMove, { passive: false });
     document.addEventListener('touchend', onMouseUp);
+
+    // 画面リサイズ・回転時に比率を再適用
+    function onResize() {
+        if (splitterRatio !== null) {
+            applyRatio(splitterRatio);
+        }
+    }
+
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', () => {
+        // orientationchange後にレイアウトが確定するまで少し待つ
+        setTimeout(onResize, 100);
+    });
 }
 
 // WebAssemblyモジュールを初期化
@@ -267,10 +303,8 @@ function setupEventListeners() {
         const pixelY = Math.round(normalizedOrigin.y * h);
         document.getElementById('sidebar-origin-x').value = pixelX;
         document.getElementById('sidebar-origin-y').value = pixelY;
-        // canvasOrigin を即座に更新してプレビューに反映
-        canvasOrigin = { x: pixelX, y: pixelY };
-        graphEvaluator.setDstOrigin(pixelX, pixelY);
-        throttledUpdatePreview();
+        // サイズと原点を同時に適用（未適用のサイズ変更も反映）
+        applyOutputSettings();
     });
 
     // 原点座標入力欄の初期値を設定
@@ -730,6 +764,27 @@ function drawAllConnections() {
     });
 }
 
+// 接続線のSVGパス文字列を計算
+// 出力ポート（右側）からは必ず右向きに出る
+// 入力ポート（左側）には必ず左向きから入る
+// 条件分岐なしの連続的な計算で、ノード位置に関わらず滑らかな曲線を生成
+function calculateConnectionPath(fromPos, toPos) {
+    const dx = toPos.x - fromPos.x;
+    const dy = Math.abs(toPos.y - fromPos.y);
+    const minOffset = 80;
+
+    // オフセットは以下の最大値を使用：
+    // - 最小オフセット（常に確保）
+    // - 水平距離の半分（通常のS字用）
+    // - 垂直距離の比率（ループの膨らみ用）
+    const offset = Math.max(minOffset, dx / 2, dy * 0.3);
+
+    const cp1x = fromPos.x + offset;  // 常に右へ
+    const cp2x = toPos.x - offset;    // 常に左から
+
+    return `M ${fromPos.x} ${fromPos.y} C ${cp1x} ${fromPos.y}, ${cp2x} ${toPos.y}, ${toPos.x} ${toPos.y}`;
+}
+
 function drawConnectionBetweenPorts(fromNode, fromPortId, toNode, toPortId) {
     const ns = 'http://www.w3.org/2000/svg';
 
@@ -738,8 +793,7 @@ function drawConnectionBetweenPorts(fromNode, fromPortId, toNode, toPortId) {
     const toPos = getPortPosition(toNode, toPortId, 'input');
 
     const path = document.createElementNS(ns, 'path');
-    const midX = (fromPos.x + toPos.x) / 2;
-    const d = `M ${fromPos.x} ${fromPos.y} C ${midX} ${fromPos.y}, ${midX} ${toPos.y}, ${toPos.x} ${toPos.y}`;
+    const d = calculateConnectionPath(fromPos, toPos);
 
     // 一意のIDを設定（リアルタイム更新用）
     const pathId = `conn-${fromNode.id}-${fromPortId}-${toNode.id}-${toPortId}`;
@@ -1560,8 +1614,7 @@ function updateConnectionsForNode(nodeId) {
                     // パスのd属性だけを更新（削除・再作成しない）
                     const fromPos = getPortPosition(fromNode, conn.fromPortId, 'output');
                     const toPos = getPortPosition(toNode, conn.toPortId, 'input');
-                    const midX = (fromPos.x + toPos.x) / 2;
-                    const d = `M ${fromPos.x} ${fromPos.y} C ${midX} ${fromPos.y}, ${midX} ${toPos.y}, ${toPos.x} ${toPos.y}`;
+                    const d = calculateConnectionPath(fromPos, toPos);
                     path.setAttribute('d', d);
                 }
             }

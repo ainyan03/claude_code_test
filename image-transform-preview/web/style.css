@@ -480,7 +480,7 @@ button {
     }
 
     .canvas-container {
-        min-height: 250px;
+        min-height: 0;  /* PC時と統一（flex: 1で自動調整） */
     }
 
     .canvas-controls {
