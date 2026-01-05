@@ -1839,8 +1839,27 @@ function updatePreviewFromGraph() {
         ctx.putImageData(imageData, 0, 0);
         const drawTime = performance.now() - drawStart;
 
+        // C++側の詳細計測結果を取得
+        const metrics = graphEvaluator.getPerfMetrics();
         const totalTime = performance.now() - perfStart;
-        console.log(`[Perf] Total: ${totalTime.toFixed(1)}ms (Eval: ${evalTime.toFixed(1)}ms, Draw: ${drawTime.toFixed(1)}ms)`);
+
+        // 詳細ログ出力
+        const details = [];
+        if (metrics.filterCount > 0) {
+            details.push(`Filter: ${metrics.filterTime.toFixed(2)}ms (x${metrics.filterCount})`);
+        }
+        if (metrics.affineCount > 0) {
+            details.push(`Affine: ${metrics.affineTime.toFixed(2)}ms (x${metrics.affineCount})`);
+        }
+        if (metrics.compositeCount > 0) {
+            details.push(`Composite: ${metrics.compositeTime.toFixed(2)}ms (x${metrics.compositeCount})`);
+        }
+        if (metrics.convertCount > 0) {
+            details.push(`Convert: ${metrics.convertTime.toFixed(2)}ms (x${metrics.convertCount})`);
+        }
+        details.push(`Output: ${metrics.outputTime.toFixed(2)}ms`);
+
+        console.log(`[Perf] Total: ${totalTime.toFixed(1)}ms | WASM: ${evalTime.toFixed(1)}ms (${details.join(', ')}) | Draw: ${drawTime.toFixed(1)}ms`);
     } else {
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     }

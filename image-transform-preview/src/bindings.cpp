@@ -149,6 +149,23 @@ public:
         return resultObj;
     }
 
+    val getPerfMetrics() {
+        const PerfMetrics& metrics = evaluator.getPerfMetrics();
+
+        val result = val::object();
+        result.set("filterTime", metrics.filterTime);
+        result.set("affineTime", metrics.affineTime);
+        result.set("compositeTime", metrics.compositeTime);
+        result.set("convertTime", metrics.convertTime);
+        result.set("outputTime", metrics.outputTime);
+        result.set("filterCount", metrics.filterCount);
+        result.set("affineCount", metrics.affineCount);
+        result.set("compositeCount", metrics.compositeCount);
+        result.set("convertCount", metrics.convertCount);
+
+        return result;
+    }
+
 private:
     NodeGraphEvaluator evaluator;
 };
@@ -161,5 +178,6 @@ EMSCRIPTEN_BINDINGS(image_transform) {
         .function("registerImage", &NodeGraphEvaluatorWrapper::registerImage)
         .function("setNodes", &NodeGraphEvaluatorWrapper::setNodes)
         .function("setConnections", &NodeGraphEvaluatorWrapper::setConnections)
-        .function("evaluateGraph", &NodeGraphEvaluatorWrapper::evaluateGraph);
+        .function("evaluateGraph", &NodeGraphEvaluatorWrapper::evaluateGraph)
+        .function("getPerfMetrics", &NodeGraphEvaluatorWrapper::getPerfMetrics);
 }

@@ -314,7 +314,15 @@
 
 ## 🔧 コード品質・バグ修正
 
-最終更新: 2026-01-04
+最終更新: 2026-01-05
+
+### ✅ 修正済み（2026-01-05）
+
+- [x] **詳細パフォーマンス計測機能**: WASM内部の処理時間を工程別に計測
+  - node_graph.h: PerfMetrics構造体追加
+  - node_graph.cpp: 各処理にchrono計測を実装
+  - bindings.cpp: getPerfMetrics()をJS公開
+  - app.js: 詳細ログ出力（Filter/Affine/Composite/Convert/Output）
 
 ### ✅ 修正済み（2026-01-04）
 - [x] `app.js`: キャンバスサイズのNaN検証を追加
