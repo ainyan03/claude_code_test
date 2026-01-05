@@ -7,71 +7,137 @@
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    min-height: 100vh;
+    height: 100vh;
     padding: 10px;
+    overflow: hidden;
 }
 
 .container {
-    max-width: 1400px;
-    margin: 0 auto;
     background: white;
     border-radius: 12px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
     overflow: hidden;
+    height: calc(100vh - 20px);
+    display: flex;
+    flex-direction: column;
 }
 
 header {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
-    padding: 20px;
+    padding: 6px 20px;
     text-align: center;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
 }
 
 header h1 {
-    font-size: 1.8em;
-    margin-bottom: 5px;
+    font-size: 1.2em;
+    margin: 0;
+    white-space: nowrap;
 }
 
 header p {
-    font-size: 0.9em;
+    font-size: 0.8em;
     opacity: 0.9;
+    margin: 0;
+    white-space: nowrap;
 }
 
 .version-info {
-    margin-top: 10px;
-    font-size: 0.75em;
+    font-size: 0.7em;
     opacity: 0.7;
     font-family: 'Courier New', monospace;
+    white-space: nowrap;
 }
 
 .main-content {
-    display: grid;
-    grid-template-columns: 1fr 260px;
-    gap: 20px;
-    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    padding: 0 20px 10px 20px;
+    flex: 1;
+    min-height: 150px;
+    overflow: hidden;
+}
+
+/* スプリッターバー */
+.splitter {
+    flex-shrink: 0;
+    height: 12px;
+    margin: 0 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: row-resize;
+    user-select: none;
+}
+
+.splitter-handle {
+    width: 60px;
+    height: 4px;
+    background: #ccc;
+    border-radius: 2px;
+    transition: background 0.2s;
+}
+
+.splitter:hover .splitter-handle,
+.splitter.dragging .splitter-handle {
+    background: #667eea;
+}
+
+.splitter.dragging {
+    background: rgba(102, 126, 234, 0.1);
 }
 
 /* プレビューセクション */
 .preview-section {
     display: flex;
     flex-direction: column;
-    gap: 15px;
+    gap: 10px;
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
 }
 
 .canvas-container {
     background: #f5f5f5;
     border: 2px dashed #ccc;
     border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 400px;
-    overflow: auto;
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+    overflow: scroll;
+    scrollbar-width: auto;
+}
+
+/* WebKit系ブラウザ（Chrome, Safari）でスクロールバーを常時表示 */
+.canvas-container::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+
+.canvas-container::-webkit-scrollbar-track {
+    background: #e0e0e0;
+    border-radius: 6px;
+}
+
+.canvas-container::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 6px;
+}
+
+.canvas-container::-webkit-scrollbar-thumb:hover {
+    background: #666;
 }
 
 #preview-canvas {
-    max-width: 100%;
-    height: auto;
+    /* 圧縮せずに本来のサイズで表示（コンテナがスクロール） */
+    flex-shrink: 0;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
@@ -588,11 +654,15 @@ button {
 
 /* グローバルノードグラフセクション */
 .node-graph-section {
-    margin: 20px;
+    margin: 10px 20px 0 20px;
     background: white;
     border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     overflow: hidden;
+    flex: 1;
+    min-height: 150px;
+    display: flex;
+    flex-direction: column;
 }
 
 .node-graph-header {
@@ -638,15 +708,11 @@ button {
 
 .node-graph-canvas-container {
     background: #fafafa;
-    transition: all 0.3s;
-    overflow: scroll; /* スクロールバーを常時表示 */
+    overflow: scroll;
     position: relative;
-    height: 400px; /* デフォルト高さ */
-    resize: vertical; /* ブラウザ標準のリサイズ機能を有効化 */
-    min-height: 200px; /* 最小高さ */
-    max-height: 800px; /* 最大高さ */
-    /* macOS/WebKitでスクロールバーを常時表示 */
-    scrollbar-width: auto; /* Firefox */
+    flex: 1;
+    min-height: 0;
+    scrollbar-width: auto;
 }
 
 /* WebKit系ブラウザ（Chrome, Safari）でスクロールバーを常時表示 */
@@ -957,13 +1023,336 @@ button {
     height: 6px;
 }
 
-/* レスポンシブ対応: キャンバスコントロール */
-@media (max-width: 768px) {
-    .canvas-controls {
-        gap: 20px;
+/* ===========================================
+   左袖サイドバー
+   =========================================== */
+
+/* サイドバートグルボタン */
+.sidebar-toggle {
+    position: fixed;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 1001;
+    width: 40px;
+    height: 60px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none;
+    border-radius: 0 8px 8px 0;
+    color: white;
+    cursor: pointer;
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.2);
+    transition: all 0.3s;
+    padding: 0;
+}
+
+.sidebar-toggle:hover {
+    width: 48px;
+    box-shadow: 4px 0 12px rgba(0, 0, 0, 0.3);
+}
+
+.sidebar-toggle-icon {
+    font-size: 20px;
+    display: block;
+    transition: transform 0.3s;
+}
+
+.sidebar-toggle.open .sidebar-toggle-icon {
+    transform: rotate(90deg);
+}
+
+/* サイドバー本体 */
+.sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 280px;
+    height: 100vh;
+    background: white;
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar.open {
+    transform: translateX(0);
+}
+
+.sidebar-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
+}
+
+/* サイドバーセクション */
+.sidebar-section {
+    padding: 15px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.sidebar-section:first-child {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.sidebar-section-bottom {
+    flex-shrink: 0;
+    border-bottom: none;
+    border-top: 1px solid #e0e0e0;
+    background: #f9f9f9;
+}
+
+.sidebar-section-header {
+    margin-bottom: 12px;
+}
+
+.sidebar-section-header h3 {
+    font-size: 1em;
+    color: #333;
+    margin: 0;
+}
+
+/* 画像追加ボタン */
+.sidebar-add-btn {
+    width: 100%;
+    margin-bottom: 12px;
+    padding: 10px 16px;
+}
+
+/* 画像ライブラリ（サイドバー内） */
+.sidebar-images-library {
+    flex: 1;
+    overflow-y: scroll;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 0;
+    /* スクロールバー常時表示 */
+    scrollbar-width: thin;
+    scrollbar-color: #ccc #f0f0f0;
+}
+
+/* WebKit系ブラウザでスクロールバー常時表示 */
+.sidebar-images-library::-webkit-scrollbar {
+    width: 8px;
+}
+
+.sidebar-images-library::-webkit-scrollbar-track {
+    background: #f0f0f0;
+    border-radius: 4px;
+}
+
+.sidebar-images-library::-webkit-scrollbar-thumb {
+    background: #ccc;
+    border-radius: 4px;
+}
+
+.sidebar-images-library::-webkit-scrollbar-thumb:hover {
+    background: #aaa;
+}
+
+.sidebar-images-library .image-item {
+    flex-shrink: 0;
+}
+
+/* 出力設定 */
+.sidebar-settings {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.sidebar-setting-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.sidebar-setting-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #667eea;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.sidebar-setting-row {
+    display: flex;
+    align-items: stretch;
+    gap: 12px;
+    overflow: hidden;
+}
+
+.sidebar-setting-fields {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.sidebar-setting-field {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.sidebar-setting-field label {
+    font-size: 12px;
+    color: #666;
+    width: 24px;
+    flex-shrink: 0;
+}
+
+.sidebar-setting-field input[type="number"] {
+    flex: 1;
+    min-width: 0;
+    padding: 5px 6px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 12px;
+    text-align: right;
+}
+
+.sidebar-setting-field input[type="number"]:focus {
+    border-color: #667eea;
+    outline: none;
+}
+
+.sidebar-setting-row > .origin-grid,
+.sidebar-setting-row > .sidebar-apply-btn {
+    flex: 0 0 96px;
+    width: 96px;
+    max-width: 96px;
+    min-width: 96px;
+}
+
+.sidebar-setting-row > .origin-grid {
+    aspect-ratio: 1;
+    align-self: flex-end;
+}
+
+.sidebar-apply-btn {
+    padding: 6px 0 !important;
+    font-size: 12px !important;
+}
+
+/* 表示倍率スライダー */
+.sidebar-scale-slider {
+    flex: 1;
+    min-width: 0;
+    height: 6px;
+    cursor: pointer;
+}
+
+.sidebar-scale-value {
+    min-width: 32px;
+    text-align: right;
+    font-size: 12px;
+    font-weight: 600;
+    color: #667eea;
+}
+
+/* サイドバーオーバーレイ */
+.sidebar-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 999;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s;
+}
+
+.sidebar-overlay.visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* コンテナの左マージン調整（PC時） */
+@media (min-width: 769px) {
+    body.sidebar-open .container {
+        margin-left: 280px;
+        transition: margin-left 0.3s;
     }
 
-    .canvas-control-column {
-        flex: 1;
+    .container {
+        transition: margin-left 0.3s;
+    }
+
+    .sidebar-toggle.open {
+        left: 280px;
+    }
+
+    /* PC時はオーバーレイを非表示（メインコンテンツ操作可能） */
+    .sidebar-overlay.visible {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+    }
+}
+
+/* ===========================================
+   レスポンシブ: モバイル対応
+   =========================================== */
+
+@media (max-width: 768px) {
+    /* サイドバートグルをヘッダー風に */
+    .sidebar-toggle {
+        top: 10px;
+        left: 10px;
+        transform: none;
+        width: 44px;
+        height: 44px;
+        border-radius: 8px;
+    }
+
+    .sidebar-toggle:hover {
+        width: 44px;
+    }
+
+    /* サイドバー開いている時、トグルをサイドバー内右上に移動 */
+    .sidebar-toggle.open {
+        left: calc(280px - 44px - 10px);
+    }
+
+    /* サイドバーを全幅に */
+    .sidebar {
+        width: 100%;
+        max-width: 280px;
+    }
+
+    /* オーバーレイを有効化 */
+    .sidebar.open ~ .sidebar-overlay {
+        opacity: 1;
+        visibility: visible;
+    }
+
+    /* コンテナはマージンなし */
+    body.sidebar-open .container {
+        margin-left: 0;
+        max-width: none;
+    }
+
+    /* ヘッダーのパディング調整（トグルボタン分） */
+    header {
+        padding-left: 60px;
+        flex-wrap: wrap;
+        gap: 4px 12px;
+    }
+
+    header h1 {
+        font-size: 1em;
     }
 }

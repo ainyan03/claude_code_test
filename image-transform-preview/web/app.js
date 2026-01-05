@@ -7,6 +7,7 @@ let nextImageId = 1;
 let canvasWidth = 800;
 let canvasHeight = 600;
 let canvasOrigin = { x: 400, y: 300 };  // キャンバス原点（ピクセル座標）
+let previewScale = 3;  // 表示倍率（1〜5）
 
 // グローバルノードグラフ
 let globalNodes = [];  // すべてのノード（画像、フィルタ、合成、出力）を管理
@@ -39,6 +40,118 @@ function throttledUpdatePreview() {
         updatePreviewFromGraph();
         updatePreviewScheduled = false;
     });
+}
+
+// サイドバー開閉ロジック
+function setupSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const toggle = document.getElementById('sidebar-toggle');
+    const overlay = document.getElementById('sidebar-overlay');
+
+    function openSidebar() {
+        sidebar.classList.add('open');
+        toggle.classList.add('open');
+        overlay.classList.add('visible');
+        document.body.classList.add('sidebar-open');
+    }
+
+    function closeSidebar() {
+        sidebar.classList.remove('open');
+        toggle.classList.remove('open');
+        overlay.classList.remove('visible');
+        document.body.classList.remove('sidebar-open');
+    }
+
+    function toggleSidebar() {
+        if (sidebar.classList.contains('open')) {
+            closeSidebar();
+        } else {
+            openSidebar();
+        }
+    }
+
+    // トグルボタンクリック
+    toggle.addEventListener('click', toggleSidebar);
+
+    // オーバーレイクリックで閉じる（モバイル時）
+    overlay.addEventListener('click', closeSidebar);
+
+    // ESCキーで閉じる
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && sidebar.classList.contains('open')) {
+            closeSidebar();
+        }
+    });
+
+    // 初期状態でサイドバーを開く
+    openSidebar();
+}
+
+// スプリッターによるリサイズ処理
+function setupSplitter() {
+    const splitter = document.getElementById('splitter');
+    const nodeGraphSection = document.querySelector('.node-graph-section');
+    const mainContent = document.querySelector('.main-content');
+    const container = document.querySelector('.container');
+
+    let isDragging = false;
+    let startY = 0;
+    let startNodeGraphHeight = 0;
+    let startMainContentHeight = 0;
+
+    function onMouseDown(e) {
+        isDragging = true;
+        startY = e.clientY || e.touches?.[0]?.clientY;
+        startNodeGraphHeight = nodeGraphSection.offsetHeight;
+        startMainContentHeight = mainContent.offsetHeight;
+        splitter.classList.add('dragging');
+        document.body.style.cursor = 'row-resize';
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+    }
+
+    function onMouseMove(e) {
+        if (!isDragging) return;
+
+        const clientY = e.clientY || e.touches?.[0]?.clientY;
+        const deltaY = clientY - startY;
+
+        // 最小高さを確保
+        const minHeight = 150;
+        let newNodeGraphHeight = startNodeGraphHeight + deltaY;
+        let newMainContentHeight = startMainContentHeight - deltaY;
+
+        if (newNodeGraphHeight < minHeight) {
+            newNodeGraphHeight = minHeight;
+            newMainContentHeight = startNodeGraphHeight + startMainContentHeight - minHeight;
+        }
+        if (newMainContentHeight < minHeight) {
+            newMainContentHeight = minHeight;
+            newNodeGraphHeight = startNodeGraphHeight + startMainContentHeight - minHeight;
+        }
+
+        // flex-basisで高さを設定
+        nodeGraphSection.style.flex = `0 0 ${newNodeGraphHeight}px`;
+        mainContent.style.flex = `0 0 ${newMainContentHeight}px`;
+    }
+
+    function onMouseUp() {
+        if (!isDragging) return;
+        isDragging = false;
+        splitter.classList.remove('dragging');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+    }
+
+    // マウスイベント
+    splitter.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+
+    // タッチイベント（モバイル対応）
+    splitter.addEventListener('touchstart', onMouseDown, { passive: false });
+    document.addEventListener('touchmove', onMouseMove, { passive: false });
+    document.addEventListener('touchend', onMouseUp);
 }
 
 // WebAssemblyモジュールを初期化
@@ -92,6 +205,9 @@ function initializeApp() {
     ctx = canvas.getContext('2d');
     canvas.width = canvasWidth;
     canvas.height = canvasHeight;
+    // 補間なしで表示（ピクセル確認用）
+    updateCanvasDisplayScale();
+    canvas.style.imageRendering = 'pixelated';
 
     // NodeGraphEvaluator初期化（WebAssemblyモジュール）
     if (typeof WasmModule !== 'undefined' && WasmModule.NodeGraphEvaluator) {
@@ -127,27 +243,33 @@ function displayVersionInfo() {
 }
 
 function setupEventListeners() {
-    // 画像追加ボタン
-    document.getElementById('add-image-btn').addEventListener('click', () => {
+    // サイドバー開閉
+    setupSidebar();
+
+    // スプリッターによるリサイズ
+    setupSplitter();
+
+    // 画像追加ボタン（サイドバー内）
+    document.getElementById('sidebar-add-image-btn').addEventListener('click', () => {
         document.getElementById('image-input').click();
     });
 
     // 画像選択
     document.getElementById('image-input').addEventListener('change', handleImageUpload);
 
-    // キャンバスサイズ変更
-    document.getElementById('resize-canvas').addEventListener('click', resizeCanvas);
+    // 出力設定適用ボタン（サイドバー内）
+    document.getElementById('sidebar-apply-settings').addEventListener('click', applyOutputSettings);
 
-    // キャンバス原点選択（9点グリッド）
+    // キャンバス原点選択（9点グリッド、サイドバー内）
     // 初期選択は中央（0.5, 0.5）
-    setupOriginGrid('canvas-origin-grid', { x: 0.5, y: 0.5 }, (normalizedOrigin) => {
+    setupOriginGrid('sidebar-origin-grid', { x: 0.5, y: 0.5 }, (normalizedOrigin) => {
         // 9点ボタン押下時：正規化座標からピクセル座標を計算して入力欄に反映
-        const w = parseInt(document.getElementById('canvas-width').value) || 800;
-        const h = parseInt(document.getElementById('canvas-height').value) || 600;
+        const w = parseInt(document.getElementById('sidebar-canvas-width').value) || 800;
+        const h = parseInt(document.getElementById('sidebar-canvas-height').value) || 600;
         const pixelX = Math.round(normalizedOrigin.x * w);
         const pixelY = Math.round(normalizedOrigin.y * h);
-        document.getElementById('origin-x').value = pixelX;
-        document.getElementById('origin-y').value = pixelY;
+        document.getElementById('sidebar-origin-x').value = pixelX;
+        document.getElementById('sidebar-origin-y').value = pixelY;
         // canvasOrigin を即座に更新してプレビューに反映
         canvasOrigin = { x: pixelX, y: pixelY };
         graphEvaluator.setDstOrigin(pixelX, pixelY);
@@ -155,8 +277,20 @@ function setupEventListeners() {
     });
 
     // 原点座標入力欄の初期値を設定
-    document.getElementById('origin-x').value = canvasOrigin.x;
-    document.getElementById('origin-y').value = canvasOrigin.y;
+    document.getElementById('sidebar-origin-x').value = canvasOrigin.x;
+    document.getElementById('sidebar-origin-y').value = canvasOrigin.y;
+
+    // 表示倍率スライダー
+    const scaleSlider = document.getElementById('sidebar-preview-scale');
+    const scaleValue = document.getElementById('sidebar-preview-scale-value');
+    if (scaleSlider && scaleValue) {
+        scaleSlider.addEventListener('input', (e) => {
+            previewScale = parseFloat(e.target.value);
+            scaleValue.textContent = previewScale + 'x';
+            updateCanvasDisplayScale();
+            centerPreviewScroll();
+        });
+    }
 
     // ダウンロードボタン
     document.getElementById('download-btn').addEventListener('click', downloadComposedImage);
@@ -226,7 +360,7 @@ function addImageToLibrary(imageData) {
 
 // 画像ライブラリUIを描画
 function renderImageLibrary() {
-    const libraryContainer = document.getElementById('images-library');
+    const libraryContainer = document.getElementById('sidebar-images-library');
     libraryContainer.innerHTML = '';
 
     const template = document.getElementById('image-item-template');
@@ -363,9 +497,17 @@ function loadImage(file) {
     });
 }
 
-function resizeCanvas() {
-    const width = parseInt(document.getElementById('canvas-width').value);
-    const height = parseInt(document.getElementById('canvas-height').value);
+// キャンバスの表示スケールを更新
+function updateCanvasDisplayScale() {
+    if (!canvas) return;
+    canvas.style.width = (canvasWidth * previewScale) + 'px';
+    canvas.style.height = (canvasHeight * previewScale) + 'px';
+}
+
+// 出力設定を適用（サイドバーから）
+function applyOutputSettings() {
+    const width = parseInt(document.getElementById('sidebar-canvas-width').value);
+    const height = parseInt(document.getElementById('sidebar-canvas-height').value);
 
     // NaN チェックを追加（空文字やパース失敗時）
     if (isNaN(width) || isNaN(height) || width < 100 || width > 2000 || height < 100 || height > 2000) {
@@ -374,24 +516,30 @@ function resizeCanvas() {
     }
 
     // 原点座標を取得（入力欄から）
-    const originX = parseInt(document.getElementById('origin-x').value) || 0;
-    const originY = parseInt(document.getElementById('origin-y').value) || 0;
+    const originX = parseInt(document.getElementById('sidebar-origin-x').value) || 0;
+    const originY = parseInt(document.getElementById('sidebar-origin-y').value) || 0;
 
-    // 原点をピクセル座標で保存（将来のバックエンド連携用）
+    // 原点をピクセル座標で保存
     canvasOrigin = {
         x: Math.max(0, Math.min(originX, width)),
         y: Math.max(0, Math.min(originY, height))
     };
-    console.log('Canvas resized:', width, 'x', height, 'origin:', canvasOrigin);
+    console.log('Output settings applied:', width, 'x', height, 'origin:', canvasOrigin);
 
     canvasWidth = width;
     canvasHeight = height;
     canvas.width = width;
     canvas.height = height;
 
-    graphEvaluator.setCanvasSize(width, height);  // graphEvaluatorのサイズも更新
-    graphEvaluator.setDstOrigin(canvasOrigin.x, canvasOrigin.y);  // dstOriginを設定
+    // 現在の倍率で表示サイズを更新
+    updateCanvasDisplayScale();
+
+    graphEvaluator.setCanvasSize(width, height);
+    graphEvaluator.setDstOrigin(canvasOrigin.x, canvasOrigin.y);
     updatePreviewFromGraph();
+
+    // キャンバスサイズ変更後にスクロール位置を再調整
+    centerPreviewScroll();
 }
 
 function downloadComposedImage() {
@@ -468,6 +616,31 @@ function initializeNodeGraph() {
     window.addEventListener('resize', () => {
         centerNodeGraphScroll();
     });
+
+    // 出力画像エリアのスクロール位置を初期化
+    initializePreviewScroll();
+}
+
+// 出力画像エリアのスクロール監視を初期化
+function initializePreviewScroll() {
+    const container = document.querySelector('.canvas-container');
+    if (!container) return;
+
+    // 初期スクロール位置を中央に設定
+    centerPreviewScroll();
+
+    // コンテナのリサイズを監視してスクロール位置を追従
+    const resizeObserver = new ResizeObserver(() => {
+        centerPreviewScroll();
+    });
+    resizeObserver.observe(container);
+
+    // ウィンドウリサイズ時もスクロール位置を更新
+    window.addEventListener('resize', () => {
+        centerPreviewScroll();
+    });
+
+    console.log('Preview scroll initialized');
 }
 
 // ノードグラフのスクロール位置を中央に設定
@@ -491,6 +664,30 @@ function centerNodeGraphScroll() {
     container.scrollTop = scrollY;
 
     console.log(`Node graph scroll centered: (${scrollX}, ${scrollY})`);
+}
+
+// 出力画像エリアのスクロール位置を中央に設定
+function centerPreviewScroll() {
+    const container = document.querySelector('.canvas-container');
+    const previewCanvas = document.getElementById('preview-canvas');
+    if (!container || !previewCanvas) return;
+
+    // キャンバスの表示サイズを取得（現在の倍率でスケールされたサイズ）
+    const canvasDisplayWidth = previewCanvas.offsetWidth || (canvasWidth * previewScale);
+    const canvasDisplayHeight = previewCanvas.offsetHeight || (canvasHeight * previewScale);
+
+    // コンテナの表示サイズを取得
+    const containerWidth = container.clientWidth;
+    const containerHeight = container.clientHeight;
+
+    // 中央にスクロール
+    const scrollX = Math.max(0, (canvasDisplayWidth - containerWidth) / 2);
+    const scrollY = Math.max(0, (canvasDisplayHeight - containerHeight) / 2);
+
+    container.scrollLeft = scrollX;
+    container.scrollTop = scrollY;
+
+    console.log(`Preview scroll centered: (${scrollX}, ${scrollY})`);
 }
 
 function renderNodeGraph() {
@@ -916,12 +1113,12 @@ function drawGlobalNode(node) {
             // 回転
             const rotLabel = document.createElement('label');
             rotLabel.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;';
-            rotLabel.innerHTML = `<span style="min-width: 40px;">回転:</span><input type="range" class="affine-rot-slider" min="-180" max="180" step="1" value="${node.rotation || 0}" style="width: 60px;"> <span class="rot-display">${Math.round(node.rotation || 0)}°</span>`;
+            rotLabel.innerHTML = `<span style="min-width: 40px;">回転:</span><input type="range" class="affine-rot-slider" min="-180" max="180" step="0.1" value="${node.rotation || 0}" style="width: 60px;"> <span class="rot-display">${(node.rotation || 0).toFixed(1)}°</span>`;
             const rotSlider = rotLabel.querySelector('.affine-rot-slider');
             const rotDisplay = rotLabel.querySelector('.rot-display');
             rotSlider.addEventListener('input', (e) => {
                 node.rotation = parseFloat(e.target.value);
-                rotDisplay.textContent = Math.round(node.rotation) + '°';
+                rotDisplay.textContent = node.rotation.toFixed(1) + '°';
                 // 行列モードに同期
                 node.matrix = calculateMatrixFromParams(
                     node.translateX || 0,
