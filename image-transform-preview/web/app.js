@@ -7,7 +7,7 @@ let nextImageId = 1;
 let canvasWidth = 800;
 let canvasHeight = 600;
 let canvasOrigin = { x: 400, y: 300 };  // キャンバス原点（ピクセル座標）
-let previewScale = 3;  // 表示倍率（1〜5）
+let previewScale = 1;  // 表示倍率（1〜5）
 
 // グローバルノードグラフ
 let globalNodes = [];  // すべてのノード（画像、フィルタ、合成、出力）を管理
