@@ -13,8 +13,6 @@ body {
 }
 
 .container {
-    max-width: 1400px;
-    margin: 0 auto;
     background: white;
     border-radius: 12px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
@@ -27,26 +25,33 @@ body {
 header {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
-    padding: 10px 20px;
+    padding: 6px 20px;
     text-align: center;
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
 }
 
 header h1 {
-    font-size: 1.8em;
-    margin-bottom: 5px;
+    font-size: 1.2em;
+    margin: 0;
+    white-space: nowrap;
 }
 
 header p {
-    font-size: 0.9em;
+    font-size: 0.8em;
     opacity: 0.9;
+    margin: 0;
+    white-space: nowrap;
 }
 
 .version-info {
-    margin-top: 10px;
-    font-size: 0.75em;
+    font-size: 0.7em;
     opacity: 0.7;
     font-family: 'Courier New', monospace;
+    white-space: nowrap;
 }
 
 .main-content {
@@ -107,6 +112,27 @@ header p {
     flex: 1;
     min-height: 0;
     overflow: scroll;
+    scrollbar-width: auto;
+}
+
+/* WebKit系ブラウザ（Chrome, Safari）でスクロールバーを常時表示 */
+.canvas-container::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+
+.canvas-container::-webkit-scrollbar-track {
+    background: #e0e0e0;
+    border-radius: 6px;
+}
+
+.canvas-container::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 6px;
+}
+
+.canvas-container::-webkit-scrollbar-thumb:hover {
+    background: #666;
 }
 
 #preview-canvas {
@@ -1219,6 +1245,22 @@ button {
     font-size: 12px !important;
 }
 
+/* 表示倍率スライダー */
+.sidebar-scale-slider {
+    flex: 1;
+    min-width: 0;
+    height: 6px;
+    cursor: pointer;
+}
+
+.sidebar-scale-value {
+    min-width: 32px;
+    text-align: right;
+    font-size: 12px;
+    font-weight: 600;
+    color: #667eea;
+}
+
 /* サイドバーオーバーレイ */
 .sidebar-overlay {
     position: fixed;
@@ -1242,12 +1284,11 @@ button {
 @media (min-width: 769px) {
     body.sidebar-open .container {
         margin-left: 280px;
-        max-width: calc(1400px - 280px);
-        transition: margin-left 0.3s, max-width 0.3s;
+        transition: margin-left 0.3s;
     }
 
     .container {
-        transition: margin-left 0.3s, max-width 0.3s;
+        transition: margin-left 0.3s;
     }
 
     .sidebar-toggle.open {
@@ -1307,5 +1348,11 @@ button {
     /* ヘッダーのパディング調整（トグルボタン分） */
     header {
         padding-left: 60px;
+        flex-wrap: wrap;
+        gap: 4px 12px;
+    }
+
+    header h1 {
+        font-size: 1em;
     }
 }

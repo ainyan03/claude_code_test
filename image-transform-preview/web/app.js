@@ -7,6 +7,7 @@ let nextImageId = 1;
 let canvasWidth = 800;
 let canvasHeight = 600;
 let canvasOrigin = { x: 400, y: 300 };  // キャンバス原点（ピクセル座標）
+let previewScale = 3;  // 表示倍率（1〜5）
 
 // グローバルノードグラフ
 let globalNodes = [];  // すべてのノード（画像、フィルタ、合成、出力）を管理
@@ -81,6 +82,9 @@ function setupSidebar() {
             closeSidebar();
         }
     });
+
+    // 初期状態でサイドバーを開く
+    openSidebar();
 }
 
 // スプリッターによるリサイズ処理
@@ -201,10 +205,8 @@ function initializeApp() {
     ctx = canvas.getContext('2d');
     canvas.width = canvasWidth;
     canvas.height = canvasHeight;
-    // 補間なしで3倍表示（ピクセル確認用）
-    const scale = 3;
-    canvas.style.width = (canvasWidth * scale) + 'px';
-    canvas.style.height = (canvasHeight * scale) + 'px';
+    // 補間なしで表示（ピクセル確認用）
+    updateCanvasDisplayScale();
     canvas.style.imageRendering = 'pixelated';
 
     // NodeGraphEvaluator初期化（WebAssemblyモジュール）
@@ -277,6 +279,18 @@ function setupEventListeners() {
     // 原点座標入力欄の初期値を設定
     document.getElementById('sidebar-origin-x').value = canvasOrigin.x;
     document.getElementById('sidebar-origin-y').value = canvasOrigin.y;
+
+    // 表示倍率スライダー
+    const scaleSlider = document.getElementById('sidebar-preview-scale');
+    const scaleValue = document.getElementById('sidebar-preview-scale-value');
+    if (scaleSlider && scaleValue) {
+        scaleSlider.addEventListener('input', (e) => {
+            previewScale = parseFloat(e.target.value);
+            scaleValue.textContent = previewScale + 'x';
+            updateCanvasDisplayScale();
+            centerPreviewScroll();
+        });
+    }
 
     // ダウンロードボタン
     document.getElementById('download-btn').addEventListener('click', downloadComposedImage);
@@ -483,6 +497,13 @@ function loadImage(file) {
     });
 }
 
+// キャンバスの表示スケールを更新
+function updateCanvasDisplayScale() {
+    if (!canvas) return;
+    canvas.style.width = (canvasWidth * previewScale) + 'px';
+    canvas.style.height = (canvasHeight * previewScale) + 'px';
+}
+
 // 出力設定を適用（サイドバーから）
 function applyOutputSettings() {
     const width = parseInt(document.getElementById('sidebar-canvas-width').value);
@@ -510,14 +531,15 @@ function applyOutputSettings() {
     canvas.width = width;
     canvas.height = height;
 
-    // 3倍表示を維持
-    const scale = 3;
-    canvas.style.width = (width * scale) + 'px';
-    canvas.style.height = (height * scale) + 'px';
+    // 現在の倍率で表示サイズを更新
+    updateCanvasDisplayScale();
 
     graphEvaluator.setCanvasSize(width, height);
     graphEvaluator.setDstOrigin(canvasOrigin.x, canvasOrigin.y);
     updatePreviewFromGraph();
+
+    // キャンバスサイズ変更後にスクロール位置を再調整
+    centerPreviewScroll();
 }
 
 function downloadComposedImage() {
@@ -594,6 +616,31 @@ function initializeNodeGraph() {
     window.addEventListener('resize', () => {
         centerNodeGraphScroll();
     });
+
+    // 出力画像エリアのスクロール位置を初期化
+    initializePreviewScroll();
+}
+
+// 出力画像エリアのスクロール監視を初期化
+function initializePreviewScroll() {
+    const container = document.querySelector('.canvas-container');
+    if (!container) return;
+
+    // 初期スクロール位置を中央に設定
+    centerPreviewScroll();
+
+    // コンテナのリサイズを監視してスクロール位置を追従
+    const resizeObserver = new ResizeObserver(() => {
+        centerPreviewScroll();
+    });
+    resizeObserver.observe(container);
+
+    // ウィンドウリサイズ時もスクロール位置を更新
+    window.addEventListener('resize', () => {
+        centerPreviewScroll();
+    });
+
+    console.log('Preview scroll initialized');
 }
 
 // ノードグラフのスクロール位置を中央に設定
@@ -617,6 +664,30 @@ function centerNodeGraphScroll() {
     container.scrollTop = scrollY;
 
     console.log(`Node graph scroll centered: (${scrollX}, ${scrollY})`);
+}
+
+// 出力画像エリアのスクロール位置を中央に設定
+function centerPreviewScroll() {
+    const container = document.querySelector('.canvas-container');
+    const previewCanvas = document.getElementById('preview-canvas');
+    if (!container || !previewCanvas) return;
+
+    // キャンバスの表示サイズを取得（現在の倍率でスケールされたサイズ）
+    const canvasDisplayWidth = previewCanvas.offsetWidth || (canvasWidth * previewScale);
+    const canvasDisplayHeight = previewCanvas.offsetHeight || (canvasHeight * previewScale);
+
+    // コンテナの表示サイズを取得
+    const containerWidth = container.clientWidth;
+    const containerHeight = container.clientHeight;
+
+    // 中央にスクロール
+    const scrollX = Math.max(0, (canvasDisplayWidth - containerWidth) / 2);
+    const scrollY = Math.max(0, (canvasDisplayHeight - containerHeight) / 2);
+
+    container.scrollLeft = scrollX;
+    container.scrollTop = scrollY;
+
+    console.log(`Preview scroll centered: (${scrollX}, ${scrollY})`);
 }
 
 function renderNodeGraph() {
