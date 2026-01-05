@@ -7,8 +7,9 @@
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    min-height: 100vh;
+    height: 100vh;
     padding: 10px;
+    overflow: hidden;
 }
 
 .container {
@@ -18,13 +19,17 @@ body {
     border-radius: 12px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
     overflow: hidden;
+    height: calc(100vh - 20px);
+    display: flex;
+    flex-direction: column;
 }
 
 header {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
-    padding: 20px;
+    padding: 10px 20px;
     text-align: center;
+    flex-shrink: 0;
 }
 
 header h1 {
@@ -45,16 +50,50 @@ header p {
 }
 
 .main-content {
-    display: block;
-    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    padding: 0 20px 10px 20px;
+    flex: 1;
+    min-height: 150px;
+    overflow: hidden;
+}
+
+/* スプリッターバー */
+.splitter {
+    flex-shrink: 0;
+    height: 12px;
+    margin: 0 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: row-resize;
+    user-select: none;
+}
+
+.splitter-handle {
+    width: 60px;
+    height: 4px;
+    background: #ccc;
+    border-radius: 2px;
+    transition: background 0.2s;
+}
+
+.splitter:hover .splitter-handle,
+.splitter.dragging .splitter-handle {
+    background: #667eea;
+}
+
+.splitter.dragging {
+    background: rgba(102, 126, 234, 0.1);
 }
 
 /* プレビューセクション */
 .preview-section {
     display: flex;
     flex-direction: column;
-    gap: 15px;
-    min-width: 0; /* gridの子要素が内容で広がるのを防ぐ */
+    gap: 10px;
+    min-width: 0;
+    flex: 1;
     overflow: hidden;
 }
 
@@ -65,12 +104,9 @@ header p {
     display: block;
     box-sizing: border-box;
     width: 100%;
-    max-width: 100%; /* 親要素を超えない */
-    height: 400px; /* デフォルト高さ */
-    min-height: 200px; /* 最小高さ */
-    max-height: 800px; /* 最大高さ */
-    overflow: scroll; /* スクロールバーを常時表示 */
-    resize: both; /* 縦横両方向のリサイズ機能を有効化 */
+    flex: 1;
+    min-height: 0;
+    overflow: scroll;
 }
 
 #preview-canvas {
@@ -592,11 +628,15 @@ button {
 
 /* グローバルノードグラフセクション */
 .node-graph-section {
-    margin: 20px;
+    margin: 10px 20px 0 20px;
     background: white;
     border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     overflow: hidden;
+    flex: 1;
+    min-height: 150px;
+    display: flex;
+    flex-direction: column;
 }
 
 .node-graph-header {
@@ -642,15 +682,11 @@ button {
 
 .node-graph-canvas-container {
     background: #fafafa;
-    transition: all 0.3s;
-    overflow: scroll; /* スクロールバーを常時表示 */
+    overflow: scroll;
     position: relative;
-    height: 400px; /* デフォルト高さ */
-    resize: vertical; /* ブラウザ標準のリサイズ機能を有効化 */
-    min-height: 200px; /* 最小高さ */
-    max-height: 800px; /* 最大高さ */
-    /* macOS/WebKitでスクロールバーを常時表示 */
-    scrollbar-width: auto; /* Firefox */
+    flex: 1;
+    min-height: 0;
+    scrollbar-width: auto;
 }
 
 /* WebKit系ブラウザ（Chrome, Safari）でスクロールバーを常時表示 */
@@ -1217,6 +1253,13 @@ button {
     .sidebar-toggle.open {
         left: 280px;
     }
+
+    /* PC時はオーバーレイを非表示（メインコンテンツ操作可能） */
+    .sidebar-overlay.visible {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+    }
 }
 
 /* ===========================================
@@ -1236,6 +1279,11 @@ button {
 
     .sidebar-toggle:hover {
         width: 44px;
+    }
+
+    /* サイドバー開いている時、トグルをサイドバー内右上に移動 */
+    .sidebar-toggle.open {
+        left: calc(280px - 44px - 10px);
     }
 
     /* サイドバーを全幅に */

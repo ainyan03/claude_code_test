@@ -83,6 +83,73 @@ function setupSidebar() {
     });
 }
 
+// スプリッターによるリサイズ処理
+function setupSplitter() {
+    const splitter = document.getElementById('splitter');
+    const nodeGraphSection = document.querySelector('.node-graph-section');
+    const mainContent = document.querySelector('.main-content');
+    const container = document.querySelector('.container');
+
+    let isDragging = false;
+    let startY = 0;
+    let startNodeGraphHeight = 0;
+    let startMainContentHeight = 0;
+
+    function onMouseDown(e) {
+        isDragging = true;
+        startY = e.clientY || e.touches?.[0]?.clientY;
+        startNodeGraphHeight = nodeGraphSection.offsetHeight;
+        startMainContentHeight = mainContent.offsetHeight;
+        splitter.classList.add('dragging');
+        document.body.style.cursor = 'row-resize';
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+    }
+
+    function onMouseMove(e) {
+        if (!isDragging) return;
+
+        const clientY = e.clientY || e.touches?.[0]?.clientY;
+        const deltaY = clientY - startY;
+
+        // 最小高さを確保
+        const minHeight = 150;
+        let newNodeGraphHeight = startNodeGraphHeight + deltaY;
+        let newMainContentHeight = startMainContentHeight - deltaY;
+
+        if (newNodeGraphHeight < minHeight) {
+            newNodeGraphHeight = minHeight;
+            newMainContentHeight = startNodeGraphHeight + startMainContentHeight - minHeight;
+        }
+        if (newMainContentHeight < minHeight) {
+            newMainContentHeight = minHeight;
+            newNodeGraphHeight = startNodeGraphHeight + startMainContentHeight - minHeight;
+        }
+
+        // flex-basisで高さを設定
+        nodeGraphSection.style.flex = `0 0 ${newNodeGraphHeight}px`;
+        mainContent.style.flex = `0 0 ${newMainContentHeight}px`;
+    }
+
+    function onMouseUp() {
+        if (!isDragging) return;
+        isDragging = false;
+        splitter.classList.remove('dragging');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+    }
+
+    // マウスイベント
+    splitter.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+
+    // タッチイベント（モバイル対応）
+    splitter.addEventListener('touchstart', onMouseDown, { passive: false });
+    document.addEventListener('touchmove', onMouseMove, { passive: false });
+    document.addEventListener('touchend', onMouseUp);
+}
+
 // WebAssemblyモジュールを初期化
 // MODULARIZE=1を使用しているため、Moduleは関数としてエクスポートされる
 if (typeof Module === 'function') {
@@ -176,6 +243,9 @@ function displayVersionInfo() {
 function setupEventListeners() {
     // サイドバー開閉
     setupSidebar();
+
+    // スプリッターによるリサイズ
+    setupSplitter();
 
     // 画像追加ボタン（サイドバー内）
     document.getElementById('sidebar-add-image-btn').addEventListener('click', () => {
