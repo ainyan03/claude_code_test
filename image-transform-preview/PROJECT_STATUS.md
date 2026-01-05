@@ -12,7 +12,7 @@
 
 ### 現在のブランチ
 - **mainブランチ**: ✅ 作成済み（安定版の基準ブランチ）
-- **開発ブランチ**: `claude/viewport-type-refactor-WTFwb`（現在のセッションID: WTFwb）
+- **開発ブランチ**: `claude/*` 形式で各セッションごとに作成
 - **状態**: ViewPort統一画像型への完全移行完了（Phase 5A-D）、Image16削除完了
 
 ### 運用戦略（ハイブリッド方式）
@@ -113,7 +113,7 @@ src/
 現在のビルド成果物（web/ディレクトリ）:
 - `image_transform.wasm`: WebAssemblyバイナリ（.gitignore対象）
 - `image_transform.js`: Emscripten生成JavaScriptラッパー（.gitignore対象）
-- `version.js`: ビルド情報（コミットハッシュ: 29b32db ※古い、更新待ち）
+- `version.js`: ビルド情報（GitHub Actionsでビルド時に自動更新）
 - `app.js`: フロントエンドロジック
 - `index.html`: メインHTML
 - `style.css`: スタイルシート
