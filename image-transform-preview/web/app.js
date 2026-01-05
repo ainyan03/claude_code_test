@@ -766,6 +766,26 @@ function drawAllConnections() {
     });
 }
 
+// 接続線のSVGパス文字列を計算
+// 出力ポート（右側）からは必ず右向きに出る
+// 入力ポート（左側）には必ず左向きから入る
+function calculateConnectionPath(fromPos, toPos) {
+    const minOffset = 50;  // 最小オフセット量
+
+    if (fromPos.x + minOffset < toPos.x) {
+        // 通常ケース：出力が入力の左側にある
+        const midX = (fromPos.x + toPos.x) / 2;
+        return `M ${fromPos.x} ${fromPos.y} C ${midX} ${fromPos.y}, ${midX} ${toPos.y}, ${toPos.x} ${toPos.y}`;
+    } else {
+        // 逆転ケース：出力が入力の右側または近い位置にある
+        // 出力から右に進み、ループして入力に左から入る
+        const offset = Math.max(minOffset, Math.abs(fromPos.y - toPos.y) / 2);
+        const cp1x = fromPos.x + offset;  // 出力から右に進む
+        const cp2x = toPos.x - offset;    // 入力に左から入る
+        return `M ${fromPos.x} ${fromPos.y} C ${cp1x} ${fromPos.y}, ${cp2x} ${toPos.y}, ${toPos.x} ${toPos.y}`;
+    }
+}
+
 function drawConnectionBetweenPorts(fromNode, fromPortId, toNode, toPortId) {
     const ns = 'http://www.w3.org/2000/svg';
 
@@ -774,8 +794,7 @@ function drawConnectionBetweenPorts(fromNode, fromPortId, toNode, toPortId) {
     const toPos = getPortPosition(toNode, toPortId, 'input');
 
     const path = document.createElementNS(ns, 'path');
-    const midX = (fromPos.x + toPos.x) / 2;
-    const d = `M ${fromPos.x} ${fromPos.y} C ${midX} ${fromPos.y}, ${midX} ${toPos.y}, ${toPos.x} ${toPos.y}`;
+    const d = calculateConnectionPath(fromPos, toPos);
 
     // 一意のIDを設定（リアルタイム更新用）
     const pathId = `conn-${fromNode.id}-${fromPortId}-${toNode.id}-${toPortId}`;
@@ -1596,8 +1615,7 @@ function updateConnectionsForNode(nodeId) {
                     // パスのd属性だけを更新（削除・再作成しない）
                     const fromPos = getPortPosition(fromNode, conn.fromPortId, 'output');
                     const toPos = getPortPosition(toNode, conn.toPortId, 'input');
-                    const midX = (fromPos.x + toPos.x) / 2;
-                    const d = `M ${fromPos.x} ${fromPos.y} C ${midX} ${fromPos.y}, ${midX} ${toPos.y}, ${toPos.x} ${toPos.y}`;
+                    const d = calculateConnectionPath(fromPos, toPos);
                     path.setAttribute('d', d);
                 }
             }
