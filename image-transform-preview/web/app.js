@@ -303,10 +303,8 @@ function setupEventListeners() {
         const pixelY = Math.round(normalizedOrigin.y * h);
         document.getElementById('sidebar-origin-x').value = pixelX;
         document.getElementById('sidebar-origin-y').value = pixelY;
-        // canvasOrigin を即座に更新してプレビューに反映
-        canvasOrigin = { x: pixelX, y: pixelY };
-        graphEvaluator.setDstOrigin(pixelX, pixelY);
-        throttledUpdatePreview();
+        // サイズと原点を同時に適用（未適用のサイズ変更も反映）
+        applyOutputSettings();
     });
 
     // 原点座標入力欄の初期値を設定
