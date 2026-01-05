@@ -261,6 +261,9 @@ function initializeApp() {
     // グローバルノードグラフ初期化
     initializeNodeGraph();
 
+    // デバッグ用テストパターン画像を生成
+    generateTestPatterns();
+
     // 初期プレビュー
     updatePreviewFromGraph();
 
@@ -387,6 +390,145 @@ function addImageToLibrary(imageData) {
 
     // UIを更新
     renderImageLibrary();
+}
+
+// デバッグ用テストパターン画像を生成
+function generateTestPatterns() {
+    const size = 128;
+    const patterns = [];
+
+    // パターン1: チェッカーパターン（点対称）
+    {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = size;
+        tempCanvas.height = size;
+        const tempCtx = tempCanvas.getContext('2d');
+
+        const cellSize = 16;
+        for (let y = 0; y < size; y += cellSize) {
+            for (let x = 0; x < size; x += cellSize) {
+                const isWhite = ((x / cellSize) + (y / cellSize)) % 2 === 0;
+                tempCtx.fillStyle = isWhite ? '#ffffff' : '#4a90d9';
+                tempCtx.fillRect(x, y, cellSize, cellSize);
+            }
+        }
+        // 中心マーク
+        tempCtx.fillStyle = '#ff0000';
+        tempCtx.beginPath();
+        tempCtx.arc(size / 2, size / 2, 4, 0, Math.PI * 2);
+        tempCtx.fill();
+
+        const imageData = tempCtx.getImageData(0, 0, size, size);
+        patterns.push({
+            name: 'Checker',
+            data: new Uint8ClampedArray(imageData.data),
+            width: size,
+            height: size
+        });
+    }
+
+    // パターン2: 同心円ターゲット（点対称）
+    {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = size;
+        tempCanvas.height = size;
+        const tempCtx = tempCanvas.getContext('2d');
+
+        // 背景
+        tempCtx.fillStyle = '#ffffff';
+        tempCtx.fillRect(0, 0, size, size);
+
+        // 同心円
+        const cx = size / 2;
+        const cy = size / 2;
+        const colors = ['#ff6b6b', '#ffffff', '#4ecdc4', '#ffffff', '#45b7d1', '#ffffff', '#96ceb4'];
+        for (let i = colors.length - 1; i >= 0; i--) {
+            const radius = (i + 1) * (size / 2 / colors.length);
+            tempCtx.fillStyle = colors[i];
+            tempCtx.beginPath();
+            tempCtx.arc(cx, cy, radius, 0, Math.PI * 2);
+            tempCtx.fill();
+        }
+        // 中心点
+        tempCtx.fillStyle = '#000000';
+        tempCtx.beginPath();
+        tempCtx.arc(cx, cy, 3, 0, Math.PI * 2);
+        tempCtx.fill();
+
+        const imageData = tempCtx.getImageData(0, 0, size, size);
+        patterns.push({
+            name: 'Target',
+            data: new Uint8ClampedArray(imageData.data),
+            width: size,
+            height: size
+        });
+    }
+
+    // パターン3: グリッド＋十字線（点対称）
+    {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = size;
+        tempCanvas.height = size;
+        const tempCtx = tempCanvas.getContext('2d');
+
+        // 背景（半透明グレー）
+        tempCtx.fillStyle = 'rgba(200, 200, 200, 0.5)';
+        tempCtx.fillRect(0, 0, size, size);
+
+        // グリッド線
+        tempCtx.strokeStyle = '#666666';
+        tempCtx.lineWidth = 1;
+        const gridStep = 16;
+        for (let i = 0; i <= size; i += gridStep) {
+            tempCtx.beginPath();
+            tempCtx.moveTo(i, 0);
+            tempCtx.lineTo(i, size);
+            tempCtx.stroke();
+            tempCtx.beginPath();
+            tempCtx.moveTo(0, i);
+            tempCtx.lineTo(size, i);
+            tempCtx.stroke();
+        }
+
+        // 中心十字線（太め）
+        tempCtx.strokeStyle = '#ff0000';
+        tempCtx.lineWidth = 2;
+        tempCtx.beginPath();
+        tempCtx.moveTo(size / 2, 0);
+        tempCtx.lineTo(size / 2, size);
+        tempCtx.stroke();
+        tempCtx.beginPath();
+        tempCtx.moveTo(0, size / 2);
+        tempCtx.lineTo(size, size / 2);
+        tempCtx.stroke();
+
+        // 対角線
+        tempCtx.strokeStyle = '#0066cc';
+        tempCtx.lineWidth = 1;
+        tempCtx.beginPath();
+        tempCtx.moveTo(0, 0);
+        tempCtx.lineTo(size, size);
+        tempCtx.stroke();
+        tempCtx.beginPath();
+        tempCtx.moveTo(size, 0);
+        tempCtx.lineTo(0, size);
+        tempCtx.stroke();
+
+        const imageData = tempCtx.getImageData(0, 0, size, size);
+        patterns.push({
+            name: 'Grid',
+            data: new Uint8ClampedArray(imageData.data),
+            width: size,
+            height: size
+        });
+    }
+
+    // 画像ライブラリに追加
+    patterns.forEach(pattern => {
+        addImageToLibrary(pattern);
+    });
+
+    console.log(`Generated ${patterns.length} test patterns`);
 }
 
 // 画像ライブラリUIを描画
