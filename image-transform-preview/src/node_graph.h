@@ -45,7 +45,6 @@ struct GraphNode {
 
     // composite用
     std::vector<CompositeInput> compositeInputs;  // 動的な入力配列
-    AffineParams compositeTransform;
 
     // affine用（アフィン変換ノード）
     // JS側で行列に統一されるため、行列のみ保持

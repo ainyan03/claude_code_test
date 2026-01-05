@@ -1,7 +1,7 @@
 // Build information - auto-generated
 const BUILD_INFO = {
-  buildDate: '2026-01-05 01:23:42 UTC',
-  gitCommit: 'f270be9',
-  gitBranch: 'claude/add-origin-selector-ui',
+  buildDate: '2026-01-05 01:51:34 UTC',
+  gitCommit: 'c8bd393',
+  gitBranch: 'claude/update-docs-ui-improvements',
   backend: 'WebAssembly'
 };
