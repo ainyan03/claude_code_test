@@ -146,34 +146,53 @@ ViewPort ImageProcessor::mergeImages(const std::vector<const ViewPort*>& images,
         int offsetX = static_cast<int>(refX - img->srcOriginX);
         int offsetY = static_cast<int>(refY - img->srcOriginY);
 
-        for (int y = 0; y < img->height && (y + offsetY) < canvasHeight; y++) {
-            for (int x = 0; x < img->width && (x + offsetX) < canvasWidth; x++) {
-                if (offsetX + x < 0 || offsetY + y < 0) continue;
+        // ループ範囲を事前計算（内側ループの条件分岐を削減）
+        int yStart = std::max(0, -offsetY);
+        int yEnd = std::min(img->height, canvasHeight - offsetY);
+        int xStart = std::max(0, -offsetX);
+        int xEnd = std::min(img->width, canvasWidth - offsetX);
 
-                const uint16_t* srcPixel = img->getPixelPtr<uint16_t>(x, y);
-                uint16_t* dstPixel = result.getPixelPtr<uint16_t>(x + offsetX, y + offsetY);
+        // 範囲が無効な場合はスキップ
+        if (yStart >= yEnd || xStart >= xEnd) continue;
+
+        for (int y = yStart; y < yEnd; y++) {
+            // 行の先頭ポインタを取得（ループ外で1回だけ）
+            const uint16_t* srcRow = img->getPixelPtr<uint16_t>(0, y);
+            uint16_t* dstRow = result.getPixelPtr<uint16_t>(0, y + offsetY);
+
+            for (int x = xStart; x < xEnd; x++) {
+                // 単純なオフセット計算（getPixelPtrを呼ばない）
+                const uint16_t* srcPixel = srcRow + x * 4;  // RGBA16 = 4 channels
+                uint16_t* dstPixel = dstRow + (x + offsetX) * 4;
+
+                uint16_t srcA = srcPixel[3];
+
+                // ソースが完全透明 → 何もしない
+                if (srcA == 0) {
+                    continue;
+                }
 
                 uint16_t srcR = srcPixel[0];
                 uint16_t srcG = srcPixel[1];
                 uint16_t srcB = srcPixel[2];
-                uint16_t srcA = srcPixel[3];
-
-                uint16_t dstR = dstPixel[0];
-                uint16_t dstG = dstPixel[1];
-                uint16_t dstB = dstPixel[2];
                 uint16_t dstA = dstPixel[3];
 
-                // プリマルチプライド合成: src over dst
-                // out_rgb = src_rgb + dst_rgb * (1 - src_a)
-                // out_a = src_a + dst_a * (1 - src_a)
+                // 合成が必要な場合のみ加算（srcが半透明 かつ dstが不透明）
+                if (srcA != 65535 && dstA != 0) {
+                    // プリマルチプライド合成: src over dst
+                    // out = src + dst * (1 - src_a)
+                    uint16_t invSrcA = 65535 - srcA;
+                    srcR += (dstPixel[0] * invSrcA) >> 16;
+                    srcG += (dstPixel[1] * invSrcA) >> 16;
+                    srcB += (dstPixel[2] * invSrcA) >> 16;
+                    srcA += (dstA * invSrcA) >> 16;
+                }
 
-                uint16_t invSrcA = 65535 - srcA;
-
-                // 乗算と16bitシフトで高速計算（除算なし）
-                dstPixel[0] = srcR + ((dstR * invSrcA) >> 16);
-                dstPixel[1] = srcG + ((dstG * invSrcA) >> 16);
-                dstPixel[2] = srcB + ((dstB * invSrcA) >> 16);
-                dstPixel[3] = srcA + ((dstA * invSrcA) >> 16);
+                // 統合された代入
+                dstPixel[0] = srcR;
+                dstPixel[1] = srcG;
+                dstPixel[2] = srcB;
+                dstPixel[3] = srcA;
             }
         }
     }
