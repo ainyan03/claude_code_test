@@ -67,7 +67,15 @@ public:
 
                     if (node.independent) {
                         node.filterType = nodeObj["filterType"].as<std::string>();
-                        node.filterParam = nodeObj["param"].as<float>();
+
+                        // filterParamsを配列として受け取る
+                        if (nodeObj["filterParams"].typeOf().as<std::string>() != "undefined") {
+                            val paramsArray = nodeObj["filterParams"];
+                            unsigned int paramCount = paramsArray["length"].as<unsigned int>();
+                            for (unsigned int j = 0; j < paramCount; j++) {
+                                node.filterParams.push_back(paramsArray[j].as<float>());
+                            }
+                        }
                     }
                 }
             }

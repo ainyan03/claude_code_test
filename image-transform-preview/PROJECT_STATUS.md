@@ -37,6 +37,7 @@ image-transform-preview/
 ├── src/                       # C++ソースコード
 │   ├── image_types.h          # 基本型定義
 │   ├── filters.h/cpp          # フィルタクラス群
+│   ├── filter_registry.h/cpp  # フィルタレジストリ（一元管理）
 │   ├── image_processor.h/cpp  # コア画像処理エンジン
 │   ├── node_graph.h/cpp       # ノードグラフ評価エンジン
 │   └── bindings.cpp           # Emscriptenバインディング

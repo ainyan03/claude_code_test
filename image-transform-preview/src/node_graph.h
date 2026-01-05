@@ -67,7 +67,7 @@ struct GraphNode {
 
     // filter用
     std::string filterType;
-    float filterParam;
+    std::vector<float> filterParams;  // 複数パラメータ対応
     bool independent;
 
     // composite用
@@ -78,7 +78,7 @@ struct GraphNode {
     AffineMatrix affineMatrix;
 
     GraphNode() : imageId(-1), srcOriginX(0.0), srcOriginY(0.0),
-                  filterParam(0.0f), independent(false) {}
+                  independent(false) {}  // filterParamsはstd::vectorなので自動初期化
 };
 
 // ノードグラフの接続定義

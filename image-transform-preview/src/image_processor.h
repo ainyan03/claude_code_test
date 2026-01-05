@@ -19,7 +19,7 @@ public:
     ImageProcessor(int canvasWidth, int canvasHeight);
 
     // コア画像処理関数（ViewPortベース）
-    ViewPort applyFilter(const ViewPort& input, const std::string& filterType, float param = 0.0f) const;
+    ViewPort applyFilter(const ViewPort& input, const std::string& filterType, const std::vector<float>& params = {}) const;
     ViewPort applyTransform(const ViewPort& input, const AffineMatrix& matrix) const;
     ViewPort mergeImages(const std::vector<const ViewPort*>& images, double dstOriginX, double dstOriginY) const;
 
