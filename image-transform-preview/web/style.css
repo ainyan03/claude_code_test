@@ -45,9 +45,7 @@ header p {
 }
 
 .main-content {
-    display: grid;
-    grid-template-columns: 1fr 260px;
-    gap: 20px;
+    display: block;
     padding: 20px;
 }
 
@@ -56,22 +54,28 @@ header p {
     display: flex;
     flex-direction: column;
     gap: 15px;
+    min-width: 0; /* gridの子要素が内容で広がるのを防ぐ */
+    overflow: hidden;
 }
 
 .canvas-container {
     background: #f5f5f5;
     border: 2px dashed #ccc;
     border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 400px;
-    overflow: auto;
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%; /* 親要素を超えない */
+    height: 400px; /* デフォルト高さ */
+    min-height: 200px; /* 最小高さ */
+    max-height: 800px; /* 最大高さ */
+    overflow: scroll; /* スクロールバーを常時表示 */
+    resize: both; /* 縦横両方向のリサイズ機能を有効化 */
 }
 
 #preview-canvas {
-    max-width: 100%;
-    height: auto;
+    /* 圧縮せずに本来のサイズで表示（コンテナがスクロール） */
+    flex-shrink: 0;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
@@ -957,13 +961,272 @@ button {
     height: 6px;
 }
 
-/* レスポンシブ対応: キャンバスコントロール */
-@media (max-width: 768px) {
-    .canvas-controls {
-        gap: 20px;
+/* ===========================================
+   左袖サイドバー
+   =========================================== */
+
+/* サイドバートグルボタン */
+.sidebar-toggle {
+    position: fixed;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 1001;
+    width: 40px;
+    height: 60px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none;
+    border-radius: 0 8px 8px 0;
+    color: white;
+    cursor: pointer;
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.2);
+    transition: all 0.3s;
+    padding: 0;
+}
+
+.sidebar-toggle:hover {
+    width: 48px;
+    box-shadow: 4px 0 12px rgba(0, 0, 0, 0.3);
+}
+
+.sidebar-toggle-icon {
+    font-size: 20px;
+    display: block;
+    transition: transform 0.3s;
+}
+
+.sidebar-toggle.open .sidebar-toggle-icon {
+    transform: rotate(90deg);
+}
+
+/* サイドバー本体 */
+.sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 280px;
+    height: 100vh;
+    background: white;
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar.open {
+    transform: translateX(0);
+}
+
+.sidebar-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* サイドバーセクション */
+.sidebar-section {
+    padding: 15px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.sidebar-section:first-child {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.sidebar-section-bottom {
+    flex-shrink: 0;
+    border-bottom: none;
+    border-top: 1px solid #e0e0e0;
+    background: #f9f9f9;
+}
+
+.sidebar-section-header {
+    margin-bottom: 12px;
+}
+
+.sidebar-section-header h3 {
+    font-size: 1em;
+    color: #333;
+    margin: 0;
+}
+
+/* 画像追加ボタン */
+.sidebar-add-btn {
+    width: 100%;
+    margin-bottom: 12px;
+    padding: 10px 16px;
+}
+
+/* 画像ライブラリ（サイドバー内） */
+.sidebar-images-library {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 0;
+}
+
+.sidebar-images-library .image-item {
+    flex-shrink: 0;
+}
+
+/* 出力設定 */
+.sidebar-settings {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.sidebar-setting-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.sidebar-setting-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #667eea;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.sidebar-setting-row {
+    display: flex;
+    align-items: stretch;
+    gap: 12px;
+}
+
+.sidebar-setting-fields {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.sidebar-setting-field {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.sidebar-setting-field label {
+    font-size: 12px;
+    color: #666;
+    width: 24px;
+    flex-shrink: 0;
+}
+
+.sidebar-setting-field input[type="number"] {
+    flex: 1;
+    padding: 5px 6px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 12px;
+    text-align: right;
+}
+
+.sidebar-setting-field input[type="number"]:focus {
+    border-color: #667eea;
+    outline: none;
+}
+
+.sidebar-settings .origin-grid {
+    flex-shrink: 0;
+    width: 96px;
+    max-width: 96px;
+}
+
+.sidebar-apply-btn {
+    flex-shrink: 0;
+    width: 96px;
+    padding: 6px 0 !important;
+    font-size: 12px !important;
+}
+
+/* サイドバーオーバーレイ */
+.sidebar-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 999;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s;
+}
+
+.sidebar-overlay.visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* コンテナの左マージン調整（PC時） */
+@media (min-width: 769px) {
+    body.sidebar-open .container {
+        margin-left: 280px;
+        max-width: calc(1400px - 280px);
+        transition: margin-left 0.3s, max-width 0.3s;
     }
 
-    .canvas-control-column {
-        flex: 1;
+    .container {
+        transition: margin-left 0.3s, max-width 0.3s;
+    }
+
+    .sidebar-toggle.open {
+        left: 280px;
+    }
+}
+
+/* ===========================================
+   レスポンシブ: モバイル対応
+   =========================================== */
+
+@media (max-width: 768px) {
+    /* サイドバートグルをヘッダー風に */
+    .sidebar-toggle {
+        top: 10px;
+        left: 10px;
+        transform: none;
+        width: 44px;
+        height: 44px;
+        border-radius: 8px;
+    }
+
+    .sidebar-toggle:hover {
+        width: 44px;
+    }
+
+    /* サイドバーを全幅に */
+    .sidebar {
+        width: 100%;
+        max-width: 320px;
+    }
+
+    /* オーバーレイを有効化 */
+    .sidebar.open ~ .sidebar-overlay {
+        opacity: 1;
+        visibility: visible;
+    }
+
+    /* コンテナはマージンなし */
+    body.sidebar-open .container {
+        margin-left: 0;
+        max-width: none;
+    }
+
+    /* ヘッダーのパディング調整（トグルボタン分） */
+    header {
+        padding-left: 60px;
     }
 }

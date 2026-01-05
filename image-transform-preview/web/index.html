@@ -19,6 +19,79 @@
     </script>
 </head>
 <body>
+    <!-- 左袖メニュー -->
+    <aside id="sidebar" class="sidebar">
+        <div class="sidebar-content">
+            <!-- 画像ライブラリ -->
+            <div class="sidebar-section">
+                <div class="sidebar-section-header">
+                    <h3>📸 画像ライブラリ</h3>
+                </div>
+                <button id="sidebar-add-image-btn" class="primary-btn sidebar-add-btn">📁 画像を追加</button>
+                <div id="sidebar-images-library" class="sidebar-images-library"></div>
+            </div>
+
+            <!-- 出力設定 -->
+            <div class="sidebar-section sidebar-section-bottom">
+                <div class="sidebar-section-header">
+                    <h3>⚙️ 出力設定</h3>
+                </div>
+                <div class="sidebar-settings">
+                    <div class="sidebar-setting-group">
+                        <span class="sidebar-setting-label">サイズ</span>
+                        <div class="sidebar-setting-row">
+                            <div class="sidebar-setting-fields">
+                                <div class="sidebar-setting-field">
+                                    <label>幅</label>
+                                    <input type="number" id="sidebar-canvas-width" value="800" min="100" max="2000">
+                                </div>
+                                <div class="sidebar-setting-field">
+                                    <label>高さ</label>
+                                    <input type="number" id="sidebar-canvas-height" value="600" min="100" max="2000">
+                                </div>
+                            </div>
+                            <button id="sidebar-apply-settings" class="primary-btn sidebar-apply-btn">適用</button>
+                        </div>
+                    </div>
+                    <div class="sidebar-setting-group">
+                        <span class="sidebar-setting-label">原点</span>
+                        <div class="sidebar-setting-row">
+                            <div class="sidebar-setting-fields">
+                                <div class="sidebar-setting-field">
+                                    <label>X</label>
+                                    <input type="number" id="sidebar-origin-x" value="400" min="0">
+                                </div>
+                                <div class="sidebar-setting-field">
+                                    <label>Y</label>
+                                    <input type="number" id="sidebar-origin-y" value="300" min="0">
+                                </div>
+                            </div>
+                            <div class="origin-grid" id="sidebar-origin-grid">
+                                <button class="origin-point" data-x="0" data-y="0" title="左上"></button>
+                                <button class="origin-point" data-x="0.5" data-y="0" title="上中央"></button>
+                                <button class="origin-point" data-x="1" data-y="0" title="右上"></button>
+                                <button class="origin-point" data-x="0" data-y="0.5" title="左中央"></button>
+                                <button class="origin-point selected" data-x="0.5" data-y="0.5" title="中央"></button>
+                                <button class="origin-point" data-x="1" data-y="0.5" title="右中央"></button>
+                                <button class="origin-point" data-x="0" data-y="1" title="左下"></button>
+                                <button class="origin-point" data-x="0.5" data-y="1" title="下中央"></button>
+                                <button class="origin-point" data-x="1" data-y="1" title="右下"></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- サイドバーオーバーレイ（モバイル用） -->
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <!-- サイドバートグルボタン -->
+    <button id="sidebar-toggle" class="sidebar-toggle" title="メニュー">
+        <span class="sidebar-toggle-icon">☰</span>
+    </button>
+
     <div class="container">
         <header>
             <h1>🖼️ Image Transform Preview</h1>
@@ -54,7 +127,7 @@
         </div>
 
         <div class="main-content">
-            <!-- 左側: プレビューエリア -->
+            <!-- プレビューエリア -->
             <div class="preview-section">
                 <div class="canvas-container">
                     <canvas id="preview-canvas"></canvas>
@@ -62,107 +135,11 @@
                 <div class="canvas-download">
                     <button id="download-btn" class="primary-btn">📥 画像を保存</button>
                 </div>
-                <div class="canvas-controls">
-                    <div class="canvas-control-column">
-                        <span class="canvas-control-header">原点</span>
-                        <div class="canvas-control-field">
-                            <span class="canvas-control-label">X</span>
-                            <input type="number" id="origin-x" value="400" min="0" title="原点X座標">
-                        </div>
-                        <div class="canvas-control-field">
-                            <span class="canvas-control-label">Y</span>
-                            <input type="number" id="origin-y" value="300" min="0" title="原点Y座標">
-                        </div>
-                        <div class="origin-grid" id="canvas-origin-grid">
-                            <button class="origin-point" data-x="0" data-y="0" title="左上"></button>
-                            <button class="origin-point" data-x="0.5" data-y="0" title="上中央"></button>
-                            <button class="origin-point" data-x="1" data-y="0" title="右上"></button>
-                            <button class="origin-point" data-x="0" data-y="0.5" title="左中央"></button>
-                            <button class="origin-point selected" data-x="0.5" data-y="0.5" title="中央"></button>
-                            <button class="origin-point" data-x="1" data-y="0.5" title="右中央"></button>
-                            <button class="origin-point" data-x="0" data-y="1" title="左下"></button>
-                            <button class="origin-point" data-x="0.5" data-y="1" title="下中央"></button>
-                            <button class="origin-point" data-x="1" data-y="1" title="右下"></button>
-                        </div>
-                    </div>
-                    <div class="canvas-control-column">
-                        <span class="canvas-control-header">サイズ</span>
-                        <div class="canvas-control-field">
-                            <span class="canvas-control-label">幅</span>
-                            <input type="number" id="canvas-width" value="800" min="100" max="2000">
-                        </div>
-                        <div class="canvas-control-field">
-                            <span class="canvas-control-label">高さ</span>
-                            <input type="number" id="canvas-height" value="600" min="100" max="2000">
-                        </div>
-                        <button id="resize-canvas">適用</button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 右側: 画像管理エリア -->
-            <div class="images-section">
-                <div class="section-header">
-                    <h2>📸 画像ライブラリ</h2>
-                    <button id="add-image-btn" class="primary-btn">📁 画像を追加</button>
-                    <input type="file" id="image-input" accept="image/*" style="display:none;" multiple>
-                </div>
-
-                <div id="images-library"></div>
-
-                <!-- 合成ノード編集パネル -->
-                <div id="composite-edit-panel" class="composite-edit-panel hidden">
-                    <div class="section-header">
-                        <h3>合成ノード編集</h3>
-                        <button id="close-composite-panel" class="close-btn">×</button>
-                    </div>
-                    <div class="composite-controls">
-                        <div class="control-group">
-                            <label>
-                                <span class="control-label">X位置:</span>
-                                <input type="range" id="composite-translatex" min="-400" max="400" value="0" step="1">
-                                <span class="param-value" id="composite-translatex-value">0</span>
-                            </label>
-                        </div>
-                        <div class="control-group">
-                            <label>
-                                <span class="control-label">Y位置:</span>
-                                <input type="range" id="composite-translatey" min="-300" max="300" value="0" step="1">
-                                <span class="param-value" id="composite-translatey-value">0</span>
-                            </label>
-                        </div>
-                        <div class="control-group">
-                            <label>
-                                <span class="control-label">回転:</span>
-                                <input type="range" id="composite-rotation" min="0" max="360" value="0" step="1">
-                                <span class="param-value" id="composite-rotation-value">0°</span>
-                            </label>
-                        </div>
-                        <div class="control-group">
-                            <label>
-                                <span class="control-label">スケールX:</span>
-                                <input type="range" id="composite-scalex" min="0.1" max="3.0" value="1.0" step="0.01">
-                                <span class="param-value" id="composite-scalex-value">1.00</span>
-                            </label>
-                        </div>
-                        <div class="control-group">
-                            <label>
-                                <span class="control-label">スケールY:</span>
-                                <input type="range" id="composite-scaley" min="0.1" max="3.0" value="1.0" step="0.01">
-                                <span class="param-value" id="composite-scaley-value">1.00</span>
-                            </label>
-                        </div>
-                        <div class="control-group">
-                            <label>
-                                <span class="control-label">透明度:</span>
-                                <input type="range" id="composite-alpha" min="0" max="1" value="1.0" step="0.01">
-                                <span class="param-value" id="composite-alpha-value">1.00</span>
-                            </label>
-                        </div>
-                    </div>
-                </div>
             </div>
         </div>
+
+        <!-- 隠しファイル入力 -->
+        <input type="file" id="image-input" accept="image/*" style="display:none;" multiple>
     </div>
 
     <!-- 画像アイテムテンプレート -->

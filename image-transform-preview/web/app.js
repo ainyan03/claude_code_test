@@ -41,6 +41,48 @@ function throttledUpdatePreview() {
     });
 }
 
+// サイドバー開閉ロジック
+function setupSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const toggle = document.getElementById('sidebar-toggle');
+    const overlay = document.getElementById('sidebar-overlay');
+
+    function openSidebar() {
+        sidebar.classList.add('open');
+        toggle.classList.add('open');
+        overlay.classList.add('visible');
+        document.body.classList.add('sidebar-open');
+    }
+
+    function closeSidebar() {
+        sidebar.classList.remove('open');
+        toggle.classList.remove('open');
+        overlay.classList.remove('visible');
+        document.body.classList.remove('sidebar-open');
+    }
+
+    function toggleSidebar() {
+        if (sidebar.classList.contains('open')) {
+            closeSidebar();
+        } else {
+            openSidebar();
+        }
+    }
+
+    // トグルボタンクリック
+    toggle.addEventListener('click', toggleSidebar);
+
+    // オーバーレイクリックで閉じる（モバイル時）
+    overlay.addEventListener('click', closeSidebar);
+
+    // ESCキーで閉じる
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && sidebar.classList.contains('open')) {
+            closeSidebar();
+        }
+    });
+}
+
 // WebAssemblyモジュールを初期化
 // MODULARIZE=1を使用しているため、Moduleは関数としてエクスポートされる
 if (typeof Module === 'function') {
@@ -92,6 +134,11 @@ function initializeApp() {
     ctx = canvas.getContext('2d');
     canvas.width = canvasWidth;
     canvas.height = canvasHeight;
+    // 補間なしで3倍表示（ピクセル確認用）
+    const scale = 3;
+    canvas.style.width = (canvasWidth * scale) + 'px';
+    canvas.style.height = (canvasHeight * scale) + 'px';
+    canvas.style.imageRendering = 'pixelated';
 
     // NodeGraphEvaluator初期化（WebAssemblyモジュール）
     if (typeof WasmModule !== 'undefined' && WasmModule.NodeGraphEvaluator) {
@@ -127,27 +174,30 @@ function displayVersionInfo() {
 }
 
 function setupEventListeners() {
-    // 画像追加ボタン
-    document.getElementById('add-image-btn').addEventListener('click', () => {
+    // サイドバー開閉
+    setupSidebar();
+
+    // 画像追加ボタン（サイドバー内）
+    document.getElementById('sidebar-add-image-btn').addEventListener('click', () => {
         document.getElementById('image-input').click();
     });
 
     // 画像選択
     document.getElementById('image-input').addEventListener('change', handleImageUpload);
 
-    // キャンバスサイズ変更
-    document.getElementById('resize-canvas').addEventListener('click', resizeCanvas);
+    // 出力設定適用ボタン（サイドバー内）
+    document.getElementById('sidebar-apply-settings').addEventListener('click', applyOutputSettings);
 
-    // キャンバス原点選択（9点グリッド）
+    // キャンバス原点選択（9点グリッド、サイドバー内）
     // 初期選択は中央（0.5, 0.5）
-    setupOriginGrid('canvas-origin-grid', { x: 0.5, y: 0.5 }, (normalizedOrigin) => {
+    setupOriginGrid('sidebar-origin-grid', { x: 0.5, y: 0.5 }, (normalizedOrigin) => {
         // 9点ボタン押下時：正規化座標からピクセル座標を計算して入力欄に反映
-        const w = parseInt(document.getElementById('canvas-width').value) || 800;
-        const h = parseInt(document.getElementById('canvas-height').value) || 600;
+        const w = parseInt(document.getElementById('sidebar-canvas-width').value) || 800;
+        const h = parseInt(document.getElementById('sidebar-canvas-height').value) || 600;
         const pixelX = Math.round(normalizedOrigin.x * w);
         const pixelY = Math.round(normalizedOrigin.y * h);
-        document.getElementById('origin-x').value = pixelX;
-        document.getElementById('origin-y').value = pixelY;
+        document.getElementById('sidebar-origin-x').value = pixelX;
+        document.getElementById('sidebar-origin-y').value = pixelY;
         // canvasOrigin を即座に更新してプレビューに反映
         canvasOrigin = { x: pixelX, y: pixelY };
         graphEvaluator.setDstOrigin(pixelX, pixelY);
@@ -155,8 +205,8 @@ function setupEventListeners() {
     });
 
     // 原点座標入力欄の初期値を設定
-    document.getElementById('origin-x').value = canvasOrigin.x;
-    document.getElementById('origin-y').value = canvasOrigin.y;
+    document.getElementById('sidebar-origin-x').value = canvasOrigin.x;
+    document.getElementById('sidebar-origin-y').value = canvasOrigin.y;
 
     // ダウンロードボタン
     document.getElementById('download-btn').addEventListener('click', downloadComposedImage);
@@ -226,7 +276,7 @@ function addImageToLibrary(imageData) {
 
 // 画像ライブラリUIを描画
 function renderImageLibrary() {
-    const libraryContainer = document.getElementById('images-library');
+    const libraryContainer = document.getElementById('sidebar-images-library');
     libraryContainer.innerHTML = '';
 
     const template = document.getElementById('image-item-template');
@@ -363,9 +413,10 @@ function loadImage(file) {
     });
 }
 
-function resizeCanvas() {
-    const width = parseInt(document.getElementById('canvas-width').value);
-    const height = parseInt(document.getElementById('canvas-height').value);
+// 出力設定を適用（サイドバーから）
+function applyOutputSettings() {
+    const width = parseInt(document.getElementById('sidebar-canvas-width').value);
+    const height = parseInt(document.getElementById('sidebar-canvas-height').value);
 
     // NaN チェックを追加（空文字やパース失敗時）
     if (isNaN(width) || isNaN(height) || width < 100 || width > 2000 || height < 100 || height > 2000) {
@@ -374,23 +425,28 @@ function resizeCanvas() {
     }
 
     // 原点座標を取得（入力欄から）
-    const originX = parseInt(document.getElementById('origin-x').value) || 0;
-    const originY = parseInt(document.getElementById('origin-y').value) || 0;
+    const originX = parseInt(document.getElementById('sidebar-origin-x').value) || 0;
+    const originY = parseInt(document.getElementById('sidebar-origin-y').value) || 0;
 
-    // 原点をピクセル座標で保存（将来のバックエンド連携用）
+    // 原点をピクセル座標で保存
     canvasOrigin = {
         x: Math.max(0, Math.min(originX, width)),
         y: Math.max(0, Math.min(originY, height))
     };
-    console.log('Canvas resized:', width, 'x', height, 'origin:', canvasOrigin);
+    console.log('Output settings applied:', width, 'x', height, 'origin:', canvasOrigin);
 
     canvasWidth = width;
     canvasHeight = height;
     canvas.width = width;
     canvas.height = height;
 
-    graphEvaluator.setCanvasSize(width, height);  // graphEvaluatorのサイズも更新
-    graphEvaluator.setDstOrigin(canvasOrigin.x, canvasOrigin.y);  // dstOriginを設定
+    // 3倍表示を維持
+    const scale = 3;
+    canvas.style.width = (width * scale) + 'px';
+    canvas.style.height = (height * scale) + 'px';
+
+    graphEvaluator.setCanvasSize(width, height);
+    graphEvaluator.setDstOrigin(canvasOrigin.x, canvasOrigin.y);
     updatePreviewFromGraph();
 }
 
@@ -916,12 +972,12 @@ function drawGlobalNode(node) {
             // 回転
             const rotLabel = document.createElement('label');
             rotLabel.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;';
-            rotLabel.innerHTML = `<span style="min-width: 40px;">回転:</span><input type="range" class="affine-rot-slider" min="-180" max="180" step="1" value="${node.rotation || 0}" style="width: 60px;"> <span class="rot-display">${Math.round(node.rotation || 0)}°</span>`;
+            rotLabel.innerHTML = `<span style="min-width: 40px;">回転:</span><input type="range" class="affine-rot-slider" min="-180" max="180" step="0.1" value="${node.rotation || 0}" style="width: 60px;"> <span class="rot-display">${(node.rotation || 0).toFixed(1)}°</span>`;
             const rotSlider = rotLabel.querySelector('.affine-rot-slider');
             const rotDisplay = rotLabel.querySelector('.rot-display');
             rotSlider.addEventListener('input', (e) => {
                 node.rotation = parseFloat(e.target.value);
-                rotDisplay.textContent = Math.round(node.rotation) + '°';
+                rotDisplay.textContent = node.rotation.toFixed(1) + '°';
                 // 行列モードに同期
                 node.matrix = calculateMatrixFromParams(
                     node.translateX || 0,
