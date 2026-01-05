@@ -102,7 +102,9 @@ ViewPort ImageProcessor::mergeImages(const std::vector<const ViewPort*>& images,
 
 // 行列ベース + 固定小数点アフィン変換（ViewPortベース）
 // 純粋な幾何変換のみ（アルファ調整はAlphaFilterを使用）
-ViewPort ImageProcessor::applyTransform(const ViewPort& input, const AffineMatrix& matrix) const {
+// originX, originY: 変換の中心点（この点を中心に回転・拡縮が適用される）
+ViewPort ImageProcessor::applyTransform(const ViewPort& input, const AffineMatrix& matrix, double originX, double originY,
+                                        double outputOffsetX, double outputOffsetY) const {
     ViewPort output(canvasWidth, canvasHeight, PixelFormatIDs::RGBA16_Premultiplied);
     std::memset(output.data, 0, output.getTotalBytes());
 
@@ -120,27 +122,53 @@ ViewPort ImageProcessor::applyTransform(const ViewPort& input, const AffineMatri
     double invTx = (-matrix.d * matrix.tx + matrix.b * matrix.ty) * invDet;
     double invTy = (matrix.c * matrix.tx - matrix.a * matrix.ty) * invDet;
 
-    // 固定小数点16.16形式に変換（上位16bit: 整数、下位16bit: 小数）
-    int32_t fixedInvA  = static_cast<int32_t>(invA * 65536);
-    int32_t fixedInvB  = static_cast<int32_t>(invB * 65536);
-    int32_t fixedInvC  = static_cast<int32_t>(invC * 65536);
-    int32_t fixedInvD  = static_cast<int32_t>(invD * 65536);
+    // 固定小数点の小数部ビット数
+    constexpr int FIXED_POINT_BITS = 16;
+    constexpr int32_t FIXED_POINT_SCALE = 1 << FIXED_POINT_BITS;
+
+    // 固定小数点形式に変換（lroundで四捨五入して精度向上）
+    int32_t fixedInvA  = std::lround(invA * FIXED_POINT_SCALE);
+    int32_t fixedInvB  = std::lround(invB * FIXED_POINT_SCALE);
+    int32_t fixedInvC  = std::lround(invC * FIXED_POINT_SCALE);
+    int32_t fixedInvD  = std::lround(invD * FIXED_POINT_SCALE);
+    int32_t fixedInvTx = std::lround(invTx * FIXED_POINT_SCALE);
+    int32_t fixedInvTy = std::lround(invTy * FIXED_POINT_SCALE);
+
+    // 原点中心の変換を固定小数点で適用: T(origin) × M × T(-origin) の逆変換
+    // fixedInv を使い、整数演算で計算（固定小数成分が同じなら原点オフセットも同じになる）
+    // 原点オフセット: origin - M^-1 × origin = origin - (invA × originX + invB × originY, ...)
+    int32_t originXInt = std::lround(originX);
+    int32_t originYInt = std::lround(originY);
+    fixedInvTx += (originXInt << FIXED_POINT_BITS) - originXInt * fixedInvA - fixedInvB * originYInt;
+    fixedInvTy += (originYInt << FIXED_POINT_BITS) - originYInt * fixedInvD - fixedInvC * originXInt;
+
+    // 出力座標系オフセット: output(dx, dy) が input(transform^-1(dx - offset, dy - offset)) をサンプルするように調整
+    // これにより出力バッファ内でのレンダリング位置をシフトできる
+    if (outputOffsetX != 0 || outputOffsetY != 0) {
+        int32_t offsetXInt = std::lround(outputOffsetX);
+        int32_t offsetYInt = std::lround(outputOffsetY);
+        fixedInvTx -= offsetXInt * fixedInvA + offsetYInt * fixedInvB;
+        fixedInvTy -= offsetXInt * fixedInvC + offsetYInt * fixedInvD;
+    }
+
+    // 注: DDAオフセット（ピクセル中心サンプリング用）は原点安定性を損なうため削除
+    // 原点座標が完全に安定することが確認済み
 
     // 入力データへのポインタ取得
     const uint16_t* inputData = static_cast<const uint16_t*>(input.data);
 
     // 出力画像の各ピクセルをスキャン
     for (int dy = 0; dy < canvasHeight; dy++) {
-        // 行の開始座標を固定小数点で計算
-        int32_t srcX_fixed = static_cast<int32_t>((invA * 0 + invB * dy + invTx) * 65536);
-        int32_t srcY_fixed = static_cast<int32_t>((invC * 0 + invD * dy + invTy) * 65536);
+        // 行の開始座標を固定小数点で計算（ループ内でdoubleを使わない）
+        int32_t srcX_fixed = fixedInvB * dy + fixedInvTx;
+        int32_t srcY_fixed = fixedInvD * dy + fixedInvTy;
 
         uint16_t* dstRow = output.getPixelPtr<uint16_t>(0, dy);
 
         for (int dx = 0; dx < canvasWidth; dx++) {
-            // 固定小数点から整数座標を抽出（上位16bit）
-            int sx = srcX_fixed >> 16;
-            int sy = srcY_fixed >> 16;
+            // 固定小数点から整数座標を抽出
+            int sx = srcX_fixed >> FIXED_POINT_BITS;
+            int sy = srcY_fixed >> FIXED_POINT_BITS;
 
             // 範囲チェック
             if (sx >= 0 && sx < input.width && sy >= 0 && sy < input.height) {

@@ -202,53 +202,30 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
             // 変換行列を取得（JS側で行列に統一済み）
             AffineMatrix matrix = node->affineMatrix;
 
-            // 行列を srcOrigin 中心で適用: T(origin) × M × T(-origin)
-            // これにより srcOrigin が数学的な原点として機能する
-            double ox = inputImage.srcOriginX;
-            double oy = inputImage.srcOriginY;
-            AffineMatrix centeredMatrix;
-            centeredMatrix.a = matrix.a;
-            centeredMatrix.b = matrix.b;
-            centeredMatrix.c = matrix.c;
-            centeredMatrix.d = matrix.d;
-            centeredMatrix.tx = matrix.tx + ox - matrix.a * ox - matrix.b * oy;
-            centeredMatrix.ty = matrix.ty + oy - matrix.c * ox - matrix.d * oy;
+            // 原点座標（変換の中心点）- 入力座標系での位置
+            double inputOriginX = inputImage.srcOriginX;
+            double inputOriginY = inputImage.srcOriginY;
+            // 出力座標系での原点位置（四隅オフセット適用後に更新）
+            double outputOriginX = inputOriginX;
+            double outputOriginY = inputOriginY;
 
-            // 入力画像の四隅が変換後に負の座標になるかチェック
-            // 負になる場合はオフセットを追加して全ピクセルを正の座標に収める
-            double corners[4][2] = {
-                {0, 0},
-                {static_cast<double>(inputImage.width), 0},
-                {0, static_cast<double>(inputImage.height)},
-                {static_cast<double>(inputImage.width), static_cast<double>(inputImage.height)}
-            };
-            double minX = 0, minY = 0;
-            for (int i = 0; i < 4; i++) {
-                double tx = centeredMatrix.a * corners[i][0] + centeredMatrix.b * corners[i][1] + centeredMatrix.tx;
-                double ty = centeredMatrix.c * corners[i][0] + centeredMatrix.d * corners[i][1] + centeredMatrix.ty;
-                if (tx < minX) minX = tx;
-                if (ty < minY) minY = ty;
-            }
-            // 負の座標を避けるためのオフセットを適用
-            if (minX < 0) {
-                centeredMatrix.tx -= minX;
-                ox -= minX;
-            }
-            if (minY < 0) {
-                centeredMatrix.ty -= minY;
-                oy -= minY;
-            }
-
-            // アフィン変換を適用
+            // 負の座標を避けるためのオフセットを出力座標系で適用
+            // matrix.tx/tyには加算しない（逆行列計算に影響し原点が不安定になるため）
+            // 画像サイズに基づく固定オフセットを使用（動的計算は揺らぎの原因となる）
+            double fixedOffset = std::max(inputImage.width, inputImage.height);
+            double outputOffsetX = fixedOffset;
+            double outputOffsetY = fixedOffset;
+            outputOriginX += fixedOffset;
+            outputOriginY += fixedOffset;
             auto affineStart = std::chrono::high_resolution_clock::now();
-            result = processor.applyTransform(inputImage, centeredMatrix);
+            result = processor.applyTransform(inputImage, matrix, inputOriginX, inputOriginY, outputOffsetX, outputOffsetY);
             auto affineEnd = std::chrono::high_resolution_clock::now();
             perfMetrics.affineTime += std::chrono::duration<double, std::milli>(affineEnd - affineStart).count();
             perfMetrics.affineCount++;
 
-            // srcOrigin を更新（オフセット込み）
-            result.srcOriginX = ox;
-            result.srcOriginY = oy;
+            // srcOrigin を更新（出力座標系での原点位置）
+            result.srcOriginX = outputOriginX;
+            result.srcOriginY = outputOriginY;
         }
     }
 
