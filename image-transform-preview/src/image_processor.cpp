@@ -8,34 +8,6 @@
 namespace ImageTransform {
 
 // ========================================================================
-// AffineMatrix実装
-// ========================================================================
-
-// AffineParamsから2x3行列を生成
-AffineMatrix AffineMatrix::fromParams(const AffineParams& params, double centerX, double centerY) {
-    // 変換順序: 中心に移動 → スケール → 回転 → 平行移動 → 元の位置に戻す
-    // 行列計算: T(tx,ty) * R(rot) * S(sx,sy) * T(-cx,-cy)
-
-    double cosR = std::cos(params.rotation);
-    double sinR = std::sin(params.rotation);
-    double sx = params.scaleX;
-    double sy = params.scaleY;
-
-    AffineMatrix m;
-    // 合成行列の要素を直接計算
-    m.a = sx * cosR;
-    m.b = -sy * sinR;
-    m.c = sx * sinR;
-    m.d = sy * cosR;
-
-    // 平行移動成分（中心基準の回転・スケール + ユーザー指定の平行移動）
-    m.tx = -centerX * m.a - centerY * m.b + centerX + params.translateX;
-    m.ty = -centerX * m.c - centerY * m.d + centerY + params.translateY;
-
-    return m;
-}
-
-// ========================================================================
 // ImageProcessor実装
 // ========================================================================
 
@@ -46,83 +18,6 @@ ImageProcessor::ImageProcessor(int canvasWidth, int canvasHeight)
 void ImageProcessor::setCanvasSize(int width, int height) {
     canvasWidth = width;
     canvasHeight = height;
-}
-
-// 8bit RGBA → ViewPort（16bit Premultiplied RGBA）変換
-// 純粋な型変換のみ（アルファ調整はAlphaFilterを使用）
-ViewPort ImageProcessor::fromImage(const Image& input) const {
-    ViewPort output(input.width, input.height, PixelFormatIDs::RGBA16_Premultiplied);
-
-    const uint8_t* srcData = input.data.data();
-
-    // 行ごとにアクセス（Image:flat, ViewPort:stride付き）
-    for (int y = 0; y < input.height; y++) {
-        const uint8_t* srcRow = srcData + y * input.width * 4;
-        uint16_t* dstRow = output.getPixelPtr<uint16_t>(0, y);
-
-        for (int x = 0; x < input.width; x++) {
-            int idx = x * 4;
-
-            uint16_t r8 = srcRow[idx];
-            uint16_t g8 = srcRow[idx + 1];
-            uint16_t b8 = srcRow[idx + 2];
-            uint16_t a8 = srcRow[idx + 3];
-
-            // 8bit → 16bit変換（0-255 → 0-65535）
-            uint16_t a16 = (a8 << 8) | a8;
-
-            // プリマルチプライド: RGB * alpha
-            // (r8 * a16) / 65535 を高速計算
-            dstRow[idx]     = (r8 * a16) >> 8;  // (r8 * a16) / 256（近似）
-            dstRow[idx + 1] = (g8 * a16) >> 8;
-            dstRow[idx + 2] = (b8 * a16) >> 8;
-            dstRow[idx + 3] = a16;
-        }
-    }
-
-    return output;
-}
-
-// ViewPort（16bit Premultiplied RGBA）→ 8bit RGBA変換
-Image ImageProcessor::toImage(const ViewPort& input) const {
-    Image output(input.width, input.height);
-
-    uint8_t* dstData = output.data.data();
-
-    // 行ごとにアクセス（ViewPort:stride付き, Image:flat）
-    for (int y = 0; y < input.height; y++) {
-        const uint16_t* srcRow = input.getPixelPtr<uint16_t>(0, y);
-        uint8_t* dstRow = dstData + y * input.width * 4;
-
-        for (int x = 0; x < input.width; x++) {
-            int idx = x * 4;
-
-            uint16_t r16 = srcRow[idx];
-            uint16_t g16 = srcRow[idx + 1];
-            uint16_t b16 = srcRow[idx + 2];
-            uint16_t a16 = srcRow[idx + 3];
-
-            // アンプリマルチプライド: RGB / alpha
-            if (a16 > 0) {
-                // (r16 * 65535) / a16 を計算して8bitに変換
-                uint32_t r_unpre = ((uint32_t)r16 * 65535) / a16;
-                uint32_t g_unpre = ((uint32_t)g16 * 65535) / a16;
-                uint32_t b_unpre = ((uint32_t)b16 * 65535) / a16;
-
-                dstRow[idx]     = std::min(r_unpre >> 8, 255u);
-                dstRow[idx + 1] = std::min(g_unpre >> 8, 255u);
-                dstRow[idx + 2] = std::min(b_unpre >> 8, 255u);
-            } else {
-                dstRow[idx]     = 0;
-                dstRow[idx + 1] = 0;
-                dstRow[idx + 2] = 0;
-            }
-
-            dstRow[idx + 3] = a16 >> 8;  // 16bit → 8bit
-        }
-    }
-
-    return output;
 }
 
 // ViewPort（Premultiplied）画像の合成（超高速版：除算なし）

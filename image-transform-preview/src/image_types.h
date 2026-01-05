@@ -23,19 +23,6 @@ struct Image {
     Image(int w, int h) : width(w), height(h), data(w * h * 4, 0) {}
 };
 
-// アフィン変換パラメータ
-struct AffineParams {
-    double translateX;  // 平行移動 X
-    double translateY;  // 平行移動 Y
-    double rotation;    // 回転角度（ラジアン）
-    double scaleX;      // スケール X
-    double scaleY;      // スケール Y
-
-    AffineParams()
-        : translateX(0), translateY(0), rotation(0),
-          scaleX(1.0), scaleY(1.0) {}
-};
-
 // 2x3アフィン変換行列
 // [a  b  tx]   [x]   [a*x + b*y + tx]
 // [c  d  ty] * [y] = [c*x + d*y + ty]
@@ -44,9 +31,6 @@ struct AffineMatrix {
     double a, b, c, d, tx, ty;
 
     AffineMatrix() : a(1), b(0), c(0), d(1), tx(0), ty(0) {}
-
-    // AffineParamsから行列を生成
-    static AffineMatrix fromParams(const AffineParams& params, double centerX, double centerY);
 };
 
 } // namespace ImageTransform
