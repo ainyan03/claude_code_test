@@ -118,6 +118,6 @@ python3 -m http.server 8080
 
 ## 次のステップ
 
-詳細なドキュメントは [README.md](README.md) をご覧ください。
+詳細なドキュメントは [README.md](../README.md) をご覧ください。
 
 楽しんでください！🎉

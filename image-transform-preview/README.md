@@ -168,15 +168,34 @@ image-transform-preview/
 │   ├── pixel_format_registry.h/cpp # フォーマット変換レジストリ
 │   ├── viewport.h/cpp             # 統一画像型（ViewPort）
 │   ├── operators.h/cpp            # ノードオペレーター群
+│   ├── evaluation_node.h/cpp      # パイプライン評価ノード
 │   ├── node_graph.h/cpp           # ノードグラフ評価エンジン
 │   └── bindings.cpp               # Emscriptenバインディング
-├── web/
+├── web/                           # Webフロントエンド
 │   ├── index.html                 # メインHTML
-│   ├── style.css                  # スタイルシート
 │   ├── app.js                     # JavaScript制御
 │   ├── image_transform.js         # 生成されたWebAssemblyラッパー
 │   └── image_transform.wasm       # 生成されたWebAssemblyバイナリ
-├── build.sh                       # ビルドスクリプト
+├── cli/                           # CLIツール（ネイティブビルド用）
+│   ├── main.cpp                   # コマンドラインツール
+│   └── stb_impl.cpp               # stb ライブラリ実装
+├── test/                          # ユニットテスト（Google Test）
+│   ├── viewport_test.cpp          # ViewPort テスト
+│   └── affine_mapping_test.cpp    # AffineOperator テスト
+├── third_party/                   # サードパーティライブラリ
+│   ├── stb_image.h                # 画像読み込み
+│   └── stb_image_write.h          # 画像書き出し
+├── docs/                          # ドキュメント
+│   ├── QUICKSTART.md              # クイックスタートガイド
+│   ├── PROJECT_STATUS.md          # プロジェクト状況
+│   ├── DESIGN_NODE_OPERATOR.md    # オペレーター設計文書
+│   ├── DESIGN_PIPELINE_EVALUATION.md # パイプライン評価設計文書
+│   ├── BRANCH_STRATEGY.md         # ブランチ戦略
+│   └── GITHUB_PAGES_SETUP.md      # GitHub Pages設定
+├── build.sh                       # WASMビルドスクリプト
+├── Makefile                       # ネイティブビルド設定
+├── CHANGELOG.md                   # 変更履歴
+├── TODO.md                        # タスク管理
 └── README.md                      # このファイル
 ```
 

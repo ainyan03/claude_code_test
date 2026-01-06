@@ -3,6 +3,11 @@ web/image_transform.js
 web/image_transform.wasm
 web/version.js
 
+# Native build outputs
+build/
+src/*.o
+*.o
+
 # Emscripten cache
 .emscripten_cache/
 

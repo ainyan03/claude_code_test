@@ -291,5 +291,5 @@ result = op->apply(inputs, ctx);
 
 ## 関連ドキュメント
 
-- [TODO.md](TODO.md): タスク管理
+- [TODO.md](../TODO.md): タスク管理
 - [DESIGN_PIPELINE_EVALUATION.md](DESIGN_PIPELINE_EVALUATION.md): パイプライン評価システム設計
