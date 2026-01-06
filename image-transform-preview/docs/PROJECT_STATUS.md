@@ -41,34 +41,38 @@ image-transform-preview/
 │   ├── pixel_format_registry.h/cpp # フォーマット変換レジストリ
 │   ├── viewport.h/cpp             # 統一画像型（ViewPort）
 │   ├── operators.h/cpp            # ノードオペレーター群
-│   ├── node_graph.h/cpp           # ノードグラフ評価エンジン
 │   ├── evaluation_node.h/cpp      # パイプライン評価ノード
+│   ├── node_graph.h/cpp           # ノードグラフ評価エンジン
 │   └── bindings.cpp               # Emscriptenバインディング
-├── web/
-│   ├── index.html                 # メインHTML
-│   ├── style.css                  # スタイルシート
-│   ├── app.js                     # JavaScript制御
-│   └── image_transform.wasm       # WebAssemblyバイナリ（ビルド生成）
-├── build.sh                       # ビルドスクリプト
+├── web/                           # Webフロントエンド
+├── cli/                           # CLIツール（ネイティブビルド）
+├── test/                          # ユニットテスト（Google Test）
+├── third_party/                   # サードパーティライブラリ
+├── docs/                          # ドキュメント（このフォルダ）
+├── build.sh                       # WASMビルドスクリプト
+├── Makefile                       # ネイティブビルド設定
 └── README.md                      # プロジェクト概要
 ```
 
 ## 📦 ビルド
 
 ```bash
-# Emscripten環境をセットアップ後
+# WebAssemblyビルド（Emscripten環境が必要）
 cd image-transform-preview
 ./build.sh
+
+# ネイティブビルド（テスト用）
+make test
 ```
 
-詳細は [README.md](README.md) を参照してください。
+詳細は [README.md](../README.md) を参照してください。
 
 ## 🔗 関連ドキュメント
 
-- [README.md](README.md): プロジェクト概要と使い方
+- [README.md](../README.md): プロジェクト概要と使い方
 - [QUICKSTART.md](QUICKSTART.md): クイックスタートガイド
-- [CHANGELOG.md](CHANGELOG.md): 変更履歴
-- [TODO.md](TODO.md): 今後の機能拡張計画
+- [CHANGELOG.md](../CHANGELOG.md): 変更履歴
+- [TODO.md](../TODO.md): 今後の機能拡張計画
 
 ### 設計ドキュメント
 
