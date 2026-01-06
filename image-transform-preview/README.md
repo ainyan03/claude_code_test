@@ -161,20 +161,23 @@ npx http-server -p 8000
 
 ```
 image-transform-preview/
-├── src/                       # C++ソースコード（モジュラー設計）
-│   ├── image_types.h          # 基本型定義
-│   ├── filters.h/cpp          # フィルタクラス群
-│   ├── image_processor.h/cpp  # コア画像処理エンジン
-│   ├── node_graph.h/cpp       # ノードグラフ評価エンジン
-│   └── bindings.cpp           # Emscriptenバインディング
+├── src/                           # C++ソースコード（モジュラー設計）
+│   ├── image_types.h              # 基本型定義（Image, AffineMatrix）
+│   ├── image_allocator.h          # メモリアロケータ（組込み環境対応）
+│   ├── pixel_format.h             # ピクセルフォーマット定義
+│   ├── pixel_format_registry.h/cpp # フォーマット変換レジストリ
+│   ├── viewport.h/cpp             # 統一画像型（ViewPort）
+│   ├── operators.h/cpp            # ノードオペレーター群
+│   ├── node_graph.h/cpp           # ノードグラフ評価エンジン
+│   └── bindings.cpp               # Emscriptenバインディング
 ├── web/
-│   ├── index.html             # メインHTML
-│   ├── style.css              # スタイルシート
-│   ├── app.js                 # JavaScript制御
-│   ├── image_transform.js     # 生成されたWebAssemblyラッパー
-│   └── image_transform.wasm   # 生成されたWebAssemblyバイナリ
-├── build.sh                   # ビルドスクリプト
-└── README.md                  # このファイル
+│   ├── index.html                 # メインHTML
+│   ├── style.css                  # スタイルシート
+│   ├── app.js                     # JavaScript制御
+│   ├── image_transform.js         # 生成されたWebAssemblyラッパー
+│   └── image_transform.wasm       # 生成されたWebAssemblyバイナリ
+├── build.sh                       # ビルドスクリプト
+└── README.md                      # このファイル
 ```
 
 ## 🔬 技術詳細
@@ -185,25 +188,24 @@ image-transform-preview/
 
 - **基本型**（`image_types.h`）:
   - Image構造体: 8bit RGBAピクセルデータ（API境界用）
-  - AffineParams/AffineMatrix構造体: アフィン変換パラメータ
-- **フィルタシステム**（`filters.h/cpp`, `filter_registry.h/cpp`）:
-  - ImageFilter基底クラス（ViewPortベース）
-  - FilterRegistryによる一元管理（ファクトリパターン）
-  - BrightnessFilter, GrayscaleFilter, BoxBlurFilter, AlphaFilter
-  - 複数パラメータ対応、Straight alpha形式で処理（数学的に正確）
-- **画像処理エンジン**（`image_processor.h/cpp`）:
-  - フィルタ適用、アフィン変換、画像合成
-  - 8bit ↔ 16bit変換機能
+  - AffineMatrix構造体: アフィン変換行列
+- **統一画像型**（`viewport.h/cpp`）:
+  - ViewPort: 任意ピクセルフォーマット対応の統一画像型
+  - サブビュー機能（メモリコピーなしで部分領域を参照）
+  - カスタムアロケータ対応（組込み環境向け）
+- **ピクセルフォーマット**（`pixel_format.h`, `pixel_format_registry.h/cpp`）:
+  - 拡張可能なフォーマットシステム
+  - RGBA8_Straight / RGBA16_Premultiplied 対応
+  - 自動フォーマット変換
+- **オペレーターシステム**（`operators.h/cpp`）:
+  - NodeOperator基底クラスによる統一インターフェース
+  - BrightnessOperator, GrayscaleOperator, BoxBlurOperator, AlphaOperator
+  - AffineOperator, CompositeOperator
+  - ファクトリパターンによるオペレーター生成
 - **ノードグラフエンジン**（`node_graph.h/cpp`）:
-  - ノードグラフの評価エンジン
-  - トポロジカルソートによる依存関係解決
-  - ノードタイプ別の画像処理実行
+  - 3段階評価アーキテクチャ（事前準備→要求伝播→評価）
+  - タイル分割処理対応（組込み環境向け）
   - メモ化による重複計算の回避
-- **画像処理機能**:
-  - アフィン変換（平行移動、回転、スケール）
-  - アルファブレンディング
-  - 画像合成
-  - 明るさ・コントラスト調整
 
 ### WebAssemblyバインディング
 
@@ -213,19 +215,21 @@ Emscriptenの`embind`を使用してC++クラスをJavaScriptから呼び出し�
 
 モジュラー設計のC++コアは、以下の特徴により組込み環境への移植が容易です：
 
-- **依存関係なし**: 標準C++のみを使用（OpenCVなど不要）
+- **依存関係なし**: 標準C++17のみを使用（OpenCVなど不要）
 - **モジュラー設計**: 必要なモジュールだけを選択して使用可能
 - **シンプルなAPI**: `NodeGraphEvaluator`クラスでノードグラフを評価
-- **メモリ管理**: `std::vector`を使用（カスタムアロケータに変更可能）
-- **拡張性**: 新しいフィルタやノードタイプを簡単に追加可能
+- **メモリ管理**: `ImageAllocator`インターフェースでカスタムアロケータに対応
+- **タイル分割処理**: メモリ制約のある環境でも大きな画像を処理可能
+- **拡張性**: 新しいオペレーターを簡単に追加可能
 
 ### 移植手順
 
 1. 必要なファイルをコピー:
-   - 最小構成: `image_types.h`, `image_processor.h/cpp`
-   - フィルタ使用: `filters.h/cpp`も追加
-   - ノードグラフ使用: `node_graph.h/cpp`も追加
-2. 必要に応じて`std::vector`をカスタムアロケータに置き換え
+   - 基本: `image_types.h`, `image_allocator.h`
+   - 画像処理: `pixel_format.h`, `pixel_format_registry.h/cpp`, `viewport.h/cpp`
+   - オペレーター: `operators.h/cpp`
+   - ノードグラフ: `node_graph.h/cpp`
+2. 必要に応じて`ImageAllocator`を継承したカスタムアロケータを実装
 3. プロジェクトに組み込んでビルド
 
 ## 🛠️ 開発
@@ -242,7 +246,8 @@ Emscriptenの`embind`を使用してC++クラスをJavaScriptから呼び出し�
 ### デバッグビルド
 
 ```bash
-emcc src/filters.cpp src/image_processor.cpp src/node_graph.cpp src/bindings.cpp \
+emcc src/pixel_format_registry.cpp src/viewport.cpp src/operators.cpp \
+    src/node_graph.cpp src/bindings.cpp \
     -o web/image_transform.js \
     -std=c++17 \
     -O0 -g \

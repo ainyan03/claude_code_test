@@ -141,61 +141,6 @@ header p {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
-.canvas-controls {
-    background: #f9f9f9;
-    padding: 15px;
-    border-radius: 8px;
-    display: flex;
-    gap: 30px;
-}
-
-.canvas-control-column {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.canvas-control-header {
-    font-size: 12px;
-    font-weight: 600;
-    color: #667eea;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-.canvas-control-field {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.canvas-control-label {
-    font-size: 13px;
-    font-weight: 500;
-    color: #666;
-    min-width: 24px;
-}
-
-.canvas-controls input[type="number"] {
-    width: 70px;
-    padding: 5px 8px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    font-size: 13px;
-    text-align: right;
-}
-
-.canvas-controls input[type="number"]:focus {
-    border-color: #667eea;
-    outline: none;
-}
-
-.canvas-controls button#resize-canvas {
-    padding: 6px 16px;
-    font-size: 13px;
-    margin-top: auto;
-}
-
 .canvas-download {
     display: flex;
     justify-content: flex-end;
@@ -207,39 +152,7 @@ header p {
     font-size: 13px;
 }
 
-/* 画像管理セクション */
-.images-section {
-    background: #f9f9f9;
-    padding: 15px;
-    border-radius: 8px;
-    max-height: 80vh;
-    overflow-y: auto;
-}
-
-.section-header {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    margin-bottom: 15px;
-}
-
-.section-header h2 {
-    font-size: 1.1em;
-    color: #333;
-    margin: 0;
-}
-
-.section-header .primary-btn {
-    width: 100%;
-}
-
 /* 画像ライブラリ */
-#images-library {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
 .image-item {
     background: white;
     border: 2px solid #e0e0e0;
@@ -321,40 +234,6 @@ header p {
 
 .delete-image-btn:hover {
     background: #dc2626;
-}
-
-/* コントロール */
-.control-group {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-}
-
-.control-group label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-}
-
-.control-label {
-    min-width: 80px;
-    color: #666;
-    font-weight: 500;
-}
-
-.control-group input[type="range"] {
-    flex: 1;
-    min-width: 0;
-    height: 6px;
-    cursor: pointer;
-}
-
-.param-value {
-    min-width: 50px;
-    text-align: right;
-    font-weight: 600;
-    color: #667eea;
 }
 
 /* ボタン */
@@ -511,11 +390,6 @@ button {
         padding: 15px;
     }
 
-    .images-section {
-        max-height: none;
-        order: 2;
-    }
-
     .preview-section {
         order: 1;
     }
@@ -524,173 +398,11 @@ button {
         min-height: 0;  /* PC時と統一（flex: 1で自動調整） */
     }
 
-    .canvas-controls {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .canvas-controls label {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-    }
-
-    .canvas-controls input[type="number"] {
-        flex: 1;
-        min-width: 60px;
-    }
-
-    .section-header {
-        flex-direction: column;
-        gap: 10px;
-        align-items: stretch;
-    }
-
     button, .primary-btn {
         padding: 12px 16px;
         font-size: 16px;
         touch-action: manipulation;
     }
-
-    .control-group input[type="range"] {
-        height: 8px;
-    }
-}
-
-/* 超小型デバイス対応 */
-@media (max-width: 480px) {
-    .control-group label {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .control-label {
-        min-width: auto;
-    }
-
-    .param-value {
-        text-align: left;
-    }
-}
-
-/* フィルタセクション */
-.filters-section {
-    margin-top: 15px;
-    padding-top: 15px;
-    border-top: 1px solid #eee;
-}
-
-.filters-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 10px;
-}
-
-.filter-add-buttons {
-    display: flex;
-    gap: 5px;
-}
-
-.filter-add-btn {
-    width: 32px;
-    height: 32px;
-    padding: 4px;
-    background: #f0f0f0;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 14px;
-    transition: all 0.2s;
-}
-
-.filter-add-btn:hover {
-    background: #667eea;
-    color: white;
-    border-color: #667eea;
-}
-
-.filters-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.filter-item {
-    background: #f5f5f5;
-    border: 1px solid #e0e0e0;
-    border-radius: 6px;
-    padding: 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.filter-item-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.filter-name {
-    font-size: 12px;
-    font-weight: 600;
-    color: #555;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.node-id-badge {
-    display: inline-block;
-    background: #667eea;
-    color: white;
-    font-size: 10px;
-    font-weight: 700;
-    padding: 2px 6px;
-    border-radius: 10px;
-    cursor: help;
-}
-
-.filter-remove-btn {
-    width: 24px;
-    height: 24px;
-    padding: 0;
-    background: #ff6b6b;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 12px;
-    transition: all 0.2s;
-}
-
-.filter-remove-btn:hover {
-    background: #ff5252;
-}
-
-.filter-param {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 12px;
-}
-
-.filter-param label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex: 1;
-}
-
-.filter-param input[type="range"] {
-    flex: 1;
-    height: 4px;
-}
-
-.filter-param .param-value {
-    min-width: 40px;
-    font-size: 11px;
 }
 
 /* グローバルノードグラフセクション */

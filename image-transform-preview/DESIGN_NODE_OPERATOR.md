@@ -226,57 +226,6 @@ result = op->apply(inputs, ctx);
 
 ---
 
-## FilterRegistry との関係
-
-### 現状の FilterRegistry
-
-`FilterRegistry` は以下の役割を持つ：
-
-1. **メタデータ管理**: パラメータ名、範囲、デフォルト値、ステップ
-2. **ファクトリー機能**: 文字列ID + params → `ImageFilter` 生成
-3. **組み込み登録**: 起動時に標準フィルタを自動登録
-
-### 移行方針: 段階的統合
-
-```
-Phase 1-2: FilterRegistry を維持
-           OperatorFactory は内部で FilterRegistry.createFilter() を利用
-
-Phase 3:   AffineOperator, CompositeOperator を OperatorFactory に追加
-           （FilterRegistry には登録しない）
-
-Phase 5:   FilterRegistry を OperatorRegistry にリネーム・統合
-           - FilterDef → OperatorDef
-           - createFilter → createOperator
-           - 合成・アフィンも登録対象に
-```
-
-### 最終形: OperatorRegistry
-
-```cpp
-struct OperatorDef {
-    std::string id;                           // 識別子
-    std::string name;                         // 表示名
-    std::vector<OperatorParamDef> params;     // パラメータ定義
-    int minInputs;                            // 最小入力数
-    int maxInputs;                            // 最大入力数 (-1=無制限)
-    std::function<std::unique_ptr<NodeOperator>(const std::vector<float>&)> create;
-};
-
-class OperatorRegistry {
-public:
-    static OperatorRegistry& getInstance();
-    void registerOperator(const OperatorDef& def);
-    std::unique_ptr<NodeOperator> createOperator(
-        const std::string& id,
-        const std::vector<float>& params
-    ) const;
-    // ...
-};
-```
-
----
-
 ## 移行計画
 
 ### Phase 1: 基盤整備 ✅
