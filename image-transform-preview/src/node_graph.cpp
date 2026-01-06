@@ -433,6 +433,13 @@ Image NodeGraphEvaluator::evaluateGraph() {
 
     for (int ty = 0; ty < tileCountY; ty++) {
         for (int tx = 0; tx < tileCountX; tx++) {
+            // デバッグ用チェッカーボードモード: 市松模様でスキップ
+            if (tileStrategy == TileStrategy::Debug_Checkerboard) {
+                if ((tx + ty) % 2 == 1) {
+                    continue;  // 奇数タイルはスキップ
+                }
+            }
+
             // タイル要求を生成
             RenderRequest tileReq = RenderRequest::fromTile(context, tx, ty);
 

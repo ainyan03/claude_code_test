@@ -1254,6 +1254,26 @@ button {
     color: #667eea;
 }
 
+/* タイル分割設定 */
+.sidebar-select {
+    flex: 1;
+    padding: 6px 8px;
+    font-size: 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: white;
+    cursor: pointer;
+}
+
+.sidebar-select:focus {
+    border-color: #667eea;
+    outline: none;
+}
+
+.sidebar-tile-custom {
+    margin-top: 8px;
+}
+
 /* サイドバーオーバーレイ */
 .sidebar-overlay {
     position: fixed;

@@ -23,6 +23,13 @@ public:
         evaluator.setDstOrigin(x, y);
     }
 
+    // タイル分割戦略を設定
+    // strategy: 0=None, 1=Scanline, 2=Tile64, 3=Custom
+    void setTileStrategy(int strategy, int tileWidth, int tileHeight) {
+        TileStrategy ts = static_cast<TileStrategy>(strategy);
+        evaluator.setTileStrategy(ts, tileWidth, tileHeight);
+    }
+
     void registerImage(int imageId, const val& imageData, int width, int height) {
         unsigned int length = imageData["length"].as<unsigned int>();
         Image img(width, height);
@@ -183,6 +190,7 @@ EMSCRIPTEN_BINDINGS(image_transform) {
         .constructor<int, int>()
         .function("setCanvasSize", &NodeGraphEvaluatorWrapper::setCanvasSize)
         .function("setDstOrigin", &NodeGraphEvaluatorWrapper::setDstOrigin)
+        .function("setTileStrategy", &NodeGraphEvaluatorWrapper::setTileStrategy)
         .function("registerImage", &NodeGraphEvaluatorWrapper::registerImage)
         .function("setNodes", &NodeGraphEvaluatorWrapper::setNodes)
         .function("setConnections", &NodeGraphEvaluatorWrapper::setConnections)
