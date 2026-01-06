@@ -86,6 +86,48 @@
 
 ## 🔄 リファクタリング計画
 
+### 🚨 2パス評価システム（アーキテクチャ刷新）
+
+**課題**: ~~現在のプッシュ型パイプラインでは、アフィン変換の出力ViewPortサイズがcanvasSizeに固定されており、入力画像がcanvasSizeより大きい場合に画像が切れる問題がある。~~ → **解決済み**
+
+**解決策**: 出力ノードから上流に「必要領域」を伝播し、各ノードが必要最小限の領域のみを処理する2パス評価システムを導入する。
+
+**詳細設計**: [DESIGN_2PASS_EVALUATION.md](DESIGN_2PASS_EVALUATION.md)
+
+#### Phase 1: 基盤整備 ✅
+- [x] `RenderContext` 構造体の定義（出力全体サイズ + タイル戦略）
+- [x] `RenderRequest` 構造体の定義（部分矩形 + 基準座標）
+- [x] 事前計算データ構造（AffinePreparedData, FilterPreparedData）
+
+#### Phase 2: 事前準備（段階0）✅
+- [x] `prepare()` / `prepareNode()` の実装
+- [x] アフィンノード: 逆行列計算、固定小数点変換
+- [x] フィルタノード: カーネル準備
+- [x] 出力全体サイズの上流伝播
+
+#### Phase 3: 要求伝播（段階1）✅
+- [x] `propagateRequests()` の実装（タイルごとに呼び出し可能）
+- [x] 各ノードタイプの `propagateNodeRequest()` 実装
+- [x] 事前計算データを活用した高速領域変換
+
+#### Phase 4: 評価パイプライン（段階2）✅
+- [x] `evaluateTile()` / `evaluateNodeWithRequest()` の実装
+- [x] ViewPortサイズを要求領域に基づいて動的決定
+- [x] `applyTransform()` の改修（出力サイズパラメータ追加）
+
+#### Phase 5: タイル分割対応 ✅
+- [x] `evaluateGraph()` のタイルループ対応
+- [x] タイルごとのメモリ解放
+- [x] 分割戦略の選択API（None / Scanline / Tile64 / Custom）
+
+#### Phase 6: テスト・最適化（将来）
+- [ ] タイル分割モードの実動作テスト
+- [ ] タイル境界でのピクセル整合性テスト
+- [ ] メモリ使用量の検証
+- [ ] 組込み環境での動作確認
+
+---
+
 ### ピクセルフォーマット最適化
 
 **方針**: 入出力がRGBA8_Straightのため、Premultiplied処理が不要な場面ではRGBA8_Straightを基本とする

@@ -21,8 +21,13 @@ void ImageProcessor::setCanvasSize(int width, int height) {
 }
 
 // ViewPort（Premultiplied）画像の合成（超高速版：除算なし）
-ViewPort ImageProcessor::mergeImages(const std::vector<const ViewPort*>& images, double dstOriginX, double dstOriginY) const {
-    ViewPort result(canvasWidth, canvasHeight, PixelFormatIDs::RGBA16_Premultiplied);
+ViewPort ImageProcessor::mergeImages(const std::vector<const ViewPort*>& images, double dstOriginX, double dstOriginY,
+                                     int outputWidth, int outputHeight) const {
+    // 出力サイズの決定（0以下の場合はcanvasサイズを使用）
+    int outW = (outputWidth > 0) ? outputWidth : canvasWidth;
+    int outH = (outputHeight > 0) ? outputHeight : canvasHeight;
+
+    ViewPort result(outW, outH, PixelFormatIDs::RGBA16_Premultiplied);
 
     // キャンバスを透明で初期化
     std::memset(result.data, 0, result.getTotalBytes());
@@ -44,9 +49,9 @@ ViewPort ImageProcessor::mergeImages(const std::vector<const ViewPort*>& images,
 
         // ループ範囲を事前計算（内側ループの条件分岐を削減）
         int yStart = std::max(0, -offsetY);
-        int yEnd = std::min(img->height, canvasHeight - offsetY);
+        int yEnd = std::min(img->height, outH - offsetY);
         int xStart = std::max(0, -offsetX);
-        int xEnd = std::min(img->width, canvasWidth - offsetX);
+        int xEnd = std::min(img->width, outW - offsetX);
 
         // 範囲が無効な場合はスキップ
         if (yStart >= yEnd || xStart >= xEnd) continue;
@@ -120,8 +125,13 @@ ViewPort ImageProcessor::mergeImages(const std::vector<const ViewPort*>& images,
 //   4. 入力画像の範囲内ならピクセルをコピー
 //
 ViewPort ImageProcessor::applyTransform(const ViewPort& input, const AffineMatrix& matrix, double originX, double originY,
-                                        double outputOffsetX, double outputOffsetY) const {
-    ViewPort output(canvasWidth, canvasHeight, PixelFormatIDs::RGBA16_Premultiplied);
+                                        double outputOffsetX, double outputOffsetY,
+                                        int outputWidth, int outputHeight) const {
+    // 出力サイズの決定（0以下の場合はcanvasサイズを使用）
+    int outW = (outputWidth > 0) ? outputWidth : canvasWidth;
+    int outH = (outputHeight > 0) ? outputHeight : canvasHeight;
+
+    ViewPort output(outW, outH, PixelFormatIDs::RGBA16_Premultiplied);
     std::memset(output.data, 0, output.getTotalBytes());
 
     // 逆行列を計算（出力→入力の座標変換）
@@ -241,16 +251,16 @@ ViewPort ImageProcessor::applyTransform(const ViewPort& input, const AffineMatri
     const int32_t dxOffsetX = fixedInvA >> 1;   // (dx+0.5)のX成分
     const int32_t dxOffsetY = fixedInvC >> 1;   // (dx+0.5)のY成分
 
-    for (int dy = 0; dy < canvasHeight; dy++) {
+    for (int dy = 0; dy < outH; dy++) {
         // 行基準座標（dy+0.5の逆変換を含む）
         int32_t rowBaseX = fixedInvB * dy + fixedInvTx + rowOffsetX;
         int32_t rowBaseY = fixedInvD * dy + fixedInvTy + rowOffsetY;
 
         // 入力画像範囲内となる dx の有効範囲を事前計算
-        auto [xStart, xEnd] = calcValidRange(fixedInvA, rowBaseX, 0, input.width - 1, canvasWidth);
-        auto [yStart, yEnd] = calcValidRange(fixedInvC, rowBaseY, 0, input.height - 1, canvasWidth);
+        auto [xStart, xEnd] = calcValidRange(fixedInvA, rowBaseX, 0, input.width - 1, outW);
+        auto [yStart, yEnd] = calcValidRange(fixedInvC, rowBaseY, 0, input.height - 1, outW);
         int dxStart = std::max({0, xStart, yStart});
-        int dxEnd = std::min({canvasWidth - 1, xEnd, yEnd});
+        int dxEnd = std::min({outW - 1, xEnd, yEnd});
 
         if (dxStart > dxEnd) continue;
 

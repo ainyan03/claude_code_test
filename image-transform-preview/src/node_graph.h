@@ -9,11 +9,145 @@
 #include <map>
 #include <set>
 #include <chrono>
+#include <cstdint>
+#include <algorithm>
+#include <cmath>
 
 namespace ImageTransform {
 
 // 前方宣言
 struct Image;
+
+// ========================================================================
+// タイル分割評価システム用構造体
+// ========================================================================
+
+// タイル分割戦略
+enum class TileStrategy {
+    None,       // 分割なし（従来互換、全体を一度に処理）
+    Scanline,   // 1行ずつ処理（極小メモリ環境向け）
+    Tile64,     // 64x64タイル（組込み環境標準）
+    Custom      // カスタムサイズ
+};
+
+// 出力全体情報（段階0で伝播）
+struct RenderContext {
+    int totalWidth = 0;
+    int totalHeight = 0;
+    double originX = 0;     // dstOrigin X
+    double originY = 0;     // dstOrigin Y
+
+    TileStrategy strategy = TileStrategy::None;
+    int tileWidth = 64;     // Custom用
+    int tileHeight = 64;
+
+    // タイル数を取得
+    int getTileCountX() const {
+        if (strategy == TileStrategy::None) return 1;
+        int tw = (strategy == TileStrategy::Scanline) ? totalWidth :
+                 (strategy == TileStrategy::Tile64) ? 64 : tileWidth;
+        return (totalWidth + tw - 1) / tw;
+    }
+
+    int getTileCountY() const {
+        if (strategy == TileStrategy::None) return 1;
+        int th = (strategy == TileStrategy::Scanline) ? 1 :
+                 (strategy == TileStrategy::Tile64) ? 64 : tileHeight;
+        return (totalHeight + th - 1) / th;
+    }
+
+    // 実際のタイルサイズを取得
+    int getEffectiveTileWidth() const {
+        if (strategy == TileStrategy::None) return totalWidth;
+        if (strategy == TileStrategy::Scanline) return totalWidth;
+        if (strategy == TileStrategy::Tile64) return 64;
+        return tileWidth;
+    }
+
+    int getEffectiveTileHeight() const {
+        if (strategy == TileStrategy::None) return totalHeight;
+        if (strategy == TileStrategy::Scanline) return 1;
+        if (strategy == TileStrategy::Tile64) return 64;
+        return tileHeight;
+    }
+};
+
+// 部分矩形要求（段階1で伝播）
+struct RenderRequest {
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+    double originX = 0;     // この要求における基準座標X
+    double originY = 0;     // この要求における基準座標Y
+
+    bool isEmpty() const { return width <= 0 || height <= 0; }
+
+    // 2つの要求の交差領域を計算
+    RenderRequest intersect(const RenderRequest& other) const {
+        int newX = std::max(x, other.x);
+        int newY = std::max(y, other.y);
+        int newRight = std::min(x + width, other.x + other.width);
+        int newBottom = std::min(y + height, other.y + other.height);
+        return {
+            newX, newY,
+            std::max(0, newRight - newX),
+            std::max(0, newBottom - newY),
+            originX, originY
+        };
+    }
+
+    // マージン分拡大（フィルタ用）
+    RenderRequest expand(int margin) const {
+        return {
+            x - margin, y - margin,
+            width + margin * 2, height + margin * 2,
+            originX, originY
+        };
+    }
+
+    // RenderContextからタイル要求を生成
+    static RenderRequest fromTile(const RenderContext& ctx, int tileX, int tileY) {
+        int tw = ctx.getEffectiveTileWidth();
+        int th = ctx.getEffectiveTileHeight();
+        int rx = tileX * tw;
+        int ry = tileY * th;
+        return {
+            rx, ry,
+            std::min(tw, ctx.totalWidth - rx),
+            std::min(th, ctx.totalHeight - ry),
+            ctx.originX, ctx.originY
+        };
+    }
+};
+
+// アフィン変換の事前計算データ
+struct AffinePreparedData {
+    // 逆行列（固定小数点 16bit）
+    int32_t fixedInvA = 0;
+    int32_t fixedInvB = 0;
+    int32_t fixedInvC = 0;
+    int32_t fixedInvD = 0;
+    int32_t fixedInvTx = 0;
+    int32_t fixedInvTy = 0;
+
+    // 入力画像情報
+    int inputWidth = 0;
+    int inputHeight = 0;
+    double inputOriginX = 0;
+    double inputOriginY = 0;
+
+    bool prepared = false;
+};
+
+// フィルタの事前計算データ
+struct FilterPreparedData {
+    std::string filterType;
+    std::vector<float> params;
+    int kernelRadius = 0;   // 領域拡大に必要なマージン
+
+    bool prepared = false;
+};
 
 // ========================================================================
 // パフォーマンス計測構造体
@@ -113,8 +247,24 @@ public:
     // 出力先原点（dstOrigin）を設定
     void setDstOrigin(double x, double y);
 
+    // タイル分割戦略を設定
+    void setTileStrategy(TileStrategy strategy, int tileWidth = 64, int tileHeight = 64);
+
     // パフォーマンス計測結果を取得
     const PerfMetrics& getPerfMetrics() const { return perfMetrics; }
+
+    // ========================================================================
+    // 3段階評価API（タイル分割対応）
+    // ========================================================================
+
+    // 段階0: 事前準備（出力全体サイズを伝播、各ノードが事前計算を実行）
+    void prepare(const RenderContext& context);
+
+    // 段階1: 要求伝播（タイルごとに必要な入力領域を算出）
+    void propagateRequests(const RenderRequest& tileRequest);
+
+    // 段階2: タイル評価（要求領域のみを処理）
+    ViewPort evaluateTile(const RenderRequest& tileRequest);
 
 private:
     int canvasWidth;
@@ -122,6 +272,11 @@ private:
     double dstOriginX;  // 出力先の基準点X（ピクセル座標）
     double dstOriginY;  // 出力先の基準点Y（ピクセル座標）
     ImageProcessor processor;
+
+    // タイル分割設定
+    TileStrategy tileStrategy = TileStrategy::None;
+    int customTileWidth = 64;
+    int customTileHeight = 64;
 
     std::vector<GraphNode> nodes;
     std::vector<GraphConnection> connections;
@@ -132,11 +287,42 @@ private:
     // ノード評価結果キャッシュ（1回の評価で使い回す）
     std::map<std::string, ViewPort> nodeResultCache;
 
+    // 事前計算データキャッシュ（段階0で生成）
+    std::map<std::string, AffinePreparedData> affinePreparedCache;
+    std::map<std::string, FilterPreparedData> filterPreparedCache;
+
+    // 要求キャッシュ（段階1で生成、段階2で使用）
+    std::map<std::string, RenderRequest> nodeRequestCache;
+
     // パフォーマンス計測
     PerfMetrics perfMetrics;
 
-    // 内部評価関数（再帰的にノードを評価）
+    // 内部評価関数（再帰的にノードを評価）- 従来API用
     ViewPort evaluateNode(const std::string& nodeId, std::set<std::string>& visited);
+
+    // ========================================================================
+    // 3段階評価の内部関数
+    // ========================================================================
+
+    // 段階0: ノードごとの事前準備（再帰的）
+    void prepareNode(const std::string& nodeId, const RenderContext& context,
+                     std::set<std::string>& visited);
+
+    // 段階1: ノードごとの要求伝播（再帰的）
+    RenderRequest propagateNodeRequest(const std::string& nodeId,
+                                       const RenderRequest& outputRequest,
+                                       std::set<std::string>& visited);
+
+    // 段階2: ノードごとの評価（再帰的、要求ベース）
+    ViewPort evaluateNodeWithRequest(const std::string& nodeId,
+                                     std::set<std::string>& visited);
+
+    // ユーティリティ: 出力ノードを検索
+    const GraphNode* findOutputNode() const;
+
+    // ユーティリティ: ノードへの入力接続を検索
+    const GraphConnection* findInputConnection(const std::string& nodeId,
+                                               const std::string& portName) const;
 };
 
 } // namespace ImageTransform
