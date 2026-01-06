@@ -32,9 +32,6 @@ public:
     ViewPort mergeImages(const std::vector<const ViewPort*>& images, double dstOriginX, double dstOriginY,
                          int outputWidth = 0, int outputHeight = 0) const;
 
-    // ピクセルフォーマット変換
-    ViewPort convertPixelFormat(const ViewPort& input, PixelFormatID targetFormat) const;
-
     // キャンバスサイズ管理
     void setCanvasSize(int width, int height);
 

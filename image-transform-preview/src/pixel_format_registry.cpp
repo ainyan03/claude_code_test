@@ -6,72 +6,63 @@ namespace ImageTransform {
 
 // ========================================================================
 // 組み込みフォーマットの変換関数
+// 標準フォーマット: RGBA8_Straight（8bit RGBA、ストレートアルファ）
 // ========================================================================
 
-// RGBA16_Straight: 自分自身なのでコピー
-static void rgba16Straight_toStandard(const void* src, uint16_t* dst, int pixelCount) {
-    std::memcpy(dst, src, pixelCount * 4 * sizeof(uint16_t));
+// RGBA8_Straight: 標準フォーマットなのでコピー
+static void rgba8Straight_toStandard(const void* src, uint8_t* dst, int pixelCount) {
+    std::memcpy(dst, src, pixelCount * 4);
 }
 
-static void rgba16Straight_fromStandard(const uint16_t* src, void* dst, int pixelCount) {
-    std::memcpy(dst, src, pixelCount * 4 * sizeof(uint16_t));
+static void rgba8Straight_fromStandard(const uint8_t* src, void* dst, int pixelCount) {
+    std::memcpy(dst, src, pixelCount * 4);
 }
 
-// RGBA16_Premultiplied: アンプリマルチプライド/プリマルチプライド変換
-static void rgba16Premul_toStandard(const void* src, uint16_t* dst, int pixelCount) {
+// RGBA16_Premultiplied: 16bit Premultiplied ↔ 8bit Straight 変換
+static void rgba16Premul_toStandard(const void* src, uint8_t* dst, int pixelCount) {
     const uint16_t* s = static_cast<const uint16_t*>(src);
     for (int i = 0; i < pixelCount; i++) {
         int idx = i * 4;
-        uint16_t a = s[idx + 3];
+        uint16_t r16 = s[idx];
+        uint16_t g16 = s[idx + 1];
+        uint16_t b16 = s[idx + 2];
+        uint16_t a16 = s[idx + 3];
 
-        if (a > 0) {
-            // アンプリマルチプライド: RGB / alpha
-            dst[idx]     = ((uint32_t)s[idx]     * 65535) / a;
-            dst[idx + 1] = ((uint32_t)s[idx + 1] * 65535) / a;
-            dst[idx + 2] = ((uint32_t)s[idx + 2] * 65535) / a;
+        // Unpremultiply + 16bit → 8bit
+        if (a16 > 0) {
+            uint32_t r_unpre = ((uint32_t)r16 * 65535) / a16;
+            uint32_t g_unpre = ((uint32_t)g16 * 65535) / a16;
+            uint32_t b_unpre = ((uint32_t)b16 * 65535) / a16;
+            dst[idx]     = std::min(r_unpre >> 8, 255u);
+            dst[idx + 1] = std::min(g_unpre >> 8, 255u);
+            dst[idx + 2] = std::min(b_unpre >> 8, 255u);
         } else {
             dst[idx] = dst[idx + 1] = dst[idx + 2] = 0;
         }
-        dst[idx + 3] = a;
+        dst[idx + 3] = a16 >> 8;
     }
 }
 
-static void rgba16Premul_fromStandard(const uint16_t* src, void* dst, int pixelCount) {
+static void rgba16Premul_fromStandard(const uint8_t* src, void* dst, int pixelCount) {
     uint16_t* d = static_cast<uint16_t*>(dst);
     for (int i = 0; i < pixelCount; i++) {
         int idx = i * 4;
-        uint16_t a = src[idx + 3];
+        uint16_t r8 = src[idx];
+        uint16_t g8 = src[idx + 1];
+        uint16_t b8 = src[idx + 2];
+        uint16_t a8 = src[idx + 3];
 
-        // プリマルチプライド: RGB * alpha
-        d[idx]     = (src[idx]     * a) >> 16;
-        d[idx + 1] = (src[idx + 1] * a) >> 16;
-        d[idx + 2] = (src[idx + 2] * a) >> 16;
-        d[idx + 3] = a;
-    }
-}
+        // 8bit → 16bit 拡張（0-255 → 0-65535）
+        uint16_t r16 = (r8 << 8) | r8;
+        uint16_t g16 = (g8 << 8) | g8;
+        uint16_t b16 = (b8 << 8) | b8;
+        uint16_t a16 = (a8 << 8) | a8;
 
-// RGBA8_Straight: 8bit → 16bit変換
-static void rgba8Straight_toStandard(const void* src, uint16_t* dst, int pixelCount) {
-    const uint8_t* s = static_cast<const uint8_t*>(src);
-    for (int i = 0; i < pixelCount; i++) {
-        int idx = i * 4;
-        // 8bit → 16bit: 0-255 → 0-65535 (val << 8 | val)
-        dst[idx]     = (s[idx]     << 8) | s[idx];
-        dst[idx + 1] = (s[idx + 1] << 8) | s[idx + 1];
-        dst[idx + 2] = (s[idx + 2] << 8) | s[idx + 2];
-        dst[idx + 3] = (s[idx + 3] << 8) | s[idx + 3];
-    }
-}
-
-static void rgba8Straight_fromStandard(const uint16_t* src, void* dst, int pixelCount) {
-    uint8_t* d = static_cast<uint8_t*>(dst);
-    for (int i = 0; i < pixelCount; i++) {
-        int idx = i * 4;
-        // 16bit → 8bit: 上位8bitを取得
-        d[idx]     = src[idx]     >> 8;
-        d[idx + 1] = src[idx + 1] >> 8;
-        d[idx + 2] = src[idx + 2] >> 8;
-        d[idx + 3] = src[idx + 3] >> 8;
+        // Premultiply: RGB * alpha / 65535
+        d[idx]     = (r16 * a16) >> 16;
+        d[idx + 1] = (g16 * a16) >> 16;
+        d[idx + 2] = (b16 * a16) >> 16;
+        d[idx + 3] = a16;
     }
 }
 
@@ -80,28 +71,6 @@ static void rgba8Straight_fromStandard(const uint16_t* src, void* dst, int pixel
 // ========================================================================
 
 namespace BuiltinFormats {
-
-static PixelFormatDescriptor createRGBA16_Straight() {
-    PixelFormatDescriptor desc;
-    desc.id = PixelFormatIDs::RGBA16_Straight;
-    desc.name = "RGBA16_Straight";
-    desc.bitsPerPixel = 64;
-    desc.pixelsPerUnit = 1;
-    desc.bytesPerUnit = 8;
-    desc.channels[0] = ChannelDescriptor(16, 0);  // R
-    desc.channels[1] = ChannelDescriptor(16, 0);  // G
-    desc.channels[2] = ChannelDescriptor(16, 0);  // B
-    desc.channels[3] = ChannelDescriptor(16, 0);  // A
-    desc.hasAlpha = true;
-    desc.isPremultiplied = false;
-    desc.isIndexed = false;
-    desc.maxPaletteSize = 0;
-    desc.bitOrder = BitOrder::MSBFirst;
-    desc.byteOrder = ByteOrder::Native;
-    desc.toStandard = rgba16Straight_toStandard;
-    desc.fromStandard = rgba16Straight_fromStandard;
-    return desc;
-}
 
 static PixelFormatDescriptor createRGBA16_Premultiplied() {
     PixelFormatDescriptor desc;
@@ -147,7 +116,6 @@ static PixelFormatDescriptor createRGBA8_Straight() {
     return desc;
 }
 
-static const PixelFormatDescriptor RGBA16_Straight = createRGBA16_Straight();
 static const PixelFormatDescriptor RGBA16_Premultiplied = createRGBA16_Premultiplied();
 static const PixelFormatDescriptor RGBA8_Straight = createRGBA8_Straight();
 
@@ -161,7 +129,6 @@ PixelFormatRegistry::PixelFormatRegistry()
     : nextUserFormatID_(PixelFormatIDs::USER_DEFINED_BASE) {
 
     // 組み込みフォーマットを登録
-    formats_[PixelFormatIDs::RGBA16_Straight] = BuiltinFormats::RGBA16_Straight;
     formats_[PixelFormatIDs::RGBA16_Premultiplied] = BuiltinFormats::RGBA16_Premultiplied;
     formats_[PixelFormatIDs::RGBA8_Straight] = BuiltinFormats::RGBA8_Straight;
 }
@@ -204,17 +171,17 @@ void PixelFormatRegistry::convert(const void* src, PixelFormatID srcFormatID,
 
     if (!srcDesc || !dstDesc) return;
 
-    // 標準フォーマット（RGBA16_Straight）を経由して変換
+    // 標準フォーマット（RGBA8_Straight）を経由して変換
     conversionBuffer_.resize(pixelCount * 4);
 
-    // src → RGBA16_Straight
+    // src → RGBA8_Straight
     if (srcDesc->isIndexed && srcDesc->toStandardIndexed && srcPalette) {
         srcDesc->toStandardIndexed(src, conversionBuffer_.data(), pixelCount, srcPalette);
     } else if (!srcDesc->isIndexed && srcDesc->toStandard) {
         srcDesc->toStandard(src, conversionBuffer_.data(), pixelCount);
     }
 
-    // RGBA16_Straight → dst
+    // RGBA8_Straight → dst
     if (dstDesc->isIndexed && dstDesc->fromStandardIndexed && dstPalette) {
         dstDesc->fromStandardIndexed(conversionBuffer_.data(), dst, pixelCount, dstPalette);
     } else if (!dstDesc->isIndexed && dstDesc->fromStandard) {

@@ -45,8 +45,8 @@ private:
     // ユーザー定義フォーマット用の次のID
     PixelFormatID nextUserFormatID_;
 
-    // 変換用の一時バッファ（標準フォーマット経由の変換に使用）
-    mutable std::vector<uint16_t> conversionBuffer_;
+    // 変換用の一時バッファ（標準フォーマット RGBA8_Straight 経由の変換に使用）
+    mutable std::vector<uint8_t> conversionBuffer_;
 };
 
 } // namespace ImageTransform

@@ -106,11 +106,11 @@ struct PixelFormatDescriptor {
     ByteOrder byteOrder;    // バイト順序（multi-byte pixel形式で使用）
 
     // 変換関数の型定義
-    // 標準フォーマット（RGBA16_Straight）との相互変換
-    using ToStandardFunc = void(*)(const void* src, uint16_t* dst, int pixelCount);
-    using FromStandardFunc = void(*)(const uint16_t* src, void* dst, int pixelCount);
-    using ToStandardIndexedFunc = void(*)(const void* src, uint16_t* dst, int pixelCount, const uint16_t* palette);
-    using FromStandardIndexedFunc = void(*)(const uint16_t* src, void* dst, int pixelCount, const uint16_t* palette);
+    // 標準フォーマット（RGBA8_Straight）との相互変換
+    using ToStandardFunc = void(*)(const void* src, uint8_t* dst, int pixelCount);
+    using FromStandardFunc = void(*)(const uint8_t* src, void* dst, int pixelCount);
+    using ToStandardIndexedFunc = void(*)(const void* src, uint8_t* dst, int pixelCount, const uint16_t* palette);
+    using FromStandardIndexedFunc = void(*)(const uint8_t* src, void* dst, int pixelCount, const uint16_t* palette);
 
     // 変換関数ポインタ（インデックスカラーかどうかで使い分け）
     union {
