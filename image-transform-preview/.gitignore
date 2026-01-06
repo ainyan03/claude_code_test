@@ -1,6 +1,7 @@
 # WebAssembly build outputs
 web/image_transform.js
 web/image_transform.wasm
+web/version.js
 
 # Emscripten cache
 .emscripten_cache/
