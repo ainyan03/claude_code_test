@@ -100,9 +100,25 @@ ViewPort ImageProcessor::mergeImages(const std::vector<const ViewPort*>& images,
     return result;
 }
 
-// 行列ベース + 固定小数点アフィン変換（ViewPortベース）
-// 純粋な幾何変換のみ（アルファ調整はAlphaFilterを使用）
-// originX, originY: 変換の中心点（この点を中心に回転・拡縮が適用される）
+// ========================================
+// アフィン変換（固定小数点演算による高速実装）
+// ========================================
+//
+// 入力画像に対してアフィン変換を適用し、出力バッファに描画する。
+// 逆変換方式: 出力の各ピクセル位置から入力のサンプル位置を逆算する。
+//
+// パラメータ:
+//   input         : 入力画像（ViewPort）
+//   matrix        : 変換行列 [a b tx; c d ty; 0 0 1]
+//   originX/Y     : 変換の中心点（この点を中心に回転・拡縮が適用される）
+//   outputOffsetX/Y: 出力バッファ内でのレンダリング位置オフセット
+//
+// 座標変換の流れ:
+//   1. 出力座標(dx, dy)からオフセットを減算
+//   2. 原点を基準とした相対座標に変換
+//   3. 逆行列を適用して入力座標を算出
+//   4. 入力画像の範囲内ならピクセルをコピー
+//
 ViewPort ImageProcessor::applyTransform(const ViewPort& input, const AffineMatrix& matrix, double originX, double originY,
                                         double outputOffsetX, double outputOffsetY) const {
     ViewPort output(canvasWidth, canvasHeight, PixelFormatIDs::RGBA16_Premultiplied);
@@ -134,16 +150,28 @@ ViewPort ImageProcessor::applyTransform(const ViewPort& input, const AffineMatri
     int32_t fixedInvTx = std::lround(invTx * FIXED_POINT_SCALE);
     int32_t fixedInvTy = std::lround(invTy * FIXED_POINT_SCALE);
 
-    // 原点中心の変換を固定小数点で適用: T(origin) × M × T(-origin) の逆変換
-    // fixedInv を使い、整数演算で計算（固定小数成分が同じなら原点オフセットも同じになる）
-    // 原点オフセット: origin - M^-1 × origin = origin - (invA × originX + invB × originY, ...)
+    // ----------------------------------------
+    // 原点中心の変換を固定小数点で適用
+    // ----------------------------------------
+    // 数学的には: T(origin) × M × T(-origin) の逆変換
+    // = T(origin) × M^-1 × T(-origin)
+    //
+    // 展開すると:
+    //   sx = invA*(dx-origin) + invB*(dy-origin) + origin
+    //      = invA*dx + invB*dy + (origin - invA*origin - invB*origin)
+    //
+    // 最後の項が原点オフセットとなる
     int32_t originXInt = std::lround(originX);
     int32_t originYInt = std::lround(originY);
     fixedInvTx += (originXInt << FIXED_POINT_BITS) - originXInt * fixedInvA - fixedInvB * originYInt;
     fixedInvTy += (originYInt << FIXED_POINT_BITS) - originYInt * fixedInvD - fixedInvC * originXInt;
 
-    // 出力座標系オフセット: output(dx, dy) が input(transform^-1(dx - offset, dy - offset)) をサンプルするように調整
-    // これにより出力バッファ内でのレンダリング位置をシフトできる
+    // ----------------------------------------
+    // 出力座標系オフセットの適用
+    // ----------------------------------------
+    // 出力バッファの(offset, offset)から描画を開始するために、
+    // 逆変換の平行移動成分を調整する
+    // output(dx, dy) → input(M^-1 × (dx - offset, dy - offset))
     if (outputOffsetX != 0 || outputOffsetY != 0) {
         int32_t offsetXInt = std::lround(outputOffsetX);
         int32_t offsetYInt = std::lround(outputOffsetY);
@@ -151,38 +179,102 @@ ViewPort ImageProcessor::applyTransform(const ViewPort& input, const AffineMatri
         fixedInvTy -= offsetXInt * fixedInvC + offsetYInt * fixedInvD;
     }
 
-    // 注: DDAオフセット（ピクセル中心サンプリング用）は原点安定性を損なうため削除
-    // 原点座標が完全に安定することが確認済み
+    // ----------------------------------------
+    // 有効描画範囲の事前計算（calcValidRange）
+    // ----------------------------------------
+    //
+    // 各行で入力画像の範囲内になる dx の開始・終了位置を事前計算し、
+    // 内側ループの範囲チェック条件分岐を削減する。
+    //
+    // 座標計算: 出力ピクセル中心 (dx+0.5, dy+0.5) から逆変換 → floor で整数化
+    //   sx = floor((fixedInvA * (dx+0.5) + fixedInvB * (dy+0.5) + fixedInvTx) / SCALE)
+    //
+    // 引数:
+    //   coeff    : dx の係数（fixedInvA または fixedInvC）
+    //   base     : 行ごとの基準値（rowBaseX/Y、dy+0.5成分を含む）
+    //   minVal   : 許容最小値（0）
+    //   maxVal   : 許容最大値（width-1 または height-1）
+    // 戻り値: {dxStart, dxEnd}（有効範囲がない場合は dxStart > dxEnd）
+    //
+    auto calcValidRange = [FIXED_POINT_BITS, FIXED_POINT_SCALE](
+        int32_t coeff, int32_t base, int minVal, int maxVal, int canvasSize
+    ) -> std::pair<int, int> {
+        // dx+0.5 成分のオフセット
+        int32_t coeffHalf = coeff >> 1;
 
-    // 入力データへのポインタ取得
-    const uint16_t* inputData = static_cast<const uint16_t*>(input.data);
+        if (coeff == 0) {
+            // dx に依存しない → 全列で同じ入力座標
+            int val = base >> FIXED_POINT_BITS;
+            if (base < 0 && (base & (FIXED_POINT_SCALE - 1)) != 0) val--;
+            return (val >= minVal && val <= maxVal)
+                ? std::make_pair(0, canvasSize - 1)
+                : std::make_pair(1, 0);  // 無効
+        }
 
-    // 出力画像の各ピクセルをスキャン
+        // floor(val) >= minVal ⇔ val >= minVal
+        // floor(val) <= maxVal ⇔ val < maxVal + 1
+        double baseWithHalf = base + coeffHalf;
+        double minThreshold = (double)minVal * FIXED_POINT_SCALE;
+        double maxThreshold = (double)(maxVal + 1) * FIXED_POINT_SCALE;
+        double dxForMin = (minThreshold - baseWithHalf) / coeff;
+        double dxForMax = (maxThreshold - baseWithHalf) / coeff;
+
+        int dxStart, dxEnd;
+        if (coeff > 0) {
+            dxStart = (int)std::ceil(dxForMin);
+            dxEnd = (int)std::ceil(dxForMax) - 1;
+        } else {
+            dxStart = (int)std::ceil(dxForMax);
+            dxEnd = (int)std::ceil(dxForMin) - 1;
+        }
+        return {dxStart, dxEnd};
+    };
+
+    // ----------------------------------------
+    // ピクセルスキャン（DDAアルゴリズム）
+    // ----------------------------------------
+    const int inputStride = input.stride / sizeof(uint16_t);
+
+    // 0.5成分の逆変換オフセット（出力ピクセル中心からサンプリング）
+    const int32_t rowOffsetX = fixedInvB >> 1;  // (dy+0.5)のX成分
+    const int32_t rowOffsetY = fixedInvD >> 1;  // (dy+0.5)のY成分
+    const int32_t dxOffsetX = fixedInvA >> 1;   // (dx+0.5)のX成分
+    const int32_t dxOffsetY = fixedInvC >> 1;   // (dx+0.5)のY成分
+
     for (int dy = 0; dy < canvasHeight; dy++) {
-        // 行の開始座標を固定小数点で計算（ループ内でdoubleを使わない）
-        int32_t srcX_fixed = fixedInvB * dy + fixedInvTx;
-        int32_t srcY_fixed = fixedInvD * dy + fixedInvTy;
+        // 行基準座標（dy+0.5の逆変換を含む）
+        int32_t rowBaseX = fixedInvB * dy + fixedInvTx + rowOffsetX;
+        int32_t rowBaseY = fixedInvD * dy + fixedInvTy + rowOffsetY;
 
-        uint16_t* dstRow = output.getPixelPtr<uint16_t>(0, dy);
+        // 入力画像範囲内となる dx の有効範囲を事前計算
+        auto [xStart, xEnd] = calcValidRange(fixedInvA, rowBaseX, 0, input.width - 1, canvasWidth);
+        auto [yStart, yEnd] = calcValidRange(fixedInvC, rowBaseY, 0, input.height - 1, canvasWidth);
+        int dxStart = std::max({0, xStart, yStart});
+        int dxEnd = std::min({canvasWidth - 1, xEnd, yEnd});
 
-        for (int dx = 0; dx < canvasWidth; dx++) {
-            // 固定小数点から整数座標を抽出
-            int sx = srcX_fixed >> FIXED_POINT_BITS;
-            int sy = srcY_fixed >> FIXED_POINT_BITS;
+        if (dxStart > dxEnd) continue;
 
-            // 範囲チェック
-            if (sx >= 0 && sx < input.width && sy >= 0 && sy < input.height) {
-                const uint16_t* srcPixel = input.getPixelPtr<uint16_t>(sx, sy);
-                uint16_t* dstPixel = &dstRow[dx * 4];
+        // 開始位置での入力座標（dx+0.5の逆変換を含む）
+        int32_t srcX_fixed = fixedInvA * dxStart + rowBaseX + dxOffsetX;
+        int32_t srcY_fixed = fixedInvC * dxStart + rowBaseY + dxOffsetY;
 
-                // ピクセルをそのままコピー（アルファ調整なし）
-                dstPixel[0] = srcPixel[0];
-                dstPixel[1] = srcPixel[1];
-                dstPixel[2] = srcPixel[2];
-                dstPixel[3] = srcPixel[3];
+        uint16_t* dstRow = output.getPixelPtr<uint16_t>(dxStart, dy);
+        const uint16_t* inputData = static_cast<const uint16_t*>(input.data);
+
+        for (int dx = dxStart; dx <= dxEnd; dx++) {
+            // floor で整数座標に変換（unsignedキャストで負の値を範囲外に）
+            uint32_t sx = (uint32_t)srcX_fixed >> FIXED_POINT_BITS;
+            uint32_t sy = (uint32_t)srcY_fixed >> FIXED_POINT_BITS;
+
+            if (sx < (uint32_t)input.width && sy < (uint32_t)input.height) {
+                const uint16_t* srcPixel = inputData + sy * inputStride + sx * 4;
+                dstRow[0] = srcPixel[0];
+                dstRow[1] = srcPixel[1];
+                dstRow[2] = srcPixel[2];
+                dstRow[3] = srcPixel[3];
             }
 
-            // DDAアルゴリズム: 座標増分を加算（除算なし）
+            dstRow += 4;
             srcX_fixed += fixedInvA;
             srcY_fixed += fixedInvC;
         }

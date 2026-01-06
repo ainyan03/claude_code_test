@@ -177,8 +177,7 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
         }
 
     } else if (node->type == "affine") {
-        // アフィン変換ノード: 入力画像にアフィン変換を適用
-        // 入力接続を検索
+        // アフィン変換ノード
         const GraphConnection* inputConn = nullptr;
         for (const auto& conn : connections) {
             if (conn.toNodeId == nodeId && conn.toPort == "in") {
@@ -190,7 +189,7 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
         if (inputConn) {
             ViewPort inputImage = evaluateNode(inputConn->fromNodeId, visited);
 
-            // アフィン変換にはPremultiplied形式が必要
+            // Premultiplied形式に変換（アフィン変換に必要）
             if (inputImage.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
                 auto convStart = std::chrono::high_resolution_clock::now();
                 inputImage = processor.convertPixelFormat(inputImage, PixelFormatIDs::RGBA16_Premultiplied);
@@ -199,33 +198,23 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
                 perfMetrics.convertCount++;
             }
 
-            // 変換行列を取得（JS側で行列に統一済み）
             AffineMatrix matrix = node->affineMatrix;
-
-            // 原点座標（変換の中心点）- 入力座標系での位置
             double inputOriginX = inputImage.srcOriginX;
             double inputOriginY = inputImage.srcOriginY;
-            // 出力座標系での原点位置（四隅オフセット適用後に更新）
-            double outputOriginX = inputOriginX;
-            double outputOriginY = inputOriginY;
 
-            // 負の座標を避けるためのオフセットを出力座標系で適用
-            // matrix.tx/tyには加算しない（逆行列計算に影響し原点が不安定になるため）
-            // 画像サイズに基づく固定オフセットを使用（動的計算は揺らぎの原因となる）
-            double fixedOffset = std::max(inputImage.width, inputImage.height);
-            double outputOffsetX = fixedOffset;
-            double outputOffsetY = fixedOffset;
-            outputOriginX += fixedOffset;
-            outputOriginY += fixedOffset;
+            // 出力オフセット（負座標を避けるため画像サイズに基づく固定値）
+            double outputOffset = std::max(inputImage.width, inputImage.height);
+
             auto affineStart = std::chrono::high_resolution_clock::now();
-            result = processor.applyTransform(inputImage, matrix, inputOriginX, inputOriginY, outputOffsetX, outputOffsetY);
+            result = processor.applyTransform(inputImage, matrix, inputOriginX, inputOriginY, outputOffset, outputOffset);
             auto affineEnd = std::chrono::high_resolution_clock::now();
             perfMetrics.affineTime += std::chrono::duration<double, std::milli>(affineEnd - affineStart).count();
             perfMetrics.affineCount++;
 
-            // srcOrigin を更新（出力座標系での原点位置）
-            result.srcOriginX = outputOriginX;
-            result.srcOriginY = outputOriginY;
+            // srcOrigin = 入力原点を順変換した位置
+            // mergeImages() で dstOrigin に揃えて配置されるため、変換後の原点位置を設定
+            result.srcOriginX = matrix.tx + inputOriginX + outputOffset;
+            result.srcOriginY = matrix.ty + inputOriginY + outputOffset;
         }
     }
 
