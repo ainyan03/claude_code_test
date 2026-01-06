@@ -1,7 +1,9 @@
 #include "node_graph.h"
 #include "image_types.h"
 #include "operators.h"
+#include "evaluation_node.h"
 #include <cmath>
+#include <cstring>
 
 namespace ImageTransform {
 
@@ -12,6 +14,9 @@ namespace ImageTransform {
 NodeGraphEvaluator::NodeGraphEvaluator(int width, int height)
     : canvasWidth(width), canvasHeight(height),
       dstOriginX(width / 2.0), dstOriginY(height / 2.0) {}  // デフォルトはキャンバス中央
+
+// デストラクタ（Pipeline の完全な定義が見えるここで実装）
+NodeGraphEvaluator::~NodeGraphEvaluator() = default;
 
 void NodeGraphEvaluator::setCanvasSize(int width, int height) {
     canvasWidth = width;
@@ -32,138 +37,6 @@ void NodeGraphEvaluator::setTileStrategy(TileStrategy strategy, int tileWidth, i
     customTileHeight = tileHeight;
 }
 
-// ========================================================================
-// ユーティリティ関数
-// ========================================================================
-
-const GraphNode* NodeGraphEvaluator::findOutputNode() const {
-    for (const auto& node : nodes) {
-        if (node.type == "output") {
-            return &node;
-        }
-    }
-    return nullptr;
-}
-
-const GraphConnection* NodeGraphEvaluator::findInputConnection(
-    const std::string& nodeId, const std::string& portName) const {
-    for (const auto& conn : connections) {
-        if (conn.toNodeId == nodeId && conn.toPort == portName) {
-            return &conn;
-        }
-    }
-    return nullptr;
-}
-
-// ========================================================================
-// 段階0: 事前準備（prepare）
-// ========================================================================
-
-void NodeGraphEvaluator::prepare(const RenderContext& context) {
-    // キャッシュをクリア
-    affinePreparedCache.clear();
-    filterPreparedCache.clear();
-    nodeRequestCache.clear();
-    nodeResultCache.clear();
-
-    // 出力ノードを検索
-    const GraphNode* outputNode = findOutputNode();
-    if (!outputNode) return;
-
-    // 出力ノードへの入力接続を検索
-    const GraphConnection* inputConn = findInputConnection(outputNode->id, "in");
-    if (!inputConn) return;
-
-    // 再帰的に事前準備を実行
-    std::set<std::string> visited;
-    prepareNode(inputConn->fromNodeId, context, visited);
-}
-
-void NodeGraphEvaluator::prepareNode(const std::string& nodeId,
-                                     const RenderContext& context,
-                                     std::set<std::string>& visited) {
-    // 循環参照チェック
-    if (visited.find(nodeId) != visited.end()) return;
-    visited.insert(nodeId);
-
-    // ノードを検索
-    const GraphNode* node = nullptr;
-    for (const auto& n : nodes) {
-        if (n.id == nodeId) {
-            node = &n;
-            break;
-        }
-    }
-    if (!node) return;
-
-    // 入力ノードを先に準備（再帰）
-    if (node->type == "filter" || node->type == "affine") {
-        const GraphConnection* inputConn = findInputConnection(nodeId, "in");
-        if (inputConn) {
-            prepareNode(inputConn->fromNodeId, context, visited);
-        }
-    } else if (node->type == "composite") {
-        for (const auto& input : node->compositeInputs) {
-            const GraphConnection* conn = findInputConnection(nodeId, input.id);
-            if (conn) {
-                prepareNode(conn->fromNodeId, context, visited);
-            }
-        }
-    }
-
-    // ノードタイプ別の事前計算
-    if (node->type == "affine") {
-        AffinePreparedData data;
-
-        // 逆行列を計算
-        const AffineMatrix& matrix = node->affineMatrix;
-        double det = matrix.a * matrix.d - matrix.b * matrix.c;
-        if (std::abs(det) < 1e-10) {
-            data.prepared = false;
-            affinePreparedCache[nodeId] = data;
-            return;
-        }
-
-        double invDet = 1.0 / det;
-        double invA = matrix.d * invDet;
-        double invB = -matrix.b * invDet;
-        double invC = -matrix.c * invDet;
-        double invD = matrix.a * invDet;
-        double invTx = (-matrix.d * matrix.tx + matrix.b * matrix.ty) * invDet;
-        double invTy = (matrix.c * matrix.tx - matrix.a * matrix.ty) * invDet;
-
-        // 固定小数点に変換
-        constexpr int FIXED_POINT_BITS = 16;
-        constexpr int32_t FIXED_POINT_SCALE = 1 << FIXED_POINT_BITS;
-
-        data.fixedInvA = std::lround(invA * FIXED_POINT_SCALE);
-        data.fixedInvB = std::lround(invB * FIXED_POINT_SCALE);
-        data.fixedInvC = std::lround(invC * FIXED_POINT_SCALE);
-        data.fixedInvD = std::lround(invD * FIXED_POINT_SCALE);
-        data.fixedInvTx = std::lround(invTx * FIXED_POINT_SCALE);
-        data.fixedInvTy = std::lround(invTy * FIXED_POINT_SCALE);
-
-        // 入力画像情報は評価時に設定
-        data.prepared = true;
-        affinePreparedCache[nodeId] = data;
-
-    } else if (node->type == "filter") {
-        FilterPreparedData data;
-        data.filterType = node->filterType;
-        data.params = node->filterParams;
-
-        // フィルタタイプごとのカーネル半径を設定
-        if (node->filterType == "boxblur" && !node->filterParams.empty()) {
-            data.kernelRadius = static_cast<int>(node->filterParams[0]);
-        } else {
-            data.kernelRadius = 0;
-        }
-
-        data.prepared = true;
-        filterPreparedCache[nodeId] = data;
-    }
-}
-
 void NodeGraphEvaluator::registerImage(int imageId, const Image& img) {
     // Image → ViewPort(RGBA8_Straight) に変換して保存
     imageLibrary[imageId] = ViewPort::fromImage(img);
@@ -171,10 +44,12 @@ void NodeGraphEvaluator::registerImage(int imageId, const Image& img) {
 
 void NodeGraphEvaluator::setNodes(const std::vector<GraphNode>& newNodes) {
     nodes = newNodes;
+    pipelineDirty_ = true;  // パイプライン再構築が必要
 }
 
 void NodeGraphEvaluator::setConnections(const std::vector<GraphConnection>& newConnections) {
     connections = newConnections;
+    pipelineDirty_ = true;  // パイプライン再構築が必要
 }
 
 // ノードグラフ全体を評価（1回のWASM呼び出しで完結）
@@ -192,22 +67,52 @@ Image NodeGraphEvaluator::evaluateGraph() {
     context.tileWidth = customTileWidth;
     context.tileHeight = customTileHeight;
 
-    // 段階0: 事前準備（逆行列計算等）
-    prepare(context);
+    // パイプラインベース評価
+    return evaluateWithPipeline(context);
+}
+
+// ========================================================================
+// パイプラインベース評価システム
+// ========================================================================
+
+void NodeGraphEvaluator::buildPipelineIfNeeded() {
+    if (!pipelineDirty_ && pipeline_) {
+        return;  // 再構築不要
+    }
+
+    // パイプラインを構築
+    Pipeline newPipeline = PipelineBuilder::build(nodes, connections, imageLibrary);
+
+    if (newPipeline.isValid()) {
+        pipeline_ = std::make_unique<Pipeline>(std::move(newPipeline));
+    } else {
+        pipeline_.reset();
+    }
+
+    pipelineDirty_ = false;
+}
+
+Image NodeGraphEvaluator::evaluateWithPipeline(const RenderContext& context) {
+    // パイプラインを構築（必要な場合のみ）
+    buildPipelineIfNeeded();
+
+    if (!pipeline_ || !pipeline_->isValid()) {
+        // パイプラインが無効な場合は空の画像を返す
+        return Image(canvasWidth, canvasHeight);
+    }
+
+    // 描画準備（逆行列計算等）
+    pipeline_->prepare(context);
 
     // タイル分割なし（従来互換モード）
     if (tileStrategy == TileStrategy::None) {
-        // 全体を1つのタイルとして処理
         RenderRequest fullRequest = {
             0, 0, canvasWidth, canvasHeight,
             dstOriginX, dstOriginY
         };
 
-        // 段階1: 要求伝播
-        propagateRequests(fullRequest);
-
-        // 段階2: 評価
-        ViewPort resultViewPort = evaluateTile(fullRequest);
+        // パイプラインで評価
+        ViewPort resultViewPort = pipeline_->outputNode->evaluate(fullRequest, context);
 
         // srcOrigin が dstOrigin と一致しない場合、最終配置を適用
         const double epsilon = 0.001;
@@ -245,23 +150,19 @@ Image NodeGraphEvaluator::evaluateGraph() {
 
     for (int ty = 0; ty < tileCountY; ty++) {
         for (int tx = 0; tx < tileCountX; tx++) {
-            // デバッグ用チェッカーボードモード: 市松模様でスキップ
+            // デバッグ用チェッカーボードモード
             if (tileStrategy == TileStrategy::Debug_Checkerboard) {
                 if ((tx + ty) % 2 == 1) {
-                    continue;  // 奇数タイルはスキップ
+                    continue;
                 }
             }
 
-            // タイル要求を生成
             RenderRequest tileReq = RenderRequest::fromTile(context, tx, ty);
 
-            // 段階1: 要求伝播
-            propagateRequests(tileReq);
+            // パイプラインでタイル評価
+            ViewPort tileResult = pipeline_->outputNode->evaluate(tileReq, context);
 
-            // 段階2: タイル評価
-            ViewPort tileResult = evaluateTile(tileReq);
-
-            // srcOrigin が dstOrigin と一致しない場合、配置を適用
+            // srcOrigin と dstOrigin の差を解消
             const double epsilon = 0.001;
             if (std::abs(tileResult.srcOriginX - dstOriginX) > epsilon ||
                 std::abs(tileResult.srcOriginY - dstOriginY) > epsilon) {
@@ -273,386 +174,24 @@ Image NodeGraphEvaluator::evaluateGraph() {
                 tileResult = compositeOp->apply({tileResult}, ctx);
             }
 
-            // タイル結果を最終画像にコピー
-            // tileResult は canvasSize のViewPort、その中の tileReq 領域をコピー
-            if (tileResult.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
-                tileResult = tileResult.convertTo(PixelFormatIDs::RGBA16_Premultiplied);
+            // タイル結果を最終画像にコピー（RGBA8_Straightに変換してmemcpy）
+            if (tileResult.formatID != PixelFormatIDs::RGBA8_Straight) {
+                tileResult = tileResult.convertTo(PixelFormatIDs::RGBA8_Straight);
             }
 
             for (int y = 0; y < tileReq.height && (tileReq.y + y) < canvasHeight; y++) {
                 int dstY = tileReq.y + y;
                 if (dstY < 0 || dstY >= canvasHeight) continue;
 
-                const uint16_t* srcRow = tileResult.getPixelPtr<uint16_t>(tileReq.x, dstY);
+                const uint8_t* srcRow = tileResult.getPixelPtr<uint8_t>(tileReq.x, dstY);
                 uint8_t* dstRow = result.data.data() + dstY * canvasWidth * 4 + tileReq.x * 4;
 
-                for (int x = 0; x < tileReq.width && (tileReq.x + x) < canvasWidth; x++) {
-                    // 16bit Premultiplied → 8bit Straight 変換
-                    uint16_t r16 = srcRow[x * 4 + 0];
-                    uint16_t g16 = srcRow[x * 4 + 1];
-                    uint16_t b16 = srcRow[x * 4 + 2];
-                    uint16_t a16 = srcRow[x * 4 + 3];
-
-                    if (a16 > 0) {
-                        uint32_t r_unpre = ((uint32_t)r16 * 65535) / a16;
-                        uint32_t g_unpre = ((uint32_t)g16 * 65535) / a16;
-                        uint32_t b_unpre = ((uint32_t)b16 * 65535) / a16;
-                        dstRow[x * 4 + 0] = std::min(r_unpre >> 8, 255u);
-                        dstRow[x * 4 + 1] = std::min(g_unpre >> 8, 255u);
-                        dstRow[x * 4 + 2] = std::min(b_unpre >> 8, 255u);
-                    } else {
-                        dstRow[x * 4 + 0] = 0;
-                        dstRow[x * 4 + 1] = 0;
-                        dstRow[x * 4 + 2] = 0;
-                    }
-                    dstRow[x * 4 + 3] = a16 >> 8;
-                }
+                int copyWidth = std::min(tileReq.width, canvasWidth - tileReq.x);
+                std::memcpy(dstRow, srcRow, copyWidth * 4);
             }
         }
     }
 
-    return result;
-}
-
-// ========================================================================
-// 段階1: 要求伝播（propagateRequests）
-// ========================================================================
-
-void NodeGraphEvaluator::propagateRequests(const RenderRequest& tileRequest) {
-    // 要求キャッシュをクリア（タイルごとに再計算）
-    nodeRequestCache.clear();
-
-    // 出力ノードを検索
-    const GraphNode* outputNode = findOutputNode();
-    if (!outputNode) return;
-
-    // 出力ノードへの入力接続を検索
-    const GraphConnection* inputConn = findInputConnection(outputNode->id, "in");
-    if (!inputConn) return;
-
-    // 再帰的に要求を伝播
-    std::set<std::string> visited;
-    propagateNodeRequest(inputConn->fromNodeId, tileRequest, visited);
-}
-
-RenderRequest NodeGraphEvaluator::propagateNodeRequest(
-    const std::string& nodeId,
-    const RenderRequest& outputRequest,
-    std::set<std::string>& visited) {
-
-    // 循環参照チェック
-    if (visited.find(nodeId) != visited.end()) {
-        return RenderRequest{};  // 空の要求
-    }
-    visited.insert(nodeId);
-
-    // ノードを検索
-    const GraphNode* node = nullptr;
-    for (const auto& n : nodes) {
-        if (n.id == nodeId) {
-            node = &n;
-            break;
-        }
-    }
-    if (!node) return RenderRequest{};
-
-    // このノードの出力要求を保存
-    nodeRequestCache[nodeId] = outputRequest;
-
-    RenderRequest inputRequest = outputRequest;
-
-    if (node->type == "image") {
-        // 画像ノード: 画像の実サイズと要求の交差を計算
-        auto it = imageLibrary.find(node->imageId);
-        if (it != imageLibrary.end()) {
-            const ViewPort& img = it->second;
-
-            // 画像のローカル座標系での領域
-            // srcOrigin を基準に配置されるため、要求座標を画像座標に変換
-            double imgOriginX = node->srcOriginX * img.width;
-            double imgOriginY = node->srcOriginY * img.height;
-
-            // 出力要求を画像ローカル座標に変換
-            // outputRequest は dstOrigin 基準、画像は srcOrigin 基準
-            int localX = outputRequest.x - static_cast<int>(outputRequest.originX - imgOriginX);
-            int localY = outputRequest.y - static_cast<int>(outputRequest.originY - imgOriginY);
-
-            RenderRequest imageRect = {
-                0, 0, img.width, img.height,
-                imgOriginX, imgOriginY
-            };
-
-            RenderRequest localRequest = {
-                localX, localY,
-                outputRequest.width, outputRequest.height,
-                imgOriginX, imgOriginY
-            };
-
-            inputRequest = localRequest.intersect(imageRect);
-        }
-
-    } else if (node->type == "filter") {
-        // フィルタノード: カーネル半径分拡大して上流に伝播
-        auto it = filterPreparedCache.find(nodeId);
-        int margin = (it != filterPreparedCache.end()) ? it->second.kernelRadius : 0;
-
-        RenderRequest expandedRequest = outputRequest.expand(margin);
-
-        const GraphConnection* inputConn = findInputConnection(nodeId, "in");
-        if (inputConn) {
-            inputRequest = propagateNodeRequest(inputConn->fromNodeId, expandedRequest, visited);
-        }
-
-    } else if (node->type == "composite") {
-        // 合成ノード: 各入力に同じ要求を伝播
-        for (const auto& input : node->compositeInputs) {
-            const GraphConnection* conn = findInputConnection(nodeId, input.id);
-            if (conn) {
-                propagateNodeRequest(conn->fromNodeId, outputRequest, visited);
-            }
-        }
-
-    } else if (node->type == "affine") {
-        // アフィン変換ノード: 出力要求を逆変換して入力要求を算出
-        auto it = affinePreparedCache.find(nodeId);
-        if (it != affinePreparedCache.end() && it->second.prepared) {
-            const AffinePreparedData& prep = it->second;
-
-            // 出力要求の4頂点を逆変換してAABBを算出
-            constexpr int FIXED_POINT_BITS = 16;
-            constexpr int32_t FIXED_POINT_SCALE = 1 << FIXED_POINT_BITS;
-
-            // 出力矩形の4頂点（基準座標からの相対位置）
-            double corners[4][2] = {
-                {outputRequest.x - outputRequest.originX, outputRequest.y - outputRequest.originY},
-                {outputRequest.x + outputRequest.width - outputRequest.originX, outputRequest.y - outputRequest.originY},
-                {outputRequest.x - outputRequest.originX, outputRequest.y + outputRequest.height - outputRequest.originY},
-                {outputRequest.x + outputRequest.width - outputRequest.originX, outputRequest.y + outputRequest.height - outputRequest.originY}
-            };
-
-            double minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
-
-            for (int i = 0; i < 4; i++) {
-                // 固定小数点で逆変換
-                int32_t relX = std::lround(corners[i][0] * FIXED_POINT_SCALE);
-                int32_t relY = std::lround(corners[i][1] * FIXED_POINT_SCALE);
-
-                int64_t srcX = ((int64_t)prep.fixedInvA * relX + (int64_t)prep.fixedInvB * relY) >> FIXED_POINT_BITS;
-                int64_t srcY = ((int64_t)prep.fixedInvC * relX + (int64_t)prep.fixedInvD * relY) >> FIXED_POINT_BITS;
-
-                srcX += prep.fixedInvTx;
-                srcY += prep.fixedInvTy;
-
-                double sx = srcX / (double)FIXED_POINT_SCALE;
-                double sy = srcY / (double)FIXED_POINT_SCALE;
-
-                minX = std::min(minX, sx);
-                minY = std::min(minY, sy);
-                maxX = std::max(maxX, sx);
-                maxY = std::max(maxY, sy);
-            }
-
-            // 入力要求を構築（入力画像の srcOrigin 基準）
-            inputRequest = {
-                static_cast<int>(std::floor(minX)),
-                static_cast<int>(std::floor(minY)),
-                static_cast<int>(std::ceil(maxX) - std::floor(minX)) + 1,
-                static_cast<int>(std::ceil(maxY) - std::floor(minY)) + 1,
-                0, 0  // 入力の原点は後で設定
-            };
-        }
-
-        const GraphConnection* inputConn = findInputConnection(nodeId, "in");
-        if (inputConn) {
-            inputRequest = propagateNodeRequest(inputConn->fromNodeId, inputRequest, visited);
-        }
-    }
-
-    return inputRequest;
-}
-
-// ========================================================================
-// 段階2: タイル評価（evaluateTile）
-// ========================================================================
-
-ViewPort NodeGraphEvaluator::evaluateTile(const RenderRequest& tileRequest) {
-    // 評価結果キャッシュをクリア
-    nodeResultCache.clear();
-
-    // 出力ノードを検索
-    const GraphNode* outputNode = findOutputNode();
-    if (!outputNode) {
-        return ViewPort(tileRequest.width, tileRequest.height, PixelFormatIDs::RGBA16_Premultiplied);
-    }
-
-    // 出力ノードへの入力接続を検索
-    const GraphConnection* inputConn = findInputConnection(outputNode->id, "in");
-    if (!inputConn) {
-        return ViewPort(tileRequest.width, tileRequest.height, PixelFormatIDs::RGBA16_Premultiplied);
-    }
-
-    // 再帰的に評価
-    std::set<std::string> visited;
-    ViewPort result = evaluateNodeWithRequest(inputConn->fromNodeId, visited);
-
-    // 結果をタイルサイズにクリップ（必要な場合）
-    // TODO: 実装
-
-    return result;
-}
-
-ViewPort NodeGraphEvaluator::evaluateNodeWithRequest(
-    const std::string& nodeId,
-    std::set<std::string>& visited) {
-
-    // 循環参照チェック
-    if (visited.find(nodeId) != visited.end()) {
-        auto reqIt = nodeRequestCache.find(nodeId);
-        int w = reqIt != nodeRequestCache.end() ? reqIt->second.width : 1;
-        int h = reqIt != nodeRequestCache.end() ? reqIt->second.height : 1;
-        return ViewPort(w, h, PixelFormatIDs::RGBA16_Premultiplied);
-    }
-    visited.insert(nodeId);
-
-    // キャッシュチェック
-    auto cacheIt = nodeResultCache.find(nodeId);
-    if (cacheIt != nodeResultCache.end()) {
-        return cacheIt->second;
-    }
-
-    // ノードを検索
-    const GraphNode* node = nullptr;
-    for (const auto& n : nodes) {
-        if (n.id == nodeId) {
-            node = &n;
-            break;
-        }
-    }
-
-    // 要求を取得
-    auto reqIt = nodeRequestCache.find(nodeId);
-    RenderRequest request = reqIt != nodeRequestCache.end() ? reqIt->second : RenderRequest{};
-
-    if (!node || request.isEmpty()) {
-        return ViewPort(1, 1, PixelFormatIDs::RGBA16_Premultiplied);
-    }
-
-    ViewPort result(request.width, request.height, PixelFormatIDs::RGBA16_Premultiplied);
-
-    if (node->type == "image") {
-        // 画像ノード: 要求領域の画像データを返す
-        if (node->imageId >= 0) {
-            auto it = imageLibrary.find(node->imageId);
-            if (it != imageLibrary.end()) {
-                // TODO: 要求領域のみをコピーする最適化
-                result = it->second;
-                result.srcOriginX = node->srcOriginX * result.width;
-                result.srcOriginY = node->srcOriginY * result.height;
-            }
-        }
-
-    } else if (node->type == "filter") {
-        // フィルタノード
-        const GraphConnection* inputConn = findInputConnection(nodeId, "in");
-        if (inputConn) {
-            ViewPort inputImage = evaluateNodeWithRequest(inputConn->fromNodeId, visited);
-
-            auto filterStart = std::chrono::high_resolution_clock::now();
-            auto filterOp = OperatorFactory::createFilterOperator(node->filterType, node->filterParams);
-            if (filterOp) {
-                OperatorContext ctx(canvasWidth, canvasHeight, request.originX, request.originY);
-                result = filterOp->apply({inputImage}, ctx);
-            } else {
-                result = inputImage;  // 未知のフィルタタイプの場合はパススルー
-            }
-            auto filterEnd = std::chrono::high_resolution_clock::now();
-            perfMetrics.filterTime += std::chrono::duration<double, std::milli>(filterEnd - filterStart).count();
-            perfMetrics.filterCount++;
-
-            result.srcOriginX = inputImage.srcOriginX;
-            result.srcOriginY = inputImage.srcOriginY;
-        }
-
-    } else if (node->type == "composite") {
-        // 合成ノード
-        std::vector<ViewPort> images;
-
-        for (const auto& input : node->compositeInputs) {
-            const GraphConnection* conn = findInputConnection(nodeId, input.id);
-            if (conn) {
-                ViewPort img = evaluateNodeWithRequest(conn->fromNodeId, visited);
-
-                if (img.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
-                    img = img.convertTo(PixelFormatIDs::RGBA16_Premultiplied);
-                }
-
-                if (input.alpha != 1.0) {
-                    uint16_t alphaU16 = static_cast<uint16_t>(input.alpha * 65535);
-                    for (int y = 0; y < img.height; y++) {
-                        uint16_t* row = img.getPixelPtr<uint16_t>(0, y);
-                        for (int x = 0; x < img.width * 4; x++) {
-                            row[x] = (row[x] * alphaU16) >> 16;
-                        }
-                    }
-                }
-
-                images.push_back(std::move(img));
-            }
-        }
-
-        if (!images.empty()) {
-            auto compStart = std::chrono::high_resolution_clock::now();
-            auto compositeOp = OperatorFactory::createCompositeOperator();
-            OperatorContext ctx(canvasWidth, canvasHeight, request.originX, request.originY);
-            result = compositeOp->apply(images, ctx);
-            auto compEnd = std::chrono::high_resolution_clock::now();
-            perfMetrics.compositeTime += std::chrono::duration<double, std::milli>(compEnd - compStart).count();
-            perfMetrics.compositeCount++;
-        }
-
-    } else if (node->type == "affine") {
-        // アフィン変換ノード
-        const GraphConnection* inputConn = findInputConnection(nodeId, "in");
-        if (inputConn) {
-            ViewPort inputImage = evaluateNodeWithRequest(inputConn->fromNodeId, visited);
-
-            if (inputImage.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
-                inputImage = inputImage.convertTo(PixelFormatIDs::RGBA16_Premultiplied);
-            }
-
-            AffineMatrix matrix = node->affineMatrix;
-            double inputOriginX = inputImage.srcOriginX;
-            double inputOriginY = inputImage.srcOriginY;
-
-            // 出力オフセット: tx,ty を考慮してマージンを設定
-            // tx,ty が大きい場合もバッファ内に画像が収まるよう調整
-            double baseOffset = std::max(inputImage.width, inputImage.height);
-            double outputOffsetX = baseOffset + std::abs(matrix.tx);
-            double outputOffsetY = baseOffset + std::abs(matrix.ty);
-
-            // 出力サイズ: 入力画像 + オフセット×2 で変換後の画像が確実に収まる
-            int outputWidth = inputImage.width + static_cast<int>(outputOffsetX * 2);
-            int outputHeight = inputImage.height + static_cast<int>(outputOffsetY * 2);
-
-            auto affineStart = std::chrono::high_resolution_clock::now();
-            auto affineOp = OperatorFactory::createAffineOperator(
-                matrix, inputOriginX, inputOriginY,
-                outputOffsetX, outputOffsetY, outputWidth, outputHeight);
-            OperatorContext ctx(canvasWidth, canvasHeight, request.originX, request.originY);
-            result = affineOp->apply({inputImage}, ctx);
-            auto affineEnd = std::chrono::high_resolution_clock::now();
-            perfMetrics.affineTime += std::chrono::duration<double, std::milli>(affineEnd - affineStart).count();
-            perfMetrics.affineCount++;
-
-            // srcOrigin は tx,ty を含めない（バッファ内での入力原点の基準位置）
-            // tx,ty は AffineOperator 内で描画位置に反映済みなので、
-            // srcOrigin と実際の描画位置の差が最終的な配置オフセットになる
-            result.srcOriginX = inputOriginX + outputOffsetX;
-            result.srcOriginY = inputOriginY + outputOffsetY;
-        }
-    }
-
-    nodeResultCache[nodeId] = result;
     return result;
 }
 
