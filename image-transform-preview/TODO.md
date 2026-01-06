@@ -144,10 +144,47 @@
 - [ ] アフィン変換: 入力フォーマットに応じた処理分岐（8bit/16bit）
 - [x] アルファフィルタ: 入力フォーマットに応じた処理分岐（8bit/16bit）
 
-### ImageProcessor撤去（長期目標）
+### ノードオペレーター統一設計
 
-- [ ] 残存機能をNodeGraphEvaluatorまたはフィルタに移行
-- [ ] ImageProcessorクラス削除
+**詳細設計**: [DESIGN_NODE_OPERATOR.md](DESIGN_NODE_OPERATOR.md)
+
+**目標**: フィルタ・合成・アフィン変換を統一的なオペレータークラスで管理
+
+#### Phase 1: 基盤整備 ✅
+- [x] `OperatorContext` 構造体の定義
+- [x] `NodeOperator` 基底クラスの定義
+- [x] `SingleInputOperator` 基底クラスの定義
+- [x] `operators.h` / `operators.cpp` ファイル作成
+
+#### Phase 2: フィルタオペレーター移行 ✅
+- [x] `BrightnessOperator` 実装（既存フィルタをラップ）
+- [x] `GrayscaleOperator` 実装
+- [x] `BoxBlurOperator` 実装
+- [x] `AlphaOperator` 実装
+- [x] `OperatorFactory::createFilterOperator()` 実装
+
+#### Phase 3: アフィン・合成オペレーター実装 ✅
+- [x] `AffineOperator` 実装（`ImageProcessor::applyTransform` から移植）
+- [x] `CompositeOperator` 実装（`ImageProcessor::mergeImages` から移植）
+- [x] `OperatorFactory` に `createAffineOperator()`, `createCompositeOperator()` 追加
+
+#### Phase 4: NodeGraphEvaluator 統合 ✅
+- [x] `evaluateNode()` をオペレーター呼び出しに変更
+- [x] `evaluateNodeWithRequest()` をオペレーター呼び出しに変更
+- [x] `evaluateGraph()` 内の `mergeImages` をオペレーター呼び出しに変更
+
+#### Phase 5: クリーンアップ ✅
+- [x] `ImageProcessor` クラスを完全削除（`image_processor.h/cpp`）
+- [x] `FilterRegistry` クラスを完全削除（`filter_registry.h/cpp`）
+- [x] `NodeGraphEvaluator` から `processor` メンバーを削除
+- [x] `build.sh` を更新
+
+#### Phase 6: フィルタ処理のオペレーター統合 ✅
+- [x] `BrightnessOperator` にフィルタ処理を直接実装
+- [x] `GrayscaleOperator` にフィルタ処理を直接実装
+- [x] `BoxBlurOperator` にフィルタ処理を直接実装
+- [x] `AlphaOperator` にフィルタ処理を直接実装
+- [x] `filters.h/cpp` を削除
 
 ---
 

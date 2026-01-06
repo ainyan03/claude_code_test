@@ -38,7 +38,7 @@ echo "};" >> web/version.js
 echo "📝 Build info: $BUILD_DATE (commit: $GIT_COMMIT)"
 
 # WebAssemblyにコンパイル
-emcc src/pixel_format_registry.cpp src/viewport.cpp src/filters.cpp src/filter_registry.cpp src/image_processor.cpp src/node_graph.cpp src/bindings.cpp \
+emcc src/pixel_format_registry.cpp src/viewport.cpp src/operators.cpp src/node_graph.cpp src/bindings.cpp \
     -o web/image_transform.js \
     -std=c++17 \
     -O3 \
