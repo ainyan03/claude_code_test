@@ -624,25 +624,31 @@ ViewPort NodeGraphEvaluator::evaluateNodeWithRequest(
             double inputOriginX = inputImage.srcOriginX;
             double inputOriginY = inputImage.srcOriginY;
 
-            // 出力オフセット: 負座標を避けるためのマージン
-            double outputOffset = std::max(inputImage.width, inputImage.height);
+            // 出力オフセット: tx,ty を考慮してマージンを設定
+            // tx,ty が大きい場合もバッファ内に画像が収まるよう調整
+            double baseOffset = std::max(inputImage.width, inputImage.height);
+            double outputOffsetX = baseOffset + std::abs(matrix.tx);
+            double outputOffsetY = baseOffset + std::abs(matrix.ty);
 
             // 出力サイズ: 入力画像 + オフセット×2 で変換後の画像が確実に収まる
-            int outputWidth = inputImage.width + static_cast<int>(outputOffset * 2);
-            int outputHeight = inputImage.height + static_cast<int>(outputOffset * 2);
+            int outputWidth = inputImage.width + static_cast<int>(outputOffsetX * 2);
+            int outputHeight = inputImage.height + static_cast<int>(outputOffsetY * 2);
 
             auto affineStart = std::chrono::high_resolution_clock::now();
             auto affineOp = OperatorFactory::createAffineOperator(
                 matrix, inputOriginX, inputOriginY,
-                outputOffset, outputOffset, outputWidth, outputHeight);
+                outputOffsetX, outputOffsetY, outputWidth, outputHeight);
             OperatorContext ctx(canvasWidth, canvasHeight, request.originX, request.originY);
             result = affineOp->apply({inputImage}, ctx);
             auto affineEnd = std::chrono::high_resolution_clock::now();
             perfMetrics.affineTime += std::chrono::duration<double, std::milli>(affineEnd - affineStart).count();
             perfMetrics.affineCount++;
 
-            result.srcOriginX = matrix.tx + inputOriginX + outputOffset;
-            result.srcOriginY = matrix.ty + inputOriginY + outputOffset;
+            // srcOrigin は tx,ty を含めない（バッファ内での入力原点の基準位置）
+            // tx,ty は AffineOperator 内で描画位置に反映済みなので、
+            // srcOrigin と実際の描画位置の差が最終的な配置オフセットになる
+            result.srcOriginX = inputOriginX + outputOffsetX;
+            result.srcOriginY = inputOriginY + outputOffsetY;
         }
     }
 
