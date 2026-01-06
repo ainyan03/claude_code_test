@@ -27,7 +27,8 @@ enum class TileStrategy {
     None,       // 分割なし（従来互換、全体を一度に処理）
     Scanline,   // 1行ずつ処理（極小メモリ環境向け）
     Tile64,     // 64x64タイル（組込み環境標準）
-    Custom      // カスタムサイズ
+    Custom,     // カスタムサイズ
+    Debug_Checkerboard  // デバッグ用: 市松模様（交互にスキップ）
 };
 
 // 出力全体情報（段階0で伝播）
@@ -61,6 +62,7 @@ struct RenderContext {
         if (strategy == TileStrategy::None) return totalWidth;
         if (strategy == TileStrategy::Scanline) return totalWidth;
         if (strategy == TileStrategy::Tile64) return 64;
+        if (strategy == TileStrategy::Debug_Checkerboard) return 64;
         return tileWidth;
     }
 
@@ -68,6 +70,7 @@ struct RenderContext {
         if (strategy == TileStrategy::None) return totalHeight;
         if (strategy == TileStrategy::Scanline) return 1;
         if (strategy == TileStrategy::Tile64) return 64;
+        if (strategy == TileStrategy::Debug_Checkerboard) return 64;
         return tileHeight;
     }
 };

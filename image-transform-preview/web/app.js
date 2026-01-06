@@ -412,6 +412,26 @@ function setupEventListeners() {
         });
     }
 
+    // タイル分割戦略
+    const tileStrategySelect = document.getElementById('sidebar-tile-strategy');
+    if (tileStrategySelect) {
+        tileStrategySelect.addEventListener('change', onTileStrategyChange);
+    }
+    const tileWidthInput = document.getElementById('sidebar-tile-width');
+    const tileHeightInput = document.getElementById('sidebar-tile-height');
+    if (tileWidthInput) {
+        tileWidthInput.addEventListener('change', () => {
+            applyTileStrategy();
+            updatePreviewFromGraph();
+        });
+    }
+    if (tileHeightInput) {
+        tileHeightInput.addEventListener('change', () => {
+            applyTileStrategy();
+            updatePreviewFromGraph();
+        });
+    }
+
     // 状態管理ボタン
     const copyStateUrlBtn = document.getElementById('copy-state-url-btn');
     if (copyStateUrlBtn) {
@@ -813,6 +833,39 @@ function updateCanvasDisplayScale() {
     canvas.style.height = (canvasHeight * previewScale) + 'px';
 }
 
+// タイル分割戦略を適用
+function applyTileStrategy() {
+    if (!graphEvaluator) return;
+
+    const strategySelect = document.getElementById('sidebar-tile-strategy');
+    const strategy = parseInt(strategySelect.value) || 0;
+
+    let tileWidth = 64;
+    let tileHeight = 64;
+
+    if (strategy === 3) { // Custom
+        tileWidth = parseInt(document.getElementById('sidebar-tile-width').value) || 64;
+        tileHeight = parseInt(document.getElementById('sidebar-tile-height').value) || 64;
+    }
+
+    console.log('Tile strategy:', strategy, 'size:', tileWidth, 'x', tileHeight);
+    graphEvaluator.setTileStrategy(strategy, tileWidth, tileHeight);
+}
+
+// タイル戦略変更時のハンドラ
+function onTileStrategyChange() {
+    const strategySelect = document.getElementById('sidebar-tile-strategy');
+    const customSettings = document.getElementById('sidebar-tile-custom');
+    const strategy = parseInt(strategySelect.value) || 0;
+
+    // カスタムサイズ入力欄の表示/非表示
+    customSettings.style.display = (strategy === 3) ? 'block' : 'none';
+
+    // 戦略を即時適用
+    applyTileStrategy();
+    updatePreviewFromGraph();
+}
+
 // 出力設定を適用（サイドバーから）
 function applyOutputSettings() {
     const width = parseInt(document.getElementById('sidebar-canvas-width').value);
@@ -845,6 +898,10 @@ function applyOutputSettings() {
 
     graphEvaluator.setCanvasSize(width, height);
     graphEvaluator.setDstOrigin(canvasOrigin.x, canvasOrigin.y);
+
+    // タイル分割戦略を適用
+    applyTileStrategy();
+
     updatePreviewFromGraph();
 
     // キャンバスサイズ変更後にスクロール位置を再調整
