@@ -2,7 +2,6 @@
 #define NODE_GRAPH_H
 
 #include "viewport.h"
-#include "image_processor.h"
 #include "image_types.h"
 #include <string>
 #include <vector>
@@ -274,7 +273,6 @@ private:
     int canvasHeight;
     double dstOriginX;  // 出力先の基準点X（ピクセル座標）
     double dstOriginY;  // 出力先の基準点Y（ピクセル座標）
-    ImageProcessor processor;
 
     // タイル分割設定
     TileStrategy tileStrategy = TileStrategy::None;

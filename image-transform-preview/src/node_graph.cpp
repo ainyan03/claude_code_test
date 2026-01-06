@@ -1,5 +1,6 @@
 #include "node_graph.h"
 #include "image_types.h"
+#include "operators.h"
 #include <cmath>
 
 namespace ImageTransform {
@@ -10,8 +11,7 @@ namespace ImageTransform {
 
 NodeGraphEvaluator::NodeGraphEvaluator(int width, int height)
     : canvasWidth(width), canvasHeight(height),
-      dstOriginX(width / 2.0), dstOriginY(height / 2.0),  // デフォルトはキャンバス中央
-      processor(width, height) {}
+      dstOriginX(width / 2.0), dstOriginY(height / 2.0) {}  // デフォルトはキャンバス中央
 
 void NodeGraphEvaluator::setCanvasSize(int width, int height) {
     canvasWidth = width;
@@ -19,7 +19,6 @@ void NodeGraphEvaluator::setCanvasSize(int width, int height) {
     // dstOrigin も更新（デフォルトは中央）
     dstOriginX = width / 2.0;
     dstOriginY = height / 2.0;
-    processor.setCanvasSize(width, height);
 }
 
 void NodeGraphEvaluator::setDstOrigin(double x, double y) {
@@ -249,7 +248,13 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
             }
 
             auto filterStart = std::chrono::high_resolution_clock::now();
-            result = processor.applyFilter(inputImage, filterType, filterParams);
+            auto filterOp = OperatorFactory::createFilterOperator(filterType, filterParams);
+            if (filterOp) {
+                OperatorContext ctx(canvasWidth, canvasHeight, dstOriginX, dstOriginY);
+                result = filterOp->apply({inputImage}, ctx);
+            } else {
+                result = inputImage;  // 未知のフィルタタイプの場合はパススルー
+            }
             auto filterEnd = std::chrono::high_resolution_clock::now();
             perfMetrics.filterTime += std::chrono::duration<double, std::milli>(filterEnd - filterStart).count();
             perfMetrics.filterCount++;
@@ -261,7 +266,6 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
     } else if (node->type == "composite") {
         // 合成ノード: 可変長入力を合成
         std::vector<ViewPort> images;
-        std::vector<const ViewPort*> imagePtrs;
 
         // 動的な入力配列を使用
         for (const auto& input : node->compositeInputs) {
@@ -296,22 +300,19 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
             }
         }
 
-        // ポインタ配列を作成
-        for (auto& img : images) {
-            imagePtrs.push_back(&img);
-        }
-
         // 合成
-        // mergeImages は各画像の srcOrigin を基準点（dstOrigin）に揃えて配置し、
+        // CompositeOperator は各画像の srcOrigin を基準点（dstOrigin）に揃えて配置し、
         // 結果の srcOrigin を基準点に設定する
-        // 単一入力でも原点処理が必要なため、常に mergeImages を使用
-        if (imagePtrs.size() >= 1) {
+        // 単一入力でも原点処理が必要なため、常に CompositeOperator を使用
+        if (!images.empty()) {
             auto compStart = std::chrono::high_resolution_clock::now();
-            result = processor.mergeImages(imagePtrs, dstOriginX, dstOriginY);
+            auto compositeOp = OperatorFactory::createCompositeOperator();
+            OperatorContext ctx(canvasWidth, canvasHeight, dstOriginX, dstOriginY);
+            result = compositeOp->apply(images, ctx);
             auto compEnd = std::chrono::high_resolution_clock::now();
             perfMetrics.compositeTime += std::chrono::duration<double, std::milli>(compEnd - compStart).count();
             perfMetrics.compositeCount++;
-            // mergeImages が srcOrigin を設定済み（dstOrigin）
+            // CompositeOperator が srcOrigin を設定済み（dstOrigin）
         }
 
     } else if (node->type == "affine") {
@@ -348,14 +349,17 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
             int outputHeight = inputImage.height + static_cast<int>(outputOffset * 2);
 
             auto affineStart = std::chrono::high_resolution_clock::now();
-            result = processor.applyTransform(inputImage, matrix, inputOriginX, inputOriginY,
-                                              outputOffset, outputOffset, outputWidth, outputHeight);
+            auto affineOp = OperatorFactory::createAffineOperator(
+                matrix, inputOriginX, inputOriginY,
+                outputOffset, outputOffset, outputWidth, outputHeight);
+            OperatorContext ctx(canvasWidth, canvasHeight, dstOriginX, dstOriginY);
+            result = affineOp->apply({inputImage}, ctx);
             auto affineEnd = std::chrono::high_resolution_clock::now();
             perfMetrics.affineTime += std::chrono::duration<double, std::milli>(affineEnd - affineStart).count();
             perfMetrics.affineCount++;
 
             // srcOrigin = 入力原点を順変換した位置
-            // mergeImages() で dstOrigin に揃えて配置されるため、変換後の原点位置を設定
+            // CompositeOperator で dstOrigin に揃えて配置されるため、変換後の原点位置を設定
             result.srcOriginX = matrix.tx + inputOriginX + outputOffset;
             result.srcOriginY = matrix.ty + inputOriginY + outputOffset;
         }
@@ -409,9 +413,10 @@ Image NodeGraphEvaluator::evaluateGraph() {
                 perfMetrics.convertTime += std::chrono::duration<double, std::milli>(convEnd - convStart).count();
                 perfMetrics.convertCount++;
             }
-            std::vector<const ViewPort*> singleImage = { &resultViewPort };
             auto compStart = std::chrono::high_resolution_clock::now();
-            resultViewPort = processor.mergeImages(singleImage, dstOriginX, dstOriginY);
+            auto compositeOp = OperatorFactory::createCompositeOperator();
+            OperatorContext ctx(canvasWidth, canvasHeight, dstOriginX, dstOriginY);
+            resultViewPort = compositeOp->apply({resultViewPort}, ctx);
             auto compEnd = std::chrono::high_resolution_clock::now();
             perfMetrics.compositeTime += std::chrono::duration<double, std::milli>(compEnd - compStart).count();
             perfMetrics.compositeCount++;
@@ -456,8 +461,9 @@ Image NodeGraphEvaluator::evaluateGraph() {
                 if (tileResult.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
                     tileResult = tileResult.convertTo(PixelFormatIDs::RGBA16_Premultiplied);
                 }
-                std::vector<const ViewPort*> singleImage = { &tileResult };
-                tileResult = processor.mergeImages(singleImage, dstOriginX, dstOriginY);
+                auto compositeOp = OperatorFactory::createCompositeOperator();
+                OperatorContext ctx(canvasWidth, canvasHeight, dstOriginX, dstOriginY);
+                tileResult = compositeOp->apply({tileResult}, ctx);
             }
 
             // タイル結果を最終画像にコピー
@@ -745,7 +751,13 @@ ViewPort NodeGraphEvaluator::evaluateNodeWithRequest(
             ViewPort inputImage = evaluateNodeWithRequest(inputConn->fromNodeId, visited);
 
             auto filterStart = std::chrono::high_resolution_clock::now();
-            result = processor.applyFilter(inputImage, node->filterType, node->filterParams);
+            auto filterOp = OperatorFactory::createFilterOperator(node->filterType, node->filterParams);
+            if (filterOp) {
+                OperatorContext ctx(canvasWidth, canvasHeight, request.originX, request.originY);
+                result = filterOp->apply({inputImage}, ctx);
+            } else {
+                result = inputImage;  // 未知のフィルタタイプの場合はパススルー
+            }
             auto filterEnd = std::chrono::high_resolution_clock::now();
             perfMetrics.filterTime += std::chrono::duration<double, std::milli>(filterEnd - filterStart).count();
             perfMetrics.filterCount++;
@@ -755,9 +767,8 @@ ViewPort NodeGraphEvaluator::evaluateNodeWithRequest(
         }
 
     } else if (node->type == "composite") {
-        // 合成ノード: 従来のロジックを使用
+        // 合成ノード
         std::vector<ViewPort> images;
-        std::vector<const ViewPort*> imagePtrs;
 
         for (const auto& input : node->compositeInputs) {
             const GraphConnection* conn = findInputConnection(nodeId, input.id);
@@ -782,13 +793,11 @@ ViewPort NodeGraphEvaluator::evaluateNodeWithRequest(
             }
         }
 
-        for (auto& img : images) {
-            imagePtrs.push_back(&img);
-        }
-
-        if (imagePtrs.size() >= 1) {
+        if (!images.empty()) {
             auto compStart = std::chrono::high_resolution_clock::now();
-            result = processor.mergeImages(imagePtrs, request.originX, request.originY);
+            auto compositeOp = OperatorFactory::createCompositeOperator();
+            OperatorContext ctx(canvasWidth, canvasHeight, request.originX, request.originY);
+            result = compositeOp->apply(images, ctx);
             auto compEnd = std::chrono::high_resolution_clock::now();
             perfMetrics.compositeTime += std::chrono::duration<double, std::milli>(compEnd - compStart).count();
             perfMetrics.compositeCount++;
@@ -816,8 +825,11 @@ ViewPort NodeGraphEvaluator::evaluateNodeWithRequest(
             int outputHeight = inputImage.height + static_cast<int>(outputOffset * 2);
 
             auto affineStart = std::chrono::high_resolution_clock::now();
-            result = processor.applyTransform(inputImage, matrix, inputOriginX, inputOriginY,
-                                              outputOffset, outputOffset, outputWidth, outputHeight);
+            auto affineOp = OperatorFactory::createAffineOperator(
+                matrix, inputOriginX, inputOriginY,
+                outputOffset, outputOffset, outputWidth, outputHeight);
+            OperatorContext ctx(canvasWidth, canvasHeight, request.originX, request.originY);
+            result = affineOp->apply({inputImage}, ctx);
             auto affineEnd = std::chrono::high_resolution_clock::now();
             perfMetrics.affineTime += std::chrono::duration<double, std::milli>(affineEnd - affineStart).count();
             perfMetrics.affineCount++;
