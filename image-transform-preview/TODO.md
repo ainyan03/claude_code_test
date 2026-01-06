@@ -86,49 +86,6 @@
 
 ## 🔄 リファクタリング計画
 
-### 🚨 2パス評価システム（アーキテクチャ刷新）
-
-**課題**: ~~現在のプッシュ型パイプラインでは、アフィン変換の出力ViewPortサイズがcanvasSizeに固定されており、入力画像がcanvasSizeより大きい場合に画像が切れる問題がある。~~ → **解決済み**
-
-**解決策**: 出力ノードから上流に「必要領域」を伝播し、各ノードが必要最小限の領域のみを処理する2パス評価システムを導入する。
-
-**詳細設計**: [DESIGN_2PASS_EVALUATION.md](DESIGN_2PASS_EVALUATION.md)
-
-#### Phase 1: 基盤整備 ✅
-- [x] `RenderContext` 構造体の定義（出力全体サイズ + タイル戦略）
-- [x] `RenderRequest` 構造体の定義（部分矩形 + 基準座標）
-- [x] 事前計算データ構造（AffinePreparedData, FilterPreparedData）
-
-#### Phase 2: 事前準備（段階0）✅
-- [x] `prepare()` / `prepareNode()` の実装
-- [x] アフィンノード: 逆行列計算、固定小数点変換
-- [x] フィルタノード: カーネル準備
-- [x] 出力全体サイズの上流伝播
-
-#### Phase 3: 要求伝播（段階1）✅
-- [x] `propagateRequests()` の実装（タイルごとに呼び出し可能）
-- [x] 各ノードタイプの `propagateNodeRequest()` 実装
-- [x] 事前計算データを活用した高速領域変換
-
-#### Phase 4: 評価パイプライン（段階2）✅
-- [x] `evaluateTile()` / `evaluateNodeWithRequest()` の実装
-- [x] ViewPortサイズを要求領域に基づいて動的決定
-- [x] `applyTransform()` の改修（出力サイズパラメータ追加）
-
-#### Phase 5: タイル分割対応 ✅
-- [x] `evaluateGraph()` のタイルループ対応
-- [x] タイルごとのメモリ解放
-- [x] 分割戦略の選択API（None / Scanline / Tile64 / Custom）
-
-#### Phase 6: テスト・最適化 ✅
-- [x] タイル分割モードの実動作テスト
-- [x] タイル境界でのピクセル整合性テスト（完全一致確認済み）
-- [x] タイル分割設定UIの実装（サイドバーに追加）
-- [ ] メモリ使用量の検証（将来）
-- [ ] 組込み環境での動作確認（将来）
-
----
-
 ### ピクセルフォーマット最適化 ✅
 
 **方針**: 入出力がRGBA8_Straightのため、Premultiplied処理が不要な場面ではRGBA8_Straightを基本とする
@@ -185,6 +142,43 @@
 - [x] `BoxBlurOperator` にフィルタ処理を直接実装
 - [x] `AlphaOperator` にフィルタ処理を直接実装
 - [x] `filters.h/cpp` を削除
+
+### パイプラインベース評価システム ✅
+
+**詳細設計**: [DESIGN_PIPELINE_EVALUATION.md](DESIGN_PIPELINE_EVALUATION.md)
+
+**目標**: 文字列ベースのノード検索をポインタ直接参照に置き換え、評価効率を向上
+
+#### Phase 1: 基盤整備 ✅
+- [x] `EvaluationNode` 基底クラスの定義
+- [x] `evaluation_node.h` ファイル作成
+
+#### Phase 2: 派生クラス実装 ✅
+- [x] `ImageEvalNode` 実装
+- [x] `FilterEvalNode` 実装
+- [x] `AffineEvalNode` 実装
+- [x] `CompositeEvalNode` 実装
+- [x] `OutputEvalNode` 実装
+
+#### Phase 3: PipelineBuilder実装 ✅
+- [x] `Pipeline` 構造体（全ノードの所有権を保持）
+- [x] `PipelineBuilder::build()` でGraphNode/ConnectionをEvaluationNodeグラフに変換
+- [x] ポインタによるノード接続
+
+#### Phase 4: NodeGraphEvaluator統合 ✅
+- [x] `pipeline_` メンバーと `pipelineDirty_` フラグ追加
+- [x] `buildPipelineIfNeeded()` 実装
+- [x] `evaluateWithPipeline()` 実装
+
+#### Phase 5: テスト・最適化 ✅
+- [x] 動作確認（全ノードタイプ）
+- [ ] パフォーマンス計測・比較（将来）
+
+#### Phase 6: 旧実装削除 ✅
+- [x] 文字列ベース評価コードを削除（約680行削減）
+- [x] `usePipeline_` フラグを削除
+- [x] 旧キャッシュ変数を削除（`nodeResultCache`, `affinePreparedCache`, 等）
+- [x] 旧ヘルパー関数を削除（`findOutputNode`, `findInputConnection`, 等）
 
 ---
 

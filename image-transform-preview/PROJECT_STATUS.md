@@ -42,6 +42,7 @@ image-transform-preview/
 │   ├── viewport.h/cpp             # 統一画像型（ViewPort）
 │   ├── operators.h/cpp            # ノードオペレーター群
 │   ├── node_graph.h/cpp           # ノードグラフ評価エンジン
+│   ├── evaluation_node.h/cpp      # パイプライン評価ノード
 │   └── bindings.cpp               # Emscriptenバインディング
 ├── web/
 │   ├── index.html                 # メインHTML
@@ -68,3 +69,8 @@ cd image-transform-preview
 - [QUICKSTART.md](QUICKSTART.md): クイックスタートガイド
 - [CHANGELOG.md](CHANGELOG.md): 変更履歴
 - [TODO.md](TODO.md): 今後の機能拡張計画
+
+### 設計ドキュメント
+
+- [DESIGN_NODE_OPERATOR.md](DESIGN_NODE_OPERATOR.md): ノードオペレーター設計
+- [DESIGN_PIPELINE_EVALUATION.md](DESIGN_PIPELINE_EVALUATION.md): パイプライン評価システム設計

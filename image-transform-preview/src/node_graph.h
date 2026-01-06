@@ -6,16 +6,17 @@
 #include <string>
 #include <vector>
 #include <map>
-#include <set>
 #include <chrono>
-#include <cstdint>
 #include <algorithm>
 #include <cmath>
+#include <memory>
 
 namespace ImageTransform {
 
 // 前方宣言
 struct Image;
+struct Pipeline;
+class EvaluationNode;
 
 // ========================================================================
 // タイル分割評価システム用構造体
@@ -123,34 +124,6 @@ struct RenderRequest {
     }
 };
 
-// アフィン変換の事前計算データ
-struct AffinePreparedData {
-    // 逆行列（固定小数点 16bit）
-    int32_t fixedInvA = 0;
-    int32_t fixedInvB = 0;
-    int32_t fixedInvC = 0;
-    int32_t fixedInvD = 0;
-    int32_t fixedInvTx = 0;
-    int32_t fixedInvTy = 0;
-
-    // 入力画像情報
-    int inputWidth = 0;
-    int inputHeight = 0;
-    double inputOriginX = 0;
-    double inputOriginY = 0;
-
-    bool prepared = false;
-};
-
-// フィルタの事前計算データ
-struct FilterPreparedData {
-    std::string filterType;
-    std::vector<float> params;
-    int kernelRadius = 0;   // 領域拡大に必要なマージン
-
-    bool prepared = false;
-};
-
 // ========================================================================
 // パフォーマンス計測構造体
 // ========================================================================
@@ -232,6 +205,7 @@ struct GraphConnection {
 class NodeGraphEvaluator {
 public:
     NodeGraphEvaluator(int canvasWidth, int canvasHeight);
+    ~NodeGraphEvaluator();  // Pipeline の完全な定義が必要なため .cpp で実装
 
     // 画像ライブラリに画像を登録（8bit RGBA）
     void registerImage(int imageId, const Image& img);
@@ -255,19 +229,6 @@ public:
     // パフォーマンス計測結果を取得
     const PerfMetrics& getPerfMetrics() const { return perfMetrics; }
 
-    // ========================================================================
-    // 3段階評価API（タイル分割対応）
-    // ========================================================================
-
-    // 段階0: 事前準備（出力全体サイズを伝播、各ノードが事前計算を実行）
-    void prepare(const RenderContext& context);
-
-    // 段階1: 要求伝播（タイルごとに必要な入力領域を算出）
-    void propagateRequests(const RenderRequest& tileRequest);
-
-    // 段階2: タイル評価（要求領域のみを処理）
-    ViewPort evaluateTile(const RenderRequest& tileRequest);
-
 private:
     int canvasWidth;
     int canvasHeight;
@@ -282,45 +243,21 @@ private:
     std::vector<GraphNode> nodes;
     std::vector<GraphConnection> connections;
 
+    // パイプラインベース評価システム
+    std::unique_ptr<Pipeline> pipeline_;
+    bool pipelineDirty_ = true;    // パイプライン再構築が必要かどうか
+
+    // パイプラインを構築（必要な場合のみ）
+    void buildPipelineIfNeeded();
+
+    // パイプラインベースの評価
+    Image evaluateWithPipeline(const RenderContext& context);
+
     // 画像ライブラリ（RGBA8_Straight形式のViewPortで保存）
     std::map<int, ViewPort> imageLibrary;
 
-    // ノード評価結果キャッシュ（1回の評価で使い回す）
-    std::map<std::string, ViewPort> nodeResultCache;
-
-    // 事前計算データキャッシュ（段階0で生成）
-    std::map<std::string, AffinePreparedData> affinePreparedCache;
-    std::map<std::string, FilterPreparedData> filterPreparedCache;
-
-    // 要求キャッシュ（段階1で生成、段階2で使用）
-    std::map<std::string, RenderRequest> nodeRequestCache;
-
     // パフォーマンス計測
     PerfMetrics perfMetrics;
-
-    // ========================================================================
-    // 3段階評価の内部関数
-    // ========================================================================
-
-    // 段階0: ノードごとの事前準備（再帰的）
-    void prepareNode(const std::string& nodeId, const RenderContext& context,
-                     std::set<std::string>& visited);
-
-    // 段階1: ノードごとの要求伝播（再帰的）
-    RenderRequest propagateNodeRequest(const std::string& nodeId,
-                                       const RenderRequest& outputRequest,
-                                       std::set<std::string>& visited);
-
-    // 段階2: ノードごとの評価（再帰的、要求ベース）
-    ViewPort evaluateNodeWithRequest(const std::string& nodeId,
-                                     std::set<std::string>& visited);
-
-    // ユーティリティ: 出力ノードを検索
-    const GraphNode* findOutputNode() const;
-
-    // ユーティリティ: ノードへの入力接続を検索
-    const GraphConnection* findInputConnection(const std::string& nodeId,
-                                               const std::string& portName) const;
 };
 
 } // namespace ImageTransform
