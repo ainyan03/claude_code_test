@@ -139,27 +139,47 @@ ViewPort BoxBlurFilter::apply(const ViewPort& input) const {
     return output;
 }
 
-// アルファ調整フィルタ（Premultiplied形式で処理）
+// アルファ調整フィルタ（入力形式に応じて処理）
 ViewPort AlphaFilter::apply(const ViewPort& input) const {
-    // 入力を要求形式に変換（既に同じ形式ならコピー）
-    ViewPort working = input.convertTo(PixelFormatIDs::RGBA16_Premultiplied);
+    // 入力が RGBA16_Premultiplied の場合は16bit処理
+    if (input.formatID == PixelFormatIDs::RGBA16_Premultiplied) {
+        ViewPort output(input.width, input.height, PixelFormatIDs::RGBA16_Premultiplied);
+        uint32_t alphaScale = static_cast<uint32_t>(params_.alpha * 65536.0f);  // 16.16固定小数点
 
-    // Premultiplied形式での処理
-    // RGB値もアルファに応じてスケールされるため、すべてのチャンネルに乗算を適用
-    ViewPort output(working.width, working.height, PixelFormatIDs::RGBA16_Premultiplied);
-    uint32_t alphaScale = static_cast<uint32_t>(params_.alpha * 65536.0f);  // 16.16固定小数点
+        for (int y = 0; y < input.height; y++) {
+            const uint16_t* srcRow = input.getPixelPtr<uint16_t>(0, y);
+            uint16_t* dstRow = output.getPixelPtr<uint16_t>(0, y);
+
+            for (int x = 0; x < input.width; x++) {
+                int pixelOffset = x * 4;
+                // RGBA全チャンネルにアルファ乗算を適用（Premultiplied形式）
+                for (int c = 0; c < 4; c++) {
+                    uint32_t value = srcRow[pixelOffset + c];
+                    dstRow[pixelOffset + c] = static_cast<uint16_t>((value * alphaScale) >> 16);
+                }
+            }
+        }
+        return output;
+    }
+
+    // それ以外の場合は RGBA8_Straight で処理（変換が必要なら変換）
+    ViewPort working = input.convertTo(PixelFormatIDs::RGBA8_Straight);
+
+    ViewPort output(working.width, working.height, PixelFormatIDs::RGBA8_Straight);
+    uint32_t alphaScale = static_cast<uint32_t>(params_.alpha * 256.0f);  // 8.8固定小数点
 
     for (int y = 0; y < working.height; y++) {
-        const uint16_t* srcRow = working.getPixelPtr<uint16_t>(0, y);
-        uint16_t* dstRow = output.getPixelPtr<uint16_t>(0, y);
+        const uint8_t* srcRow = working.getPixelPtr<uint8_t>(0, y);
+        uint8_t* dstRow = output.getPixelPtr<uint8_t>(0, y);
 
         for (int x = 0; x < working.width; x++) {
             int pixelOffset = x * 4;
-            // RGBA全チャンネルにアルファ乗算を適用（Premultiplied形式）
-            for (int c = 0; c < 4; c++) {
-                uint32_t value = srcRow[pixelOffset + c];
-                dstRow[pixelOffset + c] = static_cast<uint16_t>((value * alphaScale) >> 16);
-            }
+            // Straight形式: RGBはそのまま、Alphaのみ乗算
+            dstRow[pixelOffset]     = srcRow[pixelOffset];      // R
+            dstRow[pixelOffset + 1] = srcRow[pixelOffset + 1];  // G
+            dstRow[pixelOffset + 2] = srcRow[pixelOffset + 2];  // B
+            uint32_t alpha = srcRow[pixelOffset + 3];
+            dstRow[pixelOffset + 3] = static_cast<uint8_t>((alpha * alphaScale) >> 8);  // A
         }
     }
 

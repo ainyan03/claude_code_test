@@ -6,6 +6,25 @@
 
 ## 2026-01-06
 
+### ピクセルフォーマット最適化
+
+**標準フォーマットの変更**
+- 標準（中間）フォーマットを `RGBA16_Straight` → `RGBA8_Straight` に変更
+- `RGBA16_Straight` フォーマットを完全に廃止
+- 変換時の中間バッファが 16bit → 8bit に削減（メモリ効率向上）
+
+**API統一**
+- `ImageProcessor::convertPixelFormat()` を廃止
+- フォーマット変換は `ViewPort::convertTo()` に統一
+- node_graph.cpp 内の7箇所の変換呼び出しを更新
+
+**アルファフィルタの両フォーマット対応**
+- 入力が `RGBA16_Premultiplied` → 16bit処理（RGBA全チャンネル乗算）
+- 入力が `RGBA8_Straight` → 8bit処理（Alphaのみ乗算、変換不要）
+- その他 → `RGBA8_Straight` に変換して8bit処理
+
+---
+
 ### タイル分割出力機能（Phase 6）
 
 **タイル分割設定UI**

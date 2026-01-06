@@ -273,7 +273,7 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
                     // 合成にはPremultiplied形式が必要
                     if (img.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
                         auto convStart = std::chrono::high_resolution_clock::now();
-                        img = processor.convertPixelFormat(img, PixelFormatIDs::RGBA16_Premultiplied);
+                        img = img.convertTo(PixelFormatIDs::RGBA16_Premultiplied);
                         auto convEnd = std::chrono::high_resolution_clock::now();
                         perfMetrics.convertTime += std::chrono::duration<double, std::milli>(convEnd - convStart).count();
                         perfMetrics.convertCount++;
@@ -330,7 +330,7 @@ ViewPort NodeGraphEvaluator::evaluateNode(const std::string& nodeId, std::set<st
             // Premultiplied形式に変換（アフィン変換に必要）
             if (inputImage.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
                 auto convStart = std::chrono::high_resolution_clock::now();
-                inputImage = processor.convertPixelFormat(inputImage, PixelFormatIDs::RGBA16_Premultiplied);
+                inputImage = inputImage.convertTo(PixelFormatIDs::RGBA16_Premultiplied);
                 auto convEnd = std::chrono::high_resolution_clock::now();
                 perfMetrics.convertTime += std::chrono::duration<double, std::milli>(convEnd - convStart).count();
                 perfMetrics.convertCount++;
@@ -404,7 +404,7 @@ Image NodeGraphEvaluator::evaluateGraph() {
             std::abs(resultViewPort.srcOriginY - dstOriginY) > epsilon) {
             if (resultViewPort.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
                 auto convStart = std::chrono::high_resolution_clock::now();
-                resultViewPort = processor.convertPixelFormat(resultViewPort, PixelFormatIDs::RGBA16_Premultiplied);
+                resultViewPort = resultViewPort.convertTo(PixelFormatIDs::RGBA16_Premultiplied);
                 auto convEnd = std::chrono::high_resolution_clock::now();
                 perfMetrics.convertTime += std::chrono::duration<double, std::milli>(convEnd - convStart).count();
                 perfMetrics.convertCount++;
@@ -454,7 +454,7 @@ Image NodeGraphEvaluator::evaluateGraph() {
             if (std::abs(tileResult.srcOriginX - dstOriginX) > epsilon ||
                 std::abs(tileResult.srcOriginY - dstOriginY) > epsilon) {
                 if (tileResult.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
-                    tileResult = processor.convertPixelFormat(tileResult, PixelFormatIDs::RGBA16_Premultiplied);
+                    tileResult = tileResult.convertTo(PixelFormatIDs::RGBA16_Premultiplied);
                 }
                 std::vector<const ViewPort*> singleImage = { &tileResult };
                 tileResult = processor.mergeImages(singleImage, dstOriginX, dstOriginY);
@@ -463,7 +463,7 @@ Image NodeGraphEvaluator::evaluateGraph() {
             // タイル結果を最終画像にコピー
             // tileResult は canvasSize のViewPort、その中の tileReq 領域をコピー
             if (tileResult.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
-                tileResult = processor.convertPixelFormat(tileResult, PixelFormatIDs::RGBA16_Premultiplied);
+                tileResult = tileResult.convertTo(PixelFormatIDs::RGBA16_Premultiplied);
             }
 
             for (int y = 0; y < tileReq.height && (tileReq.y + y) < canvasHeight; y++) {
@@ -765,7 +765,7 @@ ViewPort NodeGraphEvaluator::evaluateNodeWithRequest(
                 ViewPort img = evaluateNodeWithRequest(conn->fromNodeId, visited);
 
                 if (img.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
-                    img = processor.convertPixelFormat(img, PixelFormatIDs::RGBA16_Premultiplied);
+                    img = img.convertTo(PixelFormatIDs::RGBA16_Premultiplied);
                 }
 
                 if (input.alpha != 1.0) {
@@ -801,7 +801,7 @@ ViewPort NodeGraphEvaluator::evaluateNodeWithRequest(
             ViewPort inputImage = evaluateNodeWithRequest(inputConn->fromNodeId, visited);
 
             if (inputImage.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
-                inputImage = processor.convertPixelFormat(inputImage, PixelFormatIDs::RGBA16_Premultiplied);
+                inputImage = inputImage.convertTo(PixelFormatIDs::RGBA16_Premultiplied);
             }
 
             AffineMatrix matrix = node->affineMatrix;

@@ -329,19 +329,6 @@ Image ViewPort::toImage() const {
                 dstRow[idx + 3] = a16 >> 8;
             }
         }
-    } else if (formatID == PixelFormatIDs::RGBA16_Straight) {
-        // RGBA16_Straight → RGBA8_Straight 変換（16bit→8bit のみ）
-        for (int y = 0; y < height; y++) {
-            const uint16_t* srcRow = getPixelPtr<uint16_t>(0, y);
-            uint8_t* dstRow = &img.data[y * width * 4];
-            for (int x = 0; x < width; x++) {
-                int idx = x * 4;
-                dstRow[idx]     = srcRow[idx]     >> 8;
-                dstRow[idx + 1] = srcRow[idx + 1] >> 8;
-                dstRow[idx + 2] = srcRow[idx + 2] >> 8;
-                dstRow[idx + 3] = srcRow[idx + 3] >> 8;
-            }
-        }
     } else {
         // その他の形式は未対応
         throw std::runtime_error("ViewPort::toImage: unsupported format");
