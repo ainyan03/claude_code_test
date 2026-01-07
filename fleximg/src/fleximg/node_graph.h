@@ -102,11 +102,12 @@ struct RenderRequest {
     }
 
     // マージン分拡大（フィルタ用）
+    // 基準相対座標系で両側に margin 分拡大する
     RenderRequest expand(int margin) const {
         return {
             x - margin, y - margin,
             width + margin * 2, height + margin * 2,
-            originX, originY
+            originX + margin, originY + margin  // バッファ内の基準点位置も調整
         };
     }
 

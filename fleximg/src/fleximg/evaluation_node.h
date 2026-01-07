@@ -87,9 +87,6 @@ public:
     // フィルタ種別とパラメータ（prepare用）
     std::string filterType;
     std::vector<float> filterParams;
-
-    // カーネル半径（BoxBlur等で使用）
-    int kernelRadius = 0;
 };
 
 // ========================================================================

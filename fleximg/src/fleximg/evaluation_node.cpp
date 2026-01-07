@@ -11,21 +11,55 @@ namespace FLEXIMG_NAMESPACE {
 
 ViewPort ImageEvalNode::evaluate(const RenderRequest& request,
                                   const RenderContext& context) {
-    (void)request;
     (void)context;
 
     if (!imageData || !imageData->isValid()) {
         return ViewPort(1, 1, PixelFormatIDs::RGBA8_Straight);
     }
 
-    // 画像データをコピーして返却
-    ViewPort result = *imageData;
-    // srcOriginX/Y は「基準点から見た画像左上の相対座標」
-    // 9点セレクタ (0,0)=左上, (0.5,0.5)=中央, (1,1)=右下
-    // 例: 100x100画像、中央基準(0.5) → srcOriginX = -50
-    result.srcOriginX = -srcOriginX * result.width;
-    result.srcOriginY = -srcOriginY * result.height;
-    return result;
+    // 画像の基準相対座標範囲
+    // srcOriginX/Y は 9点セレクタ (0=左上, 0.5=中央, 1=右下)
+    // 例: 100x100画像、中央基準(0.5) → imgLeft = -50
+    double imgLeft = -srcOriginX * imageData->width;
+    double imgTop = -srcOriginY * imageData->height;
+    double imgRight = imgLeft + imageData->width;
+    double imgBottom = imgTop + imageData->height;
+
+    // 要求範囲の基準相対座標範囲
+    // バッファ位置0 は基準相対座標 -originX に対応
+    double reqLeft = -request.originX;
+    double reqTop = -request.originY;
+    double reqRight = reqLeft + request.width;
+    double reqBottom = reqTop + request.height;
+
+    // 交差領域を計算（基準相対座標）
+    double interLeft = std::max(imgLeft, reqLeft);
+    double interTop = std::max(imgTop, reqTop);
+    double interRight = std::min(imgRight, reqRight);
+    double interBottom = std::min(imgBottom, reqBottom);
+
+    // 交差領域がない場合は空のViewPortを返却
+    if (interLeft >= interRight || interTop >= interBottom) {
+        ViewPort empty(1, 1, imageData->formatID);
+        empty.srcOriginX = reqLeft;
+        empty.srcOriginY = reqTop;
+        return empty;
+    }
+
+    // 交差領域の画像内ピクセル座標
+    int imgX = static_cast<int>(interLeft - imgLeft);
+    int imgY = static_cast<int>(interTop - imgTop);
+    int interWidth = static_cast<int>(interRight - interLeft);
+    int interHeight = static_cast<int>(interBottom - interTop);
+
+    // SubViewを作成（画像の必要部分のみ）
+    ViewPort subView = imageData->createSubView(imgX, imgY, interWidth, interHeight);
+
+    // srcOriginX/Y は「基準点から見たSubView左上の相対座標」
+    subView.srcOriginX = interLeft;
+    subView.srcOriginY = interTop;
+
+    return subView;
 }
 
 RenderRequest ImageEvalNode::computeInputRequest(
@@ -45,13 +79,6 @@ void FilterEvalNode::prepare(const RenderContext& context) {
     // フィルタオペレーターを生成
     op = OperatorFactory::createFilterOperator(filterType, filterParams);
 
-    // カーネル半径を設定
-    if (filterType == "boxblur" && !filterParams.empty()) {
-        kernelRadius = static_cast<int>(filterParams[0]);
-    } else {
-        kernelRadius = 0;
-    }
-
     prepared_ = true;
 }
 
@@ -61,7 +88,7 @@ ViewPort FilterEvalNode::evaluate(const RenderRequest& request,
         return ViewPort(1, 1, PixelFormatIDs::RGBA8_Straight);
     }
 
-    // 1. 入力要求を計算
+    // 1. 入力要求を計算（ブラー等では拡大される）
     RenderRequest inputReq = computeInputRequest(request);
 
     // 2. 上流ノードを評価
@@ -69,9 +96,48 @@ ViewPort FilterEvalNode::evaluate(const RenderRequest& request,
 
     // 3. フィルタ処理を適用
     if (op) {
-        ViewPort result = op->apply({input}, request);
-        result.srcOriginX = input.srcOriginX;
-        result.srcOriginY = input.srcOriginY;
+        ViewPort processed = op->apply({input}, request);
+        // processed は入力サイズ、srcOriginX/Y は input と同じ
+        processed.srcOriginX = input.srcOriginX;
+        processed.srcOriginY = input.srcOriginY;
+
+        // 4. 要求範囲を切り出す（ブラー等で入力が拡大されている場合）
+        // 要求の基準相対座標の左上
+        double reqLeft = -request.originX;
+        double reqTop = -request.originY;
+
+        // processed バッファ内での要求開始位置
+        int startX = static_cast<int>(reqLeft - processed.srcOriginX);
+        int startY = static_cast<int>(reqTop - processed.srcOriginY);
+
+        // 切り出しが必要かチェック（入力が拡大されていない場合は不要）
+        if (startX == 0 && startY == 0 &&
+            processed.width == request.width && processed.height == request.height) {
+            // 切り出し不要
+            return processed;
+        }
+
+        // 範囲チェック
+        if (startX < 0 || startY < 0 ||
+            startX + request.width > processed.width ||
+            startY + request.height > processed.height) {
+            // 要求範囲が処理結果の範囲外（エラーケース）
+            // 安全のため processed をそのまま返す
+            return processed;
+        }
+
+        // 新しいViewPortを作成して要求範囲をコピー
+        ViewPort result(request.width, request.height, processed.formatID);
+        size_t bytesPerPixel = processed.getBytesPerPixel();
+
+        for (int y = 0; y < request.height; y++) {
+            const void* srcRow = processed.getPixelAddress(startX, startY + y);
+            void* dstRow = result.getPixelAddress(0, y);
+            std::memcpy(dstRow, srcRow, request.width * bytesPerPixel);
+        }
+
+        result.srcOriginX = reqLeft;
+        result.srcOriginY = reqTop;
         return result;
     }
 
@@ -81,8 +147,9 @@ ViewPort FilterEvalNode::evaluate(const RenderRequest& request,
 
 RenderRequest FilterEvalNode::computeInputRequest(
     const RenderRequest& outputRequest) const {
-    // カーネル半径分だけ領域を拡大
-    return outputRequest.expand(kernelRadius);
+    // オペレーターに入力要求計算を委譲
+    // （ブラーフィルタ等はカーネル半径分拡大、他はそのまま返す）
+    return op ? op->computeInputRequest(outputRequest) : outputRequest;
 }
 
 // ========================================================================
