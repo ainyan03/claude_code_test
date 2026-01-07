@@ -40,6 +40,7 @@ void NodeGraphEvaluator::setTileStrategy(TileStrategy strategy, int tileWidth, i
 void NodeGraphEvaluator::registerImage(int imageId, const Image& img) {
     // Image → ViewPort(RGBA8_Straight) に変換して保存
     imageLibrary[imageId] = ViewPort::fromImage(img);
+    pipelineDirty_ = true;  // パイプライン再構築が必要（ImageEvalNodeの参照を更新）
 }
 
 void NodeGraphEvaluator::setNodes(const std::vector<GraphNode>& newNodes) {
