@@ -211,7 +211,8 @@ RenderRequest AffineEvalNode::computeInputRequest(
         static_cast<int>(std::floor(minY)),
         static_cast<int>(std::ceil(maxX) - std::floor(minX)) + 1,
         static_cast<int>(std::ceil(maxY) - std::floor(minY)) + 1,
-        0, 0
+        outputRequest.originX,  // origin を保持して伝播
+        outputRequest.originY
     };
 }
 
