@@ -138,8 +138,11 @@ public:
                       const RenderContext& context) override {
         // 画像データを返却（終端ノード）
         ViewPort result = *imageData;
-        result.srcOriginX = srcOriginX * result.width;
-        result.srcOriginY = srcOriginY * result.height;
+        // srcOriginX/Y は「基準点から見た画像左上の相対座標」
+        // 9点セレクタ (0,0)=左上, (0.5,0.5)=中央, (1,1)=右下
+        // 例: 100x100画像、中央基準(0.5) → srcOriginX = -50
+        result.srcOriginX = -srcOriginX * result.width;
+        result.srcOriginY = -srcOriginY * result.height;
         return result;
     }
 
@@ -151,8 +154,8 @@ public:
 
     // 画像データへの参照
     const ViewPort* imageData = nullptr;
-    double srcOriginX = 0.5;
-    double srcOriginY = 0.5;
+    double srcOriginX = 0.5;  // 9点セレクタ X (0〜1)
+    double srcOriginY = 0.5;  // 9点セレクタ Y (0〜1)
 };
 ```
 
@@ -170,9 +173,7 @@ public:
         ViewPort input = inputs[0]->evaluate(inputReq, context);
 
         // 3. フィルタ処理を適用
-        OperatorContext ctx(context.totalWidth, context.totalHeight,
-                           request.originX, request.originY);
-        ViewPort result = op->apply({input}, ctx);
+        ViewPort result = op->apply({input}, request);
         result.srcOriginX = input.srcOriginX;
         result.srcOriginY = input.srcOriginY;
         return result;
@@ -196,47 +197,50 @@ class AffineEvalNode : public EvaluationNode {
 public:
     ViewPort evaluate(const RenderRequest& request,
                       const RenderContext& context) override {
-        // 1. 上流ノードを評価
+        // 1. 入力要求を計算（逆変換によるAABB計算）
         RenderRequest inputReq = computeInputRequest(request);
+
+        // 2. 上流ノードを評価
         ViewPort input = inputs[0]->evaluate(inputReq, context);
 
-        // 2. フォーマット変換
+        // 3. フォーマット変換（アフィン変換はPremultiplied形式で処理）
         if (input.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
             input = input.convertTo(PixelFormatIDs::RGBA16_Premultiplied);
         }
 
-        // 3. アフィン変換を適用
-        double inputOriginX = input.srcOriginX;
-        double inputOriginY = input.srcOriginY;
-        double baseOffset = std::max(input.width, input.height);
-        double outputOffsetX = baseOffset + std::abs(matrix.tx);
-        double outputOffsetY = baseOffset + std::abs(matrix.ty);
+        // 4. アフィン変換を適用
+        double inputSrcOriginX = input.srcOriginX;  // 基準相対座標
+        double inputSrcOriginY = input.srcOriginY;
+        double outputOriginX = request.originX;     // バッファ内基準点位置
+        double outputOriginY = request.originY;
+
+        // オフセット計算: AffineOperatorの座標変換式に合わせる
+        double outputOffsetX = outputOriginX - inputSrcOriginX;
+        double outputOffsetY = outputOriginY - inputSrcOriginY;
 
         auto affineOp = OperatorFactory::createAffineOperator(
-            matrix, inputOriginX, inputOriginY,
+            matrix, inputSrcOriginX, inputSrcOriginY,
             outputOffsetX, outputOffsetY,
-            input.width + outputOffsetX * 2,
-            input.height + outputOffsetY * 2);
+            request.width, request.height);
 
-        OperatorContext ctx(context.totalWidth, context.totalHeight,
-                           request.originX, request.originY);
-        ViewPort result = affineOp->apply({input}, ctx);
+        ViewPort result = affineOp->apply({input}, request);
 
-        result.srcOriginX = inputOriginX + outputOffsetX;
-        result.srcOriginY = inputOriginY + outputOffsetY;
+        // 出力の srcOriginX は「基準から見た出力左上の相対座標」
+        result.srcOriginX = -outputOriginX;
+        result.srcOriginY = -outputOriginY;
         return result;
     }
 
     RenderRequest computeInputRequest(
         const RenderRequest& outputRequest) const override {
-        // 逆行列で出力要求を入力座標に変換
-        // （事前計算済みの逆行列を使用）
-        // ... AABB計算
-        return inputAABB;
+        // 出力要求の4頂点を逆変換してAABBを算出
+        // originX = -reqX（基準相対座標からバッファ位置への変換）
+        // ... AABB計算（固定小数点演算）
+        return RenderRequest{reqX, reqY, width, height, -reqX, -reqY};
     }
 
     AffineMatrix matrix;
-    // 事前計算済み逆行列
+    // 事前計算済み逆行列（固定小数点）
     int32_t fixedInvA, fixedInvB, fixedInvC, fixedInvD;
     int32_t fixedInvTx, fixedInvTy;
 };
@@ -254,7 +258,7 @@ public:
         for (size_t i = 0; i < inputs.size(); i++) {
             ViewPort img = inputs[i]->evaluate(request, context);
 
-            // フォーマット変換
+            // フォーマット変換（合成はPremultiplied形式で処理）
             if (img.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
                 img = img.convertTo(PixelFormatIDs::RGBA16_Premultiplied);
             }
@@ -268,9 +272,8 @@ public:
         }
 
         // 2. 合成処理
-        OperatorContext ctx(context.totalWidth, context.totalHeight,
-                           request.originX, request.originY);
-        return compositeOp->apply(inputImages, ctx);
+        auto compositeOp = OperatorFactory::createCompositeOperator();
+        return compositeOp->apply(inputImages, request);
     }
 
     RenderRequest computeInputRequest(
@@ -279,7 +282,6 @@ public:
         return outputRequest;
     }
 
-    std::unique_ptr<CompositeOperator> compositeOp;
     std::vector<double> alphas;  // 各入力のアルファ値
 };
 ```
@@ -471,6 +473,7 @@ private:
 ## 関連ドキュメント
 
 - [DESIGN_NODE_OPERATOR.md](DESIGN_NODE_OPERATOR.md): ノードオペレーター統一設計
+- [DESIGN_TILE_COORDINATE_SYSTEM.md](DESIGN_TILE_COORDINATE_SYSTEM.md): タイル座標系設計
 
 ## 変更履歴
 
@@ -478,3 +481,4 @@ private:
 |------|------|
 | 2025-01-06 | 初版作成 |
 | 2026-01-06 | 実装完了、旧実装削除（約680行削減） |
+| 2026-01-07 | コード例を現行実装に更新（OperatorContext→RenderRequest、座標系の修正） |

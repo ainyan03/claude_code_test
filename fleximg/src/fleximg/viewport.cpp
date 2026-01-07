@@ -165,9 +165,11 @@ ViewPort ViewPort::createSubView(int x, int y, int w, int h) {
     subView.offsetX = offsetX + x;
     subView.offsetY = offsetY + y;
     subView.parent = this;
-    // サブビューの原点は親からの相対位置で調整
-    subView.srcOriginX = srcOriginX - x;
-    subView.srcOriginY = srcOriginY - y;
+    // サブビューの srcOriginX は基準相対座標
+    // サブビュー左上 = 親の左上から (x, y) 移動した位置
+    // 基準相対座標 = 親の基準相対座標 + (x, y)
+    subView.srcOriginX = srcOriginX + x;
+    subView.srcOriginY = srcOriginY + y;
 
     return subView;
 }

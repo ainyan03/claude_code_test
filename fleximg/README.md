@@ -191,8 +191,9 @@ fleximg/
 ├── docs/                          # ドキュメント
 │   ├── QUICKSTART.md              # クイックスタートガイド
 │   ├── PROJECT_STATUS.md          # プロジェクト状況
-│   ├── DESIGN_NODE_OPERATOR.md    # オペレーター設計文書
-│   ├── DESIGN_PIPELINE_EVALUATION.md # パイプライン評価設計文書
+│   ├── DESIGN_NODE_OPERATOR.md    # オペレーター設計
+│   ├── DESIGN_PIPELINE_EVALUATION.md # パイプライン評価設計
+│   ├── DESIGN_TILE_COORDINATE_SYSTEM.md # タイル座標系設計
 │   ├── BRANCH_STRATEGY.md         # ブランチ戦略
 │   └── GITHUB_PAGES_SETUP.md      # GitHub Pages設定
 ├── build.sh                       # WASMビルドスクリプト

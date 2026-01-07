@@ -136,6 +136,12 @@
 
 - [ ] パフォーマンス計測・比較（将来）
 
+### タイル座標系リファクタリング ✅
+
+**詳細設計**: [docs/DESIGN_TILE_COORDINATE_SYSTEM.md](docs/DESIGN_TILE_COORDINATE_SYSTEM.md)
+
+パイプライン処理における座標系を「基準相対座標系」に統一。タイル分割処理とアフィン変換の組み合わせで発生していた画像切れ問題を解決。
+
 ---
 
 ## 📌 注意事項
@@ -151,5 +157,9 @@
 - [CHANGELOG.md](CHANGELOG.md): 変更履歴
 - [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md): 現在の状態
 - [docs/QUICKSTART.md](docs/QUICKSTART.md): クイックスタートガイド
-- [docs/DESIGN_NODE_OPERATOR.md](docs/DESIGN_NODE_OPERATOR.md): オペレーター設計文書
-- [docs/DESIGN_PIPELINE_EVALUATION.md](docs/DESIGN_PIPELINE_EVALUATION.md): パイプライン評価設計文書
+
+### 設計ドキュメント
+
+- [docs/DESIGN_NODE_OPERATOR.md](docs/DESIGN_NODE_OPERATOR.md): オペレーター設計
+- [docs/DESIGN_PIPELINE_EVALUATION.md](docs/DESIGN_PIPELINE_EVALUATION.md): パイプライン評価設計
+- [docs/DESIGN_TILE_COORDINATE_SYSTEM.md](docs/DESIGN_TILE_COORDINATE_SYSTEM.md): タイル座標系設計
