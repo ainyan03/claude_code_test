@@ -18,7 +18,7 @@
 ## ビルド手順
 
 ```bash
-cd image-transform-preview
+cd fleximg
 source /path/to/emsdk/emsdk_env.sh  # Emscripten環境を読み込み
 ./build.sh
 ```
