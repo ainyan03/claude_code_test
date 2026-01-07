@@ -114,10 +114,16 @@ Image NodeGraphEvaluator::evaluateWithPipeline(const RenderContext& context) {
         // パイプラインで評価
         ViewPort resultViewPort = pipeline_->outputNode->evaluate(fullRequest, context);
 
-        // srcOrigin が dstOrigin と一致しない場合、最終配置を適用
+        // 応答と要求の座標系が一致するか確認
+        // - 要求の左上 = 基準から見て -originX の位置
+        // - 応答の左上 = srcOriginX の位置
+        // - 一致条件: srcOriginX == -originX (かつサイズも一致)
         const double epsilon = 0.001;
-        if (std::abs(resultViewPort.srcOriginX - dstOriginX) > epsilon ||
-            std::abs(resultViewPort.srcOriginY - dstOriginY) > epsilon) {
+        bool needsComposite = (std::abs(resultViewPort.srcOriginX + fullRequest.originX) > epsilon ||
+                               std::abs(resultViewPort.srcOriginY + fullRequest.originY) > epsilon ||
+                               resultViewPort.width != canvasWidth ||
+                               resultViewPort.height != canvasHeight);
+        if (needsComposite) {
             if (resultViewPort.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
                 auto convStart = std::chrono::high_resolution_clock::now();
                 resultViewPort = resultViewPort.convertTo(PixelFormatIDs::RGBA16_Premultiplied);
@@ -127,8 +133,8 @@ Image NodeGraphEvaluator::evaluateWithPipeline(const RenderContext& context) {
             }
             auto compStart = std::chrono::high_resolution_clock::now();
             auto compositeOp = OperatorFactory::createCompositeOperator();
-            OperatorContext ctx(canvasWidth, canvasHeight, dstOriginX, dstOriginY);
-            resultViewPort = compositeOp->apply({resultViewPort}, ctx);
+            RenderRequest compReq{0, 0, canvasWidth, canvasHeight, dstOriginX, dstOriginY};
+            resultViewPort = compositeOp->apply({resultViewPort}, compReq);
             auto compEnd = std::chrono::high_resolution_clock::now();
             perfMetrics.compositeTime += std::chrono::duration<double, std::milli>(compEnd - compStart).count();
             perfMetrics.compositeCount++;
@@ -162,16 +168,23 @@ Image NodeGraphEvaluator::evaluateWithPipeline(const RenderContext& context) {
             // パイプラインでタイル評価
             ViewPort tileResult = pipeline_->outputNode->evaluate(tileReq, context);
 
-            // srcOrigin と dstOrigin の差を解消
+            // 応答と要求の座標系が一致するか確認
+            // - 要求の左上 = 基準から見て -originX の位置
+            // - 応答の左上 = srcOriginX の位置
+            // - 一致条件: srcOriginX == -originX (かつサイズも一致)
             const double epsilon = 0.001;
-            if (std::abs(tileResult.srcOriginX - dstOriginX) > epsilon ||
-                std::abs(tileResult.srcOriginY - dstOriginY) > epsilon) {
+            bool needsComposite = (std::abs(tileResult.srcOriginX + tileReq.originX) > epsilon ||
+                                   std::abs(tileResult.srcOriginY + tileReq.originY) > epsilon ||
+                                   tileResult.width != tileReq.width ||
+                                   tileResult.height != tileReq.height);
+            if (needsComposite) {
                 if (tileResult.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
                     tileResult = tileResult.convertTo(PixelFormatIDs::RGBA16_Premultiplied);
                 }
                 auto compositeOp = OperatorFactory::createCompositeOperator();
-                OperatorContext ctx(canvasWidth, canvasHeight, dstOriginX, dstOriginY);
-                tileResult = compositeOp->apply({tileResult}, ctx);
+                // 合成リクエスト: タイルバッファの originX/Y を使用
+                RenderRequest compReq{0, 0, tileReq.width, tileReq.height, tileReq.originX, tileReq.originY};
+                tileResult = compositeOp->apply({tileResult}, compReq);
             }
 
             // タイル結果を最終画像にコピー（RGBA8_Straightに変換してmemcpy）
@@ -179,11 +192,14 @@ Image NodeGraphEvaluator::evaluateWithPipeline(const RenderContext& context) {
                 tileResult = tileResult.convertTo(PixelFormatIDs::RGBA8_Straight);
             }
 
+            // タイル結果はバッファ座標 (0,0) から始まる
             for (int y = 0; y < tileReq.height && (tileReq.y + y) < canvasHeight; y++) {
                 int dstY = tileReq.y + y;
                 if (dstY < 0 || dstY >= canvasHeight) continue;
 
-                const uint8_t* srcRow = tileResult.getPixelPtr<uint8_t>(tileReq.x, dstY);
+                // ソースはバッファ相対座標 (0, y)
+                const uint8_t* srcRow = tileResult.getPixelPtr<uint8_t>(0, y);
+                // デスティネーションはキャンバス絶対座標
                 uint8_t* dstRow = result.data.data() + dstY * canvasWidth * 4 + tileReq.x * 4;
 
                 int copyWidth = std::min(tileReq.width, canvasWidth - tileReq.x);

@@ -13,24 +13,7 @@ namespace FLEXIMG_NAMESPACE {
 
 // 前方宣言
 struct GraphNode;
-
-// ========================================================================
-// オペレーター実行コンテキスト
-// オペレーター実行時に必要な共通情報を保持
-// ========================================================================
-
-struct OperatorContext {
-    int canvasWidth;     // キャンバス幅
-    int canvasHeight;    // キャンバス高さ
-    double dstOriginX;   // 出力基準点X
-    double dstOriginY;   // 出力基準点Y
-
-    OperatorContext()
-        : canvasWidth(0), canvasHeight(0), dstOriginX(0), dstOriginY(0) {}
-
-    OperatorContext(int w, int h, double ox, double oy)
-        : canvasWidth(w), canvasHeight(h), dstOriginX(ox), dstOriginY(oy) {}
-};
+struct RenderRequest;
 
 // ========================================================================
 // NodeOperator 基底クラス
@@ -42,8 +25,9 @@ public:
     virtual ~NodeOperator() = default;
 
     // メイン処理: 入力群からViewPortを生成
+    // request: 下流からの処理要求（必要なサイズと基準座標）
     virtual ViewPort apply(const std::vector<ViewPort>& inputs,
-                          const OperatorContext& ctx) const = 0;
+                          const RenderRequest& request) const = 0;
 
     // 入力数の制約
     virtual int getMinInputCount() const = 0;
@@ -73,16 +57,16 @@ class SingleInputOperator : public NodeOperator {
 public:
     // NodeOperator::apply を実装
     ViewPort apply(const std::vector<ViewPort>& inputs,
-                  const OperatorContext& ctx) const override final {
+                  const RenderRequest& request) const override final {
         if (inputs.empty()) {
             throw std::invalid_argument("SingleInputOperator requires at least 1 input");
         }
-        return applyToSingle(inputs[0], ctx);
+        return applyToSingle(inputs[0], request);
     }
 
     // 派生クラスはこちらを実装
     virtual ViewPort applyToSingle(const ViewPort& input,
-                                   const OperatorContext& ctx) const = 0;
+                                   const RenderRequest& request) const = 0;
 
     int getMinInputCount() const override { return 1; }
     int getMaxInputCount() const override { return 1; }
@@ -101,7 +85,7 @@ class BrightnessOperator : public SingleInputOperator {
 public:
     explicit BrightnessOperator(float brightness) : brightness_(brightness) {}
     ViewPort applyToSingle(const ViewPort& input,
-                          const OperatorContext& ctx) const override;
+                          const RenderRequest& request) const override;
     const char* getName() const override { return "Brightness"; }
 
 private:
@@ -113,7 +97,7 @@ class GrayscaleOperator : public SingleInputOperator {
 public:
     GrayscaleOperator() = default;
     ViewPort applyToSingle(const ViewPort& input,
-                          const OperatorContext& ctx) const override;
+                          const RenderRequest& request) const override;
     const char* getName() const override { return "Grayscale"; }
 };
 
@@ -122,7 +106,7 @@ class BoxBlurOperator : public SingleInputOperator {
 public:
     explicit BoxBlurOperator(int radius) : radius_(radius > 0 ? radius : 1) {}
     ViewPort applyToSingle(const ViewPort& input,
-                          const OperatorContext& ctx) const override;
+                          const RenderRequest& request) const override;
     const char* getName() const override { return "BoxBlur"; }
 
 private:
@@ -134,7 +118,7 @@ class AlphaOperator : public SingleInputOperator {
 public:
     explicit AlphaOperator(float alpha) : alpha_(alpha) {}
     ViewPort applyToSingle(const ViewPort& input,
-                          const OperatorContext& ctx) const override;
+                          const RenderRequest& request) const override;
     const char* getName() const override { return "Alpha"; }
 
     // AlphaOperator はPremultiplied形式でも処理可能
@@ -157,16 +141,16 @@ private:
 class AffineOperator : public SingleInputOperator {
 public:
     // matrix: 変換行列
-    // originX/Y: 変換の中心点（入力画像座標系）
-    // outputOffsetX/Y: 出力バッファ内でのレンダリング位置オフセット
-    // outputWidth/Height: 出力サイズ（0以下の場合はコンテキストのcanvasSizeを使用）
+    // inputSrcOriginX/Y: 入力の基準相対座標（基準から見た入力画像左上）
+    // outputOriginX/Y: 出力バッファ内での基準点位置
+    // outputWidth/Height: 出力サイズ（0以下の場合はrequest.width/heightを使用）
     AffineOperator(const AffineMatrix& matrix,
-                   double originX = 0, double originY = 0,
-                   double outputOffsetX = 0, double outputOffsetY = 0,
+                   double inputSrcOriginX = 0, double inputSrcOriginY = 0,
+                   double outputOriginX = 0, double outputOriginY = 0,
                    int outputWidth = 0, int outputHeight = 0);
 
     ViewPort applyToSingle(const ViewPort& input,
-                          const OperatorContext& ctx) const override;
+                          const RenderRequest& request) const override;
     const char* getName() const override { return "Affine"; }
 
     // アフィン変換はPremultiplied形式を要求
@@ -179,8 +163,8 @@ public:
 
 private:
     AffineMatrix matrix_;
-    double originX_, originY_;
-    double outputOffsetX_, outputOffsetY_;
+    double inputSrcOriginX_, inputSrcOriginY_;
+    double outputOriginX_, outputOriginY_;
     int outputWidth_, outputHeight_;
 };
 
@@ -194,7 +178,7 @@ public:
     CompositeOperator() = default;
 
     ViewPort apply(const std::vector<ViewPort>& inputs,
-                  const OperatorContext& ctx) const override;
+                  const RenderRequest& request) const override;
 
     const char* getName() const override { return "Composite"; }
     int getMinInputCount() const override { return 1; }
@@ -225,10 +209,12 @@ public:
     );
 
     // アフィン変換オペレーターを生成
+    // inputSrcOriginX/Y: 入力の基準相対座標（基準から見た入力画像左上）
+    // outputOriginX/Y: 出力バッファ内での基準点位置
     static std::unique_ptr<NodeOperator> createAffineOperator(
         const AffineMatrix& matrix,
-        double originX, double originY,
-        double outputOffsetX, double outputOffsetY,
+        double inputSrcOriginX, double inputSrcOriginY,
+        double outputOriginX, double outputOriginY,
         int outputWidth, int outputHeight
     );
 

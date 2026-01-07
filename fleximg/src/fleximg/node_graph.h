@@ -120,7 +120,8 @@ struct RenderRequest {
             rx, ry,
             std::min(tw, ctx.totalWidth - rx),
             std::min(th, ctx.totalHeight - ry),
-            ctx.originX, ctx.originY
+            // originX/Y はバッファ相対座標（タイル内での基準点位置）
+            ctx.originX - rx, ctx.originY - ry
         };
     }
 };

@@ -45,21 +45,19 @@ NodeOperator (抽象基底クラス)
 
 ## インターフェース定義
 
-### OperatorContext（実行コンテキスト）
+### RenderRequest（レンダリング要求）
 
-オペレーター実行時に必要な共通情報を保持：
+オペレーター実行時に必要な情報を保持（タイル分割処理対応）：
 
 ```cpp
-struct OperatorContext {
-    int canvasWidth;
-    int canvasHeight;
-    double dstOriginX;  // 出力基準点X
-    double dstOriginY;  // 出力基準点Y
+struct RenderRequest {
+    int x, y;           // 要求範囲の左上座標（基準相対座標）
+    int width, height;  // 要求範囲のサイズ
+    double originX;     // バッファ内での基準点X位置
+    double originY;     // バッファ内での基準点Y位置
 
-    // 将来の拡張用
-    // - タイル情報
-    // - キャッシュ参照
-    // - パフォーマンス計測
+    // 領域拡大（フィルタのカーネル半径対応）
+    RenderRequest expand(int radius) const;
 };
 ```
 
@@ -72,7 +70,7 @@ public:
 
     // メイン処理: 入力群からViewPortを生成
     virtual ViewPort apply(const std::vector<ViewPort>& inputs,
-                          const OperatorContext& ctx) const = 0;
+                          const RenderRequest& request) const = 0;
 
     // 入力数の制約
     virtual int getMinInputCount() const = 0;
@@ -100,16 +98,16 @@ class SingleInputOperator : public NodeOperator {
 public:
     // NodeOperator::apply を実装
     ViewPort apply(const std::vector<ViewPort>& inputs,
-                  const OperatorContext& ctx) const override final {
+                  const RenderRequest& request) const override final {
         if (inputs.empty()) {
             throw std::invalid_argument("SingleInputOperator requires at least 1 input");
         }
-        return applyToSingle(inputs[0], ctx);
+        return applyToSingle(inputs[0], request);
     }
 
     // 派生クラスはこちらを実装
     virtual ViewPort applyToSingle(const ViewPort& input,
-                                   const OperatorContext& ctx) const = 0;
+                                   const RenderRequest& request) const = 0;
 
     int getMinInputCount() const override { return 1; }
     int getMaxInputCount() const override { return 1; }
@@ -141,9 +139,17 @@ private:
 ```cpp
 class AffineOperator : public SingleInputOperator {
 public:
-    explicit AffineOperator(const AffineMatrix& matrix);
+    // ファクトリ関数で生成（パラメータが多いため）
+    // inputSrcOriginX/Y: 入力の基準相対座標
+    // outputOriginX/Y: 出力バッファ内での基準点位置
+    static std::unique_ptr<NodeOperator> create(
+        const AffineMatrix& matrix,
+        double inputSrcOriginX, double inputSrcOriginY,
+        double outputOriginX, double outputOriginY,
+        int outputWidth, int outputHeight);
+
     ViewPort applyToSingle(const ViewPort& input,
-                          const OperatorContext& ctx) const override;
+                          const RenderRequest& request) const override;
     const char* getName() const override { return "Affine"; }
 
     // アフィン変換はPremultiplied形式を要求
@@ -155,10 +161,12 @@ public:
     }
 
 private:
-    AffineMatrix matrix_;
     // 事前計算された逆行列（固定小数点）
     int32_t fixedInvA_, fixedInvB_, fixedInvC_, fixedInvD_;
     int32_t fixedInvTx_, fixedInvTy_;
+    double inputSrcOriginX_, inputSrcOriginY_;
+    double outputOriginX_, outputOriginY_;
+    int outputWidth_, outputHeight_;
 };
 ```
 
@@ -170,7 +178,7 @@ public:
     CompositeOperator() = default;
 
     ViewPort apply(const std::vector<ViewPort>& inputs,
-                  const OperatorContext& ctx) const override;
+                  const RenderRequest& request) const override;
 
     const char* getName() const override { return "Composite"; }
     int getMinInputCount() const override { return 1; }
@@ -192,36 +200,43 @@ public:
 
 ### オペレーターファクトリー
 
-ノード情報からオペレーターを生成：
+ノードタイプごとにオペレーターを生成：
 
 ```cpp
 class OperatorFactory {
 public:
-    static std::unique_ptr<NodeOperator> create(const GraphNode& node);
-};
+    // フィルタオペレーター生成
+    static std::unique_ptr<NodeOperator> createFilterOperator(
+        const std::string& filterType,
+        const std::vector<float>& params);
 
-// 使用例
-std::unique_ptr<NodeOperator> op = OperatorFactory::create(node);
-ViewPort result = op->apply(inputs, ctx);
+    // アフィン変換オペレーター生成
+    static std::unique_ptr<NodeOperator> createAffineOperator(
+        const AffineMatrix& matrix,
+        double inputSrcOriginX, double inputSrcOriginY,
+        double outputOriginX, double outputOriginY,
+        int outputWidth, int outputHeight);
+
+    // 合成オペレーター生成
+    static std::unique_ptr<NodeOperator> createCompositeOperator();
+};
 ```
 
 ### 評価ループの簡略化
 
-現在の `evaluateNode()` 内の分岐を統一：
+`EvaluationNode` クラスが各ノードタイプの処理をカプセル化：
 
 ```cpp
-// Before (現在)
+// 旧: ImageProcessor メソッドを直接呼び出し
 if (node->type == "filter") {
     result = processor.applyFilter(inputImage, filterType, filterParams);
 } else if (node->type == "composite") {
     result = processor.mergeImages(imagePtrs, dstOriginX, dstOriginY);
-} else if (node->type == "affine") {
-    result = processor.applyTransform(inputImage, matrix, ...);
 }
 
-// After (新設計)
-std::unique_ptr<NodeOperator> op = OperatorFactory::create(*node);
-result = op->apply(inputs, ctx);
+// 新: EvaluationNode による統一的な評価
+// 各ノードタイプは EvaluationNode 派生クラスとして実装
+ViewPort result = evalNode->evaluate(request, context);
 ```
 
 ---
@@ -293,3 +308,4 @@ result = op->apply(inputs, ctx);
 
 - [TODO.md](../TODO.md): タスク管理
 - [DESIGN_PIPELINE_EVALUATION.md](DESIGN_PIPELINE_EVALUATION.md): パイプライン評価システム設計
+- [DESIGN_TILE_COORDINATE_SYSTEM.md](DESIGN_TILE_COORDINATE_SYSTEM.md): タイル座標系設計

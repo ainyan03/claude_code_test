@@ -20,8 +20,11 @@ ViewPort ImageEvalNode::evaluate(const RenderRequest& request,
 
     // 画像データをコピーして返却
     ViewPort result = *imageData;
-    result.srcOriginX = srcOriginX * result.width;
-    result.srcOriginY = srcOriginY * result.height;
+    // srcOriginX/Y は「基準点から見た画像左上の相対座標」
+    // 9点セレクタ (0,0)=左上, (0.5,0.5)=中央, (1,1)=右下
+    // 例: 100x100画像、中央基準(0.5) → srcOriginX = -50
+    result.srcOriginX = -srcOriginX * result.width;
+    result.srcOriginY = -srcOriginY * result.height;
     return result;
 }
 
@@ -66,9 +69,7 @@ ViewPort FilterEvalNode::evaluate(const RenderRequest& request,
 
     // 3. フィルタ処理を適用
     if (op) {
-        OperatorContext ctx(context.totalWidth, context.totalHeight,
-                           request.originX, request.originY);
-        ViewPort result = op->apply({input}, ctx);
+        ViewPort result = op->apply({input}, request);
         result.srcOriginX = input.srcOriginX;
         result.srcOriginY = input.srcOriginY;
         return result;
@@ -138,28 +139,31 @@ ViewPort AffineEvalNode::evaluate(const RenderRequest& request,
     }
 
     // 4. アフィン変換を適用
-    double inputOriginX = input.srcOriginX;
-    double inputOriginY = input.srcOriginY;
+    // 入力の基準相対座標（例: -50 は基準点から見て画像左上が左に50px）
+    double inputSrcOriginX = input.srcOriginX;
+    double inputSrcOriginY = input.srcOriginY;
 
-    // 出力オフセット: tx,ty を考慮してマージンを設定
-    double baseOffset = std::max(input.width, input.height);
-    double outputOffsetX = baseOffset + std::abs(matrix.tx);
-    double outputOffsetY = baseOffset + std::abs(matrix.ty);
+    // 出力バッファ内での基準点位置（例: 64 はバッファ内で基準点がx=64の位置）
+    double outputOriginX = request.originX;
+    double outputOriginY = request.originY;
 
-    int outputWidth = input.width + static_cast<int>(outputOffsetX * 2);
-    int outputHeight = input.height + static_cast<int>(outputOffsetY * 2);
+    // AffineOperatorに渡すオフセット
+    // 現在のAffineOperatorの座標計算式は以下の形式を想定:
+    //   effectiveInvTx = invTx - outputOffsetX * invA - inputSrcOriginX
+    // これが正しく動作するためには outputOffsetX = outputOriginX - inputSrcOriginX
+    double outputOffsetX = outputOriginX - inputSrcOriginX;
+    double outputOffsetY = outputOriginY - inputSrcOriginY;
 
     auto affineOp = OperatorFactory::createAffineOperator(
-        matrix, inputOriginX, inputOriginY,
-        outputOffsetX, outputOffsetY, outputWidth, outputHeight);
+        matrix, inputSrcOriginX, inputSrcOriginY,
+        outputOffsetX, outputOffsetY, request.width, request.height);
 
-    OperatorContext ctx(context.totalWidth, context.totalHeight,
-                       request.originX, request.originY);
-    ViewPort result = affineOp->apply({input}, ctx);
+    ViewPort result = affineOp->apply({input}, request);
 
-    // srcOrigin は tx,ty を含めない
-    result.srcOriginX = inputOriginX + outputOffsetX;
-    result.srcOriginY = inputOriginY + outputOffsetY;
+    // 出力の srcOriginX は「基準から見た出力左上の相対座標」
+    // 出力バッファの左上は基準から見て -originX の位置
+    result.srcOriginX = -outputOriginX;
+    result.srcOriginY = -outputOriginY;
 
     return result;
 }
@@ -171,18 +175,16 @@ RenderRequest AffineEvalNode::computeInputRequest(
     }
 
     // 出力要求の4頂点を逆変換してAABBを算出
+    // originX/Y はバッファ相対座標なので、バッファ内座標で計算
     constexpr int FIXED_POINT_BITS = 16;
     constexpr int32_t FIXED_POINT_SCALE = 1 << FIXED_POINT_BITS;
 
+    // バッファ内の4頂点を基準点からの相対座標で表現
     double corners[4][2] = {
-        {outputRequest.x - outputRequest.originX,
-         outputRequest.y - outputRequest.originY},
-        {outputRequest.x + outputRequest.width - outputRequest.originX,
-         outputRequest.y - outputRequest.originY},
-        {outputRequest.x - outputRequest.originX,
-         outputRequest.y + outputRequest.height - outputRequest.originY},
-        {outputRequest.x + outputRequest.width - outputRequest.originX,
-         outputRequest.y + outputRequest.height - outputRequest.originY}
+        {-outputRequest.originX, -outputRequest.originY},
+        {outputRequest.width - outputRequest.originX, -outputRequest.originY},
+        {-outputRequest.originX, outputRequest.height - outputRequest.originY},
+        {outputRequest.width - outputRequest.originX, outputRequest.height - outputRequest.originY}
     };
 
     double minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
@@ -206,13 +208,20 @@ RenderRequest AffineEvalNode::computeInputRequest(
         maxY = std::max(maxY, sy);
     }
 
+    // 要求領域の左上座標（基準相対座標）
+    int reqX = static_cast<int>(std::floor(minX));
+    int reqY = static_cast<int>(std::floor(minY));
+
     return RenderRequest{
-        static_cast<int>(std::floor(minX)),
-        static_cast<int>(std::floor(minY)),
+        reqX,
+        reqY,
         static_cast<int>(std::ceil(maxX) - std::floor(minX)) + 1,
         static_cast<int>(std::ceil(maxY) - std::floor(minY)) + 1,
-        outputRequest.originX,  // origin を保持して伝播
-        outputRequest.originY
+        // originX = バッファ内での基準点位置
+        // バッファの x=0 が基準相対座標 reqX に対応するので、
+        // 基準相対座標 0 はバッファの x=-reqX に対応
+        static_cast<double>(-reqX),
+        static_cast<double>(-reqY)
     };
 }
 
@@ -253,9 +262,7 @@ ViewPort CompositeEvalNode::evaluate(const RenderRequest& request,
 
     // 2. 合成処理
     auto compositeOp = OperatorFactory::createCompositeOperator();
-    OperatorContext ctx(context.totalWidth, context.totalHeight,
-                       request.originX, request.originY);
-    return compositeOp->apply(inputImages, ctx);
+    return compositeOp->apply(inputImages, request);
 }
 
 RenderRequest CompositeEvalNode::computeInputRequest(
