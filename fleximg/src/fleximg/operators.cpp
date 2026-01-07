@@ -474,6 +474,112 @@ ViewPort CompositeOperator::apply(const std::vector<ViewPort>& inputs,
     return result;
 }
 
+// 透明キャンバスを作成
+ViewPort CompositeOperator::createCanvas(const RenderRequest& request) const {
+    ViewPort canvas(request.width, request.height, PixelFormatIDs::RGBA16_Premultiplied);
+    std::memset(canvas.data, 0, canvas.getTotalBytes());
+
+    // srcOriginX は「基準から見たキャンバス左上の相対座標」
+    canvas.srcOriginX = -request.originX;
+    canvas.srcOriginY = -request.originY;
+
+    return canvas;
+}
+
+// キャンバスに入力を合成（最初の入力用、memcpy最適化）
+void CompositeOperator::blendFirst(ViewPort& canvas, const ViewPort& input) const {
+    // 入力の配置位置を計算
+    // canvas.srcOriginX: キャンバス左上の基準相対座標（例: -64）
+    // input.srcOriginX: 入力左上の基準相対座標（例: -50）
+    // offsetX = input位置 - canvas位置 = -50 - (-64) = 14
+    int offsetX = static_cast<int>(input.srcOriginX - canvas.srcOriginX);
+    int offsetY = static_cast<int>(input.srcOriginY - canvas.srcOriginY);
+
+    // クリッピング範囲を計算
+    int srcStartX = std::max(0, -offsetX);
+    int srcStartY = std::max(0, -offsetY);
+    int dstStartX = std::max(0, offsetX);
+    int dstStartY = std::max(0, offsetY);
+    int copyWidth = std::min(input.width - srcStartX, canvas.width - dstStartX);
+    int copyHeight = std::min(input.height - srcStartY, canvas.height - dstStartY);
+
+    if (copyWidth <= 0 || copyHeight <= 0) return;
+
+    // 行単位でmemcpy（ブレンド計算不要、透明キャンバスへの最初の合成）
+    for (int y = 0; y < copyHeight; y++) {
+        const uint16_t* src = input.getPixelPtr<uint16_t>(srcStartX, srcStartY + y);
+        uint16_t* dst = canvas.getPixelPtr<uint16_t>(dstStartX, dstStartY + y);
+        std::memcpy(dst, src, copyWidth * 4 * sizeof(uint16_t));
+    }
+}
+
+// キャンバスに入力を合成（2枚目以降、ブレンド処理）
+void CompositeOperator::blendOnto(ViewPort& canvas, const ViewPort& input) const {
+    // 入力の配置位置を計算
+    int offsetX = static_cast<int>(input.srcOriginX - canvas.srcOriginX);
+    int offsetY = static_cast<int>(input.srcOriginY - canvas.srcOriginY);
+
+    // ループ範囲を事前計算
+    int yStart = std::max(0, -offsetY);
+    int yEnd = std::min(input.height, canvas.height - offsetY);
+    int xStart = std::max(0, -offsetX);
+    int xEnd = std::min(input.width, canvas.width - offsetX);
+
+    if (yStart >= yEnd || xStart >= xEnd) return;
+
+    for (int y = yStart; y < yEnd; y++) {
+        const uint16_t* srcRow = input.getPixelPtr<uint16_t>(0, y);
+        uint16_t* dstRow = canvas.getPixelPtr<uint16_t>(0, y + offsetY);
+
+        for (int x = xStart; x < xEnd; x++) {
+            const uint16_t* srcPixel = srcRow + x * 4;
+            uint16_t* dstPixel = dstRow + (x + offsetX) * 4;
+
+            uint16_t srcA = srcPixel[3];
+            if (srcA == 0) continue;
+
+            uint16_t srcR = srcPixel[0];
+            uint16_t srcG = srcPixel[1];
+            uint16_t srcB = srcPixel[2];
+            uint16_t dstA = dstPixel[3];
+
+            if (srcA != 65535 && dstA != 0) {
+                // プリマルチプライド合成: src over dst
+                uint16_t invSrcA = 65535 - srcA;
+                srcR += (dstPixel[0] * invSrcA) >> 16;
+                srcG += (dstPixel[1] * invSrcA) >> 16;
+                srcB += (dstPixel[2] * invSrcA) >> 16;
+                srcA += (dstA * invSrcA) >> 16;
+            }
+
+            dstPixel[0] = srcR;
+            dstPixel[1] = srcG;
+            dstPixel[2] = srcB;
+            dstPixel[3] = srcA;
+        }
+    }
+}
+
+// 入力がリクエスト範囲を完全にカバーしているか判定
+bool CompositeOperator::coversFullRequest(const ViewPort& vp, const RenderRequest& request) {
+    // 要求範囲の左上（基準点相対座標）
+    float reqLeft = -request.originX;
+    float reqTop = -request.originY;
+    float reqRight = reqLeft + request.width;
+    float reqBottom = reqTop + request.height;
+
+    // ViewPortの範囲
+    float vpLeft = vp.srcOriginX;
+    float vpTop = vp.srcOriginY;
+    float vpRight = vpLeft + vp.width;
+    float vpBottom = vpTop + vp.height;
+
+    // ViewPortが要求範囲を完全に含むか
+    const float epsilon = 0.001f;
+    return (vpLeft <= reqLeft + epsilon && vpRight >= reqRight - epsilon &&
+            vpTop <= reqTop + epsilon && vpBottom >= reqBottom - epsilon);
+}
+
 // ========================================================================
 // OperatorFactory 追加メソッド
 // ========================================================================

@@ -38,9 +38,9 @@ ViewPort ImageEvalNode::evaluate(const RenderRequest& request,
     float interRight = std::min(imgRight, reqRight);
     float interBottom = std::min(imgBottom, reqBottom);
 
-    // 交差領域がない場合は空のViewPortを返却
+    // 交差領域がない場合は空のViewPortを返却（メモリ確保なし）
     if (interLeft >= interRight || interTop >= interBottom) {
-        ViewPort empty(1, 1, imageData->formatID);
+        ViewPort empty;  // width=0, height=0, data=nullptr
         empty.srcOriginX = reqLeft;
         empty.srcOriginY = reqTop;
         return empty;
@@ -85,7 +85,7 @@ void FilterEvalNode::prepare(const RenderContext& context) {
 ViewPort FilterEvalNode::evaluate(const RenderRequest& request,
                                    const RenderContext& context) {
     if (inputs.empty()) {
-        return ViewPort(1, 1, PixelFormatIDs::RGBA8_Straight);
+        return ViewPort();  // 空ViewPort
     }
 
     // 1. 入力要求を計算（ブラー等では拡大される）
@@ -93,6 +93,11 @@ ViewPort FilterEvalNode::evaluate(const RenderRequest& request,
 
     // 2. 上流ノードを評価
     ViewPort input = inputs[0]->evaluate(inputReq, context);
+
+    // 空入力の場合は早期リターン（メモリ確保・処理をスキップ）
+    if (input.width == 0 || input.height == 0) {
+        return input;  // origin情報を保持したまま返す
+    }
 
     // 3. フィルタ処理を適用
     if (op) {
@@ -191,7 +196,7 @@ void AffineEvalNode::prepare(const RenderContext& context) {
 ViewPort AffineEvalNode::evaluate(const RenderRequest& request,
                                    const RenderContext& context) {
     if (inputs.empty() || !prepared_) {
-        return ViewPort(1, 1, PixelFormatIDs::RGBA16_Premultiplied);
+        return ViewPort();  // 空ViewPort
     }
 
     // 1. 入力要求を計算
@@ -199,6 +204,11 @@ ViewPort AffineEvalNode::evaluate(const RenderRequest& request,
 
     // 2. 上流ノードを評価
     ViewPort input = inputs[0]->evaluate(inputReq, context);
+
+    // 空入力の場合は早期リターン（メモリ確保・処理をスキップ）
+    if (input.width == 0 || input.height == 0) {
+        return input;  // origin情報を保持したまま返す
+    }
 
     // 3. フォーマット変換
     if (input.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
@@ -291,20 +301,28 @@ RenderRequest AffineEvalNode::computeInputRequest(
 }
 
 // ========================================================================
-// CompositeEvalNode 実装
+// CompositeEvalNode 実装（逐次合成方式）
+// メモリ効率: O(n) → O(2) （canvas + 現在の入力1つ）
 // ========================================================================
 
 ViewPort CompositeEvalNode::evaluate(const RenderRequest& request,
                                       const RenderContext& context) {
     if (inputs.empty()) {
-        return ViewPort(context.totalWidth, context.totalHeight,
-                       PixelFormatIDs::RGBA16_Premultiplied);
+        return ViewPort();  // 空ViewPort
     }
 
-    // 1. 全入力ノードを評価
-    std::vector<ViewPort> inputImages;
+    CompositeOperator compositeOp;
+    ViewPort canvas;
+    bool canvasInitialized = false;
+
+    // 逐次合成: 入力を1つずつ評価して合成
     for (size_t i = 0; i < inputs.size(); i++) {
         ViewPort img = inputs[i]->evaluate(request, context);
+
+        // 空入力はスキップ
+        if (img.width == 0 || img.height == 0) {
+            continue;
+        }
 
         // フォーマット変換
         if (img.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
@@ -322,12 +340,36 @@ ViewPort CompositeEvalNode::evaluate(const RenderRequest& request,
             }
         }
 
-        inputImages.push_back(std::move(img));
+        if (!canvasInitialized) {
+            // 最初の非空入力
+            if (CompositeOperator::coversFullRequest(img, request)) {
+                // 完全カバー → moveでキャンバスに（メモリ確保なし）
+                canvas = std::move(img);
+                // srcOriginX を要求に合わせて設定
+                canvas.srcOriginX = -request.originX;
+                canvas.srcOriginY = -request.originY;
+            } else {
+                // 部分オーバーラップ → 透明キャンバス確保 + memcpyでコピー
+                canvas = compositeOp.createCanvas(request);
+                compositeOp.blendFirst(canvas, img);
+            }
+            canvasInitialized = true;
+        } else {
+            // 2枚目以降 → ブレンド処理
+            compositeOp.blendOnto(canvas, img);
+        }
+        // img はここでスコープを抜けて解放される
     }
 
-    // 2. 合成処理
-    auto compositeOp = OperatorFactory::createCompositeOperator();
-    return compositeOp->apply(inputImages, request);
+    // 全ての入力が空だった場合
+    if (!canvasInitialized) {
+        ViewPort empty;
+        empty.srcOriginX = -request.originX;
+        empty.srcOriginY = -request.originY;
+        return empty;
+    }
+
+    return canvas;
 }
 
 RenderRequest CompositeEvalNode::computeInputRequest(
@@ -343,11 +385,10 @@ RenderRequest CompositeEvalNode::computeInputRequest(
 ViewPort OutputEvalNode::evaluate(const RenderRequest& request,
                                    const RenderContext& context) {
     if (inputs.empty()) {
-        return ViewPort(context.totalWidth, context.totalHeight,
-                       PixelFormatIDs::RGBA16_Premultiplied);
+        return ViewPort();  // 空ViewPort
     }
 
-    // 上流ノードを評価して結果を返す
+    // 上流ノードを評価して結果を返す（空ViewPortもそのまま伝播）
     return inputs[0]->evaluate(request, context);
 }
 

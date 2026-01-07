@@ -169,6 +169,11 @@ Image NodeGraphEvaluator::evaluateWithPipeline(const RenderContext& context) {
             // パイプラインでタイル評価
             ViewPort tileResult = pipeline_->outputNode->evaluate(tileReq, context);
 
+            // 空タイルはスキップ（メモリ確保・処理・コピー全てスキップ）
+            if (tileResult.width == 0 || tileResult.height == 0) {
+                continue;
+            }
+
             // 応答と要求の座標系が一致するか確認
             // - 要求の左上 = 基準から見て -originX の位置
             // - 応答の左上 = srcOriginX の位置
