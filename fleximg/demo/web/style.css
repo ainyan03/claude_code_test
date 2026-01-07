@@ -106,13 +106,23 @@ header p {
     background: #f5f5f5;
     border: 2px dashed #ccc;
     border-radius: 8px;
-    display: block;
+    display: grid;
     box-sizing: border-box;
     width: 100%;
     flex: 1;
     min-height: 0;
-    overflow: scroll;
+    overflow: auto;
     scrollbar-width: auto;
+}
+
+/* キャンバスラッパー：最小サイズ100%で中央配置 */
+.canvas-container::before {
+    content: '';
+    display: none;
+}
+
+.canvas-container > canvas {
+    margin: auto;
 }
 
 /* WebKit系ブラウザ（Chrome, Safari）でスクロールバーを常時表示 */
@@ -365,6 +375,103 @@ button {
 
 .context-menu-item:active {
     background: #e0e0e0;
+}
+
+/* ノード詳細パネル */
+.node-detail-panel {
+    position: fixed;
+    background: white;
+    border: 2px solid #667eea;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+    z-index: 9999;
+    min-width: 200px;
+    max-width: 280px;
+    max-height: 400px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.node-detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    cursor: move;
+}
+
+.node-detail-title {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.node-detail-close {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    padding: 0;
+    transition: background 0.2s;
+}
+
+.node-detail-close:hover {
+    background: rgba(255, 255, 255, 0.4);
+}
+
+.node-detail-content {
+    padding: 12px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.node-detail-section {
+    margin-bottom: 12px;
+}
+
+.node-detail-section:last-child {
+    margin-bottom: 0;
+}
+
+.node-detail-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #667eea;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+}
+
+.node-detail-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 4px 0;
+}
+
+.node-detail-row label {
+    font-size: 12px;
+    min-width: 50px;
+    color: #333;
+}
+
+.node-detail-row input[type="range"] {
+    flex: 1;
+    min-width: 80px;
+}
+
+.node-detail-row .value-display {
+    font-size: 11px;
+    min-width: 40px;
+    text-align: right;
+    color: #666;
 }
 
 /* レスポンシブデザイン（スマートフォン対応） */

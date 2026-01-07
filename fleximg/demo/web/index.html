@@ -200,8 +200,18 @@
 
     <!-- ノードコンテキストメニュー -->
     <div id="node-context-menu" class="context-menu" style="display: none;">
+        <div class="context-menu-item" id="detail-node-menu">⚙️ 詳細</div>
         <div class="context-menu-item" id="add-input-menu" style="display: none;">➕ 入力を追加</div>
         <div class="context-menu-item" id="delete-node-menu">🗑️ ノードを削除</div>
+    </div>
+
+    <!-- ノード詳細パネル -->
+    <div id="node-detail-panel" class="node-detail-panel" style="display: none;">
+        <div class="node-detail-header">
+            <span class="node-detail-title">ノード詳細</span>
+            <button class="node-detail-close">×</button>
+        </div>
+        <div class="node-detail-content"></div>
     </div>
 
     <div id="loading" class="loading">

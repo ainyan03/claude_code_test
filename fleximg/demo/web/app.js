@@ -9,6 +9,78 @@ let canvasHeight = 600;
 let canvasOrigin = { x: 400, y: 300 };  // キャンバス原点（ピクセル座標）
 let previewScale = 1;  // 表示倍率（1〜5）
 
+// スクロールマネージャーのインスタンス
+let previewScrollManager = null;
+let nodeGraphScrollManager = null;
+
+// ========================================
+// スクロールマネージャー（共通処理）
+// コンテナのスクロール位置を比率で管理し、リサイズ時に維持する
+// ========================================
+function createScrollManager(containerSelector, options = {}) {
+    const container = document.querySelector(containerSelector);
+    if (!container) return null;
+
+    const initialX = options.initialX ?? 0.5;
+    const initialY = options.initialY ?? 0.5;
+    let ratio = { x: initialX, y: initialY };
+
+    // 現在のスクロール位置から比率を保存
+    function saveRatio() {
+        const scrollableWidth = container.scrollWidth - container.clientWidth;
+        const scrollableHeight = container.scrollHeight - container.clientHeight;
+
+        if (scrollableWidth > 0) {
+            ratio.x = container.scrollLeft / scrollableWidth;
+        }
+        if (scrollableHeight > 0) {
+            ratio.y = container.scrollTop / scrollableHeight;
+        }
+    }
+
+    // 保存された比率に基づいてスクロール位置を適用
+    function applyRatio() {
+        const scrollableWidth = container.scrollWidth - container.clientWidth;
+        const scrollableHeight = container.scrollHeight - container.clientHeight;
+
+        if (scrollableWidth > 0) {
+            container.scrollLeft = scrollableWidth * ratio.x;
+        }
+        if (scrollableHeight > 0) {
+            container.scrollTop = scrollableHeight * ratio.y;
+        }
+    }
+
+    // 比率を直接設定
+    function setRatio(x, y) {
+        ratio.x = x;
+        ratio.y = y;
+        applyRatio();
+    }
+
+    // 現在の比率を取得
+    function getRatio() {
+        return { ...ratio };
+    }
+
+    // イベントリスナーを設定
+    container.addEventListener('scroll', saveRatio);
+
+    const resizeObserver = new ResizeObserver(() => {
+        applyRatio();
+    });
+    resizeObserver.observe(container);
+
+    window.addEventListener('resize', () => {
+        applyRatio();
+    });
+
+    // 初期スクロール位置を適用
+    applyRatio();
+
+    return { saveRatio, applyRatio, setRatio, getRatio, container };
+}
+
 // ========================================
 // フィルタ定義（一元管理）
 // 新規フィルタ追加時はここに定義を追加するだけでOK
@@ -408,7 +480,7 @@ function setupEventListeners() {
             previewScale = parseFloat(e.target.value);
             scaleValue.textContent = previewScale + 'x';
             updateCanvasDisplayScale();
-            centerPreviewScroll();
+            if (previewScrollManager) previewScrollManager.applyRatio();
         });
     }
 
@@ -905,7 +977,7 @@ function applyOutputSettings() {
     updatePreviewFromGraph();
 
     // キャンバスサイズ変更後にスクロール位置を再調整
-    centerPreviewScroll();
+    if (previewScrollManager) previewScrollManager.applyRatio();
 }
 
 function downloadComposedImage() {
@@ -967,93 +1039,9 @@ function initializeNodeGraph() {
 
     console.log('Node graph initialized');
 
-    // 初期スクロール位置を中央に設定
-    centerNodeGraphScroll();
-
-    // コンテナのリサイズを監視してスクロール位置を追従
-    if (container) {
-        const resizeObserver = new ResizeObserver(() => {
-            centerNodeGraphScroll();
-        });
-        resizeObserver.observe(container);
-    }
-
-    // ウィンドウリサイズ時もスクロール位置を更新
-    window.addEventListener('resize', () => {
-        centerNodeGraphScroll();
-    });
-
-    // 出力画像エリアのスクロール位置を初期化
-    initializePreviewScroll();
-}
-
-// 出力画像エリアのスクロール監視を初期化
-function initializePreviewScroll() {
-    const container = document.querySelector('.canvas-container');
-    if (!container) return;
-
-    // 初期スクロール位置を中央に設定
-    centerPreviewScroll();
-
-    // コンテナのリサイズを監視してスクロール位置を追従
-    const resizeObserver = new ResizeObserver(() => {
-        centerPreviewScroll();
-    });
-    resizeObserver.observe(container);
-
-    // ウィンドウリサイズ時もスクロール位置を更新
-    window.addEventListener('resize', () => {
-        centerPreviewScroll();
-    });
-
-    console.log('Preview scroll initialized');
-}
-
-// ノードグラフのスクロール位置を中央に設定
-function centerNodeGraphScroll() {
-    const container = document.querySelector('.node-graph-canvas-container');
-    if (!container || !nodeGraphSvg) return;
-
-    // SVGのサイズを取得
-    const svgWidth = nodeGraphSvg.width.baseVal.value || 1600;
-    const svgHeight = nodeGraphSvg.height.baseVal.value || 1200;
-
-    // コンテナの表示サイズを取得
-    const containerWidth = container.clientWidth;
-    const containerHeight = container.clientHeight;
-
-    // 中央にスクロール
-    const scrollX = Math.max(0, (svgWidth - containerWidth) / 2);
-    const scrollY = Math.max(0, (svgHeight - containerHeight) / 2);
-
-    container.scrollLeft = scrollX;
-    container.scrollTop = scrollY;
-
-    console.log(`Node graph scroll centered: (${scrollX}, ${scrollY})`);
-}
-
-// 出力画像エリアのスクロール位置を中央に設定
-function centerPreviewScroll() {
-    const container = document.querySelector('.canvas-container');
-    const previewCanvas = document.getElementById('preview-canvas');
-    if (!container || !previewCanvas) return;
-
-    // キャンバスの表示サイズを取得（現在の倍率でスケールされたサイズ）
-    const canvasDisplayWidth = previewCanvas.offsetWidth || (canvasWidth * previewScale);
-    const canvasDisplayHeight = previewCanvas.offsetHeight || (canvasHeight * previewScale);
-
-    // コンテナの表示サイズを取得
-    const containerWidth = container.clientWidth;
-    const containerHeight = container.clientHeight;
-
-    // 中央にスクロール
-    const scrollX = Math.max(0, (canvasDisplayWidth - containerWidth) / 2);
-    const scrollY = Math.max(0, (canvasDisplayHeight - containerHeight) / 2);
-
-    container.scrollLeft = scrollX;
-    container.scrollTop = scrollY;
-
-    console.log(`Preview scroll centered: (${scrollX}, ${scrollY})`);
+    // スクロールマネージャーを初期化（比率ベースのスクロール位置管理）
+    nodeGraphScrollManager = createScrollManager('.node-graph-canvas-container', { initialX: 0.5, initialY: 0.5 });
+    previewScrollManager = createScrollManager('.canvas-container', { initialX: 0.5, initialY: 0.5 });
 }
 
 function renderNodeGraph() {
@@ -1169,22 +1157,22 @@ function calculateMatrixFromParams(translateX, translateY, rotation, scaleX, sca
     return { a, b, c, d, tx, ty };
 }
 
-// ノードの高さを動的に計算
+// ノードの高さを動的に計算（コンパクト表示）
 function getNodeHeight(node) {
-    if (node.type === 'affine') {
-        return 200; // アフィン変換ノード: 両モード共通で200px
+    if (node.type === 'image') {
+        return 70; // 画像ノード: サムネイル表示
     } else if (node.type === 'composite') {
+        // 合成ノード: 入力数に応じて可変高さ（ポート間隔を最低15px確保）
         const inputCount = node.inputs ? node.inputs.length : 2;
-        const baseHeight = 60; // ヘッダー + パディング
-        const sliderHeight = 22; // 各アルファスライダー
-        const buttonHeight = 30; // ボタンコンテナ
-        return baseHeight + (inputCount * sliderHeight) + buttonHeight;
-    } else if (node.type === 'image') {
-        return 100; // 画像ノード: タイトル + アルファスライダー
+        const minPortSpacing = 15;
+        const minHeight = 60;
+        return Math.max(minHeight, (inputCount + 1) * minPortSpacing);
+    } else if (node.type === 'affine') {
+        return 70; // アフィン: 主要パラメータ1つ
     } else if (node.type === 'filter' && node.independent) {
-        return 100; // 独立フィルタ: タイトル + パラメータスライダー
+        return 70; // フィルタ: 主要パラメータ1つ
     } else {
-        return 80; // デフォルト（出力ノード等）
+        return 50; // デフォルト（出力ノード等）
     }
 }
 
@@ -1247,7 +1235,7 @@ function drawGlobalNode(node) {
     header.appendChild(idBadge);
     nodeBox.appendChild(header);
 
-    // 画像ノードの場合、サムネイルと原点セレクタを表示
+    // 画像ノードの場合、サムネイルのみ表示（コンパクト）
     if (node.type === 'image' && node.imageId !== undefined) {
         const image = uploadedImages.find(img => img.id === node.imageId);
         if (image && image.imageData) {
@@ -1257,325 +1245,116 @@ function drawGlobalNode(node) {
             // サムネイル
             const img = document.createElement('img');
             img.src = createThumbnailDataURL(image.imageData);
-            img.style.cssText = 'width: 50px; height: 38px; object-fit: cover; border-radius: 3px;';
+            img.style.cssText = 'width: 40px; height: 30px; object-fit: cover; border-radius: 3px;';
             contentRow.appendChild(img);
 
-            // 原点セレクタ（9点グリッド）
-            const originGrid = document.createElement('div');
-            originGrid.className = 'node-origin-grid';
-            originGrid.dataset.nodeId = node.id;
+            // 原点表示（コンパクト）
+            const originText = document.createElement('span');
+            originText.style.cssText = 'font-size: 10px; color: #666;';
+            const ox = node.originX ?? 0.5;
+            const oy = node.originY ?? 0.5;
+            const originNames = { '0,0': '左上', '0.5,0': '上', '1,0': '右上', '0,0.5': '左', '0.5,0.5': '中央', '1,0.5': '右', '0,1': '左下', '0.5,1': '下', '1,1': '右下' };
+            originText.textContent = originNames[`${ox},${oy}`] || '中央';
+            contentRow.appendChild(originText);
 
-            const originValues = [
-                { x: 0, y: 0 }, { x: 0.5, y: 0 }, { x: 1, y: 0 },
-                { x: 0, y: 0.5 }, { x: 0.5, y: 0.5 }, { x: 1, y: 0.5 },
-                { x: 0, y: 1 }, { x: 0.5, y: 1 }, { x: 1, y: 1 }
-            ];
-
-            originValues.forEach(({ x, y }) => {
-                const btn = document.createElement('button');
-                btn.className = 'node-origin-point';
-                btn.dataset.x = x;
-                btn.dataset.y = y;
-                if (node.originX === x && node.originY === y) {
-                    btn.classList.add('selected');
-                }
-                btn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    // 選択状態を更新
-                    originGrid.querySelectorAll('.node-origin-point').forEach(b => b.classList.remove('selected'));
-                    btn.classList.add('selected');
-                    // ノードの原点を更新
-                    node.originX = x;
-                    node.originY = y;
-                    throttledUpdatePreview();
-                });
-                originGrid.appendChild(btn);
-            });
-
-            contentRow.appendChild(originGrid);
             nodeBox.appendChild(contentRow);
         }
     }
 
-    // 独立フィルタノードの場合、パラメータスライダーを追加
+    // 独立フィルタノードの場合、主要パラメータ1つのみ表示（コンパクト）
     if (node.type === 'filter' && node.independent) {
-        const controls = document.createElement('div');
-        controls.className = 'node-box-controls';
-
-        // FILTER_DEFINITIONSからパラメータ定義を取得して動的生成
         const filterDef = FILTER_DEFINITIONS[node.filterType];
         if (filterDef && filterDef.params.length > 0) {
-            filterDef.params.forEach((paramDef, index) => {
-                const currentValue = node.param ?? paramDef.default;
+            const paramDef = filterDef.params[0]; // 最初のパラメータのみ
+            const currentValue = node.param ?? paramDef.default;
 
-                const label = document.createElement('label');
-                label.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;';
+            const controls = document.createElement('div');
+            controls.className = 'node-box-controls';
+            controls.style.cssText = 'padding: 4px;';
 
-                const span = document.createElement('span');
-                span.style.minWidth = '40px';
-                span.textContent = `${paramDef.label}:`;
+            const label = document.createElement('label');
+            label.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px;';
 
-                const slider = document.createElement('input');
-                slider.type = 'range';
-                slider.className = 'filter-param-slider';
-                slider.min = String(paramDef.min);
-                slider.max = String(paramDef.max);
-                slider.step = String(paramDef.step);
-                slider.value = String(currentValue);
-                slider.style.width = '60px';
+            const slider = document.createElement('input');
+            slider.type = 'range';
+            slider.min = String(paramDef.min);
+            slider.max = String(paramDef.max);
+            slider.step = String(paramDef.step);
+            slider.value = String(currentValue);
+            slider.style.cssText = 'flex: 1; min-width: 60px;';
 
-                const display = document.createElement('span');
-                display.className = 'param-display';
-                display.textContent = paramDef.format ? paramDef.format(currentValue) : String(currentValue);
+            const display = document.createElement('span');
+            display.style.cssText = 'min-width: 30px; text-align: right;';
+            display.textContent = paramDef.format ? paramDef.format(currentValue) : String(currentValue);
 
-                slider.addEventListener('input', (e) => {
-                    const value = parseFloat(e.target.value);
-                    node.param = value;
-                    display.textContent = paramDef.format ? paramDef.format(value) : String(value);
-                    throttledUpdatePreview();
-                });
-
-                label.appendChild(span);
-                label.appendChild(slider);
-                label.appendChild(display);
-                controls.appendChild(label);
+            slider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                node.param = value;
+                display.textContent = paramDef.format ? paramDef.format(value) : String(value);
+                throttledUpdatePreview();
             });
-        }
 
-        nodeBox.appendChild(controls);
+            label.appendChild(slider);
+            label.appendChild(display);
+            controls.appendChild(label);
+            nodeBox.appendChild(controls);
+        }
     }
 
-    // 合成ノードの場合、動的なアルファスライダーと編集・追加ボタンを追加
+    // 合成ノードの場合、入力数のみ表示（コンパクト）
     if (node.type === 'composite') {
         const controls = document.createElement('div');
         controls.className = 'node-box-controls';
+        controls.style.cssText = 'padding: 4px; font-size: 11px; color: #666;';
 
-        // 各入力のアルファスライダーを動的に生成
-        if (node.inputs && node.inputs.length > 0) {
-            node.inputs.forEach((input, index) => {
-                const label = document.createElement('label');
-                label.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;';
-
-                // XSS対策: DOM APIを使用してHTML構築
-                const span = document.createElement('span');
-                span.style.minWidth = '40px';
-                span.textContent = `α${index + 1}:`;
-
-                const slider = document.createElement('input');
-                slider.type = 'range';
-                slider.className = 'alpha-slider';
-                slider.dataset.inputId = input.id;
-                slider.min = '0';
-                slider.max = '1';
-                slider.step = '0.01';
-                slider.value = String(input.alpha);
-                slider.style.width = '60px';
-
-                slider.addEventListener('input', (e) => {
-                    input.alpha = parseFloat(e.target.value);
-                    throttledUpdatePreview();
-                });
-
-                label.appendChild(span);
-                label.appendChild(slider);
-                controls.appendChild(label);
-            });
-        }
-
-        // ボタンコンテナ
-        const btnContainer = document.createElement('div');
-        btnContainer.style.cssText = 'display: flex; gap: 2px; margin-top: 4px;';
-
-        // 入力追加ボタン
-        const addInputBtn = document.createElement('button');
-        addInputBtn.textContent = '+ 入力';
-        addInputBtn.style.cssText = 'font-size: 9px; padding: 2px 4px; flex: 1;';
-        addInputBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            addCompositeInput(node);
-        });
-
-        btnContainer.appendChild(addInputBtn);
-        controls.appendChild(btnContainer);
+        const inputCount = node.inputs ? node.inputs.length : 0;
+        controls.textContent = `${inputCount} 入力`;
 
         nodeBox.appendChild(controls);
     }
 
-    // アフィン変換ノードの場合、パラメータまたは行列のスライダーを追加
+    // アフィン変換ノードの場合、回転パラメータのみ表示（コンパクト）
     if (node.type === 'affine') {
         const controls = document.createElement('div');
         controls.className = 'node-box-controls';
+        controls.style.cssText = 'padding: 4px;';
 
-        // モード切り替えトグル
-        const modeToggle = document.createElement('div');
-        modeToggle.style.cssText = 'font-size: 9px; margin-bottom: 4px; display: flex; gap: 2px;';
+        const label = document.createElement('label');
+        label.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px;';
 
-        const paramBtn = document.createElement('button');
-        paramBtn.textContent = 'パラメータ';
-        paramBtn.style.cssText = `font-size: 9px; padding: 2px 4px; flex: 1; ${node.matrixMode ? '' : 'background: #4CAF50; color: white;'}`;
+        const span = document.createElement('span');
+        span.textContent = '回転:';
+        span.style.cssText = 'min-width: 28px;';
 
-        const matrixBtn = document.createElement('button');
-        matrixBtn.textContent = '行列';
-        matrixBtn.style.cssText = `font-size: 9px; padding: 2px 4px; flex: 1; ${node.matrixMode ? 'background: #4CAF50; color: white;' : ''}`;
+        const slider = document.createElement('input');
+        slider.type = 'range';
+        slider.min = '-180';
+        slider.max = '180';
+        slider.step = '1';
+        slider.value = String(node.rotation || 0);
+        slider.style.cssText = 'flex: 1; min-width: 50px;';
 
-        paramBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            node.matrixMode = false;
-            renderNodeGraph();
+        const display = document.createElement('span');
+        display.style.cssText = 'min-width: 35px; text-align: right;';
+        display.textContent = `${Math.round(node.rotation || 0)}°`;
+
+        slider.addEventListener('input', (e) => {
+            node.rotation = parseFloat(e.target.value);
+            display.textContent = `${Math.round(node.rotation)}°`;
+            node.matrix = calculateMatrixFromParams(
+                node.translateX || 0,
+                node.translateY || 0,
+                node.rotation || 0,
+                node.scaleX || 1,
+                node.scaleY || 1
+            );
             throttledUpdatePreview();
         });
 
-        matrixBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            node.matrixMode = true;
-            renderNodeGraph();
-            throttledUpdatePreview();
-        });
-
-        modeToggle.appendChild(paramBtn);
-        modeToggle.appendChild(matrixBtn);
-        controls.appendChild(modeToggle);
-
-        // パラメータモード
-        if (!node.matrixMode) {
-            // 平行移動X
-            const txLabel = document.createElement('label');
-            txLabel.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;';
-            txLabel.innerHTML = `<span style="min-width: 40px;">X:</span><input type="range" class="affine-tx-slider" min="-500" max="500" step="1" value="${node.translateX || 0}" style="width: 60px;"> <span class="tx-display">${Math.round(node.translateX || 0)}</span>`;
-            const txSlider = txLabel.querySelector('.affine-tx-slider');
-            const txDisplay = txLabel.querySelector('.tx-display');
-            txSlider.addEventListener('input', (e) => {
-                node.translateX = parseFloat(e.target.value);
-                txDisplay.textContent = Math.round(node.translateX);
-                // 行列モードに同期
-                node.matrix = calculateMatrixFromParams(
-                    node.translateX || 0,
-                    node.translateY || 0,
-                    node.rotation || 0,
-                    node.scaleX || 1,
-                    node.scaleY || 1
-                );
-                throttledUpdatePreview();
-            });
-            controls.appendChild(txLabel);
-
-            // 平行移動Y
-            const tyLabel = document.createElement('label');
-            tyLabel.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;';
-            tyLabel.innerHTML = `<span style="min-width: 40px;">Y:</span><input type="range" class="affine-ty-slider" min="-500" max="500" step="1" value="${node.translateY || 0}" style="width: 60px;"> <span class="ty-display">${Math.round(node.translateY || 0)}</span>`;
-            const tySlider = tyLabel.querySelector('.affine-ty-slider');
-            const tyDisplay = tyLabel.querySelector('.ty-display');
-            tySlider.addEventListener('input', (e) => {
-                node.translateY = parseFloat(e.target.value);
-                tyDisplay.textContent = Math.round(node.translateY);
-                // 行列モードに同期
-                node.matrix = calculateMatrixFromParams(
-                    node.translateX || 0,
-                    node.translateY || 0,
-                    node.rotation || 0,
-                    node.scaleX || 1,
-                    node.scaleY || 1
-                );
-                throttledUpdatePreview();
-            });
-            controls.appendChild(tyLabel);
-
-            // 回転
-            const rotLabel = document.createElement('label');
-            rotLabel.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;';
-            rotLabel.innerHTML = `<span style="min-width: 40px;">回転:</span><input type="range" class="affine-rot-slider" min="-180" max="180" step="0.1" value="${node.rotation || 0}" style="width: 60px;"> <span class="rot-display">${(node.rotation || 0).toFixed(1)}°</span>`;
-            const rotSlider = rotLabel.querySelector('.affine-rot-slider');
-            const rotDisplay = rotLabel.querySelector('.rot-display');
-            rotSlider.addEventListener('input', (e) => {
-                node.rotation = parseFloat(e.target.value);
-                rotDisplay.textContent = node.rotation.toFixed(1) + '°';
-                // 行列モードに同期
-                node.matrix = calculateMatrixFromParams(
-                    node.translateX || 0,
-                    node.translateY || 0,
-                    node.rotation || 0,
-                    node.scaleX || 1,
-                    node.scaleY || 1
-                );
-                throttledUpdatePreview();
-            });
-            controls.appendChild(rotLabel);
-
-            // スケールX
-            const sxLabel = document.createElement('label');
-            sxLabel.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;';
-            sxLabel.innerHTML = `<span style="min-width: 40px;">SX:</span><input type="range" class="affine-sx-slider" min="0.1" max="3" step="0.1" value="${node.scaleX !== undefined ? node.scaleX : 1}" style="width: 60px;"> <span class="sx-display">${(node.scaleX !== undefined ? node.scaleX : 1).toFixed(1)}</span>`;
-            const sxSlider = sxLabel.querySelector('.affine-sx-slider');
-            const sxDisplay = sxLabel.querySelector('.sx-display');
-            sxSlider.addEventListener('input', (e) => {
-                node.scaleX = parseFloat(e.target.value);
-                sxDisplay.textContent = node.scaleX.toFixed(1);
-                // 行列モードに同期
-                node.matrix = calculateMatrixFromParams(
-                    node.translateX || 0,
-                    node.translateY || 0,
-                    node.rotation || 0,
-                    node.scaleX || 1,
-                    node.scaleY || 1
-                );
-                throttledUpdatePreview();
-            });
-            controls.appendChild(sxLabel);
-
-            // スケールY
-            const syLabel = document.createElement('label');
-            syLabel.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;';
-            syLabel.innerHTML = `<span style="min-width: 40px;">SY:</span><input type="range" class="affine-sy-slider" min="0.1" max="3" step="0.1" value="${node.scaleY !== undefined ? node.scaleY : 1}" style="width: 60px;"> <span class="sy-display">${(node.scaleY !== undefined ? node.scaleY : 1).toFixed(1)}</span>`;
-            const sySlider = syLabel.querySelector('.affine-sy-slider');
-            const syDisplay = syLabel.querySelector('.sy-display');
-            sySlider.addEventListener('input', (e) => {
-                node.scaleY = parseFloat(e.target.value);
-                syDisplay.textContent = node.scaleY.toFixed(1);
-                // 行列モードに同期
-                node.matrix = calculateMatrixFromParams(
-                    node.translateX || 0,
-                    node.translateY || 0,
-                    node.rotation || 0,
-                    node.scaleX || 1,
-                    node.scaleY || 1
-                );
-                throttledUpdatePreview();
-            });
-            controls.appendChild(syLabel);
-        }
-        // 行列モード
-        else {
-            // 行列要素 a, b, c, d, tx, ty
-            const matrixParams = [
-                { name: 'a', label: 'a', min: -3, max: 3, step: 0.1, default: 1 },
-                { name: 'b', label: 'b', min: -3, max: 3, step: 0.1, default: 0 },
-                { name: 'c', label: 'c', min: -3, max: 3, step: 0.1, default: 0 },
-                { name: 'd', label: 'd', min: -3, max: 3, step: 0.1, default: 1 },
-                { name: 'tx', label: 'tx', min: -500, max: 500, step: 1, default: 0 },
-                { name: 'ty', label: 'ty', min: -500, max: 500, step: 1, default: 0 }
-            ];
-
-            matrixParams.forEach(param => {
-                const value = node.matrix && node.matrix[param.name] !== undefined ? node.matrix[param.name] : param.default;
-                const label = document.createElement('label');
-                label.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px; margin: 2px 0;';
-                label.innerHTML = `<span style="min-width: 40px;">${param.label}:</span><input type="range" class="affine-matrix-slider" data-param="${param.name}" min="${param.min}" max="${param.max}" step="${param.step}" value="${value}" style="width: 60px;"> <span class="matrix-display">${value.toFixed(param.step >= 1 ? 0 : 2)}</span>`;
-
-                const slider = label.querySelector('.affine-matrix-slider');
-                const display = label.querySelector('.matrix-display');
-
-                slider.addEventListener('input', (e) => {
-                    if (!node.matrix) node.matrix = { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
-                    const val = parseFloat(e.target.value);
-                    node.matrix[param.name] = val;
-                    display.textContent = val.toFixed(param.step >= 1 ? 0 : 2);
-                    throttledUpdatePreview();
-                });
-
-                controls.appendChild(label);
-            });
-        }
-
+        label.appendChild(span);
+        label.appendChild(slider);
+        label.appendChild(display);
+        controls.appendChild(label);
         nodeBox.appendChild(controls);
     }
 
@@ -1832,6 +1611,17 @@ function setupGlobalNodeDrag(nodeBox, foreignObject, node) {
         e.preventDefault();
         e.stopPropagation();
         showContextMenu(e.clientX, e.clientY, node);
+    });
+
+    // ダブルクリックで詳細パネルを開く
+    nodeBox.addEventListener('dblclick', (e) => {
+        // スライダーやボタンの場合はスキップ
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') {
+            return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        showNodeDetailPanel(node);
     });
 
     // 長押し検出（スマートフォン用）
@@ -2314,6 +2104,358 @@ document.getElementById('add-input-menu').addEventListener('click', () => {
         hideContextMenu();
     }
 });
+
+// 詳細メニューアイテムのクリック
+document.getElementById('detail-node-menu').addEventListener('click', () => {
+    if (contextMenuTargetNode) {
+        showNodeDetailPanel(contextMenuTargetNode);
+        hideContextMenu();
+    }
+});
+
+// ========================================
+// ノード詳細パネル
+// ========================================
+
+let detailPanelNode = null;
+const detailPanel = document.getElementById('node-detail-panel');
+const detailPanelContent = detailPanel.querySelector('.node-detail-content');
+const detailPanelTitle = detailPanel.querySelector('.node-detail-title');
+const detailPanelClose = detailPanel.querySelector('.node-detail-close');
+
+// 詳細パネルを表示
+function showNodeDetailPanel(node) {
+    detailPanelNode = node;
+    detailPanelTitle.textContent = node.title;
+    detailPanelContent.innerHTML = '';
+
+    // ノードタイプに応じたコンテンツを生成
+    buildDetailPanelContent(node);
+
+    // パネルを画面中央に表示
+    detailPanel.style.left = '50%';
+    detailPanel.style.top = '50%';
+    detailPanel.style.transform = 'translate(-50%, -50%)';
+    detailPanel.style.display = 'flex';
+}
+
+// 詳細パネルを閉じる
+function hideNodeDetailPanel() {
+    detailPanel.style.display = 'none';
+    detailPanelNode = null;
+}
+
+// 閉じるボタン
+detailPanelClose.addEventListener('click', hideNodeDetailPanel);
+
+// 外部クリックで閉じる
+document.addEventListener('click', (e) => {
+    if (detailPanel.style.display !== 'none' &&
+        !detailPanel.contains(e.target) &&
+        !contextMenu.contains(e.target)) {
+        hideNodeDetailPanel();
+    }
+});
+
+// 詳細パネルのコンテンツを生成
+function buildDetailPanelContent(node) {
+    if (node.type === 'image') {
+        buildImageDetailContent(node);
+    } else if (node.type === 'filter' && node.independent) {
+        buildFilterDetailContent(node);
+    } else if (node.type === 'composite') {
+        buildCompositeDetailContent(node);
+    } else if (node.type === 'affine') {
+        buildAffineDetailContent(node);
+    }
+}
+
+// 画像ノードの詳細コンテンツ
+function buildImageDetailContent(node) {
+    const section = document.createElement('div');
+    section.className = 'node-detail-section';
+
+    const label = document.createElement('div');
+    label.className = 'node-detail-label';
+    label.textContent = '原点';
+    section.appendChild(label);
+
+    // 原点セレクタ（9点グリッド）
+    const originGrid = document.createElement('div');
+    originGrid.className = 'node-origin-grid';
+    originGrid.style.cssText = 'width: 60px; height: 60px; margin: 0 auto;';
+
+    const originValues = [
+        { x: 0, y: 0 }, { x: 0.5, y: 0 }, { x: 1, y: 0 },
+        { x: 0, y: 0.5 }, { x: 0.5, y: 0.5 }, { x: 1, y: 0.5 },
+        { x: 0, y: 1 }, { x: 0.5, y: 1 }, { x: 1, y: 1 }
+    ];
+
+    originValues.forEach(({ x, y }) => {
+        const btn = document.createElement('button');
+        btn.className = 'node-origin-point';
+        if (node.originX === x && node.originY === y) {
+            btn.classList.add('selected');
+        }
+        btn.addEventListener('click', () => {
+            originGrid.querySelectorAll('.node-origin-point').forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+            node.originX = x;
+            node.originY = y;
+            renderNodeGraph();
+            throttledUpdatePreview();
+        });
+        originGrid.appendChild(btn);
+    });
+
+    section.appendChild(originGrid);
+    detailPanelContent.appendChild(section);
+}
+
+// フィルタノードの詳細コンテンツ
+function buildFilterDetailContent(node) {
+    const filterDef = FILTER_DEFINITIONS[node.filterType];
+    if (!filterDef) return;
+
+    const section = document.createElement('div');
+    section.className = 'node-detail-section';
+
+    const label = document.createElement('div');
+    label.className = 'node-detail-label';
+    label.textContent = 'パラメータ';
+    section.appendChild(label);
+
+    filterDef.params.forEach((paramDef, index) => {
+        const currentValue = node.param ?? paramDef.default;
+
+        const row = document.createElement('div');
+        row.className = 'node-detail-row';
+
+        const paramLabel = document.createElement('label');
+        paramLabel.textContent = paramDef.label;
+
+        const slider = document.createElement('input');
+        slider.type = 'range';
+        slider.min = String(paramDef.min);
+        slider.max = String(paramDef.max);
+        slider.step = String(paramDef.step);
+        slider.value = String(currentValue);
+
+        const display = document.createElement('span');
+        display.className = 'value-display';
+        display.textContent = paramDef.format ? paramDef.format(currentValue) : String(currentValue);
+
+        slider.addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+            node.param = value;
+            display.textContent = paramDef.format ? paramDef.format(value) : String(value);
+            renderNodeGraph();
+            throttledUpdatePreview();
+        });
+
+        row.appendChild(paramLabel);
+        row.appendChild(slider);
+        row.appendChild(display);
+        section.appendChild(row);
+    });
+
+    detailPanelContent.appendChild(section);
+}
+
+// 合成ノードの詳細コンテンツ
+function buildCompositeDetailContent(node) {
+    const section = document.createElement('div');
+    section.className = 'node-detail-section';
+
+    const label = document.createElement('div');
+    label.className = 'node-detail-label';
+    label.textContent = '入力アルファ';
+    section.appendChild(label);
+
+    if (node.inputs && node.inputs.length > 0) {
+        node.inputs.forEach((input, index) => {
+            const row = document.createElement('div');
+            row.className = 'node-detail-row';
+
+            const paramLabel = document.createElement('label');
+            paramLabel.textContent = `入力 ${index + 1}`;
+
+            const slider = document.createElement('input');
+            slider.type = 'range';
+            slider.min = '0';
+            slider.max = '1';
+            slider.step = '0.01';
+            slider.value = String(input.alpha);
+
+            const display = document.createElement('span');
+            display.className = 'value-display';
+            display.textContent = input.alpha.toFixed(2);
+
+            slider.addEventListener('input', (e) => {
+                input.alpha = parseFloat(e.target.value);
+                display.textContent = input.alpha.toFixed(2);
+                renderNodeGraph();
+                throttledUpdatePreview();
+            });
+
+            row.appendChild(paramLabel);
+            row.appendChild(slider);
+            row.appendChild(display);
+            section.appendChild(row);
+        });
+    }
+
+    // 入力追加ボタン
+    const addBtn = document.createElement('button');
+    addBtn.textContent = '+ 入力を追加';
+    addBtn.style.cssText = 'width: 100%; margin-top: 8px; padding: 6px; font-size: 12px;';
+    addBtn.addEventListener('click', () => {
+        addCompositeInput(node);
+        detailPanelContent.innerHTML = '';
+        buildCompositeDetailContent(node);
+    });
+    section.appendChild(addBtn);
+
+    detailPanelContent.appendChild(section);
+}
+
+// アフィンノードの詳細コンテンツ
+function buildAffineDetailContent(node) {
+    // モード切替
+    const modeSection = document.createElement('div');
+    modeSection.className = 'node-detail-section';
+
+    const modeLabel = document.createElement('div');
+    modeLabel.className = 'node-detail-label';
+    modeLabel.textContent = 'モード';
+    modeSection.appendChild(modeLabel);
+
+    const modeRow = document.createElement('div');
+    modeRow.style.cssText = 'display: flex; gap: 4px;';
+
+    const paramBtn = document.createElement('button');
+    paramBtn.textContent = 'パラメータ';
+    paramBtn.style.cssText = `flex: 1; padding: 6px; font-size: 11px; ${!node.matrixMode ? 'background: #4CAF50; color: white;' : ''}`;
+    paramBtn.addEventListener('click', () => {
+        node.matrixMode = false;
+        detailPanelContent.innerHTML = '';
+        buildAffineDetailContent(node);
+        renderNodeGraph();
+        throttledUpdatePreview();
+    });
+
+    const matrixBtn = document.createElement('button');
+    matrixBtn.textContent = '行列';
+    matrixBtn.style.cssText = `flex: 1; padding: 6px; font-size: 11px; ${node.matrixMode ? 'background: #4CAF50; color: white;' : ''}`;
+    matrixBtn.addEventListener('click', () => {
+        node.matrixMode = true;
+        detailPanelContent.innerHTML = '';
+        buildAffineDetailContent(node);
+        renderNodeGraph();
+        throttledUpdatePreview();
+    });
+
+    modeRow.appendChild(paramBtn);
+    modeRow.appendChild(matrixBtn);
+    modeSection.appendChild(modeRow);
+    detailPanelContent.appendChild(modeSection);
+
+    // パラメータセクション
+    const section = document.createElement('div');
+    section.className = 'node-detail-section';
+
+    if (!node.matrixMode) {
+        // パラメータモード
+        const params = [
+            { key: 'translateX', label: 'X移動', min: -500, max: 500, step: 1, default: 0, format: v => Math.round(v) },
+            { key: 'translateY', label: 'Y移動', min: -500, max: 500, step: 1, default: 0, format: v => Math.round(v) },
+            { key: 'rotation', label: '回転', min: -180, max: 180, step: 1, default: 0, format: v => `${Math.round(v)}°` },
+            { key: 'scaleX', label: 'X倍率', min: 0.1, max: 3, step: 0.1, default: 1, format: v => v.toFixed(1) },
+            { key: 'scaleY', label: 'Y倍率', min: 0.1, max: 3, step: 0.1, default: 1, format: v => v.toFixed(1) }
+        ];
+
+        params.forEach(p => {
+            const value = node[p.key] !== undefined ? node[p.key] : p.default;
+            const row = document.createElement('div');
+            row.className = 'node-detail-row';
+
+            const paramLabel = document.createElement('label');
+            paramLabel.textContent = p.label;
+
+            const slider = document.createElement('input');
+            slider.type = 'range';
+            slider.min = String(p.min);
+            slider.max = String(p.max);
+            slider.step = String(p.step);
+            slider.value = String(value);
+
+            const display = document.createElement('span');
+            display.className = 'value-display';
+            display.textContent = p.format(value);
+
+            slider.addEventListener('input', (e) => {
+                node[p.key] = parseFloat(e.target.value);
+                display.textContent = p.format(node[p.key]);
+                node.matrix = calculateMatrixFromParams(
+                    node.translateX || 0, node.translateY || 0,
+                    node.rotation || 0, node.scaleX || 1, node.scaleY || 1
+                );
+                renderNodeGraph();
+                throttledUpdatePreview();
+            });
+
+            row.appendChild(paramLabel);
+            row.appendChild(slider);
+            row.appendChild(display);
+            section.appendChild(row);
+        });
+    } else {
+        // 行列モード
+        const matrixParams = [
+            { name: 'a', min: -3, max: 3, step: 0.1, default: 1 },
+            { name: 'b', min: -3, max: 3, step: 0.1, default: 0 },
+            { name: 'c', min: -3, max: 3, step: 0.1, default: 0 },
+            { name: 'd', min: -3, max: 3, step: 0.1, default: 1 },
+            { name: 'tx', min: -500, max: 500, step: 1, default: 0 },
+            { name: 'ty', min: -500, max: 500, step: 1, default: 0 }
+        ];
+
+        matrixParams.forEach(p => {
+            const value = node.matrix && node.matrix[p.name] !== undefined ? node.matrix[p.name] : p.default;
+            const row = document.createElement('div');
+            row.className = 'node-detail-row';
+
+            const paramLabel = document.createElement('label');
+            paramLabel.textContent = p.name;
+
+            const slider = document.createElement('input');
+            slider.type = 'range';
+            slider.min = String(p.min);
+            slider.max = String(p.max);
+            slider.step = String(p.step);
+            slider.value = String(value);
+
+            const display = document.createElement('span');
+            display.className = 'value-display';
+            display.textContent = value.toFixed(p.step >= 1 ? 0 : 2);
+
+            slider.addEventListener('input', (e) => {
+                if (!node.matrix) node.matrix = { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+                node.matrix[p.name] = parseFloat(e.target.value);
+                display.textContent = node.matrix[p.name].toFixed(p.step >= 1 ? 0 : 2);
+                renderNodeGraph();
+                throttledUpdatePreview();
+            });
+
+            row.appendChild(paramLabel);
+            row.appendChild(slider);
+            row.appendChild(display);
+            section.appendChild(row);
+        });
+    }
+
+    detailPanelContent.appendChild(section);
+}
 
 // ノードを削除
 function deleteNode(node) {
