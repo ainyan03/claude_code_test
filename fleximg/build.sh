@@ -1,0 +1,70 @@
+#!/bin/bash
+
+# fleximg Demo - WebAssembly Build Script
+# このスクリプトはC++コードをWebAssemblyにコンパイルします
+
+set -e
+
+echo "🔨 Building fleximg WebAssembly demo..."
+
+# Emscriptenの確認
+if ! command -v emcc &> /dev/null; then
+    echo "❌ Error: Emscripten (emcc) not found!"
+    echo "Please install Emscripten SDK:"
+    echo "  git clone https://github.com/emscripten-core/emsdk.git"
+    echo "  cd emsdk"
+    echo "  ./emsdk install latest"
+    echo "  ./emsdk activate latest"
+    echo "  source ./emsdk_env.sh"
+    exit 1
+fi
+
+# 出力ディレクトリ作成
+mkdir -p demo/web
+
+# ビルド情報を生成
+BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+
+echo "// Build information - auto-generated" > demo/web/version.js
+echo "const BUILD_INFO = {" >> demo/web/version.js
+echo "  buildDate: '$BUILD_DATE'," >> demo/web/version.js
+echo "  gitCommit: '$GIT_COMMIT'," >> demo/web/version.js
+echo "  gitBranch: '$GIT_BRANCH'," >> demo/web/version.js
+echo "  backend: 'WebAssembly'" >> demo/web/version.js
+echo "};" >> demo/web/version.js
+
+echo "📝 Build info: $BUILD_DATE (commit: $GIT_COMMIT)"
+
+# WebAssemblyにコンパイル
+emcc src/fleximg/pixel_format_registry.cpp \
+     src/fleximg/viewport.cpp \
+     src/fleximg/operators.cpp \
+     src/fleximg/node_graph.cpp \
+     src/fleximg/evaluation_node.cpp \
+     demo/bindings.cpp \
+    -I src \
+    -o demo/web/image_transform.js \
+    -std=c++17 \
+    -O3 \
+    -s WASM=1 \
+    -s ALLOW_MEMORY_GROWTH=1 \
+    -s MODULARIZE=1 \
+    -s EXPORT_NAME="Module" \
+    -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap"]' \
+    -s DISABLE_EXCEPTION_CATCHING=0 \
+    --bind
+
+echo "✅ Build complete!"
+echo ""
+echo "📦 Generated files:"
+echo "  - demo/web/image_transform.js"
+echo "  - demo/web/image_transform.wasm"
+echo ""
+echo "🚀 To run the demo:"
+echo "  cd demo/web"
+echo "  python3 -m http.server 8000"
+echo ""
+echo "Then open http://localhost:8000 in your browser"
+echo "Or use any other web server to serve the demo/web/ directory"

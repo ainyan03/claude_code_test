@@ -37,36 +37,36 @@ jobs:
 
       - name: Build WebAssembly
         run: |
-          cd image-transform-preview
+          cd fleximg
           chmod +x build.sh
           ./build.sh
 
       - name: Verify build output
         run: |
-          echo "=== Listing web directory ==="
-          ls -la image-transform-preview/web/
+          echo "=== Listing demo/web directory ==="
+          ls -la fleximg/demo/web/
           echo ""
           echo "=== Checking for required files ==="
 
-          if [ -f "image-transform-preview/web/image_transform.wasm" ]; then
+          if [ -f "fleximg/demo/web/image_transform.wasm" ]; then
             echo "✓ image_transform.wasm found"
-            echo "  Size: $(ls -lh image-transform-preview/web/image_transform.wasm | awk '{print $5}')"
+            echo "  Size: $(ls -lh fleximg/demo/web/image_transform.wasm | awk '{print $5}')"
           else
             echo "✗ image_transform.wasm NOT FOUND"
             exit 1
           fi
 
-          if [ -f "image-transform-preview/web/image_transform.js" ]; then
+          if [ -f "fleximg/demo/web/image_transform.js" ]; then
             echo "✓ image_transform.js found"
-            echo "  Size: $(ls -lh image-transform-preview/web/image_transform.js | awk '{print $5}')"
+            echo "  Size: $(ls -lh fleximg/demo/web/image_transform.js | awk '{print $5}')"
           else
             echo "✗ image_transform.js NOT FOUND"
             exit 1
           fi
 
-          if [ -f "image-transform-preview/web/version.js" ]; then
+          if [ -f "fleximg/demo/web/version.js" ]; then
             echo "✓ version.js found"
-            cat image-transform-preview/web/version.js
+            cat fleximg/demo/web/version.js
           else
             echo "✗ version.js NOT FOUND"
             exit 1
@@ -77,15 +77,15 @@ jobs:
 
       - name: Prepare artifact (remove .gitignore to ensure all files are included)
         run: |
-          # Temporarily remove .gitignore from web directory to ensure wasm files are uploaded
-          if [ -f "image-transform-preview/web/.gitignore" ]; then
-            rm image-transform-preview/web/.gitignore
-            echo "Removed web/.gitignore"
+          # Temporarily remove .gitignore from demo/web directory to ensure wasm files are uploaded
+          if [ -f "fleximg/demo/web/.gitignore" ]; then
+            rm fleximg/demo/web/.gitignore
+            echo "Removed demo/web/.gitignore"
           fi
 
           # Also check parent .gitignore
           echo "=== Files to be uploaded ==="
-          find image-transform-preview/web -type f | sort
+          find fleximg/demo/web -type f | sort
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
@@ -93,7 +93,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: 'image-transform-preview/web'
+          path: 'fleximg/demo/web'
 
   deploy:
     environment:

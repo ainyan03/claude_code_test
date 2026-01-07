@@ -1,0 +1,27 @@
+# WebAssembly demo build outputs
+demo/web/image_transform.js
+demo/web/image_transform.wasm
+demo/web/version.js
+
+# Native build outputs
+build/
+src/fleximg/*.o
+*.o
+
+# Emscripten cache
+.emscripten_cache/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.log
