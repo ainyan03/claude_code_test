@@ -573,6 +573,7 @@ button {
     flex: 1;
     min-height: 0;
     scrollbar-width: auto;
+    overflow-anchor: none;  /* Chrome Scroll Anchoring を無効化 */
 }
 
 /* WebKit系ブラウザ（Chrome, Safari）でスクロールバーを常時表示 */
