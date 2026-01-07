@@ -92,18 +92,22 @@ ViewPort BoxBlurOperator::applyToSingle(const ViewPort& input,
 
     // 中間バッファ（水平ブラー結果）
     ViewPort temp(width, height, PixelFormatIDs::RGBA8_Straight);
+    const uint8_t* workingData = static_cast<const uint8_t*>(working.data);
+    const size_t workingStride = working.stride;
+    uint8_t* tempData = static_cast<uint8_t*>(temp.data);
+    const size_t tempStride = temp.stride;
 
     // パス1: 水平方向のブラー
     for (int y = 0; y < height; y++) {
-        const uint8_t* srcRow = working.getPixelPtr<uint8_t>(0, y);
-        uint8_t* dstRow = temp.getPixelPtr<uint8_t>(0, y);
+        const uint8_t* srcRow = workingData + y * workingStride;
+        uint8_t* dstRow = tempData + y * tempStride;
 
         for (int x = 0; x < width; x++) {
             uint32_t sumR = 0, sumG = 0, sumB = 0, sumA = 0;
-            int count = 0;
 
             int xStart = std::max(0, x - radius_);
             int xEnd = std::min(width - 1, x + radius_);
+            int count = xEnd - xStart + 1;
 
             for (int nx = xStart; nx <= xEnd; nx++) {
                 int pixelOffset = nx * 4;
@@ -111,7 +115,6 @@ ViewPort BoxBlurOperator::applyToSingle(const ViewPort& input,
                 sumG += srcRow[pixelOffset + 1];
                 sumB += srcRow[pixelOffset + 2];
                 sumA += srcRow[pixelOffset + 3];
-                count++;
             }
 
             int outOffset = x * 4;
@@ -124,31 +127,32 @@ ViewPort BoxBlurOperator::applyToSingle(const ViewPort& input,
 
     // パス2: 垂直方向のブラー
     ViewPort output(width, height, PixelFormatIDs::RGBA8_Straight);
+    uint8_t* outputData = static_cast<uint8_t*>(output.data);
+    const size_t outputStride = output.stride;
+
     for (int y = 0; y < height; y++) {
-        uint8_t* dstRow = output.getPixelPtr<uint8_t>(0, y);
+        uint8_t* dstRow = outputData + y * outputStride;
+
+        int yStart = std::max(0, y - radius_);
+        int yEnd = std::min(height - 1, y + radius_);
+        int count = yEnd - yStart + 1;
 
         for (int x = 0; x < width; x++) {
             uint32_t sumR = 0, sumG = 0, sumB = 0, sumA = 0;
-            int count = 0;
-
-            int yStart = std::max(0, y - radius_);
-            int yEnd = std::min(height - 1, y + radius_);
+            int pixelOffset = x * 4;
 
             for (int ny = yStart; ny <= yEnd; ny++) {
-                const uint8_t* tmpRow = temp.getPixelPtr<uint8_t>(0, ny);
-                int pixelOffset = x * 4;
+                const uint8_t* tmpRow = tempData + ny * tempStride;
                 sumR += tmpRow[pixelOffset];
                 sumG += tmpRow[pixelOffset + 1];
                 sumB += tmpRow[pixelOffset + 2];
                 sumA += tmpRow[pixelOffset + 3];
-                count++;
             }
 
-            int outOffset = x * 4;
-            dstRow[outOffset] = sumR / count;
-            dstRow[outOffset + 1] = sumG / count;
-            dstRow[outOffset + 2] = sumB / count;
-            dstRow[outOffset + 3] = sumA / count;
+            dstRow[pixelOffset] = sumR / count;
+            dstRow[pixelOffset + 1] = sumG / count;
+            dstRow[pixelOffset + 2] = sumB / count;
+            dstRow[pixelOffset + 3] = sumA / count;
         }
     }
 

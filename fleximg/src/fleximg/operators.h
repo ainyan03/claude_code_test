@@ -4,6 +4,7 @@
 #include "common.h"
 #include "viewport.h"
 #include "image_types.h"
+#include "node_graph.h"  // RenderRequest
 #include <vector>
 #include <memory>
 #include <stdexcept>
@@ -13,7 +14,6 @@ namespace FLEXIMG_NAMESPACE {
 
 // 前方宣言
 struct GraphNode;
-struct RenderRequest;
 
 // ========================================================================
 // NodeOperator 基底クラス
@@ -43,6 +43,14 @@ public:
 
     // オペレーター名（デバッグ・ログ用）
     virtual const char* getName() const = 0;
+
+    // 入力要求を計算: 出力要求に対して必要な入力範囲を返す
+    // デフォルト: そのまま返す（入力拡大不要）
+    // ブラーフィルタ等はオーバーライドしてカーネル半径分拡大
+    virtual RenderRequest computeInputRequest(
+        const RenderRequest& outputRequest) const {
+        return outputRequest;
+    }
 
 protected:
     NodeOperator() = default;
@@ -108,6 +116,12 @@ public:
     ViewPort applyToSingle(const ViewPort& input,
                           const RenderRequest& request) const override;
     const char* getName() const override { return "BoxBlur"; }
+
+    // カーネル半径分だけ入力要求を拡大
+    RenderRequest computeInputRequest(
+        const RenderRequest& outputRequest) const override {
+        return outputRequest.expand(radius_);
+    }
 
 private:
     int radius_;  // ブラー半径（1以上）
