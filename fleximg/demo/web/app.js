@@ -158,6 +158,107 @@ let isDraggingConnection = false;
 let dragConnectionFrom = null;
 let dragConnectionPath = null;
 
+// ========================================
+// ノード配置ヘルパー関数
+// ========================================
+
+// ノードグラフの表示範囲の中央座標を取得
+function getVisibleNodeGraphCenter() {
+    const container = document.querySelector('.node-graph-canvas-container');
+    if (!container) {
+        return { x: 800, y: 600 };
+    }
+    return {
+        x: container.scrollLeft + container.clientWidth / 2,
+        y: container.scrollTop + container.clientHeight / 2
+    };
+}
+
+// ランダムオフセットを生成（±range の範囲）
+function randomOffset(range = 16) {
+    return Math.round((Math.random() - 0.5) * range * 2);
+}
+
+// ノードをアニメーション付きで移動
+// node: 移動するノード
+// targetX, targetY: 目標位置
+// duration: アニメーション時間（ms）
+function animateNodeMove(node, targetX, targetY, duration = 300) {
+    const startX = node.posX;
+    const startY = node.posY;
+    const startTime = performance.now();
+
+    function update(currentTime) {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+
+        // ease-out: 最初速く、終わりに減速
+        const eased = 1 - Math.pow(1 - progress, 3);
+
+        node.posX = Math.round(startX + (targetX - startX) * eased);
+        node.posY = Math.round(startY + (targetY - startY) * eased);
+
+        // SVG内のforeignObjectを直接更新（renderNodeGraphを呼ばずに）
+        const foreignObject = nodeGraphSvg?.querySelector(
+            `foreignObject:has(.node-box[data-node-id="${node.id}"])`
+        );
+        if (foreignObject) {
+            foreignObject.setAttribute('x', node.posX);
+            foreignObject.setAttribute('y', node.posY);
+            updateNodePortsPosition(node);
+            updateConnectionsForNode(node.id);
+        }
+
+        if (progress < 1) {
+            requestAnimationFrame(update);
+        }
+    }
+
+    requestAnimationFrame(update);
+}
+
+// 新規ノード追加時に既存ノードを押し出す
+// newX, newY: 新規ノードの位置
+// newWidth, newHeight: 新規ノードのサイズ
+function pushExistingNodes(newX, newY, newWidth = 160, newHeight = 70) {
+    const margin = 5; // 押し出し判定マージン（小さめ）
+    const newCenterX = newX + newWidth / 2;
+    const newCenterY = newY + newHeight / 2;
+
+    for (const node of globalNodes) {
+        const otherWidth = 160;
+        const otherHeight = getNodeHeight(node);
+
+        // 矩形の重なりチェック
+        const overlapX = (newX < node.posX + otherWidth + margin) && (newX + newWidth + margin > node.posX);
+        const overlapY = (newY < node.posY + otherHeight + margin) && (newY + newHeight + margin > node.posY);
+
+        if (overlapX && overlapY) {
+            // 既存ノードを新規ノードから離れる方向に押し出す
+            const otherCenterX = node.posX + otherWidth / 2;
+            const otherCenterY = node.posY + otherHeight / 2;
+
+            let dx = otherCenterX - newCenterX;
+            let dy = otherCenterY - newCenterY;
+
+            // 方向が0の場合はデフォルトで下方向に押し出す
+            if (dx === 0 && dy === 0) {
+                dy = 1;
+            }
+
+            // 正規化して少しだけ押し出し（重なりOKなので控えめ）
+            const len = Math.sqrt(dx * dx + dy * dy);
+            const pushAmount = 50; // 押し出し量（控えめ）
+            const targetX = Math.max(0, Math.round(node.posX + (dx / len) * pushAmount));
+            const targetY = Math.max(0, Math.round(node.posY + (dy / len) * pushAmount));
+
+            // アニメーション付きで移動（renderNodeGraph後に実行されるようにsetTimeout）
+            const nodeRef = node;
+            setTimeout(() => animateNodeMove(nodeRef, targetX, targetY), 50);
+        }
+    }
+}
+
 // requestAnimationFrame用のフラグ
 let updatePreviewScheduled = false;
 
@@ -802,21 +903,23 @@ function addImageNodeFromLibrary(imageId) {
     const image = uploadedImages.find(img => img.id === imageId);
     if (!image) return;
 
-    // 全ての画像ノードの数をカウント（より良い配置のため）
-    const existingImageNodes = globalNodes.filter(n => n.type === 'image').length;
+    // 表示範囲の中央付近に固定配置（画像ノードは左寄り）+ ランダムオフセット
+    const center = getVisibleNodeGraphCenter();
+    const nodeWidth = 160;
+    const nodeHeight = 70;
+    const posX = center.x - 230 + randomOffset(); // 中央より左寄り
+    const posY = center.y - nodeHeight / 2 + randomOffset();
 
-    // 画像ノードは縦方向に並べる（中央エリア基準）
-    const spacing = 120; // ノード間の間隔
-    const startX = 500;  // 1600幅キャンバスの中央寄り左側
-    const startY = 450;  // 1200高さキャンバスの中央付近
+    // 既存ノードを押し出す
+    pushExistingNodes(posX, posY, nodeWidth, nodeHeight);
 
     const imageNode = {
         id: `image-node-${nextImageNodeId++}`,
         type: 'image',
         imageId: imageId,
         title: image.name,
-        posX: startX,
-        posY: startY + existingImageNodes * spacing,  // 縦方向に並べる
+        posX: posX,
+        posY: posY,
         // 元画像の原点（正規化座標 0.0〜1.0）
         originX: 0.5,
         originY: 0.5
@@ -1833,17 +1936,22 @@ function removeConnection(fromNodeId, fromPortId, toNodeId, toPortId) {
 
 // 合成ノードを追加
 function addCompositeNode() {
-    // 既存の合成ノードの数を数えて位置をずらす
-    const existingCompositeCount = globalNodes.filter(
-        n => n.type === 'composite'
-    ).length;
+    // 表示範囲の中央に固定配置 + ランダムオフセット
+    const center = getVisibleNodeGraphCenter();
+    const nodeWidth = 160;
+    const nodeHeight = 90;
+    const posX = center.x - nodeWidth / 2 + randomOffset();
+    const posY = center.y - nodeHeight / 2 + randomOffset();
+
+    // 既存ノードを押し出す
+    pushExistingNodes(posX, posY, nodeWidth, nodeHeight);
 
     const compositeNode = {
         id: `composite-${nextCompositeId++}`,
         type: 'composite',
         title: '合成',
-        posX: 750,  // 1600幅キャンバスの中央エリア
-        posY: 400 + existingCompositeCount * 150,  // 中央付近から配置
+        posX: posX,
+        posY: posY,
         // 動的な入力配列（デフォルトで2つの入力）
         inputs: [
             { id: 'in1', alpha: 1.0 },
@@ -1858,17 +1966,22 @@ function addCompositeNode() {
 
 // アフィン変換ノードを追加
 function addAffineNode() {
-    // 既存のアフィンノードの数を数えて位置をずらす
-    const existingAffineCount = globalNodes.filter(
-        n => n.type === 'affine'
-    ).length;
+    // 表示範囲の中央に固定配置 + ランダムオフセット
+    const center = getVisibleNodeGraphCenter();
+    const nodeWidth = 160;
+    const nodeHeight = 90;
+    const posX = center.x - nodeWidth / 2 + randomOffset();
+    const posY = center.y - nodeHeight / 2 + randomOffset();
+
+    // 既存ノードを押し出す
+    pushExistingNodes(posX, posY, nodeWidth, nodeHeight);
 
     const affineNode = {
         id: `affine-${Date.now()}`,
         type: 'affine',
         title: 'アフィン変換',
-        posX: 750,  // 1600幅キャンバスの中央エリア
-        posY: 400 + existingAffineCount * 150,  // 中央付近から配置
+        posX: posX,
+        posY: posY,
         matrixMode: false,  // デフォルトはパラメータモード
         // パラメータモード用の初期値
         translateX: 0,
@@ -1918,10 +2031,15 @@ function addIndependentFilterNode(filterType) {
         ? filterDef.params[0].default
         : 0.0;
 
-    // 既存の独立フィルタノードの数を数えて位置をずらす
-    const existingFilterCount = globalNodes.filter(
-        n => n.type === 'filter' && n.independent
-    ).length;
+    // 表示範囲の中央に固定配置 + ランダムオフセット
+    const center = getVisibleNodeGraphCenter();
+    const nodeWidth = 160;
+    const nodeHeight = 70;
+    const posX = center.x - nodeWidth / 2 + randomOffset();
+    const posY = center.y - nodeHeight / 2 + randomOffset();
+
+    // 既存ノードを押し出す
+    pushExistingNodes(posX, posY, nodeWidth, nodeHeight);
 
     const filterNode = {
         id: `independent-filter-${nextIndependentFilterId++}`,
@@ -1930,8 +2048,8 @@ function addIndependentFilterNode(filterType) {
         filterType: filterType,
         param: defaultParam,
         title: getFilterDisplayName(filterType),
-        posX: 700,  // 1600幅キャンバスの中央エリア（画像ノードと出力の中間）
-        posY: 400 + existingFilterCount * 120  // 中央付近から配置
+        posX: posX,
+        posY: posY
     };
 
     globalNodes.push(filterNode);
