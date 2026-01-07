@@ -3,8 +3,13 @@
 //
 // テスト条件:
 // - 元画像: 4x6 ピクセル（各ピクセルに一意のインデックス値を設定）
-// - 出力先: 20x20 ピクセル、基準座標 (10, 10)
+// - 出力先: 24x24 ピクセル、基準座標 (12, 12)
 // - 代表的な3原点(左上・中央・右下) × 4回転 = 12パターン
+//
+// 設計:
+// AffineOperatorは「基準点アライメント」設計を採用
+// - 入力画像の基準点が出力バッファの基準点に揃う
+// - 回転は基準点を中心に行われる
 
 #include <gtest/gtest.h>
 #include <cmath>
@@ -23,74 +28,65 @@ namespace {
 // テスト設定
 constexpr int INPUT_WIDTH = 4;
 constexpr int INPUT_HEIGHT = 6;
-constexpr int OUTPUT_SIZE = 20;
-constexpr int DST_ORIGIN_X = 10;
-constexpr int DST_ORIGIN_Y = 10;
+constexpr int OUTPUT_SIZE = 24;
+constexpr float DST_ORIGIN_X = 12.0f;
+constexpr float DST_ORIGIN_Y = 12.0f;
 
 // ============================================================================
-// 期待値の手計算根拠:
+// 期待値の計算根拠:
 //
-// AffineOperatorは「回転中心」設計を採用
-// 座標変換: src = inv_matrix * (dst - offset - origin) + origin
+// AffineOperatorの座標変換:
+//   入力基準相対座標 = inv_matrix * 出力基準相対座標 + invTx/Ty
+//   入力バッファ座標 = 入力基準相対座標 - inputSrcOrigin
 //
-// 元画像: 4x6, dstOrigin(outputOffset): (10,10)
-// 出力ピクセル(dx,dy)の中心(dx+0.5, dy+0.5)から入力座標を逆変換で求める
+// inputSrcOrigin: 基準点から見た入力画像左上の相対座標
+//   - 左上原点(0,0): inputSrcOrigin = (0, 0)
+//   - 中央原点(2,3): inputSrcOrigin = (-2, -3) ← 基準点から左上へ (-2,-3)
+//   - 右下原点(4,6): inputSrcOrigin = (-4, -6)
 //
-// 0度（単位行列）: originがキャンセルされる
-//   sx = (dx + 0.5) - 10 = dx - 9.5
-//   sy = (dy + 0.5) - 10 = dy - 9.5
-//   → 全originで minX=10, minY=10, maxX=13, maxY=15
-//
-// 90度CCW (invA=0, invB=1, invC=-1, invD=0):
-//   sx = (dy + 0.5 - 10 - oy) + ox
-//   sy = -(dx + 0.5 - 10 - ox) + oy
-//
-// 180度 (invA=-1, invB=0, invC=0, invD=-1):
-//   sx = -(dx + 0.5 - 10 - ox) + ox
-//   sy = -(dy + 0.5 - 10 - oy) + oy
-//
-// 270度CCW (invA=0, invB=-1, invC=1, invD=0):
-//   sx = -(dy + 0.5 - 10 - oy) + ox
-//   sy = (dx + 0.5 - 10 - ox) + oy
-//
-// 入力範囲 0 <= sx < 4, 0 <= sy < 6 を満たす出力範囲を求める
+// evaluation_node.cpp での使用法に従い、outputOffset を計算:
+//   outputOffset = dstOrigin - inputSrcOrigin
 // ============================================================================
 
 // 出力範囲の期待値
 struct ExpectedRange {
     const char* originName;
-    double originX, originY;
+    float inputSrcOriginX, inputSrcOriginY;  // 基準点から見た入力左上の相対座標
     const char* rotationName;
-    double degrees;
+    float degrees;
     int minX, minY, maxX, maxY;  // 期待される出力範囲
 };
 
-// テストデータ（回転中心設計に基づく期待値）
+// テストデータ（基準点アライメント設計に基づく期待値）
+// 出力バッファは24x24、基準点は(12,12)
 const ExpectedRange EXPECTED[] = {
-    // 左上原点 (0, 0)
-    {"TopLeft", 0, 0, "0deg",   0,   10, 10, 13, 15},
-    {"TopLeft", 0, 0, "90deg",  90,   4, 10,  9, 13},
-    {"TopLeft", 0, 0, "180deg", 180,  6,  4,  9,  9},
-    {"TopLeft", 0, 0, "270deg", 270, 10,  6, 15,  9},
+    // 左上原点: inputSrcOrigin = (0, 0)
+    // 入力(0,0)が出力(12,12)に対応、入力(3,5)が出力(15,17)に対応
+    {"TopLeft", 0, 0, "0deg",   0,   12, 12, 15, 17},
+    {"TopLeft", 0, 0, "90deg",  90,   6, 12, 11, 15},
+    {"TopLeft", 0, 0, "180deg", 180,  8,  6, 11, 11},
+    {"TopLeft", 0, 0, "270deg", 270, 12,  8, 17, 11},
 
-    // 中央原点 (2, 3) - 回転中心設計では0度は全originで同じ結果
-    {"Center", 2, 3, "0deg",   0,   10, 10, 13, 15},
-    {"Center", 2, 3, "90deg",  90,   9, 11, 14, 14},
-    {"Center", 2, 3, "180deg", 180, 10, 10, 13, 15},
-    {"Center", 2, 3, "270deg", 270,  9, 11, 14, 14},
+    // 中央原点: inputSrcOrigin = (-2, -3)
+    // 入力(2,3)が出力(12,12)に対応、入力(0,0)が出力(10,9)に対応
+    {"Center", -2, -3, "0deg",   0,   10,  9, 13, 14},
+    {"Center", -2, -3, "90deg",  90,   9, 10, 14, 13},
+    {"Center", -2, -3, "180deg", 180, 10,  9, 13, 14},
+    {"Center", -2, -3, "270deg", 270,  9, 10, 14, 13},
 
-    // 右下原点 (4, 6) - 回転中心設計では0度は全originで同じ結果
-    {"BottomRight", 4, 6, "0deg",   0,   10, 10, 13, 15},
-    {"BottomRight", 4, 6, "90deg",  90,  14, 12, 19, 15},
-    {"BottomRight", 4, 6, "180deg", 180, 14, 16, 17, 19},
-    {"BottomRight", 4, 6, "270deg", 270,  8, 16, 13, 19},
+    // 右下原点: inputSrcOrigin = (-4, -6)
+    // 入力(4,6)が出力(12,12)に対応、入力(0,0)が出力(8,6)に対応
+    {"BottomRight", -4, -6, "0deg",   0,    8,  6, 11, 11},
+    {"BottomRight", -4, -6, "90deg",  90,  12,  8, 17, 11},
+    {"BottomRight", -4, -6, "180deg", 180, 12, 12, 15, 17},
+    {"BottomRight", -4, -6, "270deg", 270,  6, 12, 11, 15},
 };
 
 // 角度から回転行列を生成
-AffineMatrix createRotationMatrix(double degrees) {
-    double rad = degrees * M_PI / 180.0;
-    double cosA = std::cos(rad);
-    double sinA = std::sin(rad);
+AffineMatrix createRotationMatrix(float degrees) {
+    float rad = degrees * static_cast<float>(M_PI) / 180.0f;
+    float cosA = std::cos(rad);
+    float sinA = std::sin(rad);
     AffineMatrix m;
     m.a = cosA;
     m.b = -sinA;
@@ -141,19 +137,27 @@ bool getOutputBounds(const ViewPort& output, int& minX, int& minY, int& maxX, in
 }
 
 // 出力ピクセルが正しい入力ピクセルからマッピングされているか検証
-// 回転中心設計: src = inv_matrix * (dst - offset - origin) + origin
+// 基準点アライメント設計での座標計算
 // 戻り値: 全ピクセルが正しければtrue
 bool verifyPixelMapping(const ViewPort& output, const ViewPort& /* input */,
-                        double originX, double originY, const AffineMatrix& matrix) {
+                        float inputSrcOriginX, float inputSrcOriginY,
+                        const AffineMatrix& matrix) {
     // 逆行列を計算
-    double det = matrix.a * matrix.d - matrix.b * matrix.c;
-    if (std::abs(det) < 1e-10) return false;
+    float det = matrix.a * matrix.d - matrix.b * matrix.c;
+    if (std::abs(det) < 1e-10f) return false;
 
-    double invDet = 1.0 / det;
-    double invA = matrix.d * invDet;
-    double invB = -matrix.b * invDet;
-    double invC = -matrix.c * invDet;
-    double invD = matrix.a * invDet;
+    float invDet = 1.0f / det;
+    float invA = matrix.d * invDet;
+    float invB = -matrix.b * invDet;
+    float invC = -matrix.c * invDet;
+    float invD = matrix.a * invDet;
+
+    // outputOffset = dstOrigin - inputSrcOrigin (evaluation_node.cpp と同じ計算)
+    float outputOffsetX = DST_ORIGIN_X - inputSrcOriginX;
+    float outputOffsetY = DST_ORIGIN_Y - inputSrcOriginY;
+    // outputOrigin = inputSrcOrigin + outputOffset = dstOrigin
+    float outputOriginX = inputSrcOriginX + outputOffsetX;  // = DST_ORIGIN_X
+    float outputOriginY = inputSrcOriginY + outputOffsetY;  // = DST_ORIGIN_Y
 
     for (int dy = 0; dy < output.height; dy++) {
         for (int dx = 0; dx < output.width; dx++) {
@@ -162,13 +166,18 @@ bool verifyPixelMapping(const ViewPort& output, const ViewPort& /* input */,
             // 透明ピクセルはスキップ
             if (outPixel[3] == 0) continue;
 
-            // 回転中心設計での入力座標計算
-            // src = inv_matrix * (dst - offset - origin) + origin
-            double relX = (dx + 0.5) - DST_ORIGIN_X - originX;
-            double relY = (dy + 0.5) - DST_ORIGIN_Y - originY;
+            // 基準点アライメント設計での入力座標計算
+            // 出力の基準相対座標
+            float dstRelX = (dx + 0.5f) - outputOriginX;
+            float dstRelY = (dy + 0.5f) - outputOriginY;
 
-            double srcX = invA * relX + invB * relY + originX;
-            double srcY = invC * relX + invD * relY + originY;
+            // 逆変換で入力の基準相対座標を求める
+            float srcRelX = invA * dstRelX + invB * dstRelY;
+            float srcRelY = invC * dstRelX + invD * dstRelY;
+
+            // 入力バッファ座標に変換
+            float srcX = srcRelX - inputSrcOriginX;
+            float srcY = srcRelY - inputSrcOriginY;
 
             int expectedSx = (int)std::floor(srcX);
             int expectedSy = (int)std::floor(srcY);
@@ -203,16 +212,18 @@ TEST_P(AffineOperatorTest, OutputRangeMatches) {
     // 入力画像を作成
     ViewPort input = createIndexedInput();
 
-    // AffineOperator を作成
+    // AffineOperator を作成（evaluation_node.cpp と同じ計算）
     AffineMatrix matrix = createRotationMatrix(expected.degrees);
-    AffineOperator op(matrix, expected.originX, expected.originY,
-                      DST_ORIGIN_X, DST_ORIGIN_Y, OUTPUT_SIZE, OUTPUT_SIZE);
+    float outputOffsetX = DST_ORIGIN_X - expected.inputSrcOriginX;
+    float outputOffsetY = DST_ORIGIN_Y - expected.inputSrcOriginY;
+    AffineOperator op(matrix, expected.inputSrcOriginX, expected.inputSrcOriginY,
+                      outputOffsetX, outputOffsetY, OUTPUT_SIZE, OUTPUT_SIZE);
 
     // コンテキスト
-    OperatorContext ctx(OUTPUT_SIZE, OUTPUT_SIZE, DST_ORIGIN_X, DST_ORIGIN_Y);
+    RenderRequest req{OUTPUT_SIZE, OUTPUT_SIZE, DST_ORIGIN_X, DST_ORIGIN_Y};
 
     // 変換を適用
-    ViewPort output = op.applyToSingle(input, ctx);
+    ViewPort output = op.applyToSingle(input, req);
 
     // 出力範囲を取得
     int actualMinX, actualMinY, actualMaxX, actualMaxY;
@@ -235,19 +246,21 @@ TEST_P(AffineOperatorTest, PixelMappingIsCorrect) {
     // 入力画像を作成
     ViewPort input = createIndexedInput();
 
-    // AffineOperator を作成
+    // AffineOperator を作成（evaluation_node.cpp と同じ計算）
     AffineMatrix matrix = createRotationMatrix(expected.degrees);
-    AffineOperator op(matrix, expected.originX, expected.originY,
-                      DST_ORIGIN_X, DST_ORIGIN_Y, OUTPUT_SIZE, OUTPUT_SIZE);
+    float outputOffsetX = DST_ORIGIN_X - expected.inputSrcOriginX;
+    float outputOffsetY = DST_ORIGIN_Y - expected.inputSrcOriginY;
+    AffineOperator op(matrix, expected.inputSrcOriginX, expected.inputSrcOriginY,
+                      outputOffsetX, outputOffsetY, OUTPUT_SIZE, OUTPUT_SIZE);
 
     // コンテキスト
-    OperatorContext ctx(OUTPUT_SIZE, OUTPUT_SIZE, DST_ORIGIN_X, DST_ORIGIN_Y);
+    RenderRequest req{OUTPUT_SIZE, OUTPUT_SIZE, DST_ORIGIN_X, DST_ORIGIN_Y};
 
     // 変換を適用
-    ViewPort output = op.applyToSingle(input, ctx);
+    ViewPort output = op.applyToSingle(input, req);
 
     // ピクセルマッピングを検証
-    EXPECT_TRUE(verifyPixelMapping(output, input, expected.originX, expected.originY, matrix))
+    EXPECT_TRUE(verifyPixelMapping(output, input, expected.inputSrcOriginX, expected.inputSrcOriginY, matrix))
         << "Pixel mapping incorrect for " << expected.originName << " " << expected.rotationName;
 }
 
@@ -256,19 +269,23 @@ TEST_P(AffineOperatorTest, StabilityWithinOneDegree) {
     const ExpectedRange& expected = GetParam();
 
     ViewPort input = createIndexedInput();
-    OperatorContext ctx(OUTPUT_SIZE, OUTPUT_SIZE, DST_ORIGIN_X, DST_ORIGIN_Y);
+    RenderRequest req{OUTPUT_SIZE, OUTPUT_SIZE, DST_ORIGIN_X, DST_ORIGIN_Y};
+
+    // outputOffset を計算（evaluation_node.cpp と同じ）
+    float outputOffsetX = DST_ORIGIN_X - expected.inputSrcOriginX;
+    float outputOffsetY = DST_ORIGIN_Y - expected.inputSrcOriginY;
 
     // +1度
-    AffineMatrix matrixPlus = createRotationMatrix(expected.degrees + 1.0);
-    AffineOperator opPlus(matrixPlus, expected.originX, expected.originY,
-                          DST_ORIGIN_X, DST_ORIGIN_Y, OUTPUT_SIZE, OUTPUT_SIZE);
-    ViewPort outputPlus = opPlus.applyToSingle(input, ctx);
+    AffineMatrix matrixPlus = createRotationMatrix(expected.degrees + 1.0f);
+    AffineOperator opPlus(matrixPlus, expected.inputSrcOriginX, expected.inputSrcOriginY,
+                          outputOffsetX, outputOffsetY, OUTPUT_SIZE, OUTPUT_SIZE);
+    ViewPort outputPlus = opPlus.applyToSingle(input, req);
 
     // -1度
-    AffineMatrix matrixMinus = createRotationMatrix(expected.degrees - 1.0);
-    AffineOperator opMinus(matrixMinus, expected.originX, expected.originY,
-                           DST_ORIGIN_X, DST_ORIGIN_Y, OUTPUT_SIZE, OUTPUT_SIZE);
-    ViewPort outputMinus = opMinus.applyToSingle(input, ctx);
+    AffineMatrix matrixMinus = createRotationMatrix(expected.degrees - 1.0f);
+    AffineOperator opMinus(matrixMinus, expected.inputSrcOriginX, expected.inputSrcOriginY,
+                           outputOffsetX, outputOffsetY, OUTPUT_SIZE, OUTPUT_SIZE);
+    ViewPort outputMinus = opMinus.applyToSingle(input, req);
 
     int plusMinX, plusMinY, plusMaxX, plusMaxY;
     int minusMinX, minusMinY, minusMaxX, minusMaxY;
@@ -315,23 +332,30 @@ TEST(AffineOperatorBasicTest, IdentityTransform) {
 
     // 単位行列
     AffineMatrix identity;
-    identity.a = 1.0; identity.b = 0.0;
-    identity.c = 0.0; identity.d = 1.0;
-    identity.tx = 0.0; identity.ty = 0.0;
+    identity.a = 1.0f; identity.b = 0.0f;
+    identity.c = 0.0f; identity.d = 1.0f;
+    identity.tx = 0.0f; identity.ty = 0.0f;
 
-    AffineOperator op(identity, 0, 0, DST_ORIGIN_X, DST_ORIGIN_Y, OUTPUT_SIZE, OUTPUT_SIZE);
-    OperatorContext ctx(OUTPUT_SIZE, OUTPUT_SIZE, DST_ORIGIN_X, DST_ORIGIN_Y);
+    // inputSrcOrigin = (0,0) の場合、outputOffset = DST_ORIGIN - inputSrcOrigin = (12,12)
+    float inputSrcOriginX = 0.0f;
+    float inputSrcOriginY = 0.0f;
+    float outputOffsetX = DST_ORIGIN_X - inputSrcOriginX;
+    float outputOffsetY = DST_ORIGIN_Y - inputSrcOriginY;
 
-    ViewPort output = op.applyToSingle(input, ctx);
+    AffineOperator op(identity, inputSrcOriginX, inputSrcOriginY,
+                      outputOffsetX, outputOffsetY, OUTPUT_SIZE, OUTPUT_SIZE);
+    RenderRequest req{OUTPUT_SIZE, OUTPUT_SIZE, DST_ORIGIN_X, DST_ORIGIN_Y};
+
+    ViewPort output = op.applyToSingle(input, req);
 
     int minX, minY, maxX, maxY;
     ASSERT_TRUE(getOutputBounds(output, minX, minY, maxX, maxY));
 
-    // 原点(0,0)で単位行列の場合、左上が(10,10)になる
-    EXPECT_EQ(minX, 10);
-    EXPECT_EQ(minY, 10);
-    EXPECT_EQ(maxX, 13);  // 10 + 4 - 1
-    EXPECT_EQ(maxY, 15);  // 10 + 6 - 1
+    // inputSrcOrigin=(0,0)で単位行列の場合、入力左上が出力(12,12)に対応
+    EXPECT_EQ(minX, 12);
+    EXPECT_EQ(minY, 12);
+    EXPECT_EQ(maxX, 15);  // 12 + 4 - 1
+    EXPECT_EQ(maxY, 17);  // 12 + 6 - 1
 }
 
 TEST(AffineOperatorBasicTest, TranslationOnly) {
@@ -339,14 +363,20 @@ TEST(AffineOperatorBasicTest, TranslationOnly) {
 
     // 平行移動のみ (tx=2, ty=3)
     AffineMatrix translation;
-    translation.a = 1.0; translation.b = 0.0;
-    translation.c = 0.0; translation.d = 1.0;
-    translation.tx = 2.0; translation.ty = 3.0;
+    translation.a = 1.0f; translation.b = 0.0f;
+    translation.c = 0.0f; translation.d = 1.0f;
+    translation.tx = 2.0f; translation.ty = 3.0f;
 
-    AffineOperator op(translation, 0, 0, DST_ORIGIN_X, DST_ORIGIN_Y, OUTPUT_SIZE, OUTPUT_SIZE);
-    OperatorContext ctx(OUTPUT_SIZE, OUTPUT_SIZE, DST_ORIGIN_X, DST_ORIGIN_Y);
+    float inputSrcOriginX = 0.0f;
+    float inputSrcOriginY = 0.0f;
+    float outputOffsetX = DST_ORIGIN_X - inputSrcOriginX;
+    float outputOffsetY = DST_ORIGIN_Y - inputSrcOriginY;
 
-    ViewPort output = op.applyToSingle(input, ctx);
+    AffineOperator op(translation, inputSrcOriginX, inputSrcOriginY,
+                      outputOffsetX, outputOffsetY, OUTPUT_SIZE, OUTPUT_SIZE);
+    RenderRequest req{OUTPUT_SIZE, OUTPUT_SIZE, DST_ORIGIN_X, DST_ORIGIN_Y};
+
+    ViewPort output = op.applyToSingle(input, req);
 
     int minX, minY, maxX, maxY;
     ASSERT_TRUE(getOutputBounds(output, minX, minY, maxX, maxY));
@@ -361,14 +391,20 @@ TEST(AffineOperatorBasicTest, OutputFormatIsPremultiplied) {
     ViewPort input = createIndexedInput();
 
     AffineMatrix identity;
-    identity.a = 1.0; identity.b = 0.0;
-    identity.c = 0.0; identity.d = 1.0;
-    identity.tx = 0.0; identity.ty = 0.0;
+    identity.a = 1.0f; identity.b = 0.0f;
+    identity.c = 0.0f; identity.d = 1.0f;
+    identity.tx = 0.0f; identity.ty = 0.0f;
 
-    AffineOperator op(identity, 0, 0, DST_ORIGIN_X, DST_ORIGIN_Y, OUTPUT_SIZE, OUTPUT_SIZE);
-    OperatorContext ctx(OUTPUT_SIZE, OUTPUT_SIZE, DST_ORIGIN_X, DST_ORIGIN_Y);
+    float inputSrcOriginX = 0.0f;
+    float inputSrcOriginY = 0.0f;
+    float outputOffsetX = DST_ORIGIN_X - inputSrcOriginX;
+    float outputOffsetY = DST_ORIGIN_Y - inputSrcOriginY;
 
-    ViewPort output = op.applyToSingle(input, ctx);
+    AffineOperator op(identity, inputSrcOriginX, inputSrcOriginY,
+                      outputOffsetX, outputOffsetY, OUTPUT_SIZE, OUTPUT_SIZE);
+    RenderRequest req{OUTPUT_SIZE, OUTPUT_SIZE, DST_ORIGIN_X, DST_ORIGIN_Y};
+
+    ViewPort output = op.applyToSingle(input, req);
 
     // 出力フォーマットがRGBA16_Premultipliedであることを確認
     EXPECT_EQ(output.formatID, PixelFormatIDs::RGBA16_Premultiplied);

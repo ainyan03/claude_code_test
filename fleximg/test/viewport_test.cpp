@@ -342,30 +342,30 @@ TEST(ViewPortTest, OriginDefault) {
     ViewPort vp(100, 100, PixelFormatIDs::RGBA8_Straight);
 
     // Default origin should be (0, 0)
-    EXPECT_DOUBLE_EQ(vp.srcOriginX, 0.0);
-    EXPECT_DOUBLE_EQ(vp.srcOriginY, 0.0);
+    EXPECT_FLOAT_EQ(vp.srcOriginX, 0.0f);
+    EXPECT_FLOAT_EQ(vp.srcOriginY, 0.0f);
 }
 
 TEST(ViewPortTest, OriginPreservation_Copy) {
     ViewPort original(100, 100, PixelFormatIDs::RGBA8_Straight);
-    original.srcOriginX = 50.5;
-    original.srcOriginY = 25.25;
+    original.srcOriginX = 50.5f;
+    original.srcOriginY = 25.25f;
 
     ViewPort copy(original);
 
-    EXPECT_DOUBLE_EQ(copy.srcOriginX, 50.5);
-    EXPECT_DOUBLE_EQ(copy.srcOriginY, 25.25);
+    EXPECT_FLOAT_EQ(copy.srcOriginX, 50.5f);
+    EXPECT_FLOAT_EQ(copy.srcOriginY, 25.25f);
 }
 
 TEST(ViewPortTest, OriginPreservation_Move) {
     ViewPort original(100, 100, PixelFormatIDs::RGBA8_Straight);
-    original.srcOriginX = 33.3;
-    original.srcOriginY = 66.6;
+    original.srcOriginX = 33.3f;
+    original.srcOriginY = 66.6f;
 
     ViewPort moved(std::move(original));
 
-    EXPECT_DOUBLE_EQ(moved.srcOriginX, 33.3);
-    EXPECT_DOUBLE_EQ(moved.srcOriginY, 66.6);
+    EXPECT_FLOAT_EQ(moved.srcOriginX, 33.3f);
+    EXPECT_FLOAT_EQ(moved.srcOriginY, 66.6f);
 }
 
 // Note: main() is provided by gtest_main library

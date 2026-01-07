@@ -61,8 +61,8 @@ struct ViewPort {
     // 基準点から見た画像左上の相対座標
     // 例: 100x100画像、中央基準 → srcOriginX = -50
     // 例: 100x100画像、左上基準 → srcOriginX = 0
-    double srcOriginX;
-    double srcOriginY;
+    float srcOriginX;
+    float srcOriginY;
 
     // ========================================================================
     // コンストラクタ / デストラクタ

@@ -159,8 +159,8 @@ public:
     // outputOriginX/Y: 出力バッファ内での基準点位置
     // outputWidth/Height: 出力サイズ（0以下の場合はrequest.width/heightを使用）
     AffineOperator(const AffineMatrix& matrix,
-                   double inputSrcOriginX = 0, double inputSrcOriginY = 0,
-                   double outputOriginX = 0, double outputOriginY = 0,
+                   float inputSrcOriginX = 0, float inputSrcOriginY = 0,
+                   float outputOriginX = 0, float outputOriginY = 0,
                    int outputWidth = 0, int outputHeight = 0);
 
     ViewPort applyToSingle(const ViewPort& input,
@@ -177,8 +177,8 @@ public:
 
 private:
     AffineMatrix matrix_;
-    double inputSrcOriginX_, inputSrcOriginY_;
-    double outputOriginX_, outputOriginY_;
+    float inputSrcOriginX_, inputSrcOriginY_;
+    float outputOriginX_, outputOriginY_;
     int outputWidth_, outputHeight_;
 };
 
@@ -227,10 +227,9 @@ public:
     // outputOriginX/Y: 出力バッファ内での基準点位置
     static std::unique_ptr<NodeOperator> createAffineOperator(
         const AffineMatrix& matrix,
-        double inputSrcOriginX, double inputSrcOriginY,
-        double outputOriginX, double outputOriginY,
-        int outputWidth, int outputHeight
-    );
+        float inputSrcOriginX, float inputSrcOriginY,
+        float outputOriginX, float outputOriginY,
+        int outputWidth, int outputHeight);
 
     // 合成オペレーターを生成
     static std::unique_ptr<NodeOperator> createCompositeOperator();

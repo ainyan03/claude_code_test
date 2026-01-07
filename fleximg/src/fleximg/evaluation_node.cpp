@@ -20,23 +20,23 @@ ViewPort ImageEvalNode::evaluate(const RenderRequest& request,
     // 画像の基準相対座標範囲
     // srcOriginX/Y は 9点セレクタ (0=左上, 0.5=中央, 1=右下)
     // 例: 100x100画像、中央基準(0.5) → imgLeft = -50
-    double imgLeft = -srcOriginX * imageData->width;
-    double imgTop = -srcOriginY * imageData->height;
-    double imgRight = imgLeft + imageData->width;
-    double imgBottom = imgTop + imageData->height;
+    float imgLeft = -srcOriginX * imageData->width;
+    float imgTop = -srcOriginY * imageData->height;
+    float imgRight = imgLeft + imageData->width;
+    float imgBottom = imgTop + imageData->height;
 
     // 要求範囲の基準相対座標範囲
     // バッファ位置0 は基準相対座標 -originX に対応
-    double reqLeft = -request.originX;
-    double reqTop = -request.originY;
-    double reqRight = reqLeft + request.width;
-    double reqBottom = reqTop + request.height;
+    float reqLeft = -request.originX;
+    float reqTop = -request.originY;
+    float reqRight = reqLeft + request.width;
+    float reqBottom = reqTop + request.height;
 
     // 交差領域を計算（基準相対座標）
-    double interLeft = std::max(imgLeft, reqLeft);
-    double interTop = std::max(imgTop, reqTop);
-    double interRight = std::min(imgRight, reqRight);
-    double interBottom = std::min(imgBottom, reqBottom);
+    float interLeft = std::max(imgLeft, reqLeft);
+    float interTop = std::max(imgTop, reqTop);
+    float interRight = std::min(imgRight, reqRight);
+    float interBottom = std::min(imgBottom, reqBottom);
 
     // 交差領域がない場合は空のViewPortを返却
     if (interLeft >= interRight || interTop >= interBottom) {
@@ -103,8 +103,8 @@ ViewPort FilterEvalNode::evaluate(const RenderRequest& request,
 
         // 4. 要求範囲を切り出す（ブラー等で入力が拡大されている場合）
         // 要求の基準相対座標の左上
-        double reqLeft = -request.originX;
-        double reqTop = -request.originY;
+        float reqLeft = -request.originX;
+        float reqTop = -request.originY;
 
         // processed バッファ内での要求開始位置
         int startX = static_cast<int>(reqLeft - processed.srcOriginX);
@@ -160,19 +160,19 @@ void AffineEvalNode::prepare(const RenderContext& context) {
     (void)context;
 
     // 逆行列を計算
-    double det = matrix.a * matrix.d - matrix.b * matrix.c;
-    if (std::abs(det) < 1e-10) {
+    float det = matrix.a * matrix.d - matrix.b * matrix.c;
+    if (std::abs(det) < 1e-10f) {
         prepared_ = false;
         return;
     }
 
-    double invDet = 1.0 / det;
-    double invA = matrix.d * invDet;
-    double invB = -matrix.b * invDet;
-    double invC = -matrix.c * invDet;
-    double invD = matrix.a * invDet;
-    double invTx = (-matrix.d * matrix.tx + matrix.b * matrix.ty) * invDet;
-    double invTy = (matrix.c * matrix.tx - matrix.a * matrix.ty) * invDet;
+    float invDet = 1.0f / det;
+    float invA = matrix.d * invDet;
+    float invB = -matrix.b * invDet;
+    float invC = -matrix.c * invDet;
+    float invD = matrix.a * invDet;
+    float invTx = (-matrix.d * matrix.tx + matrix.b * matrix.ty) * invDet;
+    float invTy = (matrix.c * matrix.tx - matrix.a * matrix.ty) * invDet;
 
     // 固定小数点に変換
     constexpr int FIXED_POINT_BITS = 16;
@@ -207,19 +207,19 @@ ViewPort AffineEvalNode::evaluate(const RenderRequest& request,
 
     // 4. アフィン変換を適用
     // 入力の基準相対座標（例: -50 は基準点から見て画像左上が左に50px）
-    double inputSrcOriginX = input.srcOriginX;
-    double inputSrcOriginY = input.srcOriginY;
+    float inputSrcOriginX = input.srcOriginX;
+    float inputSrcOriginY = input.srcOriginY;
 
     // 出力バッファ内での基準点位置（例: 64 はバッファ内で基準点がx=64の位置）
-    double outputOriginX = request.originX;
-    double outputOriginY = request.originY;
+    float outputOriginX = request.originX;
+    float outputOriginY = request.originY;
 
     // AffineOperatorに渡すオフセット
     // 現在のAffineOperatorの座標計算式は以下の形式を想定:
     //   effectiveInvTx = invTx - outputOffsetX * invA - inputSrcOriginX
     // これが正しく動作するためには outputOffsetX = outputOriginX - inputSrcOriginX
-    double outputOffsetX = outputOriginX - inputSrcOriginX;
-    double outputOffsetY = outputOriginY - inputSrcOriginY;
+    float outputOffsetX = outputOriginX - inputSrcOriginX;
+    float outputOffsetY = outputOriginY - inputSrcOriginY;
 
     auto affineOp = OperatorFactory::createAffineOperator(
         matrix, inputSrcOriginX, inputSrcOriginY,
@@ -247,14 +247,14 @@ RenderRequest AffineEvalNode::computeInputRequest(
     constexpr int32_t FIXED_POINT_SCALE = 1 << FIXED_POINT_BITS;
 
     // バッファ内の4頂点を基準点からの相対座標で表現
-    double corners[4][2] = {
+    float corners[4][2] = {
         {-outputRequest.originX, -outputRequest.originY},
         {outputRequest.width - outputRequest.originX, -outputRequest.originY},
         {-outputRequest.originX, outputRequest.height - outputRequest.originY},
         {outputRequest.width - outputRequest.originX, outputRequest.height - outputRequest.originY}
     };
 
-    double minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+    float minX = 1e9f, minY = 1e9f, maxX = -1e9f, maxY = -1e9f;
 
     for (int i = 0; i < 4; i++) {
         int32_t relX = std::lround(corners[i][0] * FIXED_POINT_SCALE);
@@ -266,8 +266,8 @@ RenderRequest AffineEvalNode::computeInputRequest(
         srcX += fixedInvTx;
         srcY += fixedInvTy;
 
-        double sx = srcX / (double)FIXED_POINT_SCALE;
-        double sy = srcY / (double)FIXED_POINT_SCALE;
+        float sx = srcX / (float)FIXED_POINT_SCALE;
+        float sy = srcY / (float)FIXED_POINT_SCALE;
 
         minX = std::min(minX, sx);
         minY = std::min(minY, sy);
@@ -276,19 +276,17 @@ RenderRequest AffineEvalNode::computeInputRequest(
     }
 
     // 要求領域の左上座標（基準相対座標）
-    int reqX = static_cast<int>(std::floor(minX));
-    int reqY = static_cast<int>(std::floor(minY));
+    int reqLeft = static_cast<int>(std::floor(minX));
+    int reqTop = static_cast<int>(std::floor(minY));
 
     return RenderRequest{
-        reqX,
-        reqY,
-        static_cast<int>(std::ceil(maxX) - std::floor(minX)) + 1,
-        static_cast<int>(std::ceil(maxY) - std::floor(minY)) + 1,
+        static_cast<int>(std::ceil(maxX) - std::floor(minX)) + 1,  // width
+        static_cast<int>(std::ceil(maxY) - std::floor(minY)) + 1,  // height
         // originX = バッファ内での基準点位置
-        // バッファの x=0 が基準相対座標 reqX に対応するので、
-        // 基準相対座標 0 はバッファの x=-reqX に対応
-        static_cast<double>(-reqX),
-        static_cast<double>(-reqY)
+        // バッファの x=0 が基準相対座標 reqLeft に対応するので、
+        // 基準相対座標 0 はバッファの x=-reqLeft に対応
+        static_cast<float>(-reqLeft),
+        static_cast<float>(-reqTop)
     };
 }
 
@@ -314,7 +312,7 @@ ViewPort CompositeEvalNode::evaluate(const RenderRequest& request,
         }
 
         // アルファ適用
-        if (i < alphas.size() && alphas[i] != 1.0) {
+        if (i < alphas.size() && alphas[i] != 1.0f) {
             uint16_t alphaU16 = static_cast<uint16_t>(alphas[i] * 65535);
             for (int y = 0; y < img.height; y++) {
                 uint16_t* row = img.getPixelPtr<uint16_t>(0, y);
