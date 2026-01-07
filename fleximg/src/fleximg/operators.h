@@ -205,6 +205,21 @@ public:
     PixelFormatID getOutputFormat() const override {
         return PixelFormatIDs::RGBA16_Premultiplied;
     }
+
+    // === 逐次合成用インターフェース ===
+
+    // 透明キャンバスを作成
+    ViewPort createCanvas(const RenderRequest& request) const;
+
+    // キャンバスに入力を合成（最初の入力用、memcpy最適化）
+    // 透明キャンバスへの合成なのでブレンド計算不要
+    void blendFirst(ViewPort& canvas, const ViewPort& input) const;
+
+    // キャンバスに入力を合成（2枚目以降、ブレンド処理）
+    void blendOnto(ViewPort& canvas, const ViewPort& input) const;
+
+    // 入力がリクエスト範囲を完全にカバーしているか判定
+    static bool coversFullRequest(const ViewPort& vp, const RenderRequest& request);
 };
 
 // ========================================================================
