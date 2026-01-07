@@ -247,8 +247,8 @@ std::unique_ptr<NodeOperator> OperatorFactory::createFilterOperator(
 // ========================================================================
 
 AffineOperator::AffineOperator(const AffineMatrix& matrix,
-                               double inputSrcOriginX, double inputSrcOriginY,
-                               double outputOriginX, double outputOriginY,
+                               float inputSrcOriginX, float inputSrcOriginY,
+                               float outputOriginX, float outputOriginY,
                                int outputWidth, int outputHeight)
     : matrix_(matrix)
     , inputSrcOriginX_(inputSrcOriginX), inputSrcOriginY_(inputSrcOriginY)
@@ -265,18 +265,18 @@ ViewPort AffineOperator::applyToSingle(const ViewPort& input,
     std::memset(output.data, 0, output.getTotalBytes());
 
     // 逆行列を計算（出力→入力の座標変換）
-    double det = matrix_.a * matrix_.d - matrix_.b * matrix_.c;
-    if (std::abs(det) < 1e-10) {
+    float det = matrix_.a * matrix_.d - matrix_.b * matrix_.c;
+    if (std::abs(det) < 1e-10f) {
         return output;  // 特異行列の場合は空画像を返す
     }
 
-    double invDet = 1.0 / det;
-    double invA = matrix_.d * invDet;
-    double invB = -matrix_.b * invDet;
-    double invC = -matrix_.c * invDet;
-    double invD = matrix_.a * invDet;
-    double invTx = (-matrix_.d * matrix_.tx + matrix_.b * matrix_.ty) * invDet;
-    double invTy = (matrix_.c * matrix_.tx - matrix_.a * matrix_.ty) * invDet;
+    float invDet = 1.0f / det;
+    float invA = matrix_.d * invDet;
+    float invB = -matrix_.b * invDet;
+    float invC = -matrix_.c * invDet;
+    float invD = matrix_.a * invDet;
+    float invTx = (-matrix_.d * matrix_.tx + matrix_.b * matrix_.ty) * invDet;
+    float invTy = (matrix_.c * matrix_.tx - matrix_.a * matrix_.ty) * invDet;
 
     // 固定小数点の小数部ビット数
     constexpr int FIXED_POINT_BITS = 16;
@@ -336,11 +336,11 @@ ViewPort AffineOperator::applyToSingle(const ViewPort& input,
                 : std::make_pair(1, 0);
         }
 
-        double baseWithHalf = base + coeffHalf;
-        double minThreshold = (double)minVal * FIXED_POINT_SCALE;
-        double maxThreshold = (double)(maxVal + 1) * FIXED_POINT_SCALE;
-        double dxForMin = (minThreshold - baseWithHalf) / coeff;
-        double dxForMax = (maxThreshold - baseWithHalf) / coeff;
+        float baseWithHalf = static_cast<float>(base + coeffHalf);
+        float minThreshold = static_cast<float>(minVal) * FIXED_POINT_SCALE;
+        float maxThreshold = static_cast<float>(maxVal + 1) * FIXED_POINT_SCALE;
+        float dxForMin = (minThreshold - baseWithHalf) / coeff;
+        float dxForMax = (maxThreshold - baseWithHalf) / coeff;
 
         int dxStart, dxEnd;
         if (coeff > 0) {
@@ -411,8 +411,8 @@ ViewPort CompositeOperator::apply(const std::vector<ViewPort>& inputs,
     std::memset(result.data, 0, result.getTotalBytes());
 
     // 合成の基準点（下流からの要求座標系）
-    double refX = request.originX;
-    double refY = request.originY;
+    float refX = request.originX;
+    float refY = request.originY;
 
     // 各画像を順番に合成
     for (const auto& img : inputs) {
@@ -480,8 +480,8 @@ ViewPort CompositeOperator::apply(const std::vector<ViewPort>& inputs,
 
 std::unique_ptr<NodeOperator> OperatorFactory::createAffineOperator(
     const AffineMatrix& matrix,
-    double inputSrcOriginX, double inputSrcOriginY,
-    double outputOriginX, double outputOriginY,
+    float inputSrcOriginX, float inputSrcOriginY,
+    float outputOriginX, float outputOriginY,
     int outputWidth, int outputHeight
 ) {
     return std::make_unique<AffineOperator>(

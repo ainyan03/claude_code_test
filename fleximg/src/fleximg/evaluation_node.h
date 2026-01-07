@@ -63,8 +63,8 @@ public:
     const ViewPort* imageData = nullptr;
 
     // 画像内の原点位置（0.0〜1.0、デフォルトは中央）
-    double srcOriginX = 0.5;
-    double srcOriginY = 0.5;
+    float srcOriginX = 0.5f;
+    float srcOriginY = 0.5f;
 };
 
 // ========================================================================
@@ -124,7 +124,7 @@ public:
         const RenderRequest& outputRequest) const override;
 
     // 各入力のアルファ値
-    std::vector<double> alphas;
+    std::vector<float> alphas;
 };
 
 // ========================================================================

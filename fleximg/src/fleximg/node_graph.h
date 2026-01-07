@@ -36,8 +36,8 @@ enum class TileStrategy {
 struct RenderContext {
     int totalWidth = 0;
     int totalHeight = 0;
-    double originX = 0;     // dstOrigin X
-    double originY = 0;     // dstOrigin Y
+    float originX = 0;     // dstOrigin X
+    float originY = 0;     // dstOrigin Y
 
     TileStrategy strategy = TileStrategy::None;
     int tileWidth = 64;     // Custom用
@@ -78,34 +78,17 @@ struct RenderContext {
 
 // 部分矩形要求（段階1で伝播）
 struct RenderRequest {
-    int x = 0;
-    int y = 0;
     int width = 0;
     int height = 0;
-    double originX = 0;     // この要求における基準座標X
-    double originY = 0;     // この要求における基準座標Y
+    float originX = 0;     // バッファ内での基準点X位置
+    float originY = 0;     // バッファ内での基準点Y位置
 
     bool isEmpty() const { return width <= 0 || height <= 0; }
-
-    // 2つの要求の交差領域を計算
-    RenderRequest intersect(const RenderRequest& other) const {
-        int newX = std::max(x, other.x);
-        int newY = std::max(y, other.y);
-        int newRight = std::min(x + width, other.x + other.width);
-        int newBottom = std::min(y + height, other.y + other.height);
-        return {
-            newX, newY,
-            std::max(0, newRight - newX),
-            std::max(0, newBottom - newY),
-            originX, originY
-        };
-    }
 
     // マージン分拡大（フィルタ用）
     // 基準相対座標系で両側に margin 分拡大する
     RenderRequest expand(int margin) const {
         return {
-            x - margin, y - margin,
             width + margin * 2, height + margin * 2,
             originX + margin, originY + margin  // バッファ内の基準点位置も調整
         };
@@ -115,14 +98,13 @@ struct RenderRequest {
     static RenderRequest fromTile(const RenderContext& ctx, int tileX, int tileY) {
         int tw = ctx.getEffectiveTileWidth();
         int th = ctx.getEffectiveTileHeight();
-        int rx = tileX * tw;
-        int ry = tileY * th;
+        int tileLeft = tileX * tw;
+        int tileTop = tileY * th;
         return {
-            rx, ry,
-            std::min(tw, ctx.totalWidth - rx),
-            std::min(th, ctx.totalHeight - ry),
+            std::min(tw, ctx.totalWidth - tileLeft),
+            std::min(th, ctx.totalHeight - tileTop),
             // originX/Y はバッファ相対座標（タイル内での基準点位置）
-            ctx.originX - rx, ctx.originY - ry
+            ctx.originX - tileLeft, ctx.originY - tileTop
         };
     }
 };
@@ -132,11 +114,11 @@ struct RenderRequest {
 // ========================================================================
 
 struct PerfMetrics {
-    double filterTime;        // フィルタ処理時間（ms）
-    double affineTime;        // アフィン変換時間（ms）
-    double compositeTime;     // 合成処理時間（ms）
-    double convertTime;       // フォーマット変換時間（ms）
-    double outputTime;        // 最終出力変換時間（ms）
+    float filterTime;        // フィルタ処理時間（ms）
+    float affineTime;        // アフィン変換時間（ms）
+    float compositeTime;     // 合成処理時間（ms）
+    float convertTime;       // フォーマット変換時間（ms）
+    float outputTime;        // 最終出力変換時間（ms）
     int filterCount;          // フィルタ処理回数
     int affineCount;          // アフィン変換回数
     int compositeCount;       // 合成処理回数
@@ -160,10 +142,10 @@ struct PerfMetrics {
 // 合成ノードの入力定義
 struct CompositeInput {
     std::string id;
-    double alpha;
+    float alpha;
 
-    CompositeInput() : id(""), alpha(1.0) {}
-    CompositeInput(const std::string& inputId, double inputAlpha)
+    CompositeInput() : id(""), alpha(1.0f) {}
+    CompositeInput(const std::string& inputId, float inputAlpha)
         : id(inputId), alpha(inputAlpha) {}
 };
 
@@ -174,8 +156,8 @@ struct GraphNode {
 
     // image用
     int imageId;       // 画像ライブラリのID
-    double srcOriginX; // 画像の原点X（ピクセル座標）
-    double srcOriginY; // 画像の原点Y（ピクセル座標）
+    float srcOriginX; // 画像の原点X（ピクセル座標）
+    float srcOriginY; // 画像の原点Y（ピクセル座標）
 
     // filter用
     std::string filterType;
@@ -189,7 +171,7 @@ struct GraphNode {
     // JS側で行列に統一されるため、行列のみ保持
     AffineMatrix affineMatrix;
 
-    GraphNode() : imageId(-1), srcOriginX(0.0), srcOriginY(0.0),
+    GraphNode() : imageId(-1), srcOriginX(0.0f), srcOriginY(0.0f),
                   independent(false) {}  // filterParamsはstd::vectorなので自動初期化
 };
 
@@ -224,7 +206,7 @@ public:
     void setCanvasSize(int width, int height);
 
     // 出力先原点（dstOrigin）を設定
-    void setDstOrigin(double x, double y);
+    void setDstOrigin(float x, float y);
 
     // タイル分割戦略を設定
     void setTileStrategy(TileStrategy strategy, int tileWidth = 64, int tileHeight = 64);
@@ -235,8 +217,8 @@ public:
 private:
     int canvasWidth;
     int canvasHeight;
-    double dstOriginX;  // 出力先の基準点X（ピクセル座標）
-    double dstOriginY;  // 出力先の基準点Y（ピクセル座標）
+    float dstOriginX;  // 出力先の基準点X（ピクセル座標）
+    float dstOriginY;  // 出力先の基準点Y（ピクセル座標）
 
     // タイル分割設定
     TileStrategy tileStrategy = TileStrategy::None;

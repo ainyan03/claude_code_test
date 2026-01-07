@@ -16,7 +16,7 @@ ViewPort::ViewPort()
       formatID(PixelFormatIDs::RGBA16_Premultiplied),
       width(0), height(0), stride(0),
       offsetX(0), offsetY(0), parent(nullptr),
-      srcOriginX(0.0), srcOriginY(0.0) {
+      srcOriginX(0.0f), srcOriginY(0.0f) {
 }
 
 ViewPort::ViewPort(int w, int h, PixelFormatID fmtID, ImageAllocator* alloc)
@@ -106,8 +106,8 @@ ViewPort::ViewPort(ViewPort&& other) noexcept
     other.capacity = 0;
     other.ownsData = false;
     other.parent = nullptr;
-    other.srcOriginX = 0.0;
-    other.srcOriginY = 0.0;
+    other.srcOriginX = 0.0f;
+    other.srcOriginY = 0.0f;
 }
 
 ViewPort& ViewPort::operator=(ViewPort&& other) noexcept {
@@ -134,8 +134,8 @@ ViewPort& ViewPort::operator=(ViewPort&& other) noexcept {
         other.capacity = 0;
         other.ownsData = false;
         other.parent = nullptr;
-        other.srcOriginX = 0.0;
-        other.srcOriginY = 0.0;
+        other.srcOriginX = 0.0f;
+        other.srcOriginY = 0.0f;
     }
     return *this;
 }
@@ -275,8 +275,8 @@ ViewPort ViewPort::fromImage(const Image& img) {
     vp.offsetX = 0;
     vp.offsetY = 0;
     vp.parent = nullptr;
-    vp.srcOriginX = 0.0;
-    vp.srcOriginY = 0.0;
+    vp.srcOriginX = 0.0f;
+    vp.srcOriginY = 0.0f;
     vp.capacity = vp.stride * vp.height;
     vp.data = vp.allocator->allocate(vp.capacity, 16);
 

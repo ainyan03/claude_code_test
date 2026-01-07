@@ -30,9 +30,9 @@ struct Image {
 // [c  d  ty] * [y] = [c*x + d*y + ty]
 //              [1]
 struct AffineMatrix {
-    double a, b, c, d, tx, ty;
+    float a, b, c, d, tx, ty;
 
-    AffineMatrix() : a(1), b(0), c(0), d(1), tx(0), ty(0) {}
+    AffineMatrix() : a(1.0f), b(0.0f), c(0.0f), d(1.0f), tx(0.0f), ty(0.0f) {}
 };
 
 } // namespace FLEXIMG_NAMESPACE

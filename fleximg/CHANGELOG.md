@@ -4,6 +4,42 @@
 
 ---
 
+## 2026-01-08
+
+### double → float への変更（組込みシステム最適化）
+
+**背景**
+- 組込みシステム（ESP32等）では float が高速、double は遅い
+- 精度より速度を優先する設計方針
+
+**変更ファイル**
+- `image_types.h`: AffineMatrix のメンバを float に変更
+- `viewport.h/cpp`: srcOriginX/Y を float に変更
+- `node_graph.h/cpp`: RenderRequest, RenderContext, PerfMetrics 等を float に変更
+- `operators.h/cpp`: AffineOperator のパラメータを float に変更
+- `evaluation_node.h/cpp`: 各種座標計算を float に変更
+- `test/*.cpp`: EXPECT_DOUBLE_EQ → EXPECT_FLOAT_EQ に変更、リテラルを float 化
+
+---
+
+### AffineOperator テストの設計修正
+
+**設計仕様の明確化**
+- 「基準点アライメント」設計: 入力画像の基準点が出力バッファの基準点に揃う
+- `inputSrcOrigin`: 基準点から見た入力画像左上の相対座標
+  - 左上原点: (0, 0)
+  - 中央原点: (-2, -3) ← 基準点から左上へ (-2, -3)
+  - 右下原点: (-4, -6)
+- `outputOffset = dstOrigin - inputSrcOrigin` で出力位置を計算
+
+**テスト修正内容**
+- ExpectedRange 構造体を新設計に合わせて更新
+- AffineOperator コンストラクタの呼び出しを evaluation_node.cpp と同じパターンに統一
+- 期待値を基準点アライメント設計に基づき再計算
+- 全36テストがパス
+
+---
+
 ## 2026-01-07
 
 ### ノード配置UXの改善
