@@ -178,9 +178,10 @@ public:
 
 private:
     // ノードタイプに応じたEvaluationNodeを生成
+    // viewPort: image/outputノード用の画像データ（それ以外はnullptr）
     static std::unique_ptr<EvaluationNode> createEvalNode(
         const GraphNode& node,
-        const std::map<int, ViewPort>& imageLibrary);
+        const ViewPort* viewPort);
 };
 
 } // namespace FLEXIMG_NAMESPACE

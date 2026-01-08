@@ -496,16 +496,15 @@ RenderRequest OutputEvalNode::computeInputRequest(
 
 std::unique_ptr<EvaluationNode> PipelineBuilder::createEvalNode(
     const GraphNode& node,
-    const std::map<int, ViewPort>& imageLibrary) {
+    const ViewPort* viewPort) {
 
     if (node.type == "image") {
         auto evalNode = std::make_unique<ImageEvalNode>();
         evalNode->id = node.id;
 
         // 画像データをViewPortとしてコピー
-        auto it = imageLibrary.find(node.imageId);
-        if (it != imageLibrary.end()) {
-            evalNode->imageData = it->second;
+        if (viewPort) {
+            evalNode->imageData = *viewPort;
         }
         evalNode->srcOriginX = node.srcOriginX;
         evalNode->srcOriginY = node.srcOriginY;
@@ -536,10 +535,9 @@ std::unique_ptr<EvaluationNode> PipelineBuilder::createEvalNode(
         auto evalNode = std::make_unique<OutputEvalNode>();
         evalNode->id = node.id;
 
-        // 出力先ViewPortを設定（imageLibraryを参照）
-        auto it = imageLibrary.find(node.imageId);
-        if (it != imageLibrary.end()) {
-            evalNode->outputTarget = it->second;
+        // 出力先ViewPortを設定
+        if (viewPort) {
+            evalNode->outputTarget = *viewPort;
         }
 
         return evalNode;
@@ -560,7 +558,16 @@ Pipeline PipelineBuilder::build(
     std::map<std::string, EvaluationNode*> nodeMap;
 
     for (const auto& node : nodes) {
-        auto evalNode = createEvalNode(node, imageLibrary);
+        // image/outputノードは imageLibrary から ViewPort を取得
+        const ViewPort* viewPort = nullptr;
+        if (node.type == "image" || node.type == "output") {
+            auto it = imageLibrary.find(node.imageId);
+            if (it != imageLibrary.end()) {
+                viewPort = &it->second;
+            }
+        }
+
+        auto evalNode = createEvalNode(node, viewPort);
         if (evalNode) {
             // 出力ノードを記録
             if (node.type == "output") {
