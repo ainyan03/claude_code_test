@@ -2141,33 +2141,52 @@ function updatePreviewFromGraph() {
         ctx.putImageData(imageData, 0, 0);
         const drawTime = performance.now() - drawStart;
 
-        // C++側の詳細計測結果を取得
+        // C++側の詳細計測結果を取得（時間はマイクロ秒）
         const metrics = graphEvaluator.getPerfMetrics();
         const totalTime = performance.now() - perfStart;
+
+        // マイクロ秒→ミリ秒変換ヘルパー
+        const usToMs = (us) => (us / 1000).toFixed(2);
 
         // 詳細ログ出力
         const details = [];
         if (metrics.filterCount > 0) {
-            details.push(`Filter: ${metrics.filterTime.toFixed(2)}ms (x${metrics.filterCount})`);
+            details.push(`Filter: ${usToMs(metrics.filterTime)}ms (x${metrics.filterCount})`);
         }
         if (metrics.affineCount > 0) {
-            details.push(`Affine: ${metrics.affineTime.toFixed(2)}ms (x${metrics.affineCount})`);
+            details.push(`Affine: ${usToMs(metrics.affineTime)}ms (x${metrics.affineCount})`);
         }
         if (metrics.compositeCount > 0) {
-            details.push(`Composite: ${metrics.compositeTime.toFixed(2)}ms (x${metrics.compositeCount})`);
+            details.push(`Composite: ${usToMs(metrics.compositeTime)}ms (x${metrics.compositeCount})`);
         }
         if (metrics.convertCount > 0) {
-            details.push(`Convert: ${metrics.convertTime.toFixed(2)}ms (x${metrics.convertCount})`);
+            details.push(`Convert: ${usToMs(metrics.convertTime)}ms (x${metrics.convertCount})`);
         }
-        details.push(`Output: ${metrics.outputTime.toFixed(2)}ms`);
+        details.push(`Output: ${usToMs(metrics.outputTime)}ms`);
 
         console.log(`[Perf] Total: ${totalTime.toFixed(1)}ms | WASM: ${evalTime.toFixed(1)}ms (${details.join(', ')}) | Draw: ${drawTime.toFixed(1)}ms`);
+
+        // デバッグステータスバーを更新
+        updateDebugStatusBar(totalTime, evalTime, details);
     } else {
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     }
 
     // 状態を自動保存
     scheduleAutoSave();
+}
+
+// デバッグステータスバーを更新
+function updateDebugStatusBar(totalTime, wasmTime, details) {
+    const totalEl = document.getElementById('debug-perf-total');
+    const detailsEl = document.getElementById('debug-perf-details');
+
+    if (totalEl) {
+        totalEl.textContent = `Total: ${totalTime.toFixed(1)}ms | WASM: ${wasmTime.toFixed(1)}ms`;
+    }
+    if (detailsEl) {
+        detailsEl.textContent = details.join(' | ');
+    }
 }
 
 // ========================================

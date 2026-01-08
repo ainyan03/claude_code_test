@@ -165,18 +165,36 @@ public:
     }
 
     val getPerfMetrics() {
+        val result = val::object();
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
         const PerfMetrics& metrics = evaluator.getPerfMetrics();
 
-        val result = val::object();
-        result.set("filterTime", metrics.filterTime);
-        result.set("affineTime", metrics.affineTime);
-        result.set("compositeTime", metrics.compositeTime);
-        result.set("convertTime", metrics.convertTime);
-        result.set("outputTime", metrics.outputTime);
-        result.set("filterCount", metrics.filterCount);
-        result.set("affineCount", metrics.affineCount);
-        result.set("compositeCount", metrics.compositeCount);
-        result.set("convertCount", metrics.convertCount);
+        // インデックス名とキー名のマッピング
+        static const char* timeKeys[] = {
+            "filterTime", "affineTime", "compositeTime", "convertTime", "outputTime"
+        };
+        static const char* countKeys[] = {
+            "filterCount", "affineCount", "compositeCount", "convertCount", "outputCount"
+        };
+
+        for (int i = 0; i < PerfMetricIndex::Count; i++) {
+            result.set(timeKeys[i], metrics.times[i]);
+            result.set(countKeys[i], metrics.counts[i]);
+        }
+#else
+        // リリースビルド: ダミー値を返す（時間はマイクロ秒）
+        result.set("filterTime", 0);
+        result.set("affineTime", 0);
+        result.set("compositeTime", 0);
+        result.set("convertTime", 0);
+        result.set("outputTime", 0);
+        result.set("filterCount", 0);
+        result.set("affineCount", 0);
+        result.set("compositeCount", 0);
+        result.set("convertCount", 0);
+        result.set("outputCount", 0);
+#endif
 
         return result;
     }
