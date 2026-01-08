@@ -1,5 +1,4 @@
 #include "image_buffer.h"
-#include "viewport.h"
 #include <cassert>
 #include <cstring>
 #include <algorithm>
@@ -12,15 +11,11 @@ namespace FLEXIMG_NAMESPACE {
 // ========================================================================
 
 ImageBuffer::ImageBuffer()
-    : data(nullptr), capacity(0), allocator(nullptr),
-      formatID(PixelFormatIDs::RGBA16_Premultiplied),
-      width(0), height(0), stride(0) {
+    : ViewPort(), capacity(0), allocator(nullptr) {
 }
 
 ImageBuffer::ImageBuffer(int w, int h, PixelFormatID fmtID, ImageAllocator* alloc)
-    : data(nullptr), capacity(0), allocator(alloc),
-      formatID(fmtID),
-      width(w), height(h), stride(0) {
+    : ViewPort(nullptr, fmtID, 0, w, h), capacity(0), allocator(alloc) {
 
     if (w <= 0 || h <= 0) {
         throw std::invalid_argument("ImageBuffer: width and height must be positive");
@@ -42,9 +37,8 @@ ImageBuffer::~ImageBuffer() {
 // ========================================================================
 
 ImageBuffer::ImageBuffer(const ImageBuffer& other)
-    : data(nullptr), capacity(0), allocator(other.allocator),
-      formatID(other.formatID),
-      width(other.width), height(other.height), stride(other.stride) {
+    : ViewPort(nullptr, other.formatID, other.stride, other.width, other.height),
+      capacity(0), allocator(other.allocator) {
 
     if (other.data) {
         deepCopy(other);
@@ -55,11 +49,14 @@ ImageBuffer& ImageBuffer::operator=(const ImageBuffer& other) {
     if (this != &other) {
         deallocateMemory();
 
-        allocator = other.allocator;
+        // ViewPort部分をコピー
         formatID = other.formatID;
+        stride = other.stride;
         width = other.width;
         height = other.height;
-        stride = other.stride;
+
+        // ImageBuffer固有部分
+        allocator = other.allocator;
 
         if (other.data) {
             deepCopy(other);
@@ -72,9 +69,8 @@ ImageBuffer& ImageBuffer::operator=(const ImageBuffer& other) {
 }
 
 ImageBuffer::ImageBuffer(ImageBuffer&& other) noexcept
-    : data(other.data), capacity(other.capacity), allocator(other.allocator),
-      formatID(other.formatID),
-      width(other.width), height(other.height), stride(other.stride) {
+    : ViewPort(other.data, other.formatID, other.stride, other.width, other.height),
+      capacity(other.capacity), allocator(other.allocator) {
 
     other.data = nullptr;
     other.capacity = 0;
@@ -84,82 +80,21 @@ ImageBuffer& ImageBuffer::operator=(ImageBuffer&& other) noexcept {
     if (this != &other) {
         deallocateMemory();
 
+        // ViewPort部分をムーブ
         data = other.data;
-        capacity = other.capacity;
-        allocator = other.allocator;
         formatID = other.formatID;
+        stride = other.stride;
         width = other.width;
         height = other.height;
-        stride = other.stride;
+
+        // ImageBuffer固有部分をムーブ
+        capacity = other.capacity;
+        allocator = other.allocator;
 
         other.data = nullptr;
         other.capacity = 0;
     }
     return *this;
-}
-
-// ========================================================================
-// ViewPort取得
-// ========================================================================
-
-ViewPort ImageBuffer::view() {
-    return ViewPort(data, formatID, stride, width, height);
-}
-
-ViewPort ImageBuffer::view() const {
-    return ViewPort(const_cast<void*>(data), formatID, stride, width, height);
-}
-
-ViewPort ImageBuffer::subView(int x, int y, int w, int h) {
-    return view().subView(x, y, w, h);
-}
-
-ViewPort ImageBuffer::subView(int x, int y, int w, int h) const {
-    return view().subView(x, y, w, h);
-}
-
-// ========================================================================
-// ピクセルアクセス
-// ========================================================================
-
-void* ImageBuffer::getPixelAddress(int x, int y) {
-    size_t bytesPerPixel = getBytesPerPixel();
-    uint8_t* basePtr = static_cast<uint8_t*>(data);
-    return basePtr + (y * stride + x * bytesPerPixel);
-}
-
-const void* ImageBuffer::getPixelAddress(int x, int y) const {
-    size_t bytesPerPixel = getBytesPerPixel();
-    const uint8_t* basePtr = static_cast<const uint8_t*>(data);
-    return basePtr + (y * stride + x * bytesPerPixel);
-}
-
-// ========================================================================
-// フォーマット情報
-// ========================================================================
-
-const PixelFormatDescriptor& ImageBuffer::getFormatDescriptor() const {
-    const PixelFormatDescriptor* desc = PixelFormatRegistry::getInstance().getFormat(formatID);
-    if (!desc) {
-        throw std::runtime_error("ImageBuffer: unknown pixel format ID");
-    }
-    return *desc;
-}
-
-size_t ImageBuffer::getBytesPerPixel() const {
-    const PixelFormatDescriptor& desc = getFormatDescriptor();
-    if (desc.pixelsPerUnit > 1) {
-        return (desc.bytesPerUnit + desc.pixelsPerUnit - 1) / desc.pixelsPerUnit;
-    }
-    return (desc.bitsPerPixel + 7) / 8;
-}
-
-size_t ImageBuffer::getRowBytes() const {
-    return stride > 0 ? stride : width * getBytesPerPixel();
-}
-
-size_t ImageBuffer::getTotalBytes() const {
-    return height * getRowBytes();
 }
 
 // ========================================================================
