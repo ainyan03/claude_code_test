@@ -1,6 +1,5 @@
 #include "image_buffer.h"
 #include "viewport.h"
-#include "image_types.h"
 #include <cassert>
 #include <cstring>
 #include <algorithm>
@@ -182,55 +181,6 @@ ImageBuffer ImageBuffer::convertTo(PixelFormatID targetFormat) const {
     }
 
     return result;
-}
-
-ImageBuffer ImageBuffer::fromImage(const Image& img) {
-    ImageBuffer buf(img.width, img.height, PixelFormatIDs::RGBA8_Straight);
-
-    if (!img.data.empty()) {
-        std::memcpy(buf.data, img.data.data(), img.data.size());
-    }
-
-    return buf;
-}
-
-Image ImageBuffer::toImage() const {
-    Image img(width, height);
-
-    if (formatID == PixelFormatIDs::RGBA8_Straight) {
-        for (int y = 0; y < height; y++) {
-            const uint8_t* srcRow = getPixelPtr<uint8_t>(0, y);
-            uint8_t* dstRow = &img.data[y * width * 4];
-            std::memcpy(dstRow, srcRow, width * 4);
-        }
-    } else if (formatID == PixelFormatIDs::RGBA16_Premultiplied) {
-        for (int y = 0; y < height; y++) {
-            const uint16_t* srcRow = getPixelPtr<uint16_t>(0, y);
-            uint8_t* dstRow = &img.data[y * width * 4];
-            for (int x = 0; x < width; x++) {
-                int idx = x * 4;
-                uint16_t r16 = srcRow[idx];
-                uint16_t g16 = srcRow[idx + 1];
-                uint16_t b16 = srcRow[idx + 2];
-                uint16_t a16 = srcRow[idx + 3];
-                if (a16 > 0) {
-                    uint32_t r_unpre = ((uint32_t)r16 * 65535) / a16;
-                    uint32_t g_unpre = ((uint32_t)g16 * 65535) / a16;
-                    uint32_t b_unpre = ((uint32_t)b16 * 65535) / a16;
-                    dstRow[idx]     = std::min(r_unpre >> 8, 255u);
-                    dstRow[idx + 1] = std::min(g_unpre >> 8, 255u);
-                    dstRow[idx + 2] = std::min(b_unpre >> 8, 255u);
-                } else {
-                    dstRow[idx] = dstRow[idx + 1] = dstRow[idx + 2] = 0;
-                }
-                dstRow[idx + 3] = a16 >> 8;
-            }
-        }
-    } else {
-        throw std::runtime_error("ImageBuffer::toImage: unsupported format");
-    }
-
-    return img;
 }
 
 ImageBuffer ImageBuffer::fromExternalData(const void* externalData, int w, int h,

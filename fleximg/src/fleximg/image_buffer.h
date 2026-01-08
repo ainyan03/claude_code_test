@@ -12,7 +12,6 @@
 namespace FLEXIMG_NAMESPACE {
 
 // 前方宣言
-struct Image;
 struct ViewPort;
 
 // ========================================================================
@@ -129,10 +128,6 @@ struct ImageBuffer {
 
     // 指定フォーマットに変換
     ImageBuffer convertTo(PixelFormatID targetFormat) const;
-
-    // Image変換（互換性）
-    static ImageBuffer fromImage(const Image& img);
-    Image toImage() const;
 
     // 外部データから構築
     static ImageBuffer fromExternalData(const void* externalData, int w, int h,
