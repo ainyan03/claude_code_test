@@ -6,6 +6,22 @@
 
 ## 2026-01-08
 
+### コード共通化リファクタリング
+
+**タイル評価ループの統合**
+- `evaluateWithPipeline`の「タイル分割なし」と「タイル分割あり」を統合
+- `TileStrategy::None`は1x1タイルとして処理
+- パフォーマンス計測を全モードで有効化
+
+**CompositeOperator::apply()の簡素化**
+- `node_graph.cpp`: `compositeOp->apply()`を`createCanvas+blendFirst`に置換
+- `operators.cpp`: `apply()`を`createCanvas+blendOnto`で再実装
+- 約60行のブレンドロジック重複を解消
+
+**削減効果**: 約100行
+
+---
+
 ### 部分ViewPort返却によるメモリ最適化
 
 **設計原則**

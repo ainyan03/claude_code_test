@@ -404,73 +404,13 @@ ViewPort AffineOperator::applyToSingle(const ViewPort& input,
 
 ViewPort CompositeOperator::apply(const std::vector<ViewPort>& inputs,
                                   const RenderRequest& request) const {
-    // 下流からの要求サイズでビューポートを作成（メモリ効率的）
-    ViewPort result(request.width, request.height, PixelFormatIDs::RGBA16_Premultiplied);
-
-    // キャンバスを透明で初期化
-    std::memset(result.data, 0, result.getTotalBytes());
-
-    // 合成の基準点（下流からの要求座標系）
-    float refX = request.originX;
-    float refY = request.originY;
-
-    // 各画像を順番に合成
+    // createCanvas + blendOnto で実装（コード共通化）
+    ViewPort result = createCanvas(request);
     for (const auto& img : inputs) {
-        if (!img.isValid()) continue;
-
-        // 基準相対座標での配置
-        // refX: 出力バッファ内での基準点位置
-        // img.srcOriginX: 基準点から見た画像左上の相対座標
-        // 配置位置 = 基準位置 + 相対座標
-        int offsetX = static_cast<int>(refX + img.srcOriginX);
-        int offsetY = static_cast<int>(refY + img.srcOriginY);
-
-        // ループ範囲を事前計算
-        int yStart = std::max(0, -offsetY);
-        int yEnd = std::min(img.height, request.height - offsetY);
-        int xStart = std::max(0, -offsetX);
-        int xEnd = std::min(img.width, request.width - offsetX);
-
-        if (yStart >= yEnd || xStart >= xEnd) continue;
-
-        for (int y = yStart; y < yEnd; y++) {
-            const uint16_t* srcRow = img.getPixelPtr<uint16_t>(0, y);
-            uint16_t* dstRow = result.getPixelPtr<uint16_t>(0, y + offsetY);
-
-            for (int x = xStart; x < xEnd; x++) {
-                const uint16_t* srcPixel = srcRow + x * 4;
-                uint16_t* dstPixel = dstRow + (x + offsetX) * 4;
-
-                uint16_t srcA = srcPixel[3];
-                if (srcA == 0) continue;
-
-                uint16_t srcR = srcPixel[0];
-                uint16_t srcG = srcPixel[1];
-                uint16_t srcB = srcPixel[2];
-                uint16_t dstA = dstPixel[3];
-
-                if (srcA != 65535 && dstA != 0) {
-                    // プリマルチプライド合成: src over dst
-                    uint16_t invSrcA = 65535 - srcA;
-                    srcR += (dstPixel[0] * invSrcA) >> 16;
-                    srcG += (dstPixel[1] * invSrcA) >> 16;
-                    srcB += (dstPixel[2] * invSrcA) >> 16;
-                    srcA += (dstA * invSrcA) >> 16;
-                }
-
-                dstPixel[0] = srcR;
-                dstPixel[1] = srcG;
-                dstPixel[2] = srcB;
-                dstPixel[3] = srcA;
-            }
+        if (img.isValid()) {
+            blendOnto(result, img);
         }
     }
-
-    // 合成結果の srcOriginX は「基準から見た出力左上の相対座標」
-    // 出力バッファの左上は基準から見て -originX の位置
-    result.srcOriginX = -refX;
-    result.srcOriginY = -refY;
-
     return result;
 }
 

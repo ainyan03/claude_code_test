@@ -105,52 +105,7 @@ Image NodeGraphEvaluator::evaluateWithPipeline(const RenderContext& context) {
     // 描画準備（逆行列計算等）
     pipeline_->prepare(context);
 
-    // タイル分割なし（従来互換モード）
-    if (tileStrategy == TileStrategy::None) {
-        RenderRequest fullRequest = {
-            canvasWidth, canvasHeight,
-            dstOriginX, dstOriginY
-        };
-
-        // パイプラインで評価
-        ViewPort resultViewPort = pipeline_->outputNode->evaluate(fullRequest, context);
-
-        // 応答と要求の座標系が一致するか確認
-        // - 要求の左上 = 基準から見て -originX の位置
-        // - 応答の左上 = srcOriginX の位置
-        // - 一致条件: srcOriginX == -originX (かつサイズも一致)
-        const float epsilon = 0.001f;
-        bool needsComposite = (std::abs(resultViewPort.srcOriginX + fullRequest.originX) > epsilon ||
-                               std::abs(resultViewPort.srcOriginY + fullRequest.originY) > epsilon ||
-                               resultViewPort.width != canvasWidth ||
-                               resultViewPort.height != canvasHeight);
-        if (needsComposite) {
-            if (resultViewPort.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
-                auto convStart = std::chrono::high_resolution_clock::now();
-                resultViewPort = resultViewPort.convertTo(PixelFormatIDs::RGBA16_Premultiplied);
-                auto convEnd = std::chrono::high_resolution_clock::now();
-                perfMetrics.convertTime += std::chrono::duration<float, std::milli>(convEnd - convStart).count();
-                perfMetrics.convertCount++;
-            }
-            auto compStart = std::chrono::high_resolution_clock::now();
-            auto compositeOp = OperatorFactory::createCompositeOperator();
-            RenderRequest compReq{canvasWidth, canvasHeight, dstOriginX, dstOriginY};
-            resultViewPort = compositeOp->apply({resultViewPort}, compReq);
-            auto compEnd = std::chrono::high_resolution_clock::now();
-            perfMetrics.compositeTime += std::chrono::duration<float, std::milli>(compEnd - compStart).count();
-            perfMetrics.compositeCount++;
-        }
-
-        // ViewPort → 8bit Image変換
-        auto outputStart = std::chrono::high_resolution_clock::now();
-        Image result = resultViewPort.toImage();
-        auto outputEnd = std::chrono::high_resolution_clock::now();
-        perfMetrics.outputTime = std::chrono::duration<float, std::milli>(outputEnd - outputStart).count();
-
-        return result;
-    }
-
-    // タイル分割モード
+    // 統合タイル処理ループ（TileStrategy::None は 1x1 タイルとして処理）
     Image result(canvasWidth, canvasHeight);
     int tileCountX = context.getTileCountX();
     int tileCountY = context.getTileCountY();
@@ -175,9 +130,6 @@ Image NodeGraphEvaluator::evaluateWithPipeline(const RenderContext& context) {
             }
 
             // 応答と要求の座標系が一致するか確認
-            // - 要求の左上 = 基準から見て -originX の位置
-            // - 応答の左上 = srcOriginX の位置
-            // - 一致条件: srcOriginX == -originX (かつサイズも一致)
             const float epsilon = 0.001f;
             bool needsComposite = (std::abs(tileResult.srcOriginX + tileReq.originX) > epsilon ||
                                    std::abs(tileResult.srcOriginY + tileReq.originY) > epsilon ||
@@ -185,37 +137,47 @@ Image NodeGraphEvaluator::evaluateWithPipeline(const RenderContext& context) {
                                    tileResult.height != tileReq.height);
             if (needsComposite) {
                 if (tileResult.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
+                    auto convStart = std::chrono::high_resolution_clock::now();
                     tileResult = tileResult.convertTo(PixelFormatIDs::RGBA16_Premultiplied);
+                    auto convEnd = std::chrono::high_resolution_clock::now();
+                    perfMetrics.convertTime += std::chrono::duration<float, std::milli>(convEnd - convStart).count();
+                    perfMetrics.convertCount++;
                 }
-                auto compositeOp = OperatorFactory::createCompositeOperator();
-                // 合成リクエスト: タイルバッファの originX/Y を使用
+                auto compStart = std::chrono::high_resolution_clock::now();
+                // 透明キャンバスに再配置（1入力なのでblendFirstで十分）
+                CompositeOperator compositeOp;
                 RenderRequest compReq{tileReq.width, tileReq.height, tileReq.originX, tileReq.originY};
-                tileResult = compositeOp->apply({tileResult}, compReq);
+                ViewPort canvas = compositeOp.createCanvas(compReq);
+                compositeOp.blendFirst(canvas, tileResult);
+                tileResult = std::move(canvas);
+                auto compEnd = std::chrono::high_resolution_clock::now();
+                perfMetrics.compositeTime += std::chrono::duration<float, std::milli>(compEnd - compStart).count();
+                perfMetrics.compositeCount++;
             }
 
             // タイル結果を最終画像にコピー（RGBA8_Straightに変換してmemcpy）
+            auto outputStart = std::chrono::high_resolution_clock::now();
             if (tileResult.formatID != PixelFormatIDs::RGBA8_Straight) {
                 tileResult = tileResult.convertTo(PixelFormatIDs::RGBA8_Straight);
             }
 
             // タイルのキャンバス上の位置を計算
-            // originX = context.originX - tileLeft なので、tileLeft = context.originX - originX
             int tileLeft = static_cast<int>(context.originX - tileReq.originX);
             int tileTop = static_cast<int>(context.originY - tileReq.originY);
 
-            // タイル結果はバッファ座標 (0,0) から始まる
+            // タイル結果をコピー
             for (int y = 0; y < tileReq.height && (tileTop + y) < canvasHeight; y++) {
                 int dstY = tileTop + y;
                 if (dstY < 0 || dstY >= canvasHeight) continue;
 
-                // ソースはバッファ相対座標 (0, y)
                 const uint8_t* srcRow = tileResult.getPixelPtr<uint8_t>(0, y);
-                // デスティネーションはキャンバス絶対座標
                 uint8_t* dstRow = result.data.data() + dstY * canvasWidth * 4 + tileLeft * 4;
 
                 int copyWidth = std::min(tileReq.width, canvasWidth - tileLeft);
                 std::memcpy(dstRow, srcRow, copyWidth * 4);
             }
+            auto outputEnd = std::chrono::high_resolution_clock::now();
+            perfMetrics.outputTime += std::chrono::duration<float, std::milli>(outputEnd - outputStart).count();
         }
     }
 
