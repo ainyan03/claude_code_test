@@ -31,15 +31,6 @@ class EvaluationNode;
 // タイル分割評価システム用構造体
 // ========================================================================
 
-// タイル分割戦略
-enum class TileStrategy {
-    None,       // 分割なし（従来互換、全体を一度に処理）
-    Scanline,   // 1行ずつ処理（極小メモリ環境向け）
-    Tile64,     // 64x64タイル（組込み環境標準）
-    Custom,     // カスタムサイズ
-    Debug_Checkerboard  // デバッグ用: 市松模様（交互にスキップ）
-};
-
 // 前方宣言
 struct PerfMetrics;
 
@@ -50,44 +41,32 @@ struct RenderContext {
     float originX = 0;     // dstOrigin X
     float originY = 0;     // dstOrigin Y
 
-    TileStrategy strategy = TileStrategy::None;
-    int tileWidth = 64;     // Custom用
-    int tileHeight = 64;
+    int tileWidth = 0;      // 0 = キャンバス幅（分割なし）
+    int tileHeight = 0;     // 0 = キャンバス高さ（分割なし）
+    bool debugCheckerboard = false;  // デバッグ用: 市松模様スキップ
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
     PerfMetrics* perfMetrics = nullptr;
 #endif
 
-    // タイル数を取得
-    int getTileCountX() const {
-        if (strategy == TileStrategy::None) return 1;
-        int tw = (strategy == TileStrategy::Scanline) ? totalWidth :
-                 (strategy == TileStrategy::Tile64) ? 64 : tileWidth;
-        return (totalWidth + tw - 1) / tw;
-    }
-
-    int getTileCountY() const {
-        if (strategy == TileStrategy::None) return 1;
-        int th = (strategy == TileStrategy::Scanline) ? 1 :
-                 (strategy == TileStrategy::Tile64) ? 64 : tileHeight;
-        return (totalHeight + th - 1) / th;
-    }
-
-    // 実際のタイルサイズを取得
+    // 実際のタイルサイズを取得（0は最大値扱い）
     int getEffectiveTileWidth() const {
-        if (strategy == TileStrategy::None) return totalWidth;
-        if (strategy == TileStrategy::Scanline) return totalWidth;
-        if (strategy == TileStrategy::Tile64) return 64;
-        if (strategy == TileStrategy::Debug_Checkerboard) return 64;
-        return tileWidth;
+        return (tileWidth <= 0) ? totalWidth : tileWidth;
     }
 
     int getEffectiveTileHeight() const {
-        if (strategy == TileStrategy::None) return totalHeight;
-        if (strategy == TileStrategy::Scanline) return 1;
-        if (strategy == TileStrategy::Tile64) return 64;
-        if (strategy == TileStrategy::Debug_Checkerboard) return 64;
-        return tileHeight;
+        return (tileHeight <= 0) ? totalHeight : tileHeight;
+    }
+
+    // タイル数を取得
+    int getTileCountX() const {
+        int tw = getEffectiveTileWidth();
+        return (tw > 0) ? (totalWidth + tw - 1) / tw : 1;
+    }
+
+    int getTileCountY() const {
+        int th = getEffectiveTileHeight();
+        return (th > 0) ? (totalHeight + th - 1) / th : 1;
     }
 };
 
@@ -245,8 +224,11 @@ public:
     // 出力先原点（dstOrigin）を設定
     void setDstOrigin(float x, float y);
 
-    // タイル分割戦略を設定
-    void setTileStrategy(TileStrategy strategy, int tileWidth = 64, int tileHeight = 64);
+    // タイル分割サイズを設定（0 = 分割なし）
+    void setTileSize(int width, int height);
+
+    // デバッグ用市松模様スキップを設定
+    void setDebugCheckerboard(bool enabled);
 
     // パフォーマンス計測結果を取得
     const PerfMetrics& getPerfMetrics() const { return perfMetrics; }
@@ -258,9 +240,9 @@ private:
     float dstOriginY;  // 出力先の基準点Y（ピクセル座標）
 
     // タイル分割設定
-    TileStrategy tileStrategy = TileStrategy::None;
-    int customTileWidth = 64;
-    int customTileHeight = 64;
+    int tileWidth_ = 0;   // 0 = 分割なし
+    int tileHeight_ = 0;
+    bool debugCheckerboard_ = false;
 
     std::vector<GraphNode> nodes;
     std::vector<GraphConnection> connections;

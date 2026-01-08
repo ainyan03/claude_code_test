@@ -32,10 +32,13 @@ void NodeGraphEvaluator::setDstOrigin(float x, float y) {
     dstOriginY = y;
 }
 
-void NodeGraphEvaluator::setTileStrategy(TileStrategy strategy, int tileWidth, int tileHeight) {
-    tileStrategy = strategy;
-    customTileWidth = tileWidth;
-    customTileHeight = tileHeight;
+void NodeGraphEvaluator::setTileSize(int width, int height) {
+    tileWidth_ = width;
+    tileHeight_ = height;
+}
+
+void NodeGraphEvaluator::setDebugCheckerboard(bool enabled) {
+    debugCheckerboard_ = enabled;
 }
 
 void NodeGraphEvaluator::registerInput(int id, const ViewPort& view) {
@@ -85,9 +88,9 @@ void NodeGraphEvaluator::evaluateGraph() {
     context.totalHeight = canvasHeight;
     context.originX = dstOriginX;
     context.originY = dstOriginY;
-    context.strategy = tileStrategy;
-    context.tileWidth = customTileWidth;
-    context.tileHeight = customTileHeight;
+    context.tileWidth = tileWidth_;
+    context.tileHeight = tileHeight_;
+    context.debugCheckerboard = debugCheckerboard_;
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
     context.perfMetrics = &perfMetrics;
@@ -129,17 +132,15 @@ void NodeGraphEvaluator::evaluateWithPipeline(const RenderContext& context) {
     // 描画準備（逆行列計算等）
     pipeline_->prepare(context);
 
-    // 統合タイル処理ループ（TileStrategy::None は 1x1 タイルとして処理）
+    // タイル処理ループ
     int tileCountX = context.getTileCountX();
     int tileCountY = context.getTileCountY();
 
     for (int ty = 0; ty < tileCountY; ty++) {
         for (int tx = 0; tx < tileCountX; tx++) {
-            // デバッグ用チェッカーボードモード
-            if (tileStrategy == TileStrategy::Debug_Checkerboard) {
-                if ((tx + ty) % 2 == 1) {
-                    continue;
-                }
+            // デバッグ用チェッカーボードモード（市松模様スキップ）
+            if (context.debugCheckerboard && ((tx + ty) % 2 == 1)) {
+                continue;
             }
 
             RenderRequest tileReq = RenderRequest::fromTile(context, tx, ty);

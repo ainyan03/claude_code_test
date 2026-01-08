@@ -57,6 +57,14 @@ public:
         storage_.clear();
     }
 
+    // 指定IDのバッファをゼロクリア
+    void zeroFill(int id) {
+        auto it = storage_.find(id);
+        if (it != storage_.end()) {
+            std::fill(it->second.begin(), it->second.end(), 0);
+        }
+    }
+
 private:
     std::map<int, std::vector<uint8_t>> storage_;
 };
@@ -78,11 +86,14 @@ public:
         evaluator.setDstOrigin(x, y);
     }
 
-    // タイル分割戦略を設定
-    // strategy: 0=None, 1=Scanline, 2=Tile64, 3=Custom
-    void setTileStrategy(int strategy, int tileWidth, int tileHeight) {
-        TileStrategy ts = static_cast<TileStrategy>(strategy);
-        evaluator.setTileStrategy(ts, tileWidth, tileHeight);
+    // タイル分割サイズを設定（0 = 分割なし）
+    void setTileSize(int width, int height) {
+        evaluator.setTileSize(width, height);
+    }
+
+    // デバッグ用市松模様スキップを設定
+    void setDebugCheckerboard(bool enabled) {
+        evaluator.setDebugCheckerboard(enabled);
     }
 
     // 入力画像を登録（RGBA8_Straight形式）
@@ -232,6 +243,11 @@ public:
         evaluator.evaluateGraph();
     }
 
+    // 出力バッファをクリア（市松模様などで以前の画像が残らないように）
+    void clearOutput(int id) {
+        imageStore.zeroFill(id);
+    }
+
     val getPerfMetrics() {
         val result = val::object();
 
@@ -277,12 +293,14 @@ EMSCRIPTEN_BINDINGS(image_transform) {
         .constructor<int, int>()
         .function("setCanvasSize", &NodeGraphEvaluatorWrapper::setCanvasSize)
         .function("setDstOrigin", &NodeGraphEvaluatorWrapper::setDstOrigin)
-        .function("setTileStrategy", &NodeGraphEvaluatorWrapper::setTileStrategy)
+        .function("setTileSize", &NodeGraphEvaluatorWrapper::setTileSize)
+        .function("setDebugCheckerboard", &NodeGraphEvaluatorWrapper::setDebugCheckerboard)
         .function("storeInput", &NodeGraphEvaluatorWrapper::storeInput)
         .function("allocateOutput", &NodeGraphEvaluatorWrapper::allocateOutput)
         .function("getOutput", &NodeGraphEvaluatorWrapper::getOutput)
         .function("setNodes", &NodeGraphEvaluatorWrapper::setNodes)
         .function("setConnections", &NodeGraphEvaluatorWrapper::setConnections)
         .function("evaluateGraph", &NodeGraphEvaluatorWrapper::evaluateGraph)
+        .function("clearOutput", &NodeGraphEvaluatorWrapper::clearOutput)
         .function("getPerfMetrics", &NodeGraphEvaluatorWrapper::getPerfMetrics);
 }

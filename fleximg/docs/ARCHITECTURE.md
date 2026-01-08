@@ -181,13 +181,18 @@ struct Point2f {
 メモリ制約のある環境向けに、キャンバスをタイルに分割して処理できます。
 
 ```cpp
-enum class TileStrategy {
-    None,       // 分割なし
-    Scanline,   // 1行ずつ
-    Tile64,     // 64x64タイル
-    Custom,     // カスタムサイズ
-};
+// タイルサイズを設定（0 = 分割なし）
+void setTileSize(int width, int height);
+
+// デバッグ用市松模様スキップを設定
+void setDebugCheckerboard(bool enabled);
 ```
+
+**サイズ指定の例：**
+- `(0, 0)` - 分割なし（一括処理）
+- `(0, 1)` - スキャンライン（1行ずつ）
+- `(16, 16)` - 16×16タイル
+- `(64, 64)` - 64×64タイル
 
 各タイルは独立して処理され、基準相対座標系により一貫した結果が得られます。
 

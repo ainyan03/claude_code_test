@@ -463,6 +463,11 @@ function initializeApp() {
 
     console.log('Initializing app...');
 
+    // ページ離脱時に状態を保存（リロード直前の状態を確実に保存）
+    window.addEventListener('beforeunload', () => {
+        saveStateToLocalStorage();
+    });
+
     // バージョン情報を表示
     displayVersionInfo();
 
@@ -585,24 +590,22 @@ function setupEventListeners() {
         });
     }
 
-    // タイル分割戦略
-    const tileStrategySelect = document.getElementById('sidebar-tile-strategy');
-    if (tileStrategySelect) {
-        tileStrategySelect.addEventListener('change', onTileStrategyChange);
+    // タイル分割設定
+    const tilePresetSelect = document.getElementById('sidebar-tile-preset');
+    if (tilePresetSelect) {
+        tilePresetSelect.addEventListener('change', onTileSettingsChange);
     }
     const tileWidthInput = document.getElementById('sidebar-tile-width');
     const tileHeightInput = document.getElementById('sidebar-tile-height');
     if (tileWidthInput) {
-        tileWidthInput.addEventListener('change', () => {
-            applyTileStrategy();
-            updatePreviewFromGraph();
-        });
+        tileWidthInput.addEventListener('change', onTileSettingsChange);
     }
     if (tileHeightInput) {
-        tileHeightInput.addEventListener('change', () => {
-            applyTileStrategy();
-            updatePreviewFromGraph();
-        });
+        tileHeightInput.addEventListener('change', onTileSettingsChange);
+    }
+    const debugCheckerbox = document.getElementById('sidebar-debug-checkerboard');
+    if (debugCheckerbox) {
+        debugCheckerbox.addEventListener('change', onTileSettingsChange);
     }
 
     // 状態管理ボタン
@@ -1129,37 +1132,60 @@ function updateCanvasDisplayScale() {
     canvas.style.height = (canvasHeight * previewScale) + 'px';
 }
 
-// タイル分割戦略を適用
-function applyTileStrategy() {
-    if (!graphEvaluator) return;
-
-    const strategySelect = document.getElementById('sidebar-tile-strategy');
-    const strategy = parseInt(strategySelect.value) || 0;
-
-    let tileWidth = 64;
-    let tileHeight = 64;
-
-    if (strategy === 3) { // Custom
-        tileWidth = parseInt(document.getElementById('sidebar-tile-width').value) || 64;
-        tileHeight = parseInt(document.getElementById('sidebar-tile-height').value) || 64;
+// タイル分割プリセットからサイズを取得
+function getTileSizeFromPreset(preset) {
+    switch (preset) {
+        case 'none':     return { w: 0, h: 0 };
+        case 'scanline': return { w: 0, h: 1 };
+        case '16':       return { w: 16, h: 16 };
+        case '32':       return { w: 32, h: 32 };
+        case '64':       return { w: 64, h: 64 };
+        case 'custom':
+            return {
+                w: parseInt(document.getElementById('sidebar-tile-width').value) || 16,
+                h: parseInt(document.getElementById('sidebar-tile-height').value) || 16
+            };
+        default:         return { w: 0, h: 0 };
     }
-
-    console.log('Tile strategy:', strategy, 'size:', tileWidth, 'x', tileHeight);
-    graphEvaluator.setTileStrategy(strategy, tileWidth, tileHeight);
 }
 
-// タイル戦略変更時のハンドラ
-function onTileStrategyChange() {
-    const strategySelect = document.getElementById('sidebar-tile-strategy');
+// タイル分割設定を適用
+function applyTileSettings() {
+    if (!graphEvaluator) return;
+
+    const preset = document.getElementById('sidebar-tile-preset')?.value || 'none';
+    const size = getTileSizeFromPreset(preset);
+    const debugCheckerboard = document.getElementById('sidebar-debug-checkerboard')?.checked || false;
+
+    console.log('Tile size:', size.w, 'x', size.h, 'debug:', debugCheckerboard);
+    graphEvaluator.setTileSize(size.w, size.h);
+    graphEvaluator.setDebugCheckerboard(debugCheckerboard);
+}
+
+// タイル設定変更時のハンドラ
+function onTileSettingsChange() {
+    const preset = document.getElementById('sidebar-tile-preset')?.value || 'none';
     const customSettings = document.getElementById('sidebar-tile-custom');
-    const strategy = parseInt(strategySelect.value) || 0;
 
     // カスタムサイズ入力欄の表示/非表示
-    customSettings.style.display = (strategy === 3) ? 'block' : 'none';
+    if (customSettings) {
+        customSettings.style.display = (preset === 'custom') ? 'block' : 'none';
+    }
 
-    // 戦略を即時適用
-    applyTileStrategy();
+    // キャンバスをクリア（市松模様などで以前の画像が残らないように）
+    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+
+    // C++側の出力バッファもクリア
+    if (graphEvaluator) {
+        graphEvaluator.clearOutput(0);
+    }
+
+    // 設定を適用
+    applyTileSettings();
     updatePreviewFromGraph();
+
+    // 状態を自動保存
+    scheduleAutoSave();
 }
 
 // 出力設定を適用（サイドバーから）
@@ -1195,8 +1221,8 @@ function applyOutputSettings() {
     graphEvaluator.setCanvasSize(width, height);
     graphEvaluator.setDstOrigin(canvasOrigin.x, canvasOrigin.y);
 
-    // タイル分割戦略を適用
-    applyTileStrategy();
+    // タイル分割設定を適用
+    applyTileSettings();
 
     updatePreviewFromGraph();
 
@@ -2766,6 +2792,15 @@ const STATE_VERSION = 1;
 
 // アプリ状態をオブジェクトとして取得
 function getAppState() {
+    // タイル分割の現在値を取得
+    const tilePreset = document.getElementById('sidebar-tile-preset')?.value || 'none';
+    const tileWidth = parseInt(document.getElementById('sidebar-tile-width')?.value) || 16;
+    const tileHeight = parseInt(document.getElementById('sidebar-tile-height')?.value) || 16;
+    const debugCheckerboard = document.getElementById('sidebar-debug-checkerboard')?.checked || false;
+
+    // スクロール位置を保存（倍率変更後も比率で復元できるように）
+    const scrollRatio = previewScrollManager ? previewScrollManager.getRatio() : { x: 0.5, y: 0.5 };
+
     return {
         version: STATE_VERSION,
         timestamp: Date.now(),
@@ -2773,7 +2808,14 @@ function getAppState() {
             width: canvasWidth,
             height: canvasHeight,
             origin: canvasOrigin,
-            scale: previewScale
+            scale: previewScale,
+            scrollRatio: scrollRatio
+        },
+        tile: {
+            preset: tilePreset,
+            width: tileWidth,
+            height: tileHeight,
+            debugCheckerboard: debugCheckerboard
         },
         images: uploadedImages.map(img => ({
             id: img.id,
@@ -2939,6 +2981,51 @@ async function restoreAppState(state) {
     document.getElementById('sidebar-origin-y').value = canvasOrigin.y;
     document.getElementById('sidebar-canvas-width').value = canvasWidth;
     document.getElementById('sidebar-canvas-height').value = canvasHeight;
+
+    // 表示倍率UIを更新
+    const scaleSlider = document.getElementById('sidebar-preview-scale');
+    const scaleValue = document.getElementById('sidebar-preview-scale-value');
+    if (scaleSlider) {
+        scaleSlider.value = previewScale;
+    }
+    if (scaleValue) {
+        scaleValue.textContent = previewScale + 'x';
+    }
+
+    // スクロール位置を復元（表示サイズ更新後に比率で復元）
+    if (state.canvas.scrollRatio && previewScrollManager) {
+        previewScrollManager.setRatio(state.canvas.scrollRatio.x, state.canvas.scrollRatio.y);
+    }
+
+    // タイル分割設定を復元
+    if (state.tile) {
+        const tilePresetSelect = document.getElementById('sidebar-tile-preset');
+        const tileWidthInput = document.getElementById('sidebar-tile-width');
+        const tileHeightInput = document.getElementById('sidebar-tile-height');
+        const customSettings = document.getElementById('sidebar-tile-custom');
+        const debugCheckbox = document.getElementById('sidebar-debug-checkerboard');
+
+        // 旧形式（strategy）との互換性
+        const preset = state.tile.preset || 'none';
+        if (tilePresetSelect) {
+            tilePresetSelect.value = preset;
+        }
+        if (tileWidthInput) {
+            tileWidthInput.value = state.tile.width || 16;
+        }
+        if (tileHeightInput) {
+            tileHeightInput.value = state.tile.height || 16;
+        }
+        if (debugCheckbox) {
+            debugCheckbox.checked = state.tile.debugCheckerboard || false;
+        }
+        // カスタムサイズ入力欄の表示/非表示
+        if (customSettings) {
+            customSettings.style.display = (preset === 'custom') ? 'block' : 'none';
+        }
+        // タイル設定を適用
+        applyTileSettings();
+    }
 
     // 次のID値を復元
     nextImageId = state.nextIds.imageId;
