@@ -2,22 +2,24 @@
 
 fleximg における画像データ関連の型構造について説明します。
 
-## 型の分離
+## 型の継承関係
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  ViewPort（純粋ビュー）                                   │
+│  ViewPort（純粋ビュー・基底クラス）                        │
 │  - data, formatID, stride, width, height                │
+│  - getPixelAddress(), getPixelPtr<T>()                  │
 │  - blendFirst(), blendOnto()                            │
 │  - 所有権なし、軽量                                       │
 └─────────────────────────────────────────────────────────┘
             ▲
-            │ 包含
+            │ 継承
 ┌─────────────────────────────────────────────────────────┐
-│  ImageBuffer（メモリ所有）                                │
-│  - ViewPort を内包（view() で取得）                       │
-│  - capacity, allocator, ownsData                        │
+│  ImageBuffer（メモリ所有・派生クラス）                     │
+│  - ViewPort のフィールド・メソッドを継承                   │
+│  - capacity, allocator（追加メンバ）                      │
 │  - RAII によるメモリ管理                                  │
+│  - ViewPort& を受け取る関数に直接渡せる                   │
 └─────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────┐
@@ -62,11 +64,14 @@ struct ViewPort {
 
 ## ImageBuffer（メモリ所有画像）
 
-メモリの確保・解放を担当する RAII クラスです。
+ViewPort を継承し、メモリの確保・解放を担当する RAII クラスです。
 
 ```cpp
-class ImageBuffer {
-public:
+struct ImageBuffer : public ViewPort {
+    // ImageBuffer 固有メンバ
+    size_t capacity;          // 確保済みバイト数
+    ImageAllocator* allocator; // メモリアロケータ
+
     // コンストラクタ/デストラクタ（RAII）
     ImageBuffer(int w, int h, PixelFormatID fmt, ImageAllocator* alloc = nullptr);
     ~ImageBuffer();
@@ -75,22 +80,23 @@ public:
     ImageBuffer(const ImageBuffer& other);
     ImageBuffer(ImageBuffer&& other) noexcept;
 
-    // ViewPort としてアクセス
+    // ViewPort として取得（スライシング）
     ViewPort view();
     ViewPort view() const;
-    ViewPort subView(int x, int y, int w, int h);
 
-    // Image変換（API境界用）
-    static ImageBuffer fromImage(const Image& img);
-    Image toImage() const;
+    // ImageBuffer 固有ユーティリティ
+    size_t getTotalBytes() const;
+    ImageBuffer convertTo(PixelFormatID targetFormat) const;
 
-    // メンバ
-    PixelFormatID formatID;
-    int width, height;
+    // 注: ピクセルアクセス、フォーマット情報、subView 等は ViewPort から継承
 };
 ```
 
 **責務**: メモリの確保・解放・所有権管理
+
+**継承による利点**:
+- ViewPort& を受け取る関数に ImageBuffer を直接渡せる
+- 重複コードを削減（フィールド5個、メソッド7個分）
 
 ## EvalResult（パイプライン評価結果）
 
@@ -161,6 +167,7 @@ canvasView.blendOnto(result.buffer.view(), offsetX, offsetY);
 
 - blendFirst/blendOnto は RGBA16_Premultiplied 専用
 - ViewPort はメモリを所有しないため、元の ImageBuffer より長く生存してはならない
+- ImageBuffer を ViewPort としてコピーした場合も同様（スライシング後の ViewPort は元の ImageBuffer 破棄後は dangling）
 
 ## 関連ファイル
 

@@ -6,6 +6,28 @@
 
 ## 2026-01-08
 
+### ImageBuffer を ViewPort の派生クラスに変更
+
+**背景**
+- ImageBuffer と ViewPort で 5つのフィールドと 7つのメソッドが重複していた
+- 重複コードの保守性が低く、変更時に両方を修正する必要があった
+
+**設計変更**
+- `ImageBuffer` を `ViewPort` の派生クラスに変更
+- 重複フィールド（data, formatID, stride, width, height）を ViewPort から継承
+- 重複メソッド（getPixelAddress, getPixelPtr, getFormatDescriptor 等）を ViewPort から継承
+- `view()` はスライシングで ViewPort 部分を返す
+
+**利点**
+- ImageBuffer を ViewPort& を受け取る関数に直接渡せる
+- 104行のコード削減（138削除、34追加）
+- 単一の責任: ViewPort = ビュー機能、ImageBuffer = メモリ所有
+
+**注意点**
+- ImageBuffer を ViewPort としてコピーした場合、元の ImageBuffer 破棄後は dangling ポインタになる
+
+---
+
 ### 画像ライブラリの統一化
 
 **背景**
