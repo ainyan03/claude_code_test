@@ -86,8 +86,8 @@ source ./emsdk_env.sh
 # プロジェクトディレクトリに戻る
 cd path/to/fleximg
 
-# ビルド
-./build.sh
+# ビルド（デバッグモード：性能計測有効）
+./build.sh --debug
 
 # サーバー起動
 cd demo/web
