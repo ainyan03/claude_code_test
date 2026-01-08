@@ -18,9 +18,8 @@
 - [ ] NodeGraphEvaluator の統合テスト
 
 #### 精度改善
-- [ ] Premultiply変換の精度改善（`pixel_format_registry.cpp`）
-  - 現状: `(r16 * a16) >> 16` で65535が65534になる
-  - 対策: 丸め処理の追加または除算への変更
+- [x] Premultiply変換の精度改善 ✅ `A_tmp = A8 + 1` 方式で除算回避
+  - 詳細設計: [docs/DESIGN_ALPHA_CONVERSION.md](docs/DESIGN_ALPHA_CONVERSION.md)
 
 #### エラーハンドリング強化
 - [ ] ノードグラフの循環依存検出とエラー表示
@@ -169,3 +168,4 @@
 - [docs/DESIGN_NODE_OPERATOR.md](docs/DESIGN_NODE_OPERATOR.md): オペレーター設計
 - [docs/DESIGN_PIPELINE_EVALUATION.md](docs/DESIGN_PIPELINE_EVALUATION.md): パイプライン評価設計
 - [docs/DESIGN_TILE_COORDINATE_SYSTEM.md](docs/DESIGN_TILE_COORDINATE_SYSTEM.md): タイル座標系設計
+- [docs/DESIGN_ALPHA_CONVERSION.md](docs/DESIGN_ALPHA_CONVERSION.md): アルファ変換最適化設計

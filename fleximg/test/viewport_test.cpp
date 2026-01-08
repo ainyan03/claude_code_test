@@ -253,36 +253,111 @@ TEST(ViewPortTest, ConvertTo_RGBA8_to_RGBA16Premul) {
     EXPECT_EQ(converted.width, 10);
     EXPECT_EQ(converted.height, 10);
 
-    // 16bit premultiplied: opaque red should be (65535, 0, 0, 65535)
-    // NOTE: Current implementation has precision loss issue (returns 65534)
-    // TODO: Fix Premultiply precision in pixel_format_registry.cpp
+    // 新方式: A_tmp = A8 + 1 = 256
+    // R16 = R8 * A_tmp = 255 * 256 = 65280
+    // A16 = 255 * A_tmp = 255 * 256 = 65280
     const uint16_t* convPixel = converted.getPixelPtr<uint16_t>(3, 3);
-    EXPECT_EQ(convPixel[0], 65535);  // R
-    EXPECT_EQ(convPixel[1], 0);      // G
-    EXPECT_EQ(convPixel[2], 0);      // B
-    EXPECT_EQ(convPixel[3], 65535);  // A
+    EXPECT_EQ(convPixel[0], 65280);  // R = 255 * 256
+    EXPECT_EQ(convPixel[1], 0);      // G = 0 * 256
+    EXPECT_EQ(convPixel[2], 0);      // B = 0 * 256
+    EXPECT_EQ(convPixel[3], 65280);  // A = 255 * 256 (ALPHA_OPAQUE_MIN)
 }
 
 TEST(ViewPortTest, ConvertTo_RGBA16Premul_to_RGBA8) {
     ViewPort vp(10, 10, PixelFormatIDs::RGBA16_Premultiplied);
 
-    // Set opaque green pixel
+    // 新方式で作られた不透明緑ピクセル (A8=255 → A16=65280)
     uint16_t* pixel = vp.getPixelPtr<uint16_t>(4, 4);
-    pixel[0] = 0;      // R
-    pixel[1] = 65535;  // G
-    pixel[2] = 0;      // B
-    pixel[3] = 65535;  // A (opaque)
+    pixel[0] = 0;      // R = 0 * 256 = 0
+    pixel[1] = 65280;  // G = 255 * 256 = 65280
+    pixel[2] = 0;      // B = 0 * 256 = 0
+    pixel[3] = 65280;  // A = 255 * 256 = 65280 (ALPHA_OPAQUE_MIN)
 
     ViewPort converted = vp.convertTo(PixelFormatIDs::RGBA8_Straight);
 
     EXPECT_EQ(converted.formatID, PixelFormatIDs::RGBA8_Straight);
 
-    // 8bit straight: opaque green should be (0, 255, 0, 255)
+    // Reverse変換: A8 = 65280 >> 8 = 255, A_tmp = 256
+    // G8 = 65280 / 256 = 255
     const uint8_t* convPixel = converted.getPixelPtr<uint8_t>(4, 4);
-    EXPECT_EQ(convPixel[0], 0);    // R
-    EXPECT_EQ(convPixel[1], 255);  // G
-    EXPECT_EQ(convPixel[2], 0);    // B
-    EXPECT_EQ(convPixel[3], 255);  // A
+    EXPECT_EQ(convPixel[0], 0);    // R = 0 / 256 = 0
+    EXPECT_EQ(convPixel[1], 255);  // G = 65280 / 256 = 255
+    EXPECT_EQ(convPixel[2], 0);    // B = 0 / 256 = 0
+    EXPECT_EQ(convPixel[3], 255);  // A = 65280 >> 8 = 255
+}
+
+// ==============================================================================
+// 新アルファ変換方式のテスト
+// ==============================================================================
+
+TEST(ViewPortTest, AlphaConversion_TransparentPreservesRGB) {
+    // 透明ピクセル（A8=0）でもRGB情報が保持されることを確認
+    ViewPort vp(10, 10, PixelFormatIDs::RGBA8_Straight);
+
+    uint8_t* pixel = vp.getPixelPtr<uint8_t>(5, 5);
+    pixel[0] = 255;  // R
+    pixel[1] = 128;  // G
+    pixel[2] = 64;   // B
+    pixel[3] = 0;    // A (transparent)
+
+    ViewPort converted = vp.convertTo(PixelFormatIDs::RGBA16_Premultiplied);
+
+    // 新方式: A_tmp = 0 + 1 = 1
+    // R16 = 255 * 1 = 255, G16 = 128 * 1 = 128, B16 = 64 * 1 = 64
+    // A16 = 255 * 1 = 255 (ALPHA_TRANSPARENT_MAX)
+    const uint16_t* convPixel = converted.getPixelPtr<uint16_t>(5, 5);
+    EXPECT_EQ(convPixel[0], 255);   // R = 255 * 1
+    EXPECT_EQ(convPixel[1], 128);   // G = 128 * 1
+    EXPECT_EQ(convPixel[2], 64);    // B = 64 * 1
+    EXPECT_EQ(convPixel[3], 255);   // A = 255 * 1 (ALPHA_TRANSPARENT_MAX)
+
+    // 往復変換でRGB情報が復元されることを確認
+    ViewPort roundtrip = converted.convertTo(PixelFormatIDs::RGBA8_Straight);
+    const uint8_t* rtPixel = roundtrip.getPixelPtr<uint8_t>(5, 5);
+    EXPECT_EQ(rtPixel[0], 255);  // R preserved
+    EXPECT_EQ(rtPixel[1], 128);  // G preserved
+    EXPECT_EQ(rtPixel[2], 64);   // B preserved
+    EXPECT_EQ(rtPixel[3], 0);    // A = 255 >> 8 = 0
+}
+
+TEST(ViewPortTest, AlphaConversion_Roundtrip) {
+    // 往復変換（8bit→16bit→8bit）で値が保持されることを確認
+    ViewPort original(10, 10, PixelFormatIDs::RGBA8_Straight);
+
+    // 半透明ピクセル
+    uint8_t* pixel = original.getPixelPtr<uint8_t>(3, 3);
+    pixel[0] = 200;  // R
+    pixel[1] = 100;  // G
+    pixel[2] = 50;   // B
+    pixel[3] = 128;  // A (semi-transparent)
+
+    ViewPort converted = original.convertTo(PixelFormatIDs::RGBA16_Premultiplied);
+    ViewPort roundtrip = converted.convertTo(PixelFormatIDs::RGBA8_Straight);
+
+    const uint8_t* rtPixel = roundtrip.getPixelPtr<uint8_t>(3, 3);
+    EXPECT_EQ(rtPixel[0], 200);  // R preserved
+    EXPECT_EQ(rtPixel[1], 100);  // G preserved
+    EXPECT_EQ(rtPixel[2], 50);   // B preserved
+    EXPECT_EQ(rtPixel[3], 128);  // A preserved
+}
+
+TEST(ViewPortTest, AlphaConversion_ThresholdConstants) {
+    // 閾値定数の値を確認
+    using namespace PixelFormatIDs::RGBA16Premul;
+
+    EXPECT_EQ(ALPHA_TRANSPARENT_MAX, 255);
+    EXPECT_EQ(ALPHA_OPAQUE_MIN, 65280);
+
+    // ヘルパー関数のテスト
+    EXPECT_TRUE(isTransparent(0));
+    EXPECT_TRUE(isTransparent(255));
+    EXPECT_FALSE(isTransparent(256));
+    EXPECT_FALSE(isTransparent(65280));
+
+    EXPECT_FALSE(isOpaque(255));
+    EXPECT_FALSE(isOpaque(65279));
+    EXPECT_TRUE(isOpaque(65280));
+    EXPECT_TRUE(isOpaque(65535));
 }
 
 // ==============================================================================

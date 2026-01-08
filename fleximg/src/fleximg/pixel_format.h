@@ -18,6 +18,23 @@ namespace PixelFormatIDs {
     constexpr PixelFormatID RGBA16_Straight       = 0x0001;
     constexpr PixelFormatID RGBA16_Premultiplied  = 0x0002;
 
+    // ========================================================================
+    // RGBA16_Premultiplied 用アルファ閾値（constexpr）
+    // ========================================================================
+    // 新方式: A_tmp = A8 + 1 により、A16の範囲は255-65280
+    // 透明(A8=0) → A16=255, 不透明(A8=255) → A16=65280
+    namespace RGBA16Premul {
+        constexpr uint16_t ALPHA_TRANSPARENT_MAX = 255;   // この値以下は透明
+        constexpr uint16_t ALPHA_OPAQUE_MIN = 65280;      // この値以上は不透明
+
+        inline constexpr bool isTransparent(uint16_t a) {
+            return a <= ALPHA_TRANSPARENT_MAX;
+        }
+        inline constexpr bool isOpaque(uint16_t a) {
+            return a >= ALPHA_OPAQUE_MIN;
+        }
+    }
+
     // パックドRGB系（0x0100～0x01FF）
     constexpr PixelFormatID RGB565_LE             = 0x0100;
     constexpr PixelFormatID RGB565_BE             = 0x0101;

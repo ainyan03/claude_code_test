@@ -18,7 +18,15 @@ static void rgba8Straight_fromStandard(const uint8_t* src, void* dst, int pixelC
     std::memcpy(dst, src, pixelCount * 4);
 }
 
+// ========================================================================
 // RGBA16_Premultiplied: 16bit Premultiplied ↔ 8bit Straight 変換
+// ========================================================================
+// 新方式: A_tmp = A8 + 1 を使用
+// - Forward変換: 除算ゼロ（乗算のみ）
+// - Reverse変換: 除数が1-256に限定（テーブル化やSIMD最適化が容易）
+// - A8=0 でもRGB情報を保持（将来の「アルファを濃くするフィルタ」に対応）
+// ========================================================================
+
 static void rgba16Premul_toStandard(const void* src, uint8_t* dst, int pixelCount) {
     const uint16_t* s = static_cast<const uint16_t*>(src);
     for (int i = 0; i < pixelCount; i++) {
@@ -28,18 +36,16 @@ static void rgba16Premul_toStandard(const void* src, uint8_t* dst, int pixelCoun
         uint16_t b16 = s[idx + 2];
         uint16_t a16 = s[idx + 3];
 
-        // Unpremultiply + 16bit → 8bit
-        if (a16 > 0) {
-            uint32_t r_unpre = ((uint32_t)r16 * 65535) / a16;
-            uint32_t g_unpre = ((uint32_t)g16 * 65535) / a16;
-            uint32_t b_unpre = ((uint32_t)b16 * 65535) / a16;
-            dst[idx]     = std::min(r_unpre >> 8, 255u);
-            dst[idx + 1] = std::min(g_unpre >> 8, 255u);
-            dst[idx + 2] = std::min(b_unpre >> 8, 255u);
-        } else {
-            dst[idx] = dst[idx + 1] = dst[idx + 2] = 0;
-        }
-        dst[idx + 3] = a16 >> 8;
+        // A8 = A16 >> 8 (範囲: 0-255)
+        // A_tmp = A8 + 1 (範囲: 1-256) - ゼロ除算回避
+        uint8_t a8 = a16 >> 8;
+        uint16_t a_tmp = a8 + 1;
+
+        // Unpremultiply: RGB / A_tmp（除数が1-256に限定）
+        dst[idx]     = static_cast<uint8_t>(r16 / a_tmp);
+        dst[idx + 1] = static_cast<uint8_t>(g16 / a_tmp);
+        dst[idx + 2] = static_cast<uint8_t>(b16 / a_tmp);
+        dst[idx + 3] = a8;
     }
 }
 
@@ -52,17 +58,15 @@ static void rgba16Premul_fromStandard(const uint8_t* src, void* dst, int pixelCo
         uint16_t b8 = src[idx + 2];
         uint16_t a8 = src[idx + 3];
 
-        // 8bit → 16bit 拡張（0-255 → 0-65535）
-        uint16_t r16 = (r8 << 8) | r8;
-        uint16_t g16 = (g8 << 8) | g8;
-        uint16_t b16 = (b8 << 8) | b8;
-        uint16_t a16 = (a8 << 8) | a8;
+        // A_tmp = A8 + 1 (範囲: 1-256)
+        uint16_t a_tmp = a8 + 1;
 
-        // Premultiply: RGB * alpha / 65535
-        d[idx]     = (r16 * a16) >> 16;
-        d[idx + 1] = (g16 * a16) >> 16;
-        d[idx + 2] = (b16 * a16) >> 16;
-        d[idx + 3] = a16;
+        // Premultiply: RGB * A_tmp（除算なし）
+        // A16 = 255 * A_tmp (範囲: 255-65280)
+        d[idx]     = static_cast<uint16_t>(r8 * a_tmp);
+        d[idx + 1] = static_cast<uint16_t>(g8 * a_tmp);
+        d[idx + 2] = static_cast<uint16_t>(b8 * a_tmp);
+        d[idx + 3] = static_cast<uint16_t>(255 * a_tmp);
     }
 }
 
