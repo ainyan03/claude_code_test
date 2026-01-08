@@ -171,11 +171,10 @@ struct PerfMetrics {
 // 合成ノードの入力定義
 struct CompositeInput {
     std::string id;
-    float alpha;
 
-    CompositeInput() : id(""), alpha(1.0f) {}
-    CompositeInput(const std::string& inputId, float inputAlpha)
-        : id(inputId), alpha(inputAlpha) {}
+    CompositeInput() : id("") {}
+    explicit CompositeInput(const std::string& inputId)
+        : id(inputId) {}
 };
 
 // ノードグラフのノード定義

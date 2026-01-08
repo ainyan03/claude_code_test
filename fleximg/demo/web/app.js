@@ -634,45 +634,166 @@ function setupEventListeners() {
     // ダウンロードボタン
     document.getElementById('download-btn').addEventListener('click', downloadComposedImage);
 
-    // ノード追加プルダウンメニューを動的に構築
-    populateNodeSelectOptions();
+    // ノード追加ドロップダウンメニューを初期化
+    initNodeAddDropdown();
+}
 
-    document.getElementById('add-node-select').addEventListener('change', (e) => {
-        const value = e.target.value;
-        if (!value) return;
+// カテゴリ表示名のマッピング
+const CATEGORY_LABELS = {
+    transform: '変換',
+    composite: '合成',
+    color: 'フィルタ - 色調',
+    blur: 'フィルタ - ぼかし',
+    other: 'フィルタ - その他'
+};
 
-        // ノードタイプに応じて追加
-        if (value === 'affine') {
-            addAffineNode();
-        } else if (value === 'composite') {
-            addCompositeNode();
-        } else if (FILTER_DEFINITIONS[value]) {
-            // FILTER_DEFINITIONSに定義されているフィルタ
-            addIndependentFilterNode(value);
+// カテゴリの表示順序
+const CATEGORY_ORDER = ['transform', 'composite', 'color', 'blur', 'other'];
+
+// ノード追加ドロップダウンの初期化
+function initNodeAddDropdown() {
+    const dropdown = document.getElementById('node-add-dropdown');
+    const btn = document.getElementById('node-add-btn');
+    const menu = document.getElementById('node-add-menu');
+
+    if (!dropdown || !btn || !menu) return;
+
+    // メニュー内容を構築
+    buildNodeAddMenu(menu);
+
+    // メニュー位置を計算して表示
+    function showMenu() {
+        const rect = btn.getBoundingClientRect();
+        const menuHeight = 400; // max-height
+        const viewportHeight = window.innerHeight;
+
+        // 下に十分なスペースがあるか確認
+        const spaceBelow = viewportHeight - rect.bottom - 10;
+        const spaceAbove = rect.top - 10;
+
+        menu.style.left = '';
+        menu.style.right = '';
+
+        if (spaceBelow >= menuHeight || spaceBelow >= spaceAbove) {
+            // 下に表示
+            menu.style.top = `${rect.bottom + 4}px`;
+            menu.style.maxHeight = `${Math.min(menuHeight, spaceBelow)}px`;
+        } else {
+            // 上に表示
+            menu.style.top = `${rect.top - Math.min(menuHeight, spaceAbove) - 4}px`;
+            menu.style.maxHeight = `${Math.min(menuHeight, spaceAbove)}px`;
         }
 
-        // セレクトをリセット
-        e.target.value = '';
+        // 右端に揃える
+        menu.style.right = `${window.innerWidth - rect.right}px`;
+
+        menu.classList.add('visible');
+        dropdown.classList.add('open');
+    }
+
+    function hideMenu() {
+        menu.classList.remove('visible');
+        dropdown.classList.remove('open');
+    }
+
+    // ボタンクリックでメニュー開閉
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (menu.classList.contains('visible')) {
+            hideMenu();
+        } else {
+            showMenu();
+        }
+    });
+
+    // メニュー外クリックで閉じる
+    document.addEventListener('click', (e) => {
+        if (!dropdown.contains(e.target) && !menu.contains(e.target)) {
+            hideMenu();
+        }
+    });
+
+    // スクロールやリサイズで閉じる
+    window.addEventListener('scroll', hideMenu, true);
+    window.addEventListener('resize', hideMenu);
+
+    // メニューアイテムクリック
+    menu.addEventListener('click', (e) => {
+        const item = e.target.closest('.node-add-item');
+        if (!item) return;
+
+        const nodeType = item.dataset.type;
+        handleNodeAdd(nodeType);
+        hideMenu();
     });
 }
 
-// ノード追加セレクトのオプションを動的生成
-function populateNodeSelectOptions() {
-    const select = document.getElementById('add-node-select');
-    if (!select) return;
+// メニュー内容の構築
+function buildNodeAddMenu(menu) {
+    menu.innerHTML = '';
 
-    // 既存のフィルタオプションをクリア（静的に定義されたものを削除）
-    const existingFilterOptions = select.querySelectorAll('option[data-filter]');
-    existingFilterOptions.forEach(opt => opt.remove());
+    // カテゴリごとにグループ化
+    const categories = {
+        transform: [{ id: 'affine', name: 'アフィン変換', icon: '🔄' }],
+        composite: [{ id: 'composite', name: '合成', icon: '📑' }]
+    };
 
-    // FILTER_DEFINITIONSからフィルタオプションを追加
+    // FILTER_DEFINITIONSからフィルタを追加
     Object.values(FILTER_DEFINITIONS).forEach(def => {
-        const option = document.createElement('option');
-        option.value = def.id;
-        option.textContent = `フィルタ: ${def.name}`;
-        option.dataset.filter = 'true';  // フィルタオプションであることをマーク
-        select.appendChild(option);
+        const cat = def.category || 'other';
+        if (!categories[cat]) {
+            categories[cat] = [];
+        }
+        categories[cat].push({
+            id: def.id,
+            name: def.name,
+            icon: getCategoryIcon(cat)
+        });
     });
+
+    // カテゴリ順にメニュー構築
+    CATEGORY_ORDER.forEach(catKey => {
+        const items = categories[catKey];
+        if (!items || items.length === 0) return;
+
+        const categoryDiv = document.createElement('div');
+        categoryDiv.className = 'node-add-category';
+
+        const header = document.createElement('div');
+        header.className = 'node-add-category-header';
+        header.textContent = CATEGORY_LABELS[catKey] || catKey;
+        categoryDiv.appendChild(header);
+
+        items.forEach(item => {
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'node-add-item';
+            itemDiv.dataset.type = item.id;
+            itemDiv.innerHTML = `<span class="item-icon">${item.icon}</span>${item.name}`;
+            categoryDiv.appendChild(itemDiv);
+        });
+
+        menu.appendChild(categoryDiv);
+    });
+}
+
+// カテゴリに応じたアイコンを返す
+function getCategoryIcon(category) {
+    switch (category) {
+        case 'color': return '🎨';
+        case 'blur': return '💨';
+        default: return '⚡';
+    }
+}
+
+// ノード追加処理
+function handleNodeAdd(nodeType) {
+    if (nodeType === 'affine') {
+        addAffineNode();
+    } else if (nodeType === 'composite') {
+        addCompositeNode();
+    } else if (FILTER_DEFINITIONS[nodeType]) {
+        addIndependentFilterNode(nodeType);
+    }
 }
 
 async function handleImageUpload(event) {
@@ -1102,14 +1223,6 @@ function downloadComposedImage() {
 
 function initializeNodeGraph() {
     nodeGraphSvg = document.getElementById('node-graph-canvas');
-    const toggleBtn = document.getElementById('node-graph-toggle');
-    const container = document.querySelector('.node-graph-canvas-container');
-
-    // トグル機能
-    toggleBtn.addEventListener('click', () => {
-        container.classList.toggle('hidden');
-        toggleBtn.classList.toggle('collapsed');
-    });
 
     // 接続ドラッグのマウス移動（タッチ対応）
     document.addEventListener('mousemove', (e) => {
@@ -1954,8 +2067,8 @@ function addCompositeNode() {
         posY: posY,
         // 動的な入力配列（デフォルトで2つの入力）
         inputs: [
-            { id: 'in1', alpha: 1.0 },
-            { id: 'in2', alpha: 1.0 }
+            { id: 'in1' },
+            { id: 'in2' }
         ]
     };
 
@@ -2008,8 +2121,7 @@ function addCompositeInput(node) {
 
     const newIndex = node.inputs.length + 1;
     node.inputs.push({
-        id: `in${newIndex}`,
-        alpha: 1.0
+        id: `in${newIndex}`
     });
 
     // ノードグラフを再描画
@@ -2406,41 +2518,8 @@ function buildCompositeDetailContent(node) {
 
     const label = document.createElement('div');
     label.className = 'node-detail-label';
-    label.textContent = '入力アルファ';
+    label.textContent = `入力数: ${node.inputs ? node.inputs.length : 0}`;
     section.appendChild(label);
-
-    if (node.inputs && node.inputs.length > 0) {
-        node.inputs.forEach((input, index) => {
-            const row = document.createElement('div');
-            row.className = 'node-detail-row';
-
-            const paramLabel = document.createElement('label');
-            paramLabel.textContent = `入力 ${index + 1}`;
-
-            const slider = document.createElement('input');
-            slider.type = 'range';
-            slider.min = '0';
-            slider.max = '1';
-            slider.step = '0.01';
-            slider.value = String(input.alpha);
-
-            const display = document.createElement('span');
-            display.className = 'value-display';
-            display.textContent = input.alpha.toFixed(2);
-
-            slider.addEventListener('input', (e) => {
-                input.alpha = parseFloat(e.target.value);
-                display.textContent = input.alpha.toFixed(2);
-                renderNodeGraph();
-                throttledUpdatePreview();
-            });
-
-            row.appendChild(paramLabel);
-            row.appendChild(slider);
-            row.appendChild(display);
-            section.appendChild(row);
-        });
-    }
 
     // 入力追加ボタン
     const addBtn = document.createElement('button');
@@ -2452,6 +2531,12 @@ function buildCompositeDetailContent(node) {
         buildCompositeDetailContent(node);
     });
     section.appendChild(addBtn);
+
+    // ヒントテキスト
+    const hint = document.createElement('div');
+    hint.style.cssText = 'margin-top: 12px; font-size: 11px; color: #888;';
+    hint.textContent = '💡 アルファ調整はAlphaフィルタノードを使用してください';
+    section.appendChild(hint);
 
     detailPanelContent.appendChild(section);
 }
