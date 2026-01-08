@@ -39,7 +39,7 @@ jobs:
         run: |
           cd fleximg
           chmod +x build.sh
-          ./build.sh
+          ./build.sh --debug
 
       - name: Verify build output
         run: |

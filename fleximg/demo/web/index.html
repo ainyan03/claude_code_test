@@ -89,25 +89,32 @@
                     <div class="sidebar-setting-group">
                         <span class="sidebar-setting-label">タイル分割</span>
                         <div class="sidebar-setting-row">
-                            <select id="sidebar-tile-strategy" class="sidebar-select">
-                                <option value="0">なし（一括処理）</option>
-                                <option value="1">スキャンライン（1行ずつ）</option>
-                                <option value="2">64x64タイル</option>
-                                <option value="3">カスタム</option>
-                                <option value="4">🐛 デバッグ（市松模様）</option>
+                            <select id="sidebar-tile-preset" class="sidebar-select">
+                                <option value="none">なし（一括処理）</option>
+                                <option value="scanline">スキャンライン（1行ずつ）</option>
+                                <option value="16">16×16</option>
+                                <option value="32">32×32</option>
+                                <option value="64">64×64</option>
+                                <option value="custom">カスタム</option>
                             </select>
                         </div>
                         <div class="sidebar-setting-row sidebar-tile-custom" id="sidebar-tile-custom" style="display: none;">
                             <div class="sidebar-setting-fields">
                                 <div class="sidebar-setting-field">
                                     <label>幅</label>
-                                    <input type="number" id="sidebar-tile-width" value="64" min="8" max="512">
+                                    <input type="number" id="sidebar-tile-width" value="16" min="1" max="512">
                                 </div>
                                 <div class="sidebar-setting-field">
                                     <label>高さ</label>
-                                    <input type="number" id="sidebar-tile-height" value="64" min="8" max="512">
+                                    <input type="number" id="sidebar-tile-height" value="16" min="1" max="512">
                                 </div>
                             </div>
+                        </div>
+                        <div class="sidebar-setting-row">
+                            <label class="sidebar-checkbox-label sidebar-checkbox-small">
+                                <input type="checkbox" id="sidebar-debug-checkerboard">
+                                <span>🐛 交互スキップ</span>
+                            </label>
                         </div>
                     </div>
                     <div class="sidebar-setting-group">
