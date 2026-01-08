@@ -24,7 +24,6 @@
 namespace FLEXIMG_NAMESPACE {
 
 // 前方宣言
-struct Image;
 struct Pipeline;
 class EvaluationNode;
 
@@ -199,8 +198,11 @@ struct GraphNode {
     // JS側で行列に統一されるため、行列のみ保持
     AffineMatrix affineMatrix;
 
+    // output用
+    int outputId;  // 出力ライブラリのID（出力ノードが書き込む先）
+
     GraphNode() : imageId(-1), srcOriginX(0.0f), srcOriginY(0.0f),
-                  independent(false) {}  // filterParamsはstd::vectorなので自動初期化
+                  independent(false), outputId(0) {}  // filterParamsはstd::vectorなので自動初期化
 };
 
 // ノードグラフの接続定義
@@ -220,15 +222,22 @@ public:
     NodeGraphEvaluator(int canvasWidth, int canvasHeight);
     ~NodeGraphEvaluator();  // Pipeline の完全な定義が必要なため .cpp で実装
 
-    // 画像ライブラリに画像を登録（8bit RGBA）
-    void registerImage(int imageId, const Image& img);
+    // 入力ライブラリに入力を登録
+    void registerInput(int id, const ViewPort& view);
+    void registerInput(int id, const void* data, int width, int height,
+                       PixelFormatID format = PixelFormatIDs::RGBA8_Straight);
+
+    // 出力ライブラリに出力を登録
+    void registerOutput(int id, const ViewPort& view);
+    void registerOutput(int id, void* data, int width, int height,
+                        PixelFormatID format = PixelFormatIDs::RGBA8_Straight);
 
     // ノードグラフ構造を設定
     void setNodes(const std::vector<GraphNode>& nodes);
     void setConnections(const std::vector<GraphConnection>& connections);
 
-    // ノードグラフを評価して最終画像を取得（1回のWASM呼び出しで完結）
-    Image evaluateGraph();
+    // ノードグラフを評価（出力は登録済みのoutputLibraryに書き込まれる）
+    void evaluateGraph();
 
     // キャンバスサイズ変更
     void setCanvasSize(int width, int height);
@@ -264,10 +273,13 @@ private:
     void buildPipelineIfNeeded();
 
     // パイプラインベースの評価
-    Image evaluateWithPipeline(const RenderContext& context);
+    void evaluateWithPipeline(const RenderContext& context);
 
-    // 画像ライブラリ（RGBA8_Straight形式のImageBufferで保存）
-    std::map<int, ImageBuffer> imageLibrary;
+    // 入力ライブラリ（ViewPortの参照を保持）
+    std::map<int, ViewPort> inputLibrary;
+
+    // 出力ライブラリ（ViewPortの参照を保持）
+    std::map<int, ViewPort> outputLibrary;
 
     // パフォーマンス計測
     PerfMetrics perfMetrics;

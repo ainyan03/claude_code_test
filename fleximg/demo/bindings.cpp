@@ -1,10 +1,65 @@
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
 #include <vector>
+#include <map>
 #include "../src/fleximg/node_graph.h"
 
 using namespace emscripten;
 using namespace FLEXIMG_NAMESPACE;
+
+// ========================================================================
+// ImageStore - 入出力画像データの永続化管理クラス
+// ========================================================================
+
+class ImageStore {
+public:
+    // 外部データをコピーして保存（入力画像用）
+    ViewPort store(int id, const uint8_t* data, int w, int h, PixelFormatID fmt) {
+        size_t bytesPerPixel = getBytesPerPixelForFormat(fmt);
+        size_t size = w * h * bytesPerPixel;
+        storage_[id].assign(data, data + size);
+        return ViewPort(storage_[id].data(), fmt, w * bytesPerPixel, w, h);
+    }
+
+    // バッファを確保（出力用、または空の入力用）
+    ViewPort allocate(int id, int w, int h, PixelFormatID fmt) {
+        size_t bytesPerPixel = getBytesPerPixelForFormat(fmt);
+        size_t size = w * h * bytesPerPixel;
+        storage_[id].resize(size, 0);
+        return ViewPort(storage_[id].data(), fmt, w * bytesPerPixel, w, h);
+    }
+
+private:
+    // フォーマットからbytesPerPixelを取得するヘルパー
+    static size_t getBytesPerPixelForFormat(PixelFormatID fmt) {
+        const PixelFormatDescriptor* desc = PixelFormatRegistry::getInstance().getFormat(fmt);
+        if (!desc) return 4;  // デフォルトは4バイト（RGBA8）
+        if (desc->pixelsPerUnit > 1) {
+            return (desc->bytesPerUnit + desc->pixelsPerUnit - 1) / desc->pixelsPerUnit;
+        }
+        return (desc->bitsPerPixel + 7) / 8;
+    }
+
+public:
+
+    // データ取得（JSへ返す用）
+    const std::vector<uint8_t>& get(int id) const {
+        static const std::vector<uint8_t> empty;
+        auto it = storage_.find(id);
+        return (it != storage_.end()) ? it->second : empty;
+    }
+
+    void release(int id) {
+        storage_.erase(id);
+    }
+
+    void clear() {
+        storage_.clear();
+    }
+
+private:
+    std::map<int, std::vector<uint8_t>> storage_;
+};
 
 // ========================================================================
 // NodeGraphEvaluatorのラッパークラス
@@ -30,15 +85,34 @@ public:
         evaluator.setTileStrategy(ts, tileWidth, tileHeight);
     }
 
-    void registerImage(int imageId, const val& imageData, int width, int height) {
+    // 入力画像を登録（RGBA8_Straight形式）
+    void storeInput(int id, const val& imageData, int width, int height) {
         unsigned int length = imageData["length"].as<unsigned int>();
-        Image img(width, height);
+        std::vector<uint8_t> tempData(length);
 
         for (unsigned int i = 0; i < length; i++) {
-            img.data[i] = imageData[i].as<uint8_t>();
+            tempData[i] = imageData[i].as<uint8_t>();
         }
 
-        evaluator.registerImage(imageId, img);
+        ViewPort view = imageStore.store(id, tempData.data(), width, height, PixelFormatIDs::RGBA8_Straight);
+        evaluator.registerInput(id, view);
+    }
+
+    // 出力バッファを確保（RGBA8_Straight形式）
+    void allocateOutput(int id, int width, int height) {
+        ViewPort view = imageStore.allocate(id, width, height, PixelFormatIDs::RGBA8_Straight);
+        evaluator.registerOutput(id, view);
+    }
+
+    // 出力データを取得
+    val getOutput(int id) {
+        const std::vector<uint8_t>& data = imageStore.get(id);
+        if (data.empty()) {
+            return val::null();
+        }
+        return val::global("Uint8ClampedArray").new_(
+            typed_memory_view(data.size(), data.data())
+        );
     }
 
     void setNodes(const val& nodesArray) {
@@ -122,6 +196,13 @@ public:
                 }
             }
 
+            // output用パラメータ
+            if (node.type == "output") {
+                if (nodeObj["outputId"].typeOf().as<std::string>() != "undefined") {
+                    node.outputId = nodeObj["outputId"].as<int>();
+                }
+            }
+
             nodes.push_back(node);
         }
 
@@ -147,19 +228,8 @@ public:
         evaluator.setConnections(connections);
     }
 
-    val evaluateGraph() {
-        Image result = evaluator.evaluateGraph();
-
-        val uint8Array = val::global("Uint8ClampedArray").new_(
-            typed_memory_view(result.data.size(), result.data.data())
-        );
-
-        val resultObj = val::object();
-        resultObj.set("data", uint8Array);
-        resultObj.set("width", result.width);
-        resultObj.set("height", result.height);
-
-        return resultObj;
+    void evaluateGraph() {
+        evaluator.evaluateGraph();
     }
 
     val getPerfMetrics() {
@@ -199,6 +269,7 @@ public:
 
 private:
     NodeGraphEvaluator evaluator;
+    ImageStore imageStore;
 };
 
 EMSCRIPTEN_BINDINGS(image_transform) {
@@ -207,7 +278,9 @@ EMSCRIPTEN_BINDINGS(image_transform) {
         .function("setCanvasSize", &NodeGraphEvaluatorWrapper::setCanvasSize)
         .function("setDstOrigin", &NodeGraphEvaluatorWrapper::setDstOrigin)
         .function("setTileStrategy", &NodeGraphEvaluatorWrapper::setTileStrategy)
-        .function("registerImage", &NodeGraphEvaluatorWrapper::registerImage)
+        .function("storeInput", &NodeGraphEvaluatorWrapper::storeInput)
+        .function("allocateOutput", &NodeGraphEvaluatorWrapper::allocateOutput)
+        .function("getOutput", &NodeGraphEvaluatorWrapper::getOutput)
         .function("setNodes", &NodeGraphEvaluatorWrapper::setNodes)
         .function("setConnections", &NodeGraphEvaluatorWrapper::setConnections)
         .function("evaluateGraph", &NodeGraphEvaluatorWrapper::evaluateGraph)

@@ -833,8 +833,8 @@ function addImageToLibrary(imageData) {
 
     uploadedImages.push(image);
 
-    // C++側の画像ライブラリに登録
-    graphEvaluator.registerImage(imageId, imageData.data, imageData.width, imageData.height);
+    // C++側の入力ライブラリに登録
+    graphEvaluator.storeInput(imageId, imageData.data, imageData.width, imageData.height);
 
     // UIを更新
     renderImageLibrary();
@@ -1277,6 +1277,7 @@ function renderNodeGraph() {
             id: 'output',
             type: 'output',
             title: '出力',
+            outputId: 0,  // 出力ライブラリのID
             posX: 1000,  // 1600幅キャンバスの中央寄り右側
             posY: 550   // 1200高さキャンバスの中央付近
         });
@@ -2235,18 +2236,25 @@ function updatePreviewFromGraph() {
     graphEvaluator.setNodes(nodesForCpp);
     graphEvaluator.setConnections(globalConnections);
 
-    // C++側でノードグラフ全体を評価
-    const resultImage = graphEvaluator.evaluateGraph();
+    // 出力バッファを確保
+    const outputId = 0;
+    graphEvaluator.allocateOutput(outputId, canvasWidth, canvasHeight);
+
+    // C++側でノードグラフ全体を評価（出力はoutputLibraryに書き込まれる）
+    graphEvaluator.evaluateGraph();
+
+    // 出力データを取得
+    const resultData = graphEvaluator.getOutput(outputId);
 
     const evalTime = performance.now() - evalStart;
 
-    if (resultImage && resultImage.data) {
+    if (resultData) {
         // キャンバスに描画
         const drawStart = performance.now();
         const imageData = new ImageData(
-            resultImage.data,
-            resultImage.width,
-            resultImage.height
+            resultData,
+            canvasWidth,
+            canvasHeight
         );
 
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
@@ -2968,7 +2976,7 @@ async function restoreAppState(state) {
                 height: imgState.height
             };
             uploadedImages.push(image);
-            graphEvaluator.registerImage(imgState.id, imageData.data, imgState.width, imgState.height);
+            graphEvaluator.storeInput(imgState.id, imageData.data, imgState.width, imgState.height);
         } else {
             // 画像データが見つからない場合は警告
             missingImages.push(imgState.name);

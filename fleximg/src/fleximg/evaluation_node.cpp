@@ -16,17 +16,17 @@ EvalResult ImageEvalNode::evaluate(const RenderRequest& request,
                                    const RenderContext& context) {
     (void)context;
 
-    if (!imageData || !imageData->isValid()) {
+    if (!imageData.isValid()) {
         return EvalResult();  // 空の結果
     }
 
     // 画像の基準相対座標範囲
     // srcOriginX/Y は 9点セレクタ (0=左上, 0.5=中央, 1=右下)
     // 例: 100x100画像、中央基準(0.5) → imgLeft = -50
-    float imgLeft = -srcOriginX * imageData->width;
-    float imgTop = -srcOriginY * imageData->height;
-    float imgRight = imgLeft + imageData->width;
-    float imgBottom = imgTop + imageData->height;
+    float imgLeft = -srcOriginX * imageData.width;
+    float imgTop = -srcOriginY * imageData.height;
+    float imgRight = imgLeft + imageData.width;
+    float imgBottom = imgTop + imageData.height;
 
     // 要求範囲の基準相対座標範囲
     // バッファ位置0 は基準相対座標 -originX に対応
@@ -53,11 +53,11 @@ EvalResult ImageEvalNode::evaluate(const RenderRequest& request,
     int interHeight = static_cast<int>(interBottom - interTop);
 
     // 交差領域をコピーして新しいImageBufferを作成
-    ImageBuffer result(interWidth, interHeight, imageData->formatID);
-    size_t bytesPerPixel = imageData->getBytesPerPixel();
+    ImageBuffer result(interWidth, interHeight, imageData.formatID);
+    size_t bytesPerPixel = imageData.getBytesPerPixel();
 
     for (int y = 0; y < interHeight; y++) {
-        const void* srcRow = imageData->getPixelAddress(imgX, imgY + y);
+        const void* srcRow = imageData.getPixelAddress(imgX, imgY + y);
         void* dstRow = result.getPixelAddress(0, y);
         std::memcpy(dstRow, srcRow, interWidth * bytesPerPixel);
     }
@@ -394,12 +394,94 @@ RenderRequest CompositeEvalNode::computeInputRequest(
 
 EvalResult OutputEvalNode::evaluate(const RenderRequest& request,
                                     const RenderContext& context) {
-    if (inputs.empty()) {
-        return EvalResult();  // 空の結果
+    if (inputs.empty() || !outputTarget.isValid()) {
+        return EvalResult();
     }
 
-    // 上流ノードを評価して結果を返す（空の結果もそのまま伝播）
-    return inputs[0]->evaluate(request, context);
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    auto outputStart = std::chrono::high_resolution_clock::now();
+#endif
+
+    // タイルの出力先位置を計算
+    int tileLeft = static_cast<int>(context.originX - request.originX);
+    int tileTop = static_cast<int>(context.originY - request.originY);
+    size_t bytesPerPixel = outputTarget.getBytesPerPixel();
+
+    // 出力先の該当タイル範囲をゼロクリア
+    for (int y = 0; y < request.height && (tileTop + y) < outputTarget.height; y++) {
+        int dstY = tileTop + y;
+        if (dstY < 0) continue;
+
+        uint8_t* dstRow = static_cast<uint8_t*>(outputTarget.getPixelAddress(tileLeft, dstY));
+        int clearWidth = std::min(request.width, outputTarget.width - tileLeft);
+        if (tileLeft >= 0 && clearWidth > 0) {
+            std::memset(dstRow, 0, clearWidth * bytesPerPixel);
+        }
+    }
+
+    // 上流ノードを評価
+    EvalResult inputResult = inputs[0]->evaluate(request, context);
+
+    // 空入力の場合は早期リターン（ゼロクリア済み）
+    if (!inputResult.isValid()) {
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        auto outputEnd = std::chrono::high_resolution_clock::now();
+        if (context.perfMetrics) {
+            context.perfMetrics->add(PerfMetricIndex::Output,
+                std::chrono::duration_cast<std::chrono::microseconds>(outputEnd - outputStart).count());
+        }
+#endif
+        return EvalResult();
+    }
+
+    // 出力フォーマットに変換（必要な場合）
+    if (inputResult.buffer.formatID != outputTarget.formatID) {
+        ViewPort inputView = inputResult.buffer.view();
+        ImageBuffer converted = inputView.toImageBuffer(outputTarget.formatID);
+        inputResult = EvalResult(std::move(converted), inputResult.origin);
+    }
+
+    // 入力の出力先での位置を計算
+    // inputResult.origin は「基準点から見た入力左上の相対座標」
+    // 出力先でのコピー開始位置 = tileLeft + (入力左上 - タイル左上)
+    int inputOffsetX = static_cast<int>(inputResult.origin.x + request.originX);
+    int inputOffsetY = static_cast<int>(inputResult.origin.y + request.originY);
+    int dstStartX = tileLeft + inputOffsetX;
+    int dstStartY = tileTop + inputOffsetY;
+
+    // 入力データを出力先にコピー
+    for (int y = 0; y < inputResult.buffer.height; y++) {
+        int dstY = dstStartY + y;
+        if (dstY < 0 || dstY >= outputTarget.height) continue;
+
+        const uint8_t* srcRow = static_cast<const uint8_t*>(inputResult.buffer.getPixelAddress(0, y));
+
+        // コピー開始X位置とコピー幅を計算（クリッピング）
+        int srcStartX = 0;
+        int copyStartX = dstStartX;
+        if (copyStartX < 0) {
+            srcStartX = -copyStartX;
+            copyStartX = 0;
+        }
+        int copyWidth = inputResult.buffer.width - srcStartX;
+        if (copyStartX + copyWidth > outputTarget.width) {
+            copyWidth = outputTarget.width - copyStartX;
+        }
+        if (copyWidth <= 0) continue;
+
+        uint8_t* dstRow = static_cast<uint8_t*>(outputTarget.getPixelAddress(copyStartX, dstY));
+        std::memcpy(dstRow, srcRow + srcStartX * bytesPerPixel, copyWidth * bytesPerPixel);
+    }
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    auto outputEnd = std::chrono::high_resolution_clock::now();
+    if (context.perfMetrics) {
+        context.perfMetrics->add(PerfMetricIndex::Output,
+            std::chrono::duration_cast<std::chrono::microseconds>(outputEnd - outputStart).count());
+    }
+#endif
+
+    return EvalResult();
 }
 
 RenderRequest OutputEvalNode::computeInputRequest(
@@ -414,16 +496,17 @@ RenderRequest OutputEvalNode::computeInputRequest(
 
 std::unique_ptr<EvaluationNode> PipelineBuilder::createEvalNode(
     const GraphNode& node,
-    const std::map<int, ImageBuffer>& imageLibrary) {
+    const std::map<int, ViewPort>& inputLibrary,
+    const std::map<int, ViewPort>& outputLibrary) {
 
     if (node.type == "image") {
         auto evalNode = std::make_unique<ImageEvalNode>();
         evalNode->id = node.id;
 
-        // 画像データへの参照を設定
-        auto it = imageLibrary.find(node.imageId);
-        if (it != imageLibrary.end()) {
-            evalNode->imageData = &it->second;
+        // 画像データをViewPortとしてコピー
+        auto it = inputLibrary.find(node.imageId);
+        if (it != inputLibrary.end()) {
+            evalNode->imageData = it->second;
         }
         evalNode->srcOriginX = node.srcOriginX;
         evalNode->srcOriginY = node.srcOriginY;
@@ -453,6 +536,13 @@ std::unique_ptr<EvaluationNode> PipelineBuilder::createEvalNode(
     else if (node.type == "output") {
         auto evalNode = std::make_unique<OutputEvalNode>();
         evalNode->id = node.id;
+
+        // 出力先ViewPortを設定
+        auto it = outputLibrary.find(node.outputId);
+        if (it != outputLibrary.end()) {
+            evalNode->outputTarget = it->second;
+        }
+
         return evalNode;
     }
 
@@ -463,7 +553,8 @@ std::unique_ptr<EvaluationNode> PipelineBuilder::createEvalNode(
 Pipeline PipelineBuilder::build(
     const std::vector<GraphNode>& nodes,
     const std::vector<GraphConnection>& connections,
-    const std::map<int, ImageBuffer>& imageLibrary) {
+    const std::map<int, ViewPort>& inputLibrary,
+    const std::map<int, ViewPort>& outputLibrary) {
 
     Pipeline pipeline;
 
@@ -471,7 +562,7 @@ Pipeline PipelineBuilder::build(
     std::map<std::string, EvaluationNode*> nodeMap;
 
     for (const auto& node : nodes) {
-        auto evalNode = createEvalNode(node, imageLibrary);
+        auto evalNode = createEvalNode(node, inputLibrary, outputLibrary);
         if (evalNode) {
             // 出力ノードを記録
             if (node.type == "output") {

@@ -1,8 +1,8 @@
 #include "node_graph.h"
-#include "image_types.h"
 #include "operators.h"
 #include "evaluation_node.h"
 #include "eval_result.h"
+#include "pixel_format_registry.h"
 #include <cmath>
 #include <cstring>
 
@@ -38,10 +38,30 @@ void NodeGraphEvaluator::setTileStrategy(TileStrategy strategy, int tileWidth, i
     customTileHeight = tileHeight;
 }
 
-void NodeGraphEvaluator::registerImage(int imageId, const Image& img) {
-    // Image → ImageBuffer(RGBA8_Straight) に変換して保存
-    imageLibrary[imageId] = ImageBuffer::fromImage(img);
+void NodeGraphEvaluator::registerInput(int id, const ViewPort& view) {
+    inputLibrary[id] = view;
     pipelineDirty_ = true;  // パイプライン再構築が必要（ImageEvalNodeの参照を更新）
+}
+
+void NodeGraphEvaluator::registerInput(int id, const void* data, int width, int height, PixelFormatID format) {
+    const PixelFormatDescriptor* desc = PixelFormatRegistry::getInstance().getFormat(format);
+    size_t bytesPerPixel = desc ? (desc->bitsPerPixel + 7) / 8 : 4;
+    int stride = width * bytesPerPixel;
+    inputLibrary[id] = ViewPort(const_cast<void*>(data), format, stride, width, height);
+    pipelineDirty_ = true;
+}
+
+void NodeGraphEvaluator::registerOutput(int id, const ViewPort& view) {
+    outputLibrary[id] = view;
+    pipelineDirty_ = true;
+}
+
+void NodeGraphEvaluator::registerOutput(int id, void* data, int width, int height, PixelFormatID format) {
+    const PixelFormatDescriptor* desc = PixelFormatRegistry::getInstance().getFormat(format);
+    size_t bytesPerPixel = desc ? (desc->bitsPerPixel + 7) / 8 : 4;
+    int stride = width * bytesPerPixel;
+    outputLibrary[id] = ViewPort(data, format, stride, width, height);
+    pipelineDirty_ = true;
 }
 
 void NodeGraphEvaluator::setNodes(const std::vector<GraphNode>& newNodes) {
@@ -54,8 +74,8 @@ void NodeGraphEvaluator::setConnections(const std::vector<GraphConnection>& newC
     pipelineDirty_ = true;  // パイプライン再構築が必要
 }
 
-// ノードグラフ全体を評価（1回のWASM呼び出しで完結）
-Image NodeGraphEvaluator::evaluateGraph() {
+// ノードグラフ全体を評価（出力は登録済みのoutputLibraryに書き込まれる）
+void NodeGraphEvaluator::evaluateGraph() {
     // パフォーマンス計測をリセット
     perfMetrics.reset();
 
@@ -74,7 +94,7 @@ Image NodeGraphEvaluator::evaluateGraph() {
 #endif
 
     // パイプラインベース評価
-    return evaluateWithPipeline(context);
+    evaluateWithPipeline(context);
 }
 
 // ========================================================================
@@ -87,7 +107,7 @@ void NodeGraphEvaluator::buildPipelineIfNeeded() {
     }
 
     // パイプラインを構築
-    Pipeline newPipeline = PipelineBuilder::build(nodes, connections, imageLibrary);
+    Pipeline newPipeline = PipelineBuilder::build(nodes, connections, inputLibrary, outputLibrary);
 
     if (newPipeline.isValid()) {
         pipeline_ = std::make_unique<Pipeline>(std::move(newPipeline));
@@ -98,20 +118,18 @@ void NodeGraphEvaluator::buildPipelineIfNeeded() {
     pipelineDirty_ = false;
 }
 
-Image NodeGraphEvaluator::evaluateWithPipeline(const RenderContext& context) {
+void NodeGraphEvaluator::evaluateWithPipeline(const RenderContext& context) {
     // パイプラインを構築（必要な場合のみ）
     buildPipelineIfNeeded();
 
     if (!pipeline_ || !pipeline_->isValid()) {
-        // パイプラインが無効な場合は空の画像を返す
-        return Image(canvasWidth, canvasHeight);
+        return;  // パイプラインが無効な場合は何もしない
     }
 
     // 描画準備（逆行列計算等）
     pipeline_->prepare(context);
 
     // 統合タイル処理ループ（TileStrategy::None は 1x1 タイルとして処理）
-    Image result(canvasWidth, canvasHeight);
     int tileCountX = context.getTileCountX();
     int tileCountY = context.getTileCountY();
 
@@ -126,85 +144,11 @@ Image NodeGraphEvaluator::evaluateWithPipeline(const RenderContext& context) {
 
             RenderRequest tileReq = RenderRequest::fromTile(context, tx, ty);
 
-            // パイプラインでタイル評価（EvalResultを受け取る）
-            EvalResult evalResult = pipeline_->outputNode->evaluate(tileReq, context);
-
-            // 空タイルはスキップ（メモリ確保・処理・コピー全てスキップ）
-            if (!evalResult.isValid()) {
-                continue;
-            }
-
-            // 応答と要求の座標系が一致するか確認
-            const float epsilon = 0.001f;
-            bool needsComposite = (std::abs(evalResult.origin.x + tileReq.originX) > epsilon ||
-                                   std::abs(evalResult.origin.y + tileReq.originY) > epsilon ||
-                                   evalResult.buffer.width != tileReq.width ||
-                                   evalResult.buffer.height != tileReq.height);
-            if (needsComposite) {
-                if (evalResult.buffer.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-                    auto convStart = std::chrono::high_resolution_clock::now();
-#endif
-                    ViewPort inputView = evalResult.buffer.view();
-                    ImageBuffer converted = inputView.toImageBuffer(PixelFormatIDs::RGBA16_Premultiplied);
-                    evalResult = EvalResult(std::move(converted), evalResult.origin);
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-                    auto convEnd = std::chrono::high_resolution_clock::now();
-                    perfMetrics.add(PerfMetricIndex::Convert,
-                        std::chrono::duration_cast<std::chrono::microseconds>(convEnd - convStart).count());
-#endif
-                }
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-                auto compStart = std::chrono::high_resolution_clock::now();
-#endif
-                // 透明キャンバスに再配置（1入力なのでblendFirstで十分）
-                RenderRequest compReq{tileReq.width, tileReq.height, tileReq.originX, tileReq.originY};
-                EvalResult canvas = CompositeOperator::createCanvas(compReq);
-                ViewPort canvasView = canvas.buffer.view();
-                CompositeOperator::blendFirst(canvasView, canvas.origin.x, canvas.origin.y,
-                                              evalResult.buffer.view(), evalResult.origin.x, evalResult.origin.y);
-                evalResult = std::move(canvas);
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-                auto compEnd = std::chrono::high_resolution_clock::now();
-                perfMetrics.add(PerfMetricIndex::Composite,
-                    std::chrono::duration_cast<std::chrono::microseconds>(compEnd - compStart).count());
-#endif
-            }
-
-            // タイル結果を最終画像にコピー（RGBA8_Straightに変換してmemcpy）
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-            auto outputStart = std::chrono::high_resolution_clock::now();
-#endif
-            if (evalResult.buffer.formatID != PixelFormatIDs::RGBA8_Straight) {
-                ViewPort inputView = evalResult.buffer.view();
-                ImageBuffer converted = inputView.toImageBuffer(PixelFormatIDs::RGBA8_Straight);
-                evalResult = EvalResult(std::move(converted), evalResult.origin);
-            }
-
-            // タイルのキャンバス上の位置を計算
-            int tileLeft = static_cast<int>(context.originX - tileReq.originX);
-            int tileTop = static_cast<int>(context.originY - tileReq.originY);
-
-            // タイル結果をコピー
-            for (int y = 0; y < tileReq.height && (tileTop + y) < canvasHeight; y++) {
-                int dstY = tileTop + y;
-                if (dstY < 0 || dstY >= canvasHeight) continue;
-
-                const uint8_t* srcRow = static_cast<const uint8_t*>(evalResult.buffer.getPixelAddress(0, y));
-                uint8_t* dstRow = result.data.data() + dstY * canvasWidth * 4 + tileLeft * 4;
-
-                int copyWidth = std::min(tileReq.width, canvasWidth - tileLeft);
-                std::memcpy(dstRow, srcRow, copyWidth * 4);
-            }
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-            auto outputEnd = std::chrono::high_resolution_clock::now();
-            perfMetrics.add(PerfMetricIndex::Output,
-                std::chrono::duration_cast<std::chrono::microseconds>(outputEnd - outputStart).count());
-#endif
+            // パイプラインでタイル評価
+            // OutputEvalNode が直接 outputLibrary に書き込む
+            pipeline_->outputNode->evaluate(tileReq, context);
         }
     }
-
-    return result;
 }
 
 } // namespace FLEXIMG_NAMESPACE
