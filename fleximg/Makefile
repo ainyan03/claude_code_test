@@ -1,10 +1,20 @@
 # fleximg - Native Build Makefile
 # This Makefile builds CLI tools and test runners for native environments.
 # For WebAssembly demo build, use build.sh instead.
+#
+# Usage:
+#   make all                    リリースビルド
+#   make all FLEXIMG_DEBUG=1    デバッグビルド（性能計測有効）
+#   make test FLEXIMG_DEBUG=1   デバッグビルドでテスト実行
 
 CXX := g++
 CXXFLAGS := -std=c++17 -Wall -Wextra -O2 -g
 INCLUDES := -Isrc -Ithird_party
+
+# デバッグフラグ（FLEXIMG_DEBUG=1 で有効化）
+ifdef FLEXIMG_DEBUG
+CXXFLAGS += -DFLEXIMG_DEBUG
+endif
 
 # Google Test (via Homebrew)
 GTEST_CFLAGS := $(shell pkg-config --cflags gtest gtest_main 2>/dev/null || echo "-I/opt/homebrew/include")

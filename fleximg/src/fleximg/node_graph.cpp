@@ -69,6 +69,10 @@ Image NodeGraphEvaluator::evaluateGraph() {
     context.tileWidth = customTileWidth;
     context.tileHeight = customTileHeight;
 
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    context.perfMetrics = &perfMetrics;
+#endif
+
     // パイプラインベース評価
     return evaluateWithPipeline(context);
 }
@@ -138,15 +142,21 @@ Image NodeGraphEvaluator::evaluateWithPipeline(const RenderContext& context) {
                                    evalResult.buffer.height != tileReq.height);
             if (needsComposite) {
                 if (evalResult.buffer.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
                     auto convStart = std::chrono::high_resolution_clock::now();
+#endif
                     ViewPort inputView = evalResult.buffer.view();
                     ImageBuffer converted = inputView.toImageBuffer(PixelFormatIDs::RGBA16_Premultiplied);
                     evalResult = EvalResult(std::move(converted), evalResult.origin);
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
                     auto convEnd = std::chrono::high_resolution_clock::now();
-                    perfMetrics.convertTime += std::chrono::duration<float, std::milli>(convEnd - convStart).count();
-                    perfMetrics.convertCount++;
+                    perfMetrics.add(PerfMetricIndex::Convert,
+                        std::chrono::duration_cast<std::chrono::microseconds>(convEnd - convStart).count());
+#endif
                 }
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
                 auto compStart = std::chrono::high_resolution_clock::now();
+#endif
                 // 透明キャンバスに再配置（1入力なのでblendFirstで十分）
                 RenderRequest compReq{tileReq.width, tileReq.height, tileReq.originX, tileReq.originY};
                 EvalResult canvas = CompositeOperator::createCanvas(compReq);
@@ -154,13 +164,17 @@ Image NodeGraphEvaluator::evaluateWithPipeline(const RenderContext& context) {
                 CompositeOperator::blendFirst(canvasView, canvas.origin.x, canvas.origin.y,
                                               evalResult.buffer.view(), evalResult.origin.x, evalResult.origin.y);
                 evalResult = std::move(canvas);
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
                 auto compEnd = std::chrono::high_resolution_clock::now();
-                perfMetrics.compositeTime += std::chrono::duration<float, std::milli>(compEnd - compStart).count();
-                perfMetrics.compositeCount++;
+                perfMetrics.add(PerfMetricIndex::Composite,
+                    std::chrono::duration_cast<std::chrono::microseconds>(compEnd - compStart).count());
+#endif
             }
 
             // タイル結果を最終画像にコピー（RGBA8_Straightに変換してmemcpy）
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
             auto outputStart = std::chrono::high_resolution_clock::now();
+#endif
             if (evalResult.buffer.formatID != PixelFormatIDs::RGBA8_Straight) {
                 ViewPort inputView = evalResult.buffer.view();
                 ImageBuffer converted = inputView.toImageBuffer(PixelFormatIDs::RGBA8_Straight);
@@ -182,8 +196,11 @@ Image NodeGraphEvaluator::evaluateWithPipeline(const RenderContext& context) {
                 int copyWidth = std::min(tileReq.width, canvasWidth - tileLeft);
                 std::memcpy(dstRow, srcRow, copyWidth * 4);
             }
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
             auto outputEnd = std::chrono::high_resolution_clock::now();
-            perfMetrics.outputTime += std::chrono::duration<float, std::milli>(outputEnd - outputStart).count();
+            perfMetrics.add(PerfMetricIndex::Output,
+                std::chrono::duration_cast<std::chrono::microseconds>(outputEnd - outputStart).count());
+#endif
         }
     }
 

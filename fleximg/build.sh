@@ -2,10 +2,30 @@
 
 # fleximg Demo - WebAssembly Build Script
 # このスクリプトはC++コードをWebAssemblyにコンパイルします
+#
+# Usage:
+#   ./build.sh          リリースビルド
+#   ./build.sh --debug  デバッグビルド（性能計測有効）
 
 set -e
 
-echo "🔨 Building fleximg WebAssembly demo..."
+# デバッグモード判定
+DEBUG_MODE=0
+DEBUG_FLAGS=""
+for arg in "$@"; do
+    case $arg in
+        --debug)
+            DEBUG_MODE=1
+            DEBUG_FLAGS="-DFLEXIMG_DEBUG"
+            ;;
+    esac
+done
+
+if [ $DEBUG_MODE -eq 1 ]; then
+    echo "🔨 Building fleximg WebAssembly demo (DEBUG mode)..."
+else
+    echo "🔨 Building fleximg WebAssembly demo..."
+fi
 
 # Emscriptenの確認
 if ! command -v emcc &> /dev/null; then
@@ -49,6 +69,7 @@ emcc src/fleximg/pixel_format_registry.cpp \
     -o demo/web/image_transform.js \
     -std=c++17 \
     -O3 \
+    $DEBUG_FLAGS \
     -s WASM=1 \
     -s ALLOW_MEMORY_GROWTH=1 \
     -s MODULARIZE=1 \

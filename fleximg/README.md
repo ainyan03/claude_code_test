@@ -191,9 +191,7 @@ fleximg/
 ├── docs/                          # ドキュメント
 │   ├── QUICKSTART.md              # クイックスタートガイド
 │   ├── PROJECT_STATUS.md          # プロジェクト状況
-│   ├── DESIGN_NODE_OPERATOR.md    # オペレーター設計
-│   ├── DESIGN_PIPELINE_EVALUATION.md # パイプライン評価設計
-│   ├── DESIGN_TILE_COORDINATE_SYSTEM.md # タイル座標系設計
+│   ├── ARCHITECTURE.md            # アーキテクチャ概要
 │   ├── BRANCH_STRATEGY.md         # ブランチ戦略
 │   └── GITHUB_PAGES_SETUP.md      # GitHub Pages設定
 ├── build.sh                       # WASMビルドスクリプト
@@ -267,16 +265,15 @@ Emscriptenの`embind`を使用してC++クラスをJavaScriptから呼び出し�
 ### デバッグビルド
 
 ```bash
-emcc src/fleximg/pixel_format_registry.cpp src/fleximg/viewport.cpp \
-    src/fleximg/operators.cpp src/fleximg/node_graph.cpp \
-    demo/bindings.cpp \
-    -I src \
-    -o demo/web/image_transform.js \
-    -std=c++17 \
-    -O0 -g \
-    -s ASSERTIONS=1 \
-    # ... その他のオプション
+# WebAssemblyデバッグビルド（性能計測有効）
+./build.sh --debug
+
+# ネイティブデバッグビルド
+make all FLEXIMG_DEBUG=1
+make test FLEXIMG_DEBUG=1
 ```
+
+`FLEXIMG_DEBUG` を有効にすると、各処理の実行時間（Filter/Affine/Composite/Convert/Output）がブラウザコンソールに表示されます。リリースビルドでは計測コードが完全に除去されます。
 
 ## ⚠️ 注意事項
 

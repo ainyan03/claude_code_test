@@ -6,6 +6,42 @@
 
 ## 2026-01-08
 
+### 性能分析機能の修正（デバッグビルド対応）
+
+**背景**
+- 過去のリファクタリングにより `filterTime` と `affineTime` が計測されていなかった
+- 処理が `NodeGraphEvaluator` から `EvaluationNode` に移動したが、計測コードが更新されていなかった
+
+**設計方針**
+- `FLEXIMG_DEBUG` マクロで計測機能を制御（リリースビルドでは完全除去）
+- `RenderContext` 経由で `PerfMetrics*` を共有（シグネチャ変更なし）
+- `PerfMetrics` を配列形式に変更し、拡張性と保守性を向上
+- 計測時間は `uint32_t` マイクロ秒（整数演算のみ、FPU不要）
+
+**変更内容**
+- `node_graph.h`: マクロ定義、`PerfMetricIndex` namespace、`PerfMetrics` 配列化
+- `node_graph.cpp`: 計測コードをifdef囲み
+- `evaluation_node.cpp`: Filter/Affineの計測コード追加
+- `bindings.cpp`: `getPerfMetrics()` を配列形式対応
+- `build.sh`: `--debug` オプション追加
+- `Makefile`: `FLEXIMG_DEBUG=1` オプション追加
+
+**デバッグステータスバー**
+- 画面最下部に計測結果を常時表示
+- サイドバーと連動して左位置が調整される
+- ターミナル風デザイン（黒背景 + 緑文字）
+
+**使用方法**
+```bash
+# WASMデバッグビルド
+./build.sh --debug
+
+# ネイティブデバッグビルド
+make test FLEXIMG_DEBUG=1
+```
+
+---
+
 ### NewViewPort → ViewPort リネーム
 
 移行期間用の仮名称 `NewViewPort` を正式名称 `ViewPort` にリネーム。

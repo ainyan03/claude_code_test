@@ -219,6 +219,14 @@
         <p>WebAssembly読み込み中...</p>
     </div>
 
+    <!-- デバッグステータスバー -->
+    <div id="debug-status-bar" class="debug-status-bar">
+        <span class="debug-status-label">⏱️ Perf:</span>
+        <span id="debug-perf-total" class="debug-status-item">--</span>
+        <span class="debug-status-sep">|</span>
+        <span id="debug-perf-details" class="debug-status-details">--</span>
+    </div>
+
     <!-- キャッシュバスティング付きスクリプト読み込み -->
     <script>
         // version.jsを同期的に読み込む

@@ -1120,8 +1120,17 @@ button {
         transition: margin-left 0.3s;
     }
 
+    body.sidebar-open .debug-status-bar {
+        left: 280px;
+        transition: left 0.3s;
+    }
+
     .container {
         transition: margin-left 0.3s;
+    }
+
+    .debug-status-bar {
+        transition: left 0.3s;
     }
 
     .sidebar-toggle.open {
@@ -1188,4 +1197,54 @@ button {
     header h1 {
         font-size: 1em;
     }
+}
+
+/* ========================================
+   デバッグステータスバー
+   ======================================== */
+
+.debug-status-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 24px;
+    background: rgba(0, 0, 0, 0.85);
+    color: #0f0;
+    font-family: 'Monaco', 'Consolas', 'Courier New', monospace;
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    gap: 8px;
+    z-index: 900;  /* サイドバー(1000)より下 */
+}
+
+.debug-status-label {
+    color: #888;
+}
+
+.debug-status-item {
+    color: #0f0;
+}
+
+.debug-status-sep {
+    color: #444;
+}
+
+.debug-status-details {
+    color: #0aa;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ステータスバー分のパディング調整 */
+body {
+    padding-bottom: 24px;
+}
+
+.container {
+    height: calc(100vh - 20px - 24px);
 }

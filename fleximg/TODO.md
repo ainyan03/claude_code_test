@@ -127,31 +127,16 @@
 - [x] RGBA16_Straightを廃止
 - [x] `ImageProcessor::convertPixelFormat()` を廃止し `ViewPort::convertTo()` に統一
 
-### ノードオペレーター統一設計 ✅
+### 完了済みリファクタリング
 
-**詳細設計**: [docs/DESIGN_NODE_OPERATOR.md](docs/DESIGN_NODE_OPERATOR.md)
+以下のリファクタリングは完了しています：
 
-全6フェーズ完了。フィルタ・合成・アフィン変換を統一的なオペレータークラスで管理。
+- **ノードオペレーター統一**: フィルタ・合成・アフィン変換を統一的なオペレータークラスで管理
+- **パイプラインベース評価**: 文字列ベースのノード検索をポインタ直接参照に置き換え
+- **タイル座標系**: 「基準相対座標系」に統一、タイル分割とアフィン変換の組み合わせ問題を解決
+- **ViewPort構造**: 3つの型（ImageBuffer, ViewPort, EvalResult）に責務分離
 
-### パイプラインベース評価システム ✅
-
-**詳細設計**: [docs/DESIGN_PIPELINE_EVALUATION.md](docs/DESIGN_PIPELINE_EVALUATION.md)
-
-全6フェーズ完了。文字列ベースのノード検索をポインタ直接参照に置き換え、約680行削減。
-
-- [ ] パフォーマンス計測・比較（将来）
-
-### タイル座標系リファクタリング ✅
-
-**詳細設計**: [docs/DESIGN_TILE_COORDINATE_SYSTEM.md](docs/DESIGN_TILE_COORDINATE_SYSTEM.md)
-
-パイプライン処理における座標系を「基準相対座標系」に統一。タイル分割処理とアフィン変換の組み合わせで発生していた画像切れ問題を解決。
-
-### ViewPort構造リファクタリング ✅
-
-**詳細設計**: [docs/DESIGN_VIEWPORT_REFACTOR.md](docs/DESIGN_VIEWPORT_REFACTOR.md)
-
-旧ViewPortを責務分離し、3つの型（ImageBuffer, NewViewPort, EvalResult）に再構築。オペレーターAPIを新構造に移行。
+詳細は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) を参照。
 
 ---
 
@@ -171,8 +156,7 @@
 
 ### 設計ドキュメント
 
-- [docs/DESIGN_NODE_OPERATOR.md](docs/DESIGN_NODE_OPERATOR.md): オペレーター設計
-- [docs/DESIGN_PIPELINE_EVALUATION.md](docs/DESIGN_PIPELINE_EVALUATION.md): パイプライン評価設計
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): アーキテクチャ概要
 - [docs/DESIGN_TILE_COORDINATE_SYSTEM.md](docs/DESIGN_TILE_COORDINATE_SYSTEM.md): タイル座標系設計
-- [docs/DESIGN_ALPHA_CONVERSION.md](docs/DESIGN_ALPHA_CONVERSION.md): アルファ変換最適化設計
-- [docs/DESIGN_VIEWPORT_REFACTOR.md](docs/DESIGN_VIEWPORT_REFACTOR.md): ViewPort構造リファクタリング設計
+- [docs/DESIGN_VIEWPORT_REFACTOR.md](docs/DESIGN_VIEWPORT_REFACTOR.md): 型構造設計
+- [docs/DESIGN_ALPHA_CONVERSION.md](docs/DESIGN_ALPHA_CONVERSION.md): ピクセルフォーマット変換設計

@@ -2,6 +2,9 @@
 #include <cmath>
 #include <algorithm>
 #include <cstring>
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+#include <chrono>
+#endif
 
 namespace FLEXIMG_NAMESPACE {
 
@@ -102,10 +105,20 @@ EvalResult FilterEvalNode::evaluate(const RenderRequest& request,
 
     // 3. フィルタ処理を適用
     if (op) {
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        auto filterStart = std::chrono::high_resolution_clock::now();
+#endif
         // OperatorInputを構築
         OperatorInput opInput(inputResult);
 
         EvalResult processed = op->apply({opInput}, request);
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        auto filterEnd = std::chrono::high_resolution_clock::now();
+        if (context.perfMetrics) {
+            context.perfMetrics->add(PerfMetricIndex::Filter,
+                std::chrono::duration_cast<std::chrono::microseconds>(filterEnd - filterStart).count());
+        }
+#endif
 
         // 4. 要求範囲を切り出す（ブラー等で入力が拡大されている場合）
         // 要求の基準相対座標の左上
@@ -217,6 +230,9 @@ EvalResult AffineEvalNode::evaluate(const RenderRequest& request,
     }
 
     // 4. アフィン変換を適用
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    auto affineStart = std::chrono::high_resolution_clock::now();
+#endif
     // 入力の基準相対座標（例: -50 は基準点から見て画像左上が左に50px）
     float inputSrcOriginX = inputResult.origin.x;
     float inputSrcOriginY = inputResult.origin.y;
@@ -236,7 +252,15 @@ EvalResult AffineEvalNode::evaluate(const RenderRequest& request,
     // OperatorInputを構築
     OperatorInput opInput(inputResult);
 
-    return affineOp->apply({opInput}, request);
+    EvalResult result = affineOp->apply({opInput}, request);
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    auto affineEnd = std::chrono::high_resolution_clock::now();
+    if (context.perfMetrics) {
+        context.perfMetrics->add(PerfMetricIndex::Affine,
+            std::chrono::duration_cast<std::chrono::microseconds>(affineEnd - affineStart).count());
+    }
+#endif
+    return result;
 }
 
 RenderRequest AffineEvalNode::computeInputRequest(

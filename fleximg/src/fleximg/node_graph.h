@@ -13,6 +13,14 @@
 #include <cmath>
 #include <memory>
 
+// ========================================================================
+// デバッグ機能制御マクロ
+// FLEXIMG_DEBUG が定義されている場合のみ計測機能が有効になる
+// ========================================================================
+#ifdef FLEXIMG_DEBUG
+#define FLEXIMG_DEBUG_PERF_METRICS 1
+#endif
+
 namespace FLEXIMG_NAMESPACE {
 
 // 前方宣言
@@ -33,6 +41,9 @@ enum class TileStrategy {
     Debug_Checkerboard  // デバッグ用: 市松模様（交互にスキップ）
 };
 
+// 前方宣言
+struct PerfMetrics;
+
 // 出力全体情報（段階0で伝播）
 struct RenderContext {
     int totalWidth = 0;
@@ -43,6 +54,10 @@ struct RenderContext {
     TileStrategy strategy = TileStrategy::None;
     int tileWidth = 64;     // Custom用
     int tileHeight = 64;
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    PerfMetrics* perfMetrics = nullptr;
+#endif
 
     // タイル数を取得
     int getTileCountX() const {
@@ -111,30 +126,43 @@ struct RenderRequest {
 };
 
 // ========================================================================
-// パフォーマンス計測構造体
+// パフォーマンス計測（FLEXIMG_DEBUG有効時のみ）
 // ========================================================================
 
-struct PerfMetrics {
-    float filterTime;        // フィルタ処理時間（ms）
-    float affineTime;        // アフィン変換時間（ms）
-    float compositeTime;     // 合成処理時間（ms）
-    float convertTime;       // フォーマット変換時間（ms）
-    float outputTime;        // 最終出力変換時間（ms）
-    int filterCount;          // フィルタ処理回数
-    int affineCount;          // アフィン変換回数
-    int compositeCount;       // 合成処理回数
-    int convertCount;         // フォーマット変換回数
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
 
-    PerfMetrics()
-        : filterTime(0), affineTime(0), compositeTime(0),
-          convertTime(0), outputTime(0),
-          filterCount(0), affineCount(0), compositeCount(0), convertCount(0) {}
+namespace PerfMetricIndex {
+    constexpr int Filter = 0;
+    constexpr int Affine = 1;
+    constexpr int Composite = 2;
+    constexpr int Convert = 3;
+    constexpr int Output = 4;
+    constexpr int Count = 5;
+}
+
+struct PerfMetrics {
+    uint32_t times[PerfMetricIndex::Count] = {};  // マイクロ秒
+    int counts[PerfMetricIndex::Count] = {};
+
+    void add(int index, uint32_t us) {
+        times[index] += us;
+        counts[index]++;
+    }
 
     void reset() {
-        filterTime = affineTime = compositeTime = convertTime = outputTime = 0;
-        filterCount = affineCount = compositeCount = convertCount = 0;
+        std::fill(std::begin(times), std::end(times), 0u);
+        std::fill(std::begin(counts), std::end(counts), 0);
     }
 };
+
+#else
+
+// リリースビルド用のダミー構造体（最小サイズ）
+struct PerfMetrics {
+    void reset() {}
+};
+
+#endif // FLEXIMG_DEBUG_PERF_METRICS
 
 // ========================================================================
 // ノードグラフ構造定義
