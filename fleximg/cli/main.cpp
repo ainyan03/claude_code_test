@@ -20,7 +20,8 @@
 #include "stb_image.h"
 #include "stb_image_write.h"
 
-#include "fleximg/viewport.h"
+#include "fleximg/image_buffer.h"
+#include "fleximg/eval_result.h"
 #include "fleximg/operators.h"
 #include "fleximg/image_types.h"
 
@@ -143,13 +144,20 @@ int main(int argc, char* argv[]) {
         std::cout << "  Channels: " << channels << " (loaded as 4)\n";
     }
 
-    // Create ViewPort from loaded data
-    ViewPort viewport = ViewPort::fromExternalData(inputData, width, height,
-                                                    PixelFormatIDs::RGBA8_Straight);
+    // Create ImageBuffer from loaded data
+    ImageBuffer buffer(width, height, PixelFormatIDs::RGBA8_Straight);
+    std::memcpy(buffer.data, inputData, width * height * 4);
     stbi_image_free(inputData);
 
+    // Wrap in EvalResult
+    EvalResult evalResult(std::move(buffer), Point2f(0, 0));
+
     // Apply filters
-    OperatorContext ctx(width, height, width / 2.0, height / 2.0);
+    RenderRequest request;
+    request.width = width;
+    request.height = height;
+    request.originX = width / 2.0f;
+    request.originY = height / 2.0f;
 
     if (opts.applyBrightness) {
         if (opts.verbose) {
@@ -157,7 +165,8 @@ int main(int argc, char* argv[]) {
         }
         auto op = OperatorFactory::createFilterOperator("brightness", {opts.brightness});
         if (op) {
-            viewport = op->apply({viewport}, ctx);
+            OperatorInput input(evalResult);
+            evalResult = op->apply({input}, request);
         }
     }
 
@@ -167,7 +176,8 @@ int main(int argc, char* argv[]) {
         }
         auto op = OperatorFactory::createFilterOperator("grayscale", {});
         if (op) {
-            viewport = op->apply({viewport}, ctx);
+            OperatorInput input(evalResult);
+            evalResult = op->apply({input}, request);
         }
     }
 
@@ -177,21 +187,24 @@ int main(int argc, char* argv[]) {
         }
         auto op = OperatorFactory::createFilterOperator("alpha", {opts.alpha});
         if (op) {
-            viewport = op->apply({viewport}, ctx);
+            OperatorInput input(evalResult);
+            evalResult = op->apply({input}, request);
         }
     }
 
     // Ensure output is RGBA8_Straight for PNG output
-    if (viewport.formatID != PixelFormatIDs::RGBA8_Straight) {
-        viewport = viewport.convertTo(PixelFormatIDs::RGBA8_Straight);
+    if (evalResult.buffer.formatID != PixelFormatIDs::RGBA8_Straight) {
+        ViewPort view = evalResult.buffer.view();
+        ImageBuffer converted = view.toImageBuffer(PixelFormatIDs::RGBA8_Straight);
+        evalResult = EvalResult(std::move(converted), evalResult.origin);
     }
 
     // Write output image
     int result = stbi_write_png(opts.outputFile.c_str(),
-                                viewport.width, viewport.height,
+                                evalResult.buffer.width, evalResult.buffer.height,
                                 4,  // RGBA
-                                viewport.data,
-                                viewport.stride);
+                                evalResult.buffer.data,
+                                evalResult.buffer.stride);
 
     if (result == 0) {
         std::cerr << "Error: Failed to write output: " << opts.outputFile << "\n";

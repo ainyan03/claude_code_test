@@ -3,6 +3,8 @@
 
 #include "common.h"
 #include "viewport.h"
+#include "image_buffer.h"
+#include "eval_result.h"
 #include "node_graph.h"
 #include "operators.h"
 #include <vector>
@@ -25,8 +27,8 @@ public:
 
     // メイン評価メソッド（派生クラスで実装）
     // 要求に基づいて上流を評価し、自身の処理を適用して結果を返す
-    virtual ViewPort evaluate(const RenderRequest& request,
-                              const RenderContext& context) = 0;
+    virtual EvalResult evaluate(const RenderRequest& request,
+                                const RenderContext& context) = 0;
 
     // 入力要求の計算（派生クラスで実装）
     // 出力要求から、上流ノードに伝播する入力要求を計算
@@ -53,14 +55,14 @@ protected:
 
 class ImageEvalNode : public EvaluationNode {
 public:
-    ViewPort evaluate(const RenderRequest& request,
-                      const RenderContext& context) override;
+    EvalResult evaluate(const RenderRequest& request,
+                        const RenderContext& context) override;
 
     RenderRequest computeInputRequest(
         const RenderRequest& outputRequest) const override;
 
-    // 画像データへの参照（imageLibrary内のViewPortを指す）
-    const ViewPort* imageData = nullptr;
+    // 画像データへの参照（imageLibrary内のImageBufferを指す）
+    const ImageBuffer* imageData = nullptr;
 
     // 画像内の原点位置（0.0〜1.0、デフォルトは中央）
     float srcOriginX = 0.5f;
@@ -73,8 +75,8 @@ public:
 
 class FilterEvalNode : public EvaluationNode {
 public:
-    ViewPort evaluate(const RenderRequest& request,
-                      const RenderContext& context) override;
+    EvalResult evaluate(const RenderRequest& request,
+                        const RenderContext& context) override;
 
     RenderRequest computeInputRequest(
         const RenderRequest& outputRequest) const override;
@@ -95,8 +97,8 @@ public:
 
 class AffineEvalNode : public EvaluationNode {
 public:
-    ViewPort evaluate(const RenderRequest& request,
-                      const RenderContext& context) override;
+    EvalResult evaluate(const RenderRequest& request,
+                        const RenderContext& context) override;
 
     RenderRequest computeInputRequest(
         const RenderRequest& outputRequest) const override;
@@ -117,8 +119,8 @@ public:
 
 class CompositeEvalNode : public EvaluationNode {
 public:
-    ViewPort evaluate(const RenderRequest& request,
-                      const RenderContext& context) override;
+    EvalResult evaluate(const RenderRequest& request,
+                        const RenderContext& context) override;
 
     RenderRequest computeInputRequest(
         const RenderRequest& outputRequest) const override;
@@ -133,8 +135,8 @@ public:
 
 class OutputEvalNode : public EvaluationNode {
 public:
-    ViewPort evaluate(const RenderRequest& request,
-                      const RenderContext& context) override;
+    EvalResult evaluate(const RenderRequest& request,
+                        const RenderContext& context) override;
 
     RenderRequest computeInputRequest(
         const RenderRequest& outputRequest) const override;
@@ -172,13 +174,13 @@ public:
     static Pipeline build(
         const std::vector<GraphNode>& nodes,
         const std::vector<GraphConnection>& connections,
-        const std::map<int, ViewPort>& imageLibrary);
+        const std::map<int, ImageBuffer>& imageLibrary);
 
 private:
     // ノードタイプに応じたEvaluationNodeを生成
     static std::unique_ptr<EvaluationNode> createEvalNode(
         const GraphNode& node,
-        const std::map<int, ViewPort>& imageLibrary);
+        const std::map<int, ImageBuffer>& imageLibrary);
 };
 
 } // namespace FLEXIMG_NAMESPACE

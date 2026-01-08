@@ -2,6 +2,7 @@
 #include "image_types.h"
 #include "operators.h"
 #include "evaluation_node.h"
+#include "eval_result.h"
 #include <cmath>
 #include <cstring>
 
@@ -38,8 +39,8 @@ void NodeGraphEvaluator::setTileStrategy(TileStrategy strategy, int tileWidth, i
 }
 
 void NodeGraphEvaluator::registerImage(int imageId, const Image& img) {
-    // Image → ViewPort(RGBA8_Straight) に変換して保存
-    imageLibrary[imageId] = ViewPort::fromImage(img);
+    // Image → ImageBuffer(RGBA8_Straight) に変換して保存
+    imageLibrary[imageId] = ImageBuffer::fromImage(img);
     pipelineDirty_ = true;  // パイプライン再構築が必要（ImageEvalNodeの参照を更新）
 }
 
@@ -121,35 +122,38 @@ Image NodeGraphEvaluator::evaluateWithPipeline(const RenderContext& context) {
 
             RenderRequest tileReq = RenderRequest::fromTile(context, tx, ty);
 
-            // パイプラインでタイル評価
-            ViewPort tileResult = pipeline_->outputNode->evaluate(tileReq, context);
+            // パイプラインでタイル評価（EvalResultを受け取る）
+            EvalResult evalResult = pipeline_->outputNode->evaluate(tileReq, context);
 
             // 空タイルはスキップ（メモリ確保・処理・コピー全てスキップ）
-            if (tileResult.width == 0 || tileResult.height == 0) {
+            if (!evalResult.isValid()) {
                 continue;
             }
 
             // 応答と要求の座標系が一致するか確認
             const float epsilon = 0.001f;
-            bool needsComposite = (std::abs(tileResult.srcOriginX + tileReq.originX) > epsilon ||
-                                   std::abs(tileResult.srcOriginY + tileReq.originY) > epsilon ||
-                                   tileResult.width != tileReq.width ||
-                                   tileResult.height != tileReq.height);
+            bool needsComposite = (std::abs(evalResult.origin.x + tileReq.originX) > epsilon ||
+                                   std::abs(evalResult.origin.y + tileReq.originY) > epsilon ||
+                                   evalResult.buffer.width != tileReq.width ||
+                                   evalResult.buffer.height != tileReq.height);
             if (needsComposite) {
-                if (tileResult.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
+                if (evalResult.buffer.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
                     auto convStart = std::chrono::high_resolution_clock::now();
-                    tileResult = tileResult.convertTo(PixelFormatIDs::RGBA16_Premultiplied);
+                    ViewPort inputView = evalResult.buffer.view();
+                    ImageBuffer converted = inputView.toImageBuffer(PixelFormatIDs::RGBA16_Premultiplied);
+                    evalResult = EvalResult(std::move(converted), evalResult.origin);
                     auto convEnd = std::chrono::high_resolution_clock::now();
                     perfMetrics.convertTime += std::chrono::duration<float, std::milli>(convEnd - convStart).count();
                     perfMetrics.convertCount++;
                 }
                 auto compStart = std::chrono::high_resolution_clock::now();
                 // 透明キャンバスに再配置（1入力なのでblendFirstで十分）
-                CompositeOperator compositeOp;
                 RenderRequest compReq{tileReq.width, tileReq.height, tileReq.originX, tileReq.originY};
-                ViewPort canvas = compositeOp.createCanvas(compReq);
-                compositeOp.blendFirst(canvas, tileResult);
-                tileResult = std::move(canvas);
+                EvalResult canvas = CompositeOperator::createCanvas(compReq);
+                ViewPort canvasView = canvas.buffer.view();
+                CompositeOperator::blendFirst(canvasView, canvas.origin.x, canvas.origin.y,
+                                              evalResult.buffer.view(), evalResult.origin.x, evalResult.origin.y);
+                evalResult = std::move(canvas);
                 auto compEnd = std::chrono::high_resolution_clock::now();
                 perfMetrics.compositeTime += std::chrono::duration<float, std::milli>(compEnd - compStart).count();
                 perfMetrics.compositeCount++;
@@ -157,8 +161,10 @@ Image NodeGraphEvaluator::evaluateWithPipeline(const RenderContext& context) {
 
             // タイル結果を最終画像にコピー（RGBA8_Straightに変換してmemcpy）
             auto outputStart = std::chrono::high_resolution_clock::now();
-            if (tileResult.formatID != PixelFormatIDs::RGBA8_Straight) {
-                tileResult = tileResult.convertTo(PixelFormatIDs::RGBA8_Straight);
+            if (evalResult.buffer.formatID != PixelFormatIDs::RGBA8_Straight) {
+                ViewPort inputView = evalResult.buffer.view();
+                ImageBuffer converted = inputView.toImageBuffer(PixelFormatIDs::RGBA8_Straight);
+                evalResult = EvalResult(std::move(converted), evalResult.origin);
             }
 
             // タイルのキャンバス上の位置を計算
@@ -170,7 +176,7 @@ Image NodeGraphEvaluator::evaluateWithPipeline(const RenderContext& context) {
                 int dstY = tileTop + y;
                 if (dstY < 0 || dstY >= canvasHeight) continue;
 
-                const uint8_t* srcRow = tileResult.getPixelPtr<uint8_t>(0, y);
+                const uint8_t* srcRow = static_cast<const uint8_t*>(evalResult.buffer.getPixelAddress(0, y));
                 uint8_t* dstRow = result.data.data() + dstY * canvasWidth * 4 + tileLeft * 4;
 
                 int copyWidth = std::min(tileReq.width, canvasWidth - tileLeft);

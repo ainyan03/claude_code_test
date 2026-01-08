@@ -13,6 +13,7 @@ GTEST_LIBS := $(shell pkg-config --libs gtest gtest_main 2>/dev/null || echo "-L
 # Source files (core library, excluding WASM bindings)
 CORE_SRCS := src/fleximg/pixel_format_registry.cpp \
              src/fleximg/viewport.cpp \
+             src/fleximg/image_buffer.cpp \
              src/fleximg/operators.cpp \
              src/fleximg/node_graph.cpp \
              src/fleximg/evaluation_node.cpp

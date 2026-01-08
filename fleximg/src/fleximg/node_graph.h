@@ -3,6 +3,7 @@
 
 #include "common.h"
 #include "viewport.h"
+#include "image_buffer.h"
 #include "image_types.h"
 #include <string>
 #include <vector>
@@ -238,8 +239,8 @@ private:
     // パイプラインベースの評価
     Image evaluateWithPipeline(const RenderContext& context);
 
-    // 画像ライブラリ（RGBA8_Straight形式のViewPortで保存）
-    std::map<int, ViewPort> imageLibrary;
+    // 画像ライブラリ（RGBA8_Straight形式のImageBufferで保存）
+    std::map<int, ImageBuffer> imageLibrary;
 
     // パフォーマンス計測
     PerfMetrics perfMetrics;

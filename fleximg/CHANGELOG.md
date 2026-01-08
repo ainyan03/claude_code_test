@@ -6,6 +6,50 @@
 
 ## 2026-01-08
 
+### NewViewPort → ViewPort リネーム
+
+移行期間用の仮名称 `NewViewPort` を正式名称 `ViewPort` にリネーム。
+
+**変更内容**
+- `viewport_new.h/cpp` → `viewport.h/cpp` にファイル名変更
+- `struct NewViewPort` → `struct ViewPort` にクラス名変更
+- 全ソースファイルでの参照を更新
+- 60テスト全てパス
+
+---
+
+### ViewPort構造リファクタリング
+
+**設計変更**
+- 旧 `ViewPort` を責務分離し、3つの型に再構築:
+  - `ImageBuffer`: メモリ所有 (RAII)、確保・解放を管理
+  - `NewViewPort`: 純粋ビュー（軽量、所有権なし）
+  - `EvalResult`: パイプライン評価結果（ImageBuffer + origin座標）
+
+**主要な変更ファイル**
+- `image_buffer.h/cpp`: 新規作成（メモリ所有画像）
+- `viewport_new.h/cpp`: 新規作成（純粋ビュー + ブレンド操作）
+- `eval_result.h`: 新規作成（評価結果構造体）
+- `operators.h/cpp`: `OperatorInput`/`EvalResult` APIに移行
+- `evaluation_node.cpp`: 一時的ViewPort変換を削除
+- `viewport.h/cpp`: 削除（旧ViewPort廃止）
+
+**オペレーター変更**
+- `NodeOperator::apply()`: 戻り値を `EvalResult` に変更
+- `SingleInputOperator::applyToSingle()`: 引数を `OperatorInput` に変更
+- `AffineOperator`: コンストラクタ簡素化（7引数 → 5引数）
+- `CompositeOperator`: 静的メソッド化（`createCanvas`, `blendFirst`, `blendOnto`）
+
+**テスト更新**
+- `viewport_test.cpp`: `ImageBuffer`/`NewViewPort` テストに完全書き換え (24テスト)
+- `affine_mapping_test.cpp`: 新API対応 (36テスト)
+- 合計60テストがパス
+
+**設計ドキュメント**
+- `docs/DESIGN_VIEWPORT_REFACTOR.md` 完了
+
+---
+
 ### アルファ変換最適化
 
 **新方式の導入: `A_tmp = A8 + 1`**
