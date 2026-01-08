@@ -1,5 +1,6 @@
 #include "operators.h"
 #include "node_graph.h"  // RenderRequest
+#include "pixel_format.h"  // RGBA16Premul 閾値定数
 #include <algorithm>
 #include <cstring>
 #include <cmath>
@@ -467,6 +468,10 @@ void CompositeOperator::blendOnto(ViewPort& canvas, const ViewPort& input) const
 
     if (yStart >= yEnd || xStart >= xEnd) return;
 
+    // 閾値定数をローカル変数にキャッシュ（ループ最適化）
+    constexpr uint16_t ALPHA_TRANS_MAX = PixelFormatIDs::RGBA16Premul::ALPHA_TRANSPARENT_MAX;
+    constexpr uint16_t ALPHA_OPAQUE_MIN = PixelFormatIDs::RGBA16Premul::ALPHA_OPAQUE_MIN;
+
     for (int y = yStart; y < yEnd; y++) {
         const uint16_t* srcRow = input.getPixelPtr<uint16_t>(0, y);
         uint16_t* dstRow = canvas.getPixelPtr<uint16_t>(0, y + offsetY);
@@ -476,14 +481,17 @@ void CompositeOperator::blendOnto(ViewPort& canvas, const ViewPort& input) const
             uint16_t* dstPixel = dstRow + (x + offsetX) * 4;
 
             uint16_t srcA = srcPixel[3];
-            if (srcA == 0) continue;
+            // 透明スキップ（新方式: A16 <= 255 は透明）
+            if (srcA <= ALPHA_TRANS_MAX) continue;
 
             uint16_t srcR = srcPixel[0];
             uint16_t srcG = srcPixel[1];
             uint16_t srcB = srcPixel[2];
             uint16_t dstA = dstPixel[3];
 
-            if (srcA != 65535 && dstA != 0) {
+            // 不透明最適化（新方式: A16 >= 65280 は不透明）
+            // dstA == 0 はキャンバス初期状態（memset(0)）
+            if (srcA < ALPHA_OPAQUE_MIN && dstA != 0) {
                 // プリマルチプライド合成: src over dst
                 uint16_t invSrcA = 65535 - srcA;
                 srcR += (dstPixel[0] * invSrcA) >> 16;

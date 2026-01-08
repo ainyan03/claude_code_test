@@ -6,6 +6,33 @@
 
 ## 2026-01-08
 
+### アルファ変換最適化
+
+**新方式の導入: `A_tmp = A8 + 1`**
+- Forward変換（8bit→16bit）: 除算ゼロ、乗算のみで高速化
+- Reverse変換（16bit→8bit）: 除数が1-256に限定（テーブル化やSIMD最適化が容易）
+- 透明ピクセル（A8=0）でもRGB情報を保持（将来の「アルファを濃くするフィルタ」に対応）
+
+**アルファ閾値の定義**
+- `ALPHA_TRANSPARENT_MAX = 255`: この値以下は透明
+- `ALPHA_OPAQUE_MIN = 65280`: この値以上は不透明
+- `PixelFormatIDs::RGBA16Premul` 名前空間に constexpr 定数として定義
+
+**変更ファイル**
+- `pixel_format.h`: RGBA16Premul 名前空間と閾値定数を追加
+- `pixel_format_registry.cpp`: 変換関数を新方式に更新
+- `operators.cpp`: 合成処理の閾値判定を更新
+
+**テスト追加**
+- `AlphaConversion_TransparentPreservesRGB`: 透明時RGB保持の検証
+- `AlphaConversion_Roundtrip`: 往復変換の値保持検証
+- `AlphaConversion_ThresholdConstants`: 閾値定数の検証
+
+**設計ドキュメント**
+- `docs/DESIGN_ALPHA_CONVERSION.md` を新規作成
+
+---
+
 ### コード共通化リファクタリング
 
 **タイル評価ループの統合**
@@ -224,12 +251,12 @@
 - `verifyPixelMapping` 関数の計算式を修正
 - テストコメントに回転中心設計の数式を明記
 
-### 既知の問題
+### 解決済みの問題
 
-**Premultiply 精度問題**
-- `RGBA8_Straight` → `RGBA16_Premultiplied` 変換で 65535 が 65534 になる
-- 原因: `(r16 * a16) >> 16` の丸め誤差
-- TODO.md に将来の改善項目として記録
+**Premultiply 精度問題（解決）**
+- `RGBA8_Straight` → `RGBA16_Premultiplied` 変換での精度損失を修正
+- 旧方式: `(r16 * a16) >> 16` による丸め誤差
+- 新方式: `A_tmp = A8 + 1` による除算回避アルゴリズムで根本解決
 
 ---
 
