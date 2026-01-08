@@ -97,11 +97,9 @@ public:
                         val inputObj = inputsArray[j];
                         CompositeInput input;
                         input.id = inputObj["id"].as<std::string>();
-                        input.alpha = inputObj["alpha"].as<double>();
                         node.compositeInputs.push_back(input);
                     }
                 }
-
             }
 
             // affine用パラメータ（アフィン変換ノード）

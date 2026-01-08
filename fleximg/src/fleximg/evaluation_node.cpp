@@ -350,17 +350,6 @@ EvalResult CompositeEvalNode::evaluate(const RenderRequest& request,
             inputResult = EvalResult(std::move(converted), inputResult.origin);
         }
 
-        // アルファ適用
-        if (i < alphas.size() && alphas[i] != 1.0f) {
-            uint16_t alphaU16 = static_cast<uint16_t>(alphas[i] * 65535);
-            for (int y = 0; y < inputResult.buffer.height; y++) {
-                uint16_t* row = static_cast<uint16_t*>(inputResult.buffer.getPixelAddress(0, y));
-                for (int x = 0; x < inputResult.buffer.width * 4; x++) {
-                    row[x] = (row[x] * alphaU16) >> 16;
-                }
-            }
-        }
-
         if (!canvasInitialized) {
             // 最初の非空入力
             OperatorInput opInput(inputResult);
@@ -459,12 +448,6 @@ std::unique_ptr<EvaluationNode> PipelineBuilder::createEvalNode(
     else if (node.type == "composite") {
         auto evalNode = std::make_unique<CompositeEvalNode>();
         evalNode->id = node.id;
-
-        // アルファ値を設定
-        for (const auto& input : node.compositeInputs) {
-            evalNode->alphas.push_back(input.alpha);
-        }
-
         return evalNode;
     }
     else if (node.type == "output") {

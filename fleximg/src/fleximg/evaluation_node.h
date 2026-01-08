@@ -124,9 +124,6 @@ public:
 
     RenderRequest computeInputRequest(
         const RenderRequest& outputRequest) const override;
-
-    // 各入力のアルファ値
-    std::vector<float> alphas;
 };
 
 // ========================================================================

@@ -142,13 +142,12 @@
             <div class="node-graph-header">
                 <h2>🔗 ノードグラフ</h2>
                 <div class="node-graph-controls">
-                    <select id="add-node-select" title="ノード追加">
-                        <option value="">+ ノード追加</option>
-                        <option value="affine">アフィン変換</option>
-                        <option value="composite">合成</option>
-                        <!-- フィルタオプションはapp.jsのpopulateNodeSelectOptions()で動的生成 -->
-                    </select>
-                    <button id="node-graph-toggle" class="toggle-btn" title="表示/非表示">▼</button>
+                    <div class="node-add-dropdown" id="node-add-dropdown">
+                        <button class="node-add-btn" id="node-add-btn">+ ノード追加</button>
+                        <div class="node-add-menu" id="node-add-menu">
+                            <!-- app.jsのpopulateNodeAddMenu()で動的生成 -->
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="node-graph-canvas-container">
