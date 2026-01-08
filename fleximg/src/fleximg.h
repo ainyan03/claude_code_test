@@ -9,8 +9,9 @@
  *
  * using namespace fleximg;
  *
- * // Create a viewport and apply operators
- * ViewPort vp(100, 100, PixelFormatIDs::RGBA8_Straight);
+ * // Create an image buffer and apply operators
+ * ImageBuffer img(100, 100, PixelFormatIDs::RGBA8_Straight);
+ * ViewPort view = img.view();
  */
 
 #ifndef FLEXIMG_H
@@ -27,8 +28,10 @@
 #include "fleximg/pixel_format.h"
 #include "fleximg/pixel_format_registry.h"
 
-// Core image type
+// Core image types
+#include "fleximg/image_buffer.h"
 #include "fleximg/viewport.h"
+#include "fleximg/eval_result.h"
 
 // Operators
 #include "fleximg/operators.h"

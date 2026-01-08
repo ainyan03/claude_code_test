@@ -39,7 +39,9 @@ fleximg/
 │   ├── image_allocator.h          # メモリアロケータ（組込み環境対応）
 │   ├── pixel_format.h             # ピクセルフォーマット定義
 │   ├── pixel_format_registry.h/cpp # フォーマット変換レジストリ
-│   ├── viewport.h/cpp             # 統一画像型（ViewPort）
+│   ├── image_buffer.h/cpp         # メモリ所有画像（RAII）
+│   ├── viewport.h/cpp             # 純粋ビュー（軽量、所有権なし）
+│   ├── eval_result.h              # パイプライン評価結果
 │   ├── operators.h/cpp            # ノードオペレーター群
 │   ├── evaluation_node.h/cpp      # パイプライン評価ノード
 │   └── node_graph.h/cpp           # ノードグラフ評価エンジン
@@ -80,3 +82,4 @@ make test
 - [DESIGN_NODE_OPERATOR.md](DESIGN_NODE_OPERATOR.md): ノードオペレーター設計
 - [DESIGN_PIPELINE_EVALUATION.md](DESIGN_PIPELINE_EVALUATION.md): パイプライン評価システム設計
 - [DESIGN_TILE_COORDINATE_SYSTEM.md](DESIGN_TILE_COORDINATE_SYSTEM.md): タイル座標系設計
+- [DESIGN_VIEWPORT_REFACTOR.md](DESIGN_VIEWPORT_REFACTOR.md): ViewPort構造リファクタリング設計

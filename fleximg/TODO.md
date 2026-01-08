@@ -12,8 +12,8 @@
 
 #### ユニットテスト
 - [x] テストフレームワークの導入（Google Test 1.17.0） ✅ `make test`
-- [x] ViewPort の単体テスト ✅ `test/viewport_test.cpp` (21テスト)
-- [x] AffineOperator の単体テスト ✅ `test/affine_mapping_test.cpp` (39テスト)
+- [x] ImageBuffer/NewViewPort の単体テスト ✅ `test/viewport_test.cpp` (24テスト)
+- [x] AffineOperator の単体テスト ✅ `test/affine_mapping_test.cpp` (36テスト)
 - [ ] その他 Operators の単体テスト（Brightness, Grayscale, BoxBlur, Alpha）
 - [ ] NodeGraphEvaluator の統合テスト
 
@@ -147,6 +147,12 @@
 
 パイプライン処理における座標系を「基準相対座標系」に統一。タイル分割処理とアフィン変換の組み合わせで発生していた画像切れ問題を解決。
 
+### ViewPort構造リファクタリング ✅
+
+**詳細設計**: [docs/DESIGN_VIEWPORT_REFACTOR.md](docs/DESIGN_VIEWPORT_REFACTOR.md)
+
+旧ViewPortを責務分離し、3つの型（ImageBuffer, NewViewPort, EvalResult）に再構築。オペレーターAPIを新構造に移行。
+
 ---
 
 ## 📌 注意事項
@@ -169,3 +175,4 @@
 - [docs/DESIGN_PIPELINE_EVALUATION.md](docs/DESIGN_PIPELINE_EVALUATION.md): パイプライン評価設計
 - [docs/DESIGN_TILE_COORDINATE_SYSTEM.md](docs/DESIGN_TILE_COORDINATE_SYSTEM.md): タイル座標系設計
 - [docs/DESIGN_ALPHA_CONVERSION.md](docs/DESIGN_ALPHA_CONVERSION.md): アルファ変換最適化設計
+- [docs/DESIGN_VIEWPORT_REFACTOR.md](docs/DESIGN_VIEWPORT_REFACTOR.md): ViewPort構造リファクタリング設計

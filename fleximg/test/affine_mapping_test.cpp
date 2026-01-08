@@ -17,7 +17,8 @@
 #include <vector>
 #include <string>
 
-#include "fleximg/viewport.h"
+#include "fleximg/image_buffer.h"
+#include "fleximg/eval_result.h"
 #include "fleximg/operators.h"
 #include "fleximg/image_types.h"
 
@@ -99,12 +100,13 @@ AffineMatrix createRotationMatrix(float degrees) {
 
 // 入力画像を作成（各ピクセルに一意のインデックス値を設定）
 // R = (sy * INPUT_WIDTH + sx) で識別可能
-ViewPort createIndexedInput() {
-    ViewPort input(INPUT_WIDTH, INPUT_HEIGHT, PixelFormatIDs::RGBA16_Premultiplied);
+// originX/Y: 基準点から見た入力画像左上の相対座標（例: 中央基準なら -2, -3）
+EvalResult createIndexedInput(float originX = 0, float originY = 0) {
+    ImageBuffer input(INPUT_WIDTH, INPUT_HEIGHT, PixelFormatIDs::RGBA16_Premultiplied);
 
     for (int sy = 0; sy < INPUT_HEIGHT; sy++) {
         for (int sx = 0; sx < INPUT_WIDTH; sx++) {
-            uint16_t* pixel = input.getPixelPtr<uint16_t>(sx, sy);
+            uint16_t* pixel = static_cast<uint16_t*>(input.getPixelAddress(sx, sy));
             uint16_t index = sy * INPUT_WIDTH + sx;
             // R にインデックス、G/B は 0、A は不透明
             pixel[0] = index * 256;  // R: インデックス値（0-23を識別可能に拡大）
@@ -113,17 +115,17 @@ ViewPort createIndexedInput() {
             pixel[3] = 65535;        // A: 不透明
         }
     }
-    return input;
+    return EvalResult(std::move(input), Point2f(originX, originY));
 }
 
 // 出力画像から有効ピクセルの範囲を取得
-bool getOutputBounds(const ViewPort& output, int& minX, int& minY, int& maxX, int& maxY) {
+bool getOutputBounds(const EvalResult& output, int& minX, int& minY, int& maxX, int& maxY) {
     minX = minY = OUTPUT_SIZE;
     maxX = maxY = -1;
 
-    for (int dy = 0; dy < output.height; dy++) {
-        for (int dx = 0; dx < output.width; dx++) {
-            const uint16_t* pixel = output.getPixelPtr<uint16_t>(dx, dy);
+    for (int dy = 0; dy < output.buffer.height; dy++) {
+        for (int dx = 0; dx < output.buffer.width; dx++) {
+            const uint16_t* pixel = static_cast<const uint16_t*>(output.buffer.getPixelAddress(dx, dy));
             // アルファが0より大きいピクセルを有効とみなす
             if (pixel[3] > 0) {
                 minX = std::min(minX, dx);
@@ -139,7 +141,7 @@ bool getOutputBounds(const ViewPort& output, int& minX, int& minY, int& maxX, in
 // 出力ピクセルが正しい入力ピクセルからマッピングされているか検証
 // 基準点アライメント設計での座標計算
 // 戻り値: 全ピクセルが正しければtrue
-bool verifyPixelMapping(const ViewPort& output, const ViewPort& /* input */,
+bool verifyPixelMapping(const EvalResult& output, const EvalResult& /* input */,
                         float inputSrcOriginX, float inputSrcOriginY,
                         const AffineMatrix& matrix) {
     // 逆行列を計算
@@ -159,9 +161,9 @@ bool verifyPixelMapping(const ViewPort& output, const ViewPort& /* input */,
     float outputOriginX = inputSrcOriginX + outputOffsetX;  // = DST_ORIGIN_X
     float outputOriginY = inputSrcOriginY + outputOffsetY;  // = DST_ORIGIN_Y
 
-    for (int dy = 0; dy < output.height; dy++) {
-        for (int dx = 0; dx < output.width; dx++) {
-            const uint16_t* outPixel = output.getPixelPtr<uint16_t>(dx, dy);
+    for (int dy = 0; dy < output.buffer.height; dy++) {
+        for (int dx = 0; dx < output.buffer.width; dx++) {
+            const uint16_t* outPixel = static_cast<const uint16_t*>(output.buffer.getPixelAddress(dx, dy));
 
             // 透明ピクセルはスキップ
             if (outPixel[3] == 0) continue;
@@ -209,21 +211,21 @@ class AffineOperatorTest : public ::testing::TestWithParam<ExpectedRange> {};
 TEST_P(AffineOperatorTest, OutputRangeMatches) {
     const ExpectedRange& expected = GetParam();
 
-    // 入力画像を作成
-    ViewPort input = createIndexedInput();
+    // 入力画像を作成（originにinputSrcOriginを設定）
+    EvalResult input = createIndexedInput(expected.inputSrcOriginX, expected.inputSrcOriginY);
 
     // AffineOperator を作成（evaluation_node.cpp と同じ計算）
     AffineMatrix matrix = createRotationMatrix(expected.degrees);
     float outputOffsetX = DST_ORIGIN_X - expected.inputSrcOriginX;
     float outputOffsetY = DST_ORIGIN_Y - expected.inputSrcOriginY;
-    AffineOperator op(matrix, expected.inputSrcOriginX, expected.inputSrcOriginY,
-                      outputOffsetX, outputOffsetY, OUTPUT_SIZE, OUTPUT_SIZE);
+    AffineOperator op(matrix, outputOffsetX, outputOffsetY, OUTPUT_SIZE, OUTPUT_SIZE);
 
     // コンテキスト
     RenderRequest req{OUTPUT_SIZE, OUTPUT_SIZE, DST_ORIGIN_X, DST_ORIGIN_Y};
 
     // 変換を適用
-    ViewPort output = op.applyToSingle(input, req);
+    OperatorInput opInput(input);
+    EvalResult output = op.applyToSingle(opInput, req);
 
     // 出力範囲を取得
     int actualMinX, actualMinY, actualMaxX, actualMaxY;
@@ -243,21 +245,21 @@ TEST_P(AffineOperatorTest, OutputRangeMatches) {
 TEST_P(AffineOperatorTest, PixelMappingIsCorrect) {
     const ExpectedRange& expected = GetParam();
 
-    // 入力画像を作成
-    ViewPort input = createIndexedInput();
+    // 入力画像を作成（originにinputSrcOriginを設定）
+    EvalResult input = createIndexedInput(expected.inputSrcOriginX, expected.inputSrcOriginY);
 
     // AffineOperator を作成（evaluation_node.cpp と同じ計算）
     AffineMatrix matrix = createRotationMatrix(expected.degrees);
     float outputOffsetX = DST_ORIGIN_X - expected.inputSrcOriginX;
     float outputOffsetY = DST_ORIGIN_Y - expected.inputSrcOriginY;
-    AffineOperator op(matrix, expected.inputSrcOriginX, expected.inputSrcOriginY,
-                      outputOffsetX, outputOffsetY, OUTPUT_SIZE, OUTPUT_SIZE);
+    AffineOperator op(matrix, outputOffsetX, outputOffsetY, OUTPUT_SIZE, OUTPUT_SIZE);
 
     // コンテキスト
     RenderRequest req{OUTPUT_SIZE, OUTPUT_SIZE, DST_ORIGIN_X, DST_ORIGIN_Y};
 
     // 変換を適用
-    ViewPort output = op.applyToSingle(input, req);
+    OperatorInput opInput(input);
+    EvalResult output = op.applyToSingle(opInput, req);
 
     // ピクセルマッピングを検証
     EXPECT_TRUE(verifyPixelMapping(output, input, expected.inputSrcOriginX, expected.inputSrcOriginY, matrix))
@@ -268,7 +270,8 @@ TEST_P(AffineOperatorTest, PixelMappingIsCorrect) {
 TEST_P(AffineOperatorTest, StabilityWithinOneDegree) {
     const ExpectedRange& expected = GetParam();
 
-    ViewPort input = createIndexedInput();
+    // 入力画像を作成（originにinputSrcOriginを設定）
+    EvalResult input = createIndexedInput(expected.inputSrcOriginX, expected.inputSrcOriginY);
     RenderRequest req{OUTPUT_SIZE, OUTPUT_SIZE, DST_ORIGIN_X, DST_ORIGIN_Y};
 
     // outputOffset を計算（evaluation_node.cpp と同じ）
@@ -277,15 +280,15 @@ TEST_P(AffineOperatorTest, StabilityWithinOneDegree) {
 
     // +1度
     AffineMatrix matrixPlus = createRotationMatrix(expected.degrees + 1.0f);
-    AffineOperator opPlus(matrixPlus, expected.inputSrcOriginX, expected.inputSrcOriginY,
-                          outputOffsetX, outputOffsetY, OUTPUT_SIZE, OUTPUT_SIZE);
-    ViewPort outputPlus = opPlus.applyToSingle(input, req);
+    AffineOperator opPlus(matrixPlus, outputOffsetX, outputOffsetY, OUTPUT_SIZE, OUTPUT_SIZE);
+    OperatorInput opInputPlus(input);
+    EvalResult outputPlus = opPlus.applyToSingle(opInputPlus, req);
 
     // -1度
     AffineMatrix matrixMinus = createRotationMatrix(expected.degrees - 1.0f);
-    AffineOperator opMinus(matrixMinus, expected.inputSrcOriginX, expected.inputSrcOriginY,
-                           outputOffsetX, outputOffsetY, OUTPUT_SIZE, OUTPUT_SIZE);
-    ViewPort outputMinus = opMinus.applyToSingle(input, req);
+    AffineOperator opMinus(matrixMinus, outputOffsetX, outputOffsetY, OUTPUT_SIZE, OUTPUT_SIZE);
+    OperatorInput opInputMinus(input);
+    EvalResult outputMinus = opMinus.applyToSingle(opInputMinus, req);
 
     int plusMinX, plusMinY, plusMaxX, plusMaxY;
     int minusMinX, minusMinY, minusMaxX, minusMaxY;
@@ -328,7 +331,10 @@ INSTANTIATE_TEST_SUITE_P(
 // ==============================================================================
 
 TEST(AffineOperatorBasicTest, IdentityTransform) {
-    ViewPort input = createIndexedInput();
+    // inputSrcOrigin = (0,0) で入力を作成
+    float inputSrcOriginX = 0.0f;
+    float inputSrcOriginY = 0.0f;
+    EvalResult input = createIndexedInput(inputSrcOriginX, inputSrcOriginY);
 
     // 単位行列
     AffineMatrix identity;
@@ -336,17 +342,15 @@ TEST(AffineOperatorBasicTest, IdentityTransform) {
     identity.c = 0.0f; identity.d = 1.0f;
     identity.tx = 0.0f; identity.ty = 0.0f;
 
-    // inputSrcOrigin = (0,0) の場合、outputOffset = DST_ORIGIN - inputSrcOrigin = (12,12)
-    float inputSrcOriginX = 0.0f;
-    float inputSrcOriginY = 0.0f;
+    // outputOffset = DST_ORIGIN - inputSrcOrigin = (12,12)
     float outputOffsetX = DST_ORIGIN_X - inputSrcOriginX;
     float outputOffsetY = DST_ORIGIN_Y - inputSrcOriginY;
 
-    AffineOperator op(identity, inputSrcOriginX, inputSrcOriginY,
-                      outputOffsetX, outputOffsetY, OUTPUT_SIZE, OUTPUT_SIZE);
+    AffineOperator op(identity, outputOffsetX, outputOffsetY, OUTPUT_SIZE, OUTPUT_SIZE);
     RenderRequest req{OUTPUT_SIZE, OUTPUT_SIZE, DST_ORIGIN_X, DST_ORIGIN_Y};
 
-    ViewPort output = op.applyToSingle(input, req);
+    OperatorInput opInput(input);
+    EvalResult output = op.applyToSingle(opInput, req);
 
     int minX, minY, maxX, maxY;
     ASSERT_TRUE(getOutputBounds(output, minX, minY, maxX, maxY));
@@ -359,7 +363,10 @@ TEST(AffineOperatorBasicTest, IdentityTransform) {
 }
 
 TEST(AffineOperatorBasicTest, TranslationOnly) {
-    ViewPort input = createIndexedInput();
+    // inputSrcOrigin = (0,0) で入力を作成
+    float inputSrcOriginX = 0.0f;
+    float inputSrcOriginY = 0.0f;
+    EvalResult input = createIndexedInput(inputSrcOriginX, inputSrcOriginY);
 
     // 平行移動のみ (tx=2, ty=3)
     AffineMatrix translation;
@@ -367,16 +374,14 @@ TEST(AffineOperatorBasicTest, TranslationOnly) {
     translation.c = 0.0f; translation.d = 1.0f;
     translation.tx = 2.0f; translation.ty = 3.0f;
 
-    float inputSrcOriginX = 0.0f;
-    float inputSrcOriginY = 0.0f;
     float outputOffsetX = DST_ORIGIN_X - inputSrcOriginX;
     float outputOffsetY = DST_ORIGIN_Y - inputSrcOriginY;
 
-    AffineOperator op(translation, inputSrcOriginX, inputSrcOriginY,
-                      outputOffsetX, outputOffsetY, OUTPUT_SIZE, OUTPUT_SIZE);
+    AffineOperator op(translation, outputOffsetX, outputOffsetY, OUTPUT_SIZE, OUTPUT_SIZE);
     RenderRequest req{OUTPUT_SIZE, OUTPUT_SIZE, DST_ORIGIN_X, DST_ORIGIN_Y};
 
-    ViewPort output = op.applyToSingle(input, req);
+    OperatorInput opInput(input);
+    EvalResult output = op.applyToSingle(opInput, req);
 
     int minX, minY, maxX, maxY;
     ASSERT_TRUE(getOutputBounds(output, minX, minY, maxX, maxY));
@@ -388,26 +393,27 @@ TEST(AffineOperatorBasicTest, TranslationOnly) {
 }
 
 TEST(AffineOperatorBasicTest, OutputFormatIsPremultiplied) {
-    ViewPort input = createIndexedInput();
+    // inputSrcOrigin = (0,0) で入力を作成
+    float inputSrcOriginX = 0.0f;
+    float inputSrcOriginY = 0.0f;
+    EvalResult input = createIndexedInput(inputSrcOriginX, inputSrcOriginY);
 
     AffineMatrix identity;
     identity.a = 1.0f; identity.b = 0.0f;
     identity.c = 0.0f; identity.d = 1.0f;
     identity.tx = 0.0f; identity.ty = 0.0f;
 
-    float inputSrcOriginX = 0.0f;
-    float inputSrcOriginY = 0.0f;
     float outputOffsetX = DST_ORIGIN_X - inputSrcOriginX;
     float outputOffsetY = DST_ORIGIN_Y - inputSrcOriginY;
 
-    AffineOperator op(identity, inputSrcOriginX, inputSrcOriginY,
-                      outputOffsetX, outputOffsetY, OUTPUT_SIZE, OUTPUT_SIZE);
+    AffineOperator op(identity, outputOffsetX, outputOffsetY, OUTPUT_SIZE, OUTPUT_SIZE);
     RenderRequest req{OUTPUT_SIZE, OUTPUT_SIZE, DST_ORIGIN_X, DST_ORIGIN_Y};
 
-    ViewPort output = op.applyToSingle(input, req);
+    OperatorInput opInput(input);
+    EvalResult output = op.applyToSingle(opInput, req);
 
     // 出力フォーマットがRGBA16_Premultipliedであることを確認
-    EXPECT_EQ(output.formatID, PixelFormatIDs::RGBA16_Premultiplied);
+    EXPECT_EQ(output.buffer.formatID, PixelFormatIDs::RGBA16_Premultiplied);
 }
 
 } // namespace

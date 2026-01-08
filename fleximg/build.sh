@@ -40,6 +40,7 @@ echo "📝 Build info: $BUILD_DATE (commit: $GIT_COMMIT)"
 # WebAssemblyにコンパイル
 emcc src/fleximg/pixel_format_registry.cpp \
      src/fleximg/viewport.cpp \
+     src/fleximg/image_buffer.cpp \
      src/fleximg/operators.cpp \
      src/fleximg/node_graph.cpp \
      src/fleximg/evaluation_node.cpp \

@@ -11,20 +11,24 @@ namespace FLEXIMG_NAMESPACE {
 // BrightnessOperator 実装（8bit Straight形式で処理）
 // ========================================================================
 
-ViewPort BrightnessOperator::applyToSingle(const ViewPort& input,
-                                           const RenderRequest& request) const {
+EvalResult BrightnessOperator::applyToSingle(const OperatorInput& input,
+                                             const RenderRequest& request) const {
     (void)request;  // 未使用
 
+    if (!input.isValid()) {
+        return EvalResult();
+    }
+
     // 入力を要求形式に変換（既に同じ形式ならコピー）
-    ViewPort working = input.convertTo(PixelFormatIDs::RGBA8_Straight);
+    ImageBuffer working = input.view.toImageBuffer(PixelFormatIDs::RGBA8_Straight);
 
     // 8bit Straight形式での処理
-    ViewPort output(working.width, working.height, PixelFormatIDs::RGBA8_Straight);
+    ImageBuffer output(working.width, working.height, PixelFormatIDs::RGBA8_Straight);
     int adjustment = static_cast<int>(brightness_ * 255.0f);
 
     for (int y = 0; y < working.height; y++) {
-        const uint8_t* srcRow = working.getPixelPtr<uint8_t>(0, y);
-        uint8_t* dstRow = output.getPixelPtr<uint8_t>(0, y);
+        const uint8_t* srcRow = static_cast<const uint8_t*>(working.getPixelAddress(0, y));
+        uint8_t* dstRow = static_cast<uint8_t*>(output.getPixelAddress(0, y));
 
         for (int x = 0; x < working.width; x++) {
             int pixelOffset = x * 4;
@@ -38,26 +42,30 @@ ViewPort BrightnessOperator::applyToSingle(const ViewPort& input,
         }
     }
 
-    return output;
+    return EvalResult(std::move(output), Point2f(input.originX, input.originY));
 }
 
 // ========================================================================
 // GrayscaleOperator 実装（8bit Straight形式で処理）
 // ========================================================================
 
-ViewPort GrayscaleOperator::applyToSingle(const ViewPort& input,
-                                          const RenderRequest& request) const {
+EvalResult GrayscaleOperator::applyToSingle(const OperatorInput& input,
+                                            const RenderRequest& request) const {
     (void)request;  // 未使用
 
+    if (!input.isValid()) {
+        return EvalResult();
+    }
+
     // 入力を要求形式に変換（既に同じ形式ならコピー）
-    ViewPort working = input.convertTo(PixelFormatIDs::RGBA8_Straight);
+    ImageBuffer working = input.view.toImageBuffer(PixelFormatIDs::RGBA8_Straight);
 
     // 8bit Straight形式での処理
-    ViewPort output(working.width, working.height, PixelFormatIDs::RGBA8_Straight);
+    ImageBuffer output(working.width, working.height, PixelFormatIDs::RGBA8_Straight);
 
     for (int y = 0; y < working.height; y++) {
-        const uint8_t* srcRow = working.getPixelPtr<uint8_t>(0, y);
-        uint8_t* dstRow = output.getPixelPtr<uint8_t>(0, y);
+        const uint8_t* srcRow = static_cast<const uint8_t*>(working.getPixelAddress(0, y));
+        uint8_t* dstRow = static_cast<uint8_t*>(output.getPixelAddress(0, y));
 
         for (int x = 0; x < working.width; x++) {
             int pixelOffset = x * 4;
@@ -74,25 +82,29 @@ ViewPort GrayscaleOperator::applyToSingle(const ViewPort& input,
         }
     }
 
-    return output;
+    return EvalResult(std::move(output), Point2f(input.originX, input.originY));
 }
 
 // ========================================================================
 // BoxBlurOperator 実装（8bit Straight形式で処理）
 // ========================================================================
 
-ViewPort BoxBlurOperator::applyToSingle(const ViewPort& input,
-                                        const RenderRequest& request) const {
+EvalResult BoxBlurOperator::applyToSingle(const OperatorInput& input,
+                                          const RenderRequest& request) const {
     (void)request;  // 未使用
 
+    if (!input.isValid()) {
+        return EvalResult();
+    }
+
     // 入力を要求形式に変換（既に同じ形式ならコピー）
-    ViewPort working = input.convertTo(PixelFormatIDs::RGBA8_Straight);
+    ImageBuffer working = input.view.toImageBuffer(PixelFormatIDs::RGBA8_Straight);
 
     int width = working.width;
     int height = working.height;
 
     // 中間バッファ（水平ブラー結果）
-    ViewPort temp(width, height, PixelFormatIDs::RGBA8_Straight);
+    ImageBuffer temp(width, height, PixelFormatIDs::RGBA8_Straight);
     const uint8_t* workingData = static_cast<const uint8_t*>(working.data);
     const size_t workingStride = working.stride;
     uint8_t* tempData = static_cast<uint8_t*>(temp.data);
@@ -127,7 +139,7 @@ ViewPort BoxBlurOperator::applyToSingle(const ViewPort& input,
     }
 
     // パス2: 垂直方向のブラー
-    ViewPort output(width, height, PixelFormatIDs::RGBA8_Straight);
+    ImageBuffer output(width, height, PixelFormatIDs::RGBA8_Straight);
     uint8_t* outputData = static_cast<uint8_t*>(output.data);
     const size_t outputStride = output.stride;
 
@@ -157,27 +169,31 @@ ViewPort BoxBlurOperator::applyToSingle(const ViewPort& input,
         }
     }
 
-    return output;
+    return EvalResult(std::move(output), Point2f(input.originX, input.originY));
 }
 
 // ========================================================================
 // AlphaOperator 実装（入力形式に応じて処理）
 // ========================================================================
 
-ViewPort AlphaOperator::applyToSingle(const ViewPort& input,
-                                      const RenderRequest& request) const {
+EvalResult AlphaOperator::applyToSingle(const OperatorInput& input,
+                                        const RenderRequest& request) const {
     (void)request;  // 未使用
 
+    if (!input.isValid()) {
+        return EvalResult();
+    }
+
     // 入力が RGBA16_Premultiplied の場合は16bit処理
-    if (input.formatID == PixelFormatIDs::RGBA16_Premultiplied) {
-        ViewPort output(input.width, input.height, PixelFormatIDs::RGBA16_Premultiplied);
+    if (input.view.formatID == PixelFormatIDs::RGBA16_Premultiplied) {
+        ImageBuffer output(input.view.width, input.view.height, PixelFormatIDs::RGBA16_Premultiplied);
         uint32_t alphaScale = static_cast<uint32_t>(alpha_ * 65536.0f);  // 16.16固定小数点
 
-        for (int y = 0; y < input.height; y++) {
-            const uint16_t* srcRow = input.getPixelPtr<uint16_t>(0, y);
-            uint16_t* dstRow = output.getPixelPtr<uint16_t>(0, y);
+        for (int y = 0; y < input.view.height; y++) {
+            const uint16_t* srcRow = input.view.getPixelPtr<uint16_t>(0, y);
+            uint16_t* dstRow = static_cast<uint16_t*>(output.getPixelAddress(0, y));
 
-            for (int x = 0; x < input.width; x++) {
+            for (int x = 0; x < input.view.width; x++) {
                 int pixelOffset = x * 4;
                 // RGBA全チャンネルにアルファ乗算を適用（Premultiplied形式）
                 for (int c = 0; c < 4; c++) {
@@ -186,18 +202,18 @@ ViewPort AlphaOperator::applyToSingle(const ViewPort& input,
                 }
             }
         }
-        return output;
+        return EvalResult(std::move(output), Point2f(input.originX, input.originY));
     }
 
     // それ以外の場合は RGBA8_Straight で処理（変換が必要なら変換）
-    ViewPort working = input.convertTo(PixelFormatIDs::RGBA8_Straight);
+    ImageBuffer working = input.view.toImageBuffer(PixelFormatIDs::RGBA8_Straight);
 
-    ViewPort output(working.width, working.height, PixelFormatIDs::RGBA8_Straight);
+    ImageBuffer output(working.width, working.height, PixelFormatIDs::RGBA8_Straight);
     uint32_t alphaScale = static_cast<uint32_t>(alpha_ * 256.0f);  // 8.8固定小数点
 
     for (int y = 0; y < working.height; y++) {
-        const uint8_t* srcRow = working.getPixelPtr<uint8_t>(0, y);
-        uint8_t* dstRow = output.getPixelPtr<uint8_t>(0, y);
+        const uint8_t* srcRow = static_cast<const uint8_t*>(working.getPixelAddress(0, y));
+        uint8_t* dstRow = static_cast<uint8_t*>(output.getPixelAddress(0, y));
 
         for (int x = 0; x < working.width; x++) {
             int pixelOffset = x * 4;
@@ -210,7 +226,7 @@ ViewPort AlphaOperator::applyToSingle(const ViewPort& input,
         }
     }
 
-    return output;
+    return EvalResult(std::move(output), Point2f(input.originX, input.originY));
 }
 
 // ========================================================================
@@ -248,27 +264,30 @@ std::unique_ptr<NodeOperator> OperatorFactory::createFilterOperator(
 // ========================================================================
 
 AffineOperator::AffineOperator(const AffineMatrix& matrix,
-                               float inputSrcOriginX, float inputSrcOriginY,
-                               float outputOriginX, float outputOriginY,
+                               float outputOffsetX, float outputOffsetY,
                                int outputWidth, int outputHeight)
     : matrix_(matrix)
-    , inputSrcOriginX_(inputSrcOriginX), inputSrcOriginY_(inputSrcOriginY)
-    , outputOriginX_(outputOriginX), outputOriginY_(outputOriginY)
+    , outputOffsetX_(outputOffsetX), outputOffsetY_(outputOffsetY)
     , outputWidth_(outputWidth), outputHeight_(outputHeight) {}
 
-ViewPort AffineOperator::applyToSingle(const ViewPort& input,
-                                       const RenderRequest& request) const {
+EvalResult AffineOperator::applyToSingle(const OperatorInput& input,
+                                         const RenderRequest& request) const {
+    if (!input.isValid()) {
+        return EvalResult();
+    }
+
     // 出力サイズの決定（0以下の場合はrequest.width/heightを使用）
     int outW = (outputWidth_ > 0) ? outputWidth_ : request.width;
     int outH = (outputHeight_ > 0) ? outputHeight_ : request.height;
 
-    ViewPort output(outW, outH, PixelFormatIDs::RGBA16_Premultiplied);
+    ImageBuffer output(outW, outH, PixelFormatIDs::RGBA16_Premultiplied);
     std::memset(output.data, 0, output.getTotalBytes());
 
     // 逆行列を計算（出力→入力の座標変換）
     float det = matrix_.a * matrix_.d - matrix_.b * matrix_.c;
     if (std::abs(det) < 1e-10f) {
-        return output;  // 特異行列の場合は空画像を返す
+        // 特異行列の場合は空画像を返す
+        return EvalResult(std::move(output), Point2f(-request.originX, -request.originY));
     }
 
     float invDet = 1.0f / det;
@@ -291,13 +310,17 @@ ViewPort AffineOperator::applyToSingle(const ViewPort& input,
     int32_t fixedInvTx = std::lround(invTx * FIXED_POINT_SCALE);
     int32_t fixedInvTy = std::lround(invTy * FIXED_POINT_SCALE);
 
+    // 座標情報は OperatorInput から取得
+    float inputSrcOriginX = input.originX;
+    float inputSrcOriginY = input.originY;
+
     // 基準相対座標系での座標変換:
     //
     // 入力バッファ (sx, sy) の基準相対座標: (sx + inputSrcOriginX, sy + inputSrcOriginY)
-    //   ※ inputSrcOriginX_ は基準から見た画像左上の相対座標（例: -50）
+    //   ※ inputSrcOriginX は基準から見た画像左上の相対座標（例: -50）
     //
     // 出力バッファ (dx, dy) の基準相対座標: (dx - outputOriginX, dy - outputOriginY)
-    //   ※ outputOriginX_ はバッファ内での基準点位置（例: 64）
+    //   ※ outputOriginX はバッファ内での基準点位置（例: 64）
     //   ※ バッファ左上の基準相対座標は -outputOriginX
     //
     // 逆変換（出力バッファ → 入力バッファ）:
@@ -308,12 +331,12 @@ ViewPort AffineOperator::applyToSingle(const ViewPort& input,
     // 整理すると:
     //   sx = invA*dx + invB*dy + (invTx - invA*outputOriginX - invB*outputOriginY - inputSrcOriginX)
 
-    int32_t inputSrcOriginXInt = std::lround(inputSrcOriginX_);
-    int32_t inputSrcOriginYInt = std::lround(inputSrcOriginY_);
-    // outputOriginX_ はオフセット値（= 実際のoutputOriginX - inputSrcOriginX）として渡されている
+    int32_t inputSrcOriginXInt = std::lround(inputSrcOriginX);
+    int32_t inputSrcOriginYInt = std::lround(inputSrcOriginY);
+    // outputOffsetX_ は（outputOriginX - inputSrcOriginX）として渡されている
     // 実際の outputOriginX を復元: outputOriginX = inputSrcOriginX + outputOffsetX
-    int32_t outputOriginXInt = std::lround(inputSrcOriginX_ + outputOriginX_);
-    int32_t outputOriginYInt = std::lround(inputSrcOriginY_ + outputOriginY_);
+    int32_t outputOriginXInt = std::lround(inputSrcOriginX + outputOffsetX_);
+    int32_t outputOriginYInt = std::lround(inputSrcOriginY + outputOffsetY_);
 
     // effectiveInvTx = invTx - invA*outputOriginX - invB*outputOriginY - inputSrcOriginX
     fixedInvTx += -(outputOriginXInt * fixedInvA)
@@ -355,7 +378,7 @@ ViewPort AffineOperator::applyToSingle(const ViewPort& input,
     };
 
     // ピクセルスキャン（DDAアルゴリズム）
-    const int inputStride = input.stride / sizeof(uint16_t);
+    const int inputStride = input.view.stride / sizeof(uint16_t);
     const int32_t rowOffsetX = fixedInvB >> 1;
     const int32_t rowOffsetY = fixedInvD >> 1;
     const int32_t dxOffsetX = fixedInvA >> 1;
@@ -365,8 +388,8 @@ ViewPort AffineOperator::applyToSingle(const ViewPort& input,
         int32_t rowBaseX = fixedInvB * dy + fixedInvTx + rowOffsetX;
         int32_t rowBaseY = fixedInvD * dy + fixedInvTy + rowOffsetY;
 
-        auto [xStart, xEnd] = calcValidRange(fixedInvA, rowBaseX, 0, input.width - 1, outW);
-        auto [yStart, yEnd] = calcValidRange(fixedInvC, rowBaseY, 0, input.height - 1, outW);
+        auto [xStart, xEnd] = calcValidRange(fixedInvA, rowBaseX, 0, input.view.width - 1, outW);
+        auto [yStart, yEnd] = calcValidRange(fixedInvC, rowBaseY, 0, input.view.height - 1, outW);
         int dxStart = std::max({0, xStart, yStart});
         int dxEnd = std::min({outW - 1, xEnd, yEnd});
 
@@ -375,14 +398,14 @@ ViewPort AffineOperator::applyToSingle(const ViewPort& input,
         int32_t srcX_fixed = fixedInvA * dxStart + rowBaseX + dxOffsetX;
         int32_t srcY_fixed = fixedInvC * dxStart + rowBaseY + dxOffsetY;
 
-        uint16_t* dstRow = output.getPixelPtr<uint16_t>(dxStart, dy);
-        const uint16_t* inputData = static_cast<const uint16_t*>(input.data);
+        uint16_t* dstRow = static_cast<uint16_t*>(output.getPixelAddress(dxStart, dy));
+        const uint16_t* inputData = static_cast<const uint16_t*>(input.view.data);
 
         for (int dx = dxStart; dx <= dxEnd; dx++) {
             uint32_t sx = (uint32_t)srcX_fixed >> FIXED_POINT_BITS;
             uint32_t sy = (uint32_t)srcY_fixed >> FIXED_POINT_BITS;
 
-            if (sx < (uint32_t)input.width && sy < (uint32_t)input.height) {
+            if (sx < (uint32_t)input.view.width && sy < (uint32_t)input.view.height) {
                 const uint16_t* srcPixel = inputData + sy * inputStride + sx * 4;
                 dstRow[0] = srcPixel[0];
                 dstRow[1] = srcPixel[1];
@@ -396,136 +419,84 @@ ViewPort AffineOperator::applyToSingle(const ViewPort& input,
         }
     }
 
-    return output;
+    // 出力の origin は「基準から見た出力左上の相対座標」
+    // 出力バッファの左上は基準から見て -originX の位置
+    return EvalResult(std::move(output), Point2f(-request.originX, -request.originY));
 }
 
 // ========================================================================
 // CompositeOperator 実装
 // ========================================================================
 
-ViewPort CompositeOperator::apply(const std::vector<ViewPort>& inputs,
-                                  const RenderRequest& request) const {
-    // createCanvas + blendOnto で実装（コード共通化）
-    ViewPort result = createCanvas(request);
-    for (const auto& img : inputs) {
-        if (img.isValid()) {
-            blendOnto(result, img);
+EvalResult CompositeOperator::apply(const std::vector<OperatorInput>& inputs,
+                                    const RenderRequest& request) const {
+    // createCanvas + blendOnto で実装
+    EvalResult result = createCanvas(request);
+    ViewPort canvasView = result.buffer.view();
+
+    bool first = true;
+    for (const auto& input : inputs) {
+        if (input.isValid()) {
+            if (first) {
+                blendFirst(canvasView, result.origin.x, result.origin.y,
+                          input.view, input.originX, input.originY);
+                first = false;
+            } else {
+                blendOnto(canvasView, result.origin.x, result.origin.y,
+                         input.view, input.originX, input.originY);
+            }
         }
     }
     return result;
 }
 
 // 透明キャンバスを作成
-ViewPort CompositeOperator::createCanvas(const RenderRequest& request) const {
-    ViewPort canvas(request.width, request.height, PixelFormatIDs::RGBA16_Premultiplied);
+EvalResult CompositeOperator::createCanvas(const RenderRequest& request) {
+    ImageBuffer canvas(request.width, request.height, PixelFormatIDs::RGBA16_Premultiplied);
     std::memset(canvas.data, 0, canvas.getTotalBytes());
 
-    // srcOriginX は「基準から見たキャンバス左上の相対座標」
-    canvas.srcOriginX = -request.originX;
-    canvas.srcOriginY = -request.originY;
-
-    return canvas;
+    // origin は「基準から見たキャンバス左上の相対座標」
+    return EvalResult(std::move(canvas), Point2f(-request.originX, -request.originY));
 }
 
 // キャンバスに入力を合成（最初の入力用、memcpy最適化）
-void CompositeOperator::blendFirst(ViewPort& canvas, const ViewPort& input) const {
-    // 入力の配置位置を計算
-    // canvas.srcOriginX: キャンバス左上の基準相対座標（例: -64）
-    // input.srcOriginX: 入力左上の基準相対座標（例: -50）
-    // offsetX = input位置 - canvas位置 = -50 - (-64) = 14
-    int offsetX = static_cast<int>(input.srcOriginX - canvas.srcOriginX);
-    int offsetY = static_cast<int>(input.srcOriginY - canvas.srcOriginY);
+void CompositeOperator::blendFirst(ViewPort& canvas, float canvasOriginX, float canvasOriginY,
+                                   const ViewPort& input, float inputOriginX, float inputOriginY) {
+    // オフセット計算
+    int offsetX = static_cast<int>(inputOriginX - canvasOriginX);
+    int offsetY = static_cast<int>(inputOriginY - canvasOriginY);
 
-    // クリッピング範囲を計算
-    int srcStartX = std::max(0, -offsetX);
-    int srcStartY = std::max(0, -offsetY);
-    int dstStartX = std::max(0, offsetX);
-    int dstStartY = std::max(0, offsetY);
-    int copyWidth = std::min(input.width - srcStartX, canvas.width - dstStartX);
-    int copyHeight = std::min(input.height - srcStartY, canvas.height - dstStartY);
-
-    if (copyWidth <= 0 || copyHeight <= 0) return;
-
-    // 行単位でmemcpy（ブレンド計算不要、透明キャンバスへの最初の合成）
-    for (int y = 0; y < copyHeight; y++) {
-        const uint16_t* src = input.getPixelPtr<uint16_t>(srcStartX, srcStartY + y);
-        uint16_t* dst = canvas.getPixelPtr<uint16_t>(dstStartX, dstStartY + y);
-        std::memcpy(dst, src, copyWidth * 4 * sizeof(uint16_t));
-    }
+    canvas.blendFirst(input, offsetX, offsetY);
 }
 
 // キャンバスに入力を合成（2枚目以降、ブレンド処理）
-void CompositeOperator::blendOnto(ViewPort& canvas, const ViewPort& input) const {
-    // 入力の配置位置を計算
-    int offsetX = static_cast<int>(input.srcOriginX - canvas.srcOriginX);
-    int offsetY = static_cast<int>(input.srcOriginY - canvas.srcOriginY);
+void CompositeOperator::blendOnto(ViewPort& canvas, float canvasOriginX, float canvasOriginY,
+                                  const ViewPort& input, float inputOriginX, float inputOriginY) {
+    // オフセット計算
+    int offsetX = static_cast<int>(inputOriginX - canvasOriginX);
+    int offsetY = static_cast<int>(inputOriginY - canvasOriginY);
 
-    // ループ範囲を事前計算
-    int yStart = std::max(0, -offsetY);
-    int yEnd = std::min(input.height, canvas.height - offsetY);
-    int xStart = std::max(0, -offsetX);
-    int xEnd = std::min(input.width, canvas.width - offsetX);
-
-    if (yStart >= yEnd || xStart >= xEnd) return;
-
-    // 閾値定数をローカル変数にキャッシュ（ループ最適化）
-    constexpr uint16_t ALPHA_TRANS_MAX = PixelFormatIDs::RGBA16Premul::ALPHA_TRANSPARENT_MAX;
-    constexpr uint16_t ALPHA_OPAQUE_MIN = PixelFormatIDs::RGBA16Premul::ALPHA_OPAQUE_MIN;
-
-    for (int y = yStart; y < yEnd; y++) {
-        const uint16_t* srcRow = input.getPixelPtr<uint16_t>(0, y);
-        uint16_t* dstRow = canvas.getPixelPtr<uint16_t>(0, y + offsetY);
-
-        for (int x = xStart; x < xEnd; x++) {
-            const uint16_t* srcPixel = srcRow + x * 4;
-            uint16_t* dstPixel = dstRow + (x + offsetX) * 4;
-
-            uint16_t srcA = srcPixel[3];
-            // 透明スキップ（新方式: A16 <= 255 は透明）
-            if (srcA <= ALPHA_TRANS_MAX) continue;
-
-            uint16_t srcR = srcPixel[0];
-            uint16_t srcG = srcPixel[1];
-            uint16_t srcB = srcPixel[2];
-            uint16_t dstA = dstPixel[3];
-
-            // 不透明最適化（新方式: A16 >= 65280 は不透明）
-            // dstA == 0 はキャンバス初期状態（memset(0)）
-            if (srcA < ALPHA_OPAQUE_MIN && dstA != 0) {
-                // プリマルチプライド合成: src over dst
-                uint16_t invSrcA = 65535 - srcA;
-                srcR += (dstPixel[0] * invSrcA) >> 16;
-                srcG += (dstPixel[1] * invSrcA) >> 16;
-                srcB += (dstPixel[2] * invSrcA) >> 16;
-                srcA += (dstA * invSrcA) >> 16;
-            }
-
-            dstPixel[0] = srcR;
-            dstPixel[1] = srcG;
-            dstPixel[2] = srcB;
-            dstPixel[3] = srcA;
-        }
-    }
+    canvas.blendOnto(input, offsetX, offsetY);
 }
 
 // 入力がリクエスト範囲を完全にカバーしているか判定
-bool CompositeOperator::coversFullRequest(const ViewPort& vp, const RenderRequest& request) {
+bool CompositeOperator::coversFullRequest(const OperatorInput& input, const RenderRequest& request) {
     // 要求範囲の左上（基準点相対座標）
     float reqLeft = -request.originX;
     float reqTop = -request.originY;
     float reqRight = reqLeft + request.width;
     float reqBottom = reqTop + request.height;
 
-    // ViewPortの範囲
-    float vpLeft = vp.srcOriginX;
-    float vpTop = vp.srcOriginY;
-    float vpRight = vpLeft + vp.width;
-    float vpBottom = vpTop + vp.height;
+    // 入力の範囲
+    float inputLeft = input.originX;
+    float inputTop = input.originY;
+    float inputRight = inputLeft + input.view.width;
+    float inputBottom = inputTop + input.view.height;
 
-    // ViewPortが要求範囲を完全に含むか
+    // 入力が要求範囲を完全に含むか
     const float epsilon = 0.001f;
-    return (vpLeft <= reqLeft + epsilon && vpRight >= reqRight - epsilon &&
-            vpTop <= reqTop + epsilon && vpBottom >= reqBottom - epsilon);
+    return (inputLeft <= reqLeft + epsilon && inputRight >= reqRight - epsilon &&
+            inputTop <= reqTop + epsilon && inputBottom >= reqBottom - epsilon);
 }
 
 // ========================================================================
@@ -534,13 +505,11 @@ bool CompositeOperator::coversFullRequest(const ViewPort& vp, const RenderReques
 
 std::unique_ptr<NodeOperator> OperatorFactory::createAffineOperator(
     const AffineMatrix& matrix,
-    float inputSrcOriginX, float inputSrcOriginY,
-    float outputOriginX, float outputOriginY,
+    float outputOffsetX, float outputOffsetY,
     int outputWidth, int outputHeight
 ) {
     return std::make_unique<AffineOperator>(
-        matrix, inputSrcOriginX, inputSrcOriginY,
-        outputOriginX, outputOriginY,
+        matrix, outputOffsetX, outputOffsetY,
         outputWidth, outputHeight
     );
 }

@@ -9,12 +9,12 @@ namespace FLEXIMG_NAMESPACE {
 // ImageEvalNode 実装
 // ========================================================================
 
-ViewPort ImageEvalNode::evaluate(const RenderRequest& request,
-                                  const RenderContext& context) {
+EvalResult ImageEvalNode::evaluate(const RenderRequest& request,
+                                   const RenderContext& context) {
     (void)context;
 
     if (!imageData || !imageData->isValid()) {
-        return ViewPort(1, 1, PixelFormatIDs::RGBA8_Straight);
+        return EvalResult();  // 空の結果
     }
 
     // 画像の基準相対座標範囲
@@ -38,12 +38,9 @@ ViewPort ImageEvalNode::evaluate(const RenderRequest& request,
     float interRight = std::min(imgRight, reqRight);
     float interBottom = std::min(imgBottom, reqBottom);
 
-    // 交差領域がない場合は空のViewPortを返却（メモリ確保なし）
+    // 交差領域がない場合は空の結果を返却
     if (interLeft >= interRight || interTop >= interBottom) {
-        ViewPort empty;  // width=0, height=0, data=nullptr
-        empty.srcOriginX = reqLeft;
-        empty.srcOriginY = reqTop;
-        return empty;
+        return EvalResult(ImageBuffer(), Point2f(reqLeft, reqTop));
     }
 
     // 交差領域の画像内ピクセル座標
@@ -52,14 +49,18 @@ ViewPort ImageEvalNode::evaluate(const RenderRequest& request,
     int interWidth = static_cast<int>(interRight - interLeft);
     int interHeight = static_cast<int>(interBottom - interTop);
 
-    // SubViewを作成（画像の必要部分のみ）
-    ViewPort subView = imageData->createSubView(imgX, imgY, interWidth, interHeight);
+    // 交差領域をコピーして新しいImageBufferを作成
+    ImageBuffer result(interWidth, interHeight, imageData->formatID);
+    size_t bytesPerPixel = imageData->getBytesPerPixel();
 
-    // srcOriginX/Y は「基準点から見たSubView左上の相対座標」
-    subView.srcOriginX = interLeft;
-    subView.srcOriginY = interTop;
+    for (int y = 0; y < interHeight; y++) {
+        const void* srcRow = imageData->getPixelAddress(imgX, imgY + y);
+        void* dstRow = result.getPixelAddress(0, y);
+        std::memcpy(dstRow, srcRow, interWidth * bytesPerPixel);
+    }
 
-    return subView;
+    // origin は「基準点から見た画像左上の相対座標」
+    return EvalResult(std::move(result), Point2f(interLeft, interTop));
 }
 
 RenderRequest ImageEvalNode::computeInputRequest(
@@ -82,29 +83,29 @@ void FilterEvalNode::prepare(const RenderContext& context) {
     prepared_ = true;
 }
 
-ViewPort FilterEvalNode::evaluate(const RenderRequest& request,
-                                   const RenderContext& context) {
+EvalResult FilterEvalNode::evaluate(const RenderRequest& request,
+                                    const RenderContext& context) {
     if (inputs.empty()) {
-        return ViewPort();  // 空ViewPort
+        return EvalResult();  // 空の結果
     }
 
     // 1. 入力要求を計算（ブラー等では拡大される）
     RenderRequest inputReq = computeInputRequest(request);
 
     // 2. 上流ノードを評価
-    ViewPort input = inputs[0]->evaluate(inputReq, context);
+    EvalResult inputResult = inputs[0]->evaluate(inputReq, context);
 
-    // 空入力の場合は早期リターン（メモリ確保・処理をスキップ）
-    if (input.width == 0 || input.height == 0) {
-        return input;  // origin情報を保持したまま返す
+    // 空入力の場合は早期リターン
+    if (!inputResult.isValid()) {
+        return inputResult;  // origin情報を保持したまま返す
     }
 
     // 3. フィルタ処理を適用
     if (op) {
-        ViewPort processed = op->apply({input}, request);
-        // processed は入力サイズ、srcOriginX/Y は input と同じ
-        processed.srcOriginX = input.srcOriginX;
-        processed.srcOriginY = input.srcOriginY;
+        // OperatorInputを構築
+        OperatorInput opInput(inputResult);
+
+        EvalResult processed = op->apply({opInput}, request);
 
         // 4. 要求範囲を切り出す（ブラー等で入力が拡大されている場合）
         // 要求の基準相対座標の左上
@@ -112,42 +113,40 @@ ViewPort FilterEvalNode::evaluate(const RenderRequest& request,
         float reqTop = -request.originY;
 
         // processed バッファ内での要求開始位置
-        int startX = static_cast<int>(reqLeft - processed.srcOriginX);
-        int startY = static_cast<int>(reqTop - processed.srcOriginY);
+        int startX = static_cast<int>(reqLeft - processed.origin.x);
+        int startY = static_cast<int>(reqTop - processed.origin.y);
 
         // 切り出しが必要かチェック（入力が拡大されていない場合は不要）
         if (startX == 0 && startY == 0 &&
-            processed.width == request.width && processed.height == request.height) {
-            // 切り出し不要
+            processed.buffer.width == request.width && processed.buffer.height == request.height) {
+            // 切り出し不要 - そのまま返す
             return processed;
         }
 
         // 範囲チェック
         if (startX < 0 || startY < 0 ||
-            startX + request.width > processed.width ||
-            startY + request.height > processed.height) {
+            startX + request.width > processed.buffer.width ||
+            startY + request.height > processed.buffer.height) {
             // 要求範囲が処理結果の範囲外（エラーケース）
             // 安全のため processed をそのまま返す
             return processed;
         }
 
-        // 新しいViewPortを作成して要求範囲をコピー
-        ViewPort result(request.width, request.height, processed.formatID);
-        size_t bytesPerPixel = processed.getBytesPerPixel();
+        // 新しいImageBufferを作成して要求範囲をコピー
+        ImageBuffer resultBuf(request.width, request.height, processed.buffer.formatID);
+        size_t bytesPerPixel = processed.buffer.getBytesPerPixel();
 
         for (int y = 0; y < request.height; y++) {
-            const void* srcRow = processed.getPixelAddress(startX, startY + y);
-            void* dstRow = result.getPixelAddress(0, y);
+            const void* srcRow = processed.buffer.getPixelAddress(startX, startY + y);
+            void* dstRow = resultBuf.getPixelAddress(0, y);
             std::memcpy(dstRow, srcRow, request.width * bytesPerPixel);
         }
 
-        result.srcOriginX = reqLeft;
-        result.srcOriginY = reqTop;
-        return result;
+        return EvalResult(std::move(resultBuf), Point2f(reqLeft, reqTop));
     }
 
     // オペレーターがない場合はパススルー
-    return input;
+    return inputResult;
 }
 
 RenderRequest FilterEvalNode::computeInputRequest(
@@ -193,56 +192,51 @@ void AffineEvalNode::prepare(const RenderContext& context) {
     prepared_ = true;
 }
 
-ViewPort AffineEvalNode::evaluate(const RenderRequest& request,
-                                   const RenderContext& context) {
+EvalResult AffineEvalNode::evaluate(const RenderRequest& request,
+                                    const RenderContext& context) {
     if (inputs.empty() || !prepared_) {
-        return ViewPort();  // 空ViewPort
+        return EvalResult();  // 空の結果
     }
 
     // 1. 入力要求を計算
     RenderRequest inputReq = computeInputRequest(request);
 
     // 2. 上流ノードを評価
-    ViewPort input = inputs[0]->evaluate(inputReq, context);
+    EvalResult inputResult = inputs[0]->evaluate(inputReq, context);
 
-    // 空入力の場合は早期リターン（メモリ確保・処理をスキップ）
-    if (input.width == 0 || input.height == 0) {
-        return input;  // origin情報を保持したまま返す
+    // 空入力の場合は早期リターン
+    if (!inputResult.isValid()) {
+        return inputResult;  // origin情報を保持したまま返す
     }
 
-    // 3. フォーマット変換
-    if (input.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
-        input = input.convertTo(PixelFormatIDs::RGBA16_Premultiplied);
+    // 3. フォーマット変換（必要な場合）
+    if (inputResult.buffer.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
+        ViewPort inputView = inputResult.buffer.view();
+        ImageBuffer converted = inputView.toImageBuffer(PixelFormatIDs::RGBA16_Premultiplied);
+        inputResult = EvalResult(std::move(converted), inputResult.origin);
     }
 
     // 4. アフィン変換を適用
     // 入力の基準相対座標（例: -50 は基準点から見て画像左上が左に50px）
-    float inputSrcOriginX = input.srcOriginX;
-    float inputSrcOriginY = input.srcOriginY;
+    float inputSrcOriginX = inputResult.origin.x;
+    float inputSrcOriginY = inputResult.origin.y;
 
     // 出力バッファ内での基準点位置（例: 64 はバッファ内で基準点がx=64の位置）
     float outputOriginX = request.originX;
     float outputOriginY = request.originY;
 
     // AffineOperatorに渡すオフセット
-    // 現在のAffineOperatorの座標計算式は以下の形式を想定:
-    //   effectiveInvTx = invTx - outputOffsetX * invA - inputSrcOriginX
-    // これが正しく動作するためには outputOffsetX = outputOriginX - inputSrcOriginX
+    // outputOffsetX = outputOriginX - inputSrcOriginX
     float outputOffsetX = outputOriginX - inputSrcOriginX;
     float outputOffsetY = outputOriginY - inputSrcOriginY;
 
     auto affineOp = OperatorFactory::createAffineOperator(
-        matrix, inputSrcOriginX, inputSrcOriginY,
-        outputOffsetX, outputOffsetY, request.width, request.height);
+        matrix, outputOffsetX, outputOffsetY, request.width, request.height);
 
-    ViewPort result = affineOp->apply({input}, request);
+    // OperatorInputを構築
+    OperatorInput opInput(inputResult);
 
-    // 出力の srcOriginX は「基準から見た出力左上の相対座標」
-    // 出力バッファの左上は基準から見て -originX の位置
-    result.srcOriginX = -outputOriginX;
-    result.srcOriginY = -outputOriginY;
-
-    return result;
+    return affineOp->apply({opInput}, request);
 }
 
 RenderRequest AffineEvalNode::computeInputRequest(
@@ -305,36 +299,39 @@ RenderRequest AffineEvalNode::computeInputRequest(
 // メモリ効率: O(n) → O(2) （canvas + 現在の入力1つ）
 // ========================================================================
 
-ViewPort CompositeEvalNode::evaluate(const RenderRequest& request,
-                                      const RenderContext& context) {
+EvalResult CompositeEvalNode::evaluate(const RenderRequest& request,
+                                       const RenderContext& context) {
     if (inputs.empty()) {
-        return ViewPort();  // 空ViewPort
+        return EvalResult();  // 空の結果
     }
 
-    CompositeOperator compositeOp;
-    ViewPort canvas;
+    EvalResult canvas;
     bool canvasInitialized = false;
+    float canvasOriginX = -request.originX;
+    float canvasOriginY = -request.originY;
 
     // 逐次合成: 入力を1つずつ評価して合成
     for (size_t i = 0; i < inputs.size(); i++) {
-        ViewPort img = inputs[i]->evaluate(request, context);
+        EvalResult inputResult = inputs[i]->evaluate(request, context);
 
         // 空入力はスキップ
-        if (img.width == 0 || img.height == 0) {
+        if (!inputResult.isValid()) {
             continue;
         }
 
-        // フォーマット変換
-        if (img.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
-            img = img.convertTo(PixelFormatIDs::RGBA16_Premultiplied);
+        // フォーマット変換（必要な場合）
+        if (inputResult.buffer.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
+            ViewPort inputView = inputResult.buffer.view();
+            ImageBuffer converted = inputView.toImageBuffer(PixelFormatIDs::RGBA16_Premultiplied);
+            inputResult = EvalResult(std::move(converted), inputResult.origin);
         }
 
         // アルファ適用
         if (i < alphas.size() && alphas[i] != 1.0f) {
             uint16_t alphaU16 = static_cast<uint16_t>(alphas[i] * 65535);
-            for (int y = 0; y < img.height; y++) {
-                uint16_t* row = img.getPixelPtr<uint16_t>(0, y);
-                for (int x = 0; x < img.width * 4; x++) {
+            for (int y = 0; y < inputResult.buffer.height; y++) {
+                uint16_t* row = static_cast<uint16_t*>(inputResult.buffer.getPixelAddress(0, y));
+                for (int x = 0; x < inputResult.buffer.width * 4; x++) {
                     row[x] = (row[x] * alphaU16) >> 16;
                 }
             }
@@ -342,31 +339,31 @@ ViewPort CompositeEvalNode::evaluate(const RenderRequest& request,
 
         if (!canvasInitialized) {
             // 最初の非空入力
-            if (CompositeOperator::coversFullRequest(img, request)) {
+            OperatorInput opInput(inputResult);
+            if (CompositeOperator::coversFullRequest(opInput, request)) {
                 // 完全カバー → moveでキャンバスに（メモリ確保なし）
-                canvas = std::move(img);
-                // srcOriginX を要求に合わせて設定
-                canvas.srcOriginX = -request.originX;
-                canvas.srcOriginY = -request.originY;
+                canvas = std::move(inputResult);
+                canvas.origin = Point2f(canvasOriginX, canvasOriginY);
             } else {
                 // 部分オーバーラップ → 透明キャンバス確保 + memcpyでコピー
-                canvas = compositeOp.createCanvas(request);
-                compositeOp.blendFirst(canvas, img);
+                canvas = CompositeOperator::createCanvas(request);
+                ViewPort canvasView = canvas.buffer.view();
+                CompositeOperator::blendFirst(canvasView, canvas.origin.x, canvas.origin.y,
+                                              inputResult.buffer.view(), inputResult.origin.x, inputResult.origin.y);
             }
             canvasInitialized = true;
         } else {
             // 2枚目以降 → ブレンド処理
-            compositeOp.blendOnto(canvas, img);
+            ViewPort canvasView = canvas.buffer.view();
+            CompositeOperator::blendOnto(canvasView, canvas.origin.x, canvas.origin.y,
+                                        inputResult.buffer.view(), inputResult.origin.x, inputResult.origin.y);
         }
-        // img はここでスコープを抜けて解放される
+        // inputResult はここでスコープを抜けて解放される
     }
 
     // 全ての入力が空だった場合
     if (!canvasInitialized) {
-        ViewPort empty;
-        empty.srcOriginX = -request.originX;
-        empty.srcOriginY = -request.originY;
-        return empty;
+        return EvalResult(ImageBuffer(), Point2f(canvasOriginX, canvasOriginY));
     }
 
     return canvas;
@@ -382,13 +379,13 @@ RenderRequest CompositeEvalNode::computeInputRequest(
 // OutputEvalNode 実装
 // ========================================================================
 
-ViewPort OutputEvalNode::evaluate(const RenderRequest& request,
-                                   const RenderContext& context) {
+EvalResult OutputEvalNode::evaluate(const RenderRequest& request,
+                                    const RenderContext& context) {
     if (inputs.empty()) {
-        return ViewPort();  // 空ViewPort
+        return EvalResult();  // 空の結果
     }
 
-    // 上流ノードを評価して結果を返す（空ViewPortもそのまま伝播）
+    // 上流ノードを評価して結果を返す（空の結果もそのまま伝播）
     return inputs[0]->evaluate(request, context);
 }
 
@@ -404,7 +401,7 @@ RenderRequest OutputEvalNode::computeInputRequest(
 
 std::unique_ptr<EvaluationNode> PipelineBuilder::createEvalNode(
     const GraphNode& node,
-    const std::map<int, ViewPort>& imageLibrary) {
+    const std::map<int, ImageBuffer>& imageLibrary) {
 
     if (node.type == "image") {
         auto evalNode = std::make_unique<ImageEvalNode>();
@@ -459,7 +456,7 @@ std::unique_ptr<EvaluationNode> PipelineBuilder::createEvalNode(
 Pipeline PipelineBuilder::build(
     const std::vector<GraphNode>& nodes,
     const std::vector<GraphConnection>& connections,
-    const std::map<int, ViewPort>& imageLibrary) {
+    const std::map<int, ImageBuffer>& imageLibrary) {
 
     Pipeline pipeline;
 

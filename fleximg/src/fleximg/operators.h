@@ -3,6 +3,8 @@
 
 #include "common.h"
 #include "viewport.h"
+#include "image_buffer.h"
+#include "eval_result.h"
 #include "image_types.h"
 #include "node_graph.h"  // RenderRequest
 #include <vector>
@@ -16,6 +18,27 @@ namespace FLEXIMG_NAMESPACE {
 struct GraphNode;
 
 // ========================================================================
+// OperatorInput - オペレーターへの入力
+// ViewPort（データビュー）と座標情報のペア
+// ========================================================================
+
+struct OperatorInput {
+    ViewPort view;
+    float originX = 0;  // 基準点から見た画像左上の相対座標
+    float originY = 0;
+
+    OperatorInput() = default;
+    OperatorInput(ViewPort v, float ox, float oy)
+        : view(v), originX(ox), originY(oy) {}
+
+    // EvalResultから構築（ビューを取得）
+    OperatorInput(const EvalResult& result)
+        : view(result.buffer.view()), originX(result.origin.x), originY(result.origin.y) {}
+
+    bool isValid() const { return view.isValid(); }
+};
+
+// ========================================================================
 // NodeOperator 基底クラス
 // すべてのノード処理の共通インターフェース
 // ========================================================================
@@ -24,10 +47,10 @@ class NodeOperator {
 public:
     virtual ~NodeOperator() = default;
 
-    // メイン処理: 入力群からViewPortを生成
+    // メイン処理: 入力群からEvalResultを生成
     // request: 下流からの処理要求（必要なサイズと基準座標）
-    virtual ViewPort apply(const std::vector<ViewPort>& inputs,
-                          const RenderRequest& request) const = 0;
+    virtual EvalResult apply(const std::vector<OperatorInput>& inputs,
+                            const RenderRequest& request) const = 0;
 
     // 入力数の制約
     virtual int getMinInputCount() const = 0;
@@ -64,8 +87,8 @@ protected:
 class SingleInputOperator : public NodeOperator {
 public:
     // NodeOperator::apply を実装
-    ViewPort apply(const std::vector<ViewPort>& inputs,
-                  const RenderRequest& request) const override final {
+    EvalResult apply(const std::vector<OperatorInput>& inputs,
+                    const RenderRequest& request) const override final {
         if (inputs.empty()) {
             throw std::invalid_argument("SingleInputOperator requires at least 1 input");
         }
@@ -73,8 +96,8 @@ public:
     }
 
     // 派生クラスはこちらを実装
-    virtual ViewPort applyToSingle(const ViewPort& input,
-                                   const RenderRequest& request) const = 0;
+    virtual EvalResult applyToSingle(const OperatorInput& input,
+                                     const RenderRequest& request) const = 0;
 
     int getMinInputCount() const override { return 1; }
     int getMaxInputCount() const override { return 1; }
@@ -92,8 +115,8 @@ protected:
 class BrightnessOperator : public SingleInputOperator {
 public:
     explicit BrightnessOperator(float brightness) : brightness_(brightness) {}
-    ViewPort applyToSingle(const ViewPort& input,
-                          const RenderRequest& request) const override;
+    EvalResult applyToSingle(const OperatorInput& input,
+                            const RenderRequest& request) const override;
     const char* getName() const override { return "Brightness"; }
 
 private:
@@ -104,8 +127,8 @@ private:
 class GrayscaleOperator : public SingleInputOperator {
 public:
     GrayscaleOperator() = default;
-    ViewPort applyToSingle(const ViewPort& input,
-                          const RenderRequest& request) const override;
+    EvalResult applyToSingle(const OperatorInput& input,
+                            const RenderRequest& request) const override;
     const char* getName() const override { return "Grayscale"; }
 };
 
@@ -113,8 +136,8 @@ public:
 class BoxBlurOperator : public SingleInputOperator {
 public:
     explicit BoxBlurOperator(int radius) : radius_(radius > 0 ? radius : 1) {}
-    ViewPort applyToSingle(const ViewPort& input,
-                          const RenderRequest& request) const override;
+    EvalResult applyToSingle(const OperatorInput& input,
+                            const RenderRequest& request) const override;
     const char* getName() const override { return "BoxBlur"; }
 
     // カーネル半径分だけ入力要求を拡大
@@ -131,8 +154,8 @@ private:
 class AlphaOperator : public SingleInputOperator {
 public:
     explicit AlphaOperator(float alpha) : alpha_(alpha) {}
-    ViewPort applyToSingle(const ViewPort& input,
-                          const RenderRequest& request) const override;
+    EvalResult applyToSingle(const OperatorInput& input,
+                            const RenderRequest& request) const override;
     const char* getName() const override { return "Alpha"; }
 
     // AlphaOperator はPremultiplied形式でも処理可能
@@ -155,16 +178,14 @@ private:
 class AffineOperator : public SingleInputOperator {
 public:
     // matrix: 変換行列
-    // inputSrcOriginX/Y: 入力の基準相対座標（基準から見た入力画像左上）
-    // outputOriginX/Y: 出力バッファ内での基準点位置
+    // outputOffsetX/Y: 出力バッファ内での基準点オフセット（inputSrcOriginからの差分）
     // outputWidth/Height: 出力サイズ（0以下の場合はrequest.width/heightを使用）
     AffineOperator(const AffineMatrix& matrix,
-                   float inputSrcOriginX = 0, float inputSrcOriginY = 0,
-                   float outputOriginX = 0, float outputOriginY = 0,
+                   float outputOffsetX = 0, float outputOffsetY = 0,
                    int outputWidth = 0, int outputHeight = 0);
 
-    ViewPort applyToSingle(const ViewPort& input,
-                          const RenderRequest& request) const override;
+    EvalResult applyToSingle(const OperatorInput& input,
+                            const RenderRequest& request) const override;
     const char* getName() const override { return "Affine"; }
 
     // アフィン変換はPremultiplied形式を要求
@@ -177,8 +198,7 @@ public:
 
 private:
     AffineMatrix matrix_;
-    float inputSrcOriginX_, inputSrcOriginY_;
-    float outputOriginX_, outputOriginY_;
+    float outputOffsetX_, outputOffsetY_;
     int outputWidth_, outputHeight_;
 };
 
@@ -191,8 +211,8 @@ class CompositeOperator : public NodeOperator {
 public:
     CompositeOperator() = default;
 
-    ViewPort apply(const std::vector<ViewPort>& inputs,
-                  const RenderRequest& request) const override;
+    EvalResult apply(const std::vector<OperatorInput>& inputs,
+                    const RenderRequest& request) const override;
 
     const char* getName() const override { return "Composite"; }
     int getMinInputCount() const override { return 1; }
@@ -208,18 +228,21 @@ public:
 
     // === 逐次合成用インターフェース ===
 
-    // 透明キャンバスを作成
-    ViewPort createCanvas(const RenderRequest& request) const;
+    // 透明キャンバスを作成（ImageBuffer + origin）
+    static EvalResult createCanvas(const RenderRequest& request);
 
     // キャンバスに入力を合成（最初の入力用、memcpy最適化）
-    // 透明キャンバスへの合成なのでブレンド計算不要
-    void blendFirst(ViewPort& canvas, const ViewPort& input) const;
+    // canvasOrigin: キャンバスの origin 座標
+    // inputOrigin: 入力の origin 座標
+    static void blendFirst(ViewPort& canvas, float canvasOriginX, float canvasOriginY,
+                          const ViewPort& input, float inputOriginX, float inputOriginY);
 
     // キャンバスに入力を合成（2枚目以降、ブレンド処理）
-    void blendOnto(ViewPort& canvas, const ViewPort& input) const;
+    static void blendOnto(ViewPort& canvas, float canvasOriginX, float canvasOriginY,
+                         const ViewPort& input, float inputOriginX, float inputOriginY);
 
     // 入力がリクエスト範囲を完全にカバーしているか判定
-    static bool coversFullRequest(const ViewPort& vp, const RenderRequest& request);
+    static bool coversFullRequest(const OperatorInput& input, const RenderRequest& request);
 };
 
 // ========================================================================
@@ -238,12 +261,10 @@ public:
     );
 
     // アフィン変換オペレーターを生成
-    // inputSrcOriginX/Y: 入力の基準相対座標（基準から見た入力画像左上）
-    // outputOriginX/Y: 出力バッファ内での基準点位置
+    // outputOffsetX/Y: 出力バッファ内での基準点オフセット
     static std::unique_ptr<NodeOperator> createAffineOperator(
         const AffineMatrix& matrix,
-        float inputSrcOriginX, float inputSrcOriginY,
-        float outputOriginX, float outputOriginY,
+        float outputOffsetX, float outputOffsetY,
         int outputWidth, int outputHeight);
 
     // 合成オペレーターを生成
