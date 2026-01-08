@@ -6,6 +6,41 @@
 
 ## 2026-01-08
 
+### 画像ライブラリの統一化
+
+**背景**
+- 入力画像用の `inputLibrary` と出力バッファ用の `outputLibrary` が別管理だった
+- 将来的な拡張（出力を入力として再利用など）に対応しにくい構造だった
+
+**設計変更**
+- `inputLibrary` + `outputLibrary` → `imageLibrary` に統合
+- コアライブラリは入力/出力の区別を持たない（用途はUI層で管理）
+- GraphNode の `outputId` フィールドを廃止し、`imageId` に統一
+
+**API変更**
+
+C++ (コアライブラリ):
+- `registerInput()` / `registerOutput()` → `registerImage()` に統合
+
+WASM バインディング:
+- `storeInput()` → `storeImage()`
+- `allocateOutput()` → `allocateImage()`
+- `getOutput()` → `getImage()`
+- `clearOutput()` → `clearImage()`
+- Outputノードのパラメータ: `outputId` → `imageId`
+
+**コード削減**
+- 6ファイル変更、21行削減
+
+---
+
+### リセットボタンの動作修正
+
+- リセット時に `beforeunload` で状態が再保存される問題を修正
+- `isResetting` フラグでリセット中の保存をスキップ
+
+---
+
 ### 合成ノードからアルファ調整機能を撤去
 
 **背景**

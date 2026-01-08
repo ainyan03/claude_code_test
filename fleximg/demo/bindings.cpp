@@ -96,8 +96,8 @@ public:
         evaluator.setDebugCheckerboard(enabled);
     }
 
-    // 入力画像を登録（RGBA8_Straight形式）
-    void storeInput(int id, const val& imageData, int width, int height) {
+    // 画像を登録（データをコピー、RGBA8_Straight形式）
+    void storeImage(int id, const val& imageData, int width, int height) {
         unsigned int length = imageData["length"].as<unsigned int>();
         std::vector<uint8_t> tempData(length);
 
@@ -106,17 +106,17 @@ public:
         }
 
         ViewPort view = imageStore.store(id, tempData.data(), width, height, PixelFormatIDs::RGBA8_Straight);
-        evaluator.registerInput(id, view);
+        evaluator.registerImage(id, view);
     }
 
-    // 出力バッファを確保（RGBA8_Straight形式）
-    void allocateOutput(int id, int width, int height) {
+    // 画像バッファを確保（RGBA8_Straight形式）
+    void allocateImage(int id, int width, int height) {
         ViewPort view = imageStore.allocate(id, width, height, PixelFormatIDs::RGBA8_Straight);
-        evaluator.registerOutput(id, view);
+        evaluator.registerImage(id, view);
     }
 
-    // 出力データを取得
-    val getOutput(int id) {
+    // 画像データを取得
+    val getImage(int id) {
         const std::vector<uint8_t>& data = imageStore.get(id);
         if (data.empty()) {
             return val::null();
@@ -207,10 +207,10 @@ public:
                 }
             }
 
-            // output用パラメータ
+            // output用パラメータ（imageIdで出力先を指定）
             if (node.type == "output") {
-                if (nodeObj["outputId"].typeOf().as<std::string>() != "undefined") {
-                    node.outputId = nodeObj["outputId"].as<int>();
+                if (nodeObj["imageId"].typeOf().as<std::string>() != "undefined") {
+                    node.imageId = nodeObj["imageId"].as<int>();
                 }
             }
 
@@ -243,8 +243,8 @@ public:
         evaluator.evaluateGraph();
     }
 
-    // 出力バッファをクリア（市松模様などで以前の画像が残らないように）
-    void clearOutput(int id) {
+    // 画像バッファをクリア（市松模様などで以前の画像が残らないように）
+    void clearImage(int id) {
         imageStore.zeroFill(id);
     }
 
@@ -295,12 +295,12 @@ EMSCRIPTEN_BINDINGS(image_transform) {
         .function("setDstOrigin", &NodeGraphEvaluatorWrapper::setDstOrigin)
         .function("setTileSize", &NodeGraphEvaluatorWrapper::setTileSize)
         .function("setDebugCheckerboard", &NodeGraphEvaluatorWrapper::setDebugCheckerboard)
-        .function("storeInput", &NodeGraphEvaluatorWrapper::storeInput)
-        .function("allocateOutput", &NodeGraphEvaluatorWrapper::allocateOutput)
-        .function("getOutput", &NodeGraphEvaluatorWrapper::getOutput)
+        .function("storeImage", &NodeGraphEvaluatorWrapper::storeImage)
+        .function("allocateImage", &NodeGraphEvaluatorWrapper::allocateImage)
+        .function("getImage", &NodeGraphEvaluatorWrapper::getImage)
         .function("setNodes", &NodeGraphEvaluatorWrapper::setNodes)
         .function("setConnections", &NodeGraphEvaluatorWrapper::setConnections)
         .function("evaluateGraph", &NodeGraphEvaluatorWrapper::evaluateGraph)
-        .function("clearOutput", &NodeGraphEvaluatorWrapper::clearOutput)
+        .function("clearImage", &NodeGraphEvaluatorWrapper::clearImage)
         .function("getPerfMetrics", &NodeGraphEvaluatorWrapper::getPerfMetrics);
 }
