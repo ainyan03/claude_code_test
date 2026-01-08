@@ -61,7 +61,7 @@ public:
     RenderRequest computeInputRequest(
         const RenderRequest& outputRequest) const override;
 
-    // 画像データ（inputLibrary内のViewPortをコピー保持）
+    // 画像データ（imageLibrary内のViewPortをコピー保持）
     ViewPort imageData;
 
     // 画像内の原点位置（0.0〜1.0、デフォルトは中央）
@@ -138,7 +138,7 @@ public:
     RenderRequest computeInputRequest(
         const RenderRequest& outputRequest) const override;
 
-    // 出力先ViewPort（outputLibrary内のViewPortをコピー保持）
+    // 出力先ViewPort（imageLibrary内のViewPortをコピー保持）
     ViewPort outputTarget;
 };
 
@@ -174,15 +174,13 @@ public:
     static Pipeline build(
         const std::vector<GraphNode>& nodes,
         const std::vector<GraphConnection>& connections,
-        const std::map<int, ViewPort>& inputLibrary,
-        const std::map<int, ViewPort>& outputLibrary);
+        const std::map<int, ViewPort>& imageLibrary);
 
 private:
     // ノードタイプに応じたEvaluationNodeを生成
     static std::unique_ptr<EvaluationNode> createEvalNode(
         const GraphNode& node,
-        const std::map<int, ViewPort>& inputLibrary,
-        const std::map<int, ViewPort>& outputLibrary);
+        const std::map<int, ViewPort>& imageLibrary);
 };
 
 } // namespace FLEXIMG_NAMESPACE

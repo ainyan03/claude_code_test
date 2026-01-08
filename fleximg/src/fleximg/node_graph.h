@@ -160,8 +160,10 @@ struct GraphNode {
     std::string type;  // "image", "filter", "composite", "affine", "output"
     std::string id;
 
-    // image用
-    int imageId;       // 画像ライブラリのID
+    // image/output共通: 画像ライブラリのID
+    // - imageノード: 入力画像を参照
+    // - outputノード: 出力先バッファを参照
+    int imageId;
     float srcOriginX; // 画像の原点X（ピクセル座標）
     float srcOriginY; // 画像の原点Y（ピクセル座標）
 
@@ -177,11 +179,8 @@ struct GraphNode {
     // JS側で行列に統一されるため、行列のみ保持
     AffineMatrix affineMatrix;
 
-    // output用
-    int outputId;  // 出力ライブラリのID（出力ノードが書き込む先）
-
     GraphNode() : imageId(-1), srcOriginX(0.0f), srcOriginY(0.0f),
-                  independent(false), outputId(0) {}  // filterParamsはstd::vectorなので自動初期化
+                  independent(false) {}  // filterParamsはstd::vectorなので自動初期化
 };
 
 // ノードグラフの接続定義
@@ -201,21 +200,16 @@ public:
     NodeGraphEvaluator(int canvasWidth, int canvasHeight);
     ~NodeGraphEvaluator();  // Pipeline の完全な定義が必要なため .cpp で実装
 
-    // 入力ライブラリに入力を登録
-    void registerInput(int id, const ViewPort& view);
-    void registerInput(int id, const void* data, int width, int height,
+    // 画像ライブラリに画像を登録（入力/出力共通）
+    void registerImage(int id, const ViewPort& view);
+    void registerImage(int id, void* data, int width, int height,
                        PixelFormatID format = PixelFormatIDs::RGBA8_Straight);
-
-    // 出力ライブラリに出力を登録
-    void registerOutput(int id, const ViewPort& view);
-    void registerOutput(int id, void* data, int width, int height,
-                        PixelFormatID format = PixelFormatIDs::RGBA8_Straight);
 
     // ノードグラフ構造を設定
     void setNodes(const std::vector<GraphNode>& nodes);
     void setConnections(const std::vector<GraphConnection>& connections);
 
-    // ノードグラフを評価（出力は登録済みのoutputLibraryに書き込まれる）
+    // ノードグラフを評価（出力はOutputノードが参照するimageLibraryに書き込まれる）
     void evaluateGraph();
 
     // キャンバスサイズ変更
@@ -257,11 +251,8 @@ private:
     // パイプラインベースの評価
     void evaluateWithPipeline(const RenderContext& context);
 
-    // 入力ライブラリ（ViewPortの参照を保持）
-    std::map<int, ViewPort> inputLibrary;
-
-    // 出力ライブラリ（ViewPortの参照を保持）
-    std::map<int, ViewPort> outputLibrary;
+    // 画像ライブラリ（入力/出力共通、ViewPortの参照を保持）
+    std::map<int, ViewPort> imageLibrary;
 
     // パフォーマンス計測
     PerfMetrics perfMetrics;

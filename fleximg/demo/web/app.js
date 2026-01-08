@@ -4,10 +4,12 @@ let canvas;
 let ctx;
 let uploadedImages = [];  // 画像ライブラリ
 let nextImageId = 1;
+let outputImageId = 0;  // 出力バッファ用ID（画像ライブラリと共通管理）
 let canvasWidth = 800;
 let canvasHeight = 600;
 let canvasOrigin = { x: 400, y: 300 };  // キャンバス原点（ピクセル座標）
 let previewScale = 1;  // 表示倍率（1〜5）
+let isResetting = false;  // リセット中フラグ（beforeunloadで保存をスキップ）
 
 // スクロールマネージャーのインスタンス
 let previewScrollManager = null;
@@ -464,8 +466,11 @@ function initializeApp() {
     console.log('Initializing app...');
 
     // ページ離脱時に状態を保存（リロード直前の状態を確実に保存）
+    // ただしリセット中は保存をスキップ
     window.addEventListener('beforeunload', () => {
-        saveStateToLocalStorage();
+        if (!isResetting) {
+            saveStateToLocalStorage();
+        }
     });
 
     // バージョン情報を表示
@@ -627,6 +632,7 @@ function setupEventListeners() {
     if (resetStateBtn) {
         resetStateBtn.addEventListener('click', () => {
             if (confirm('保存された状態をクリアして初期状態にリセットしますか？')) {
+                isResetting = true;  // beforeunloadで保存をスキップ
                 clearSavedState();
                 clearStateFromURL();
                 window.location.reload();
@@ -837,7 +843,7 @@ function addImageToLibrary(imageData) {
     uploadedImages.push(image);
 
     // C++側の入力ライブラリに登録
-    graphEvaluator.storeInput(imageId, imageData.data, imageData.width, imageData.height);
+    graphEvaluator.storeImage(imageId, imageData.data, imageData.width, imageData.height);
 
     // UIを更新
     renderImageLibrary();
@@ -1177,7 +1183,7 @@ function onTileSettingsChange() {
 
     // C++側の出力バッファもクリア
     if (graphEvaluator) {
-        graphEvaluator.clearOutput(0);
+        graphEvaluator.clearImage(outputImageId);
     }
 
     // 設定を適用
@@ -1303,7 +1309,7 @@ function renderNodeGraph() {
             id: 'output',
             type: 'output',
             title: '出力',
-            outputId: 0,  // 出力ライブラリのID
+            imageId: outputImageId,  // 画像ライブラリのID（出力先）
             posX: 1000,  // 1600幅キャンバスの中央寄り右側
             posY: 550   // 1200高さキャンバスの中央付近
         });
@@ -2263,14 +2269,13 @@ function updatePreviewFromGraph() {
     graphEvaluator.setConnections(globalConnections);
 
     // 出力バッファを確保
-    const outputId = 0;
-    graphEvaluator.allocateOutput(outputId, canvasWidth, canvasHeight);
+    graphEvaluator.allocateImage(outputImageId, canvasWidth, canvasHeight);
 
-    // C++側でノードグラフ全体を評価（出力はoutputLibraryに書き込まれる）
+    // C++側でノードグラフ全体を評価（出力はimageLibraryに書き込まれる）
     graphEvaluator.evaluateGraph();
 
     // 出力データを取得
-    const resultData = graphEvaluator.getOutput(outputId);
+    const resultData = graphEvaluator.getImage(outputImageId);
 
     const evalTime = performance.now() - evalStart;
 
@@ -3063,7 +3068,7 @@ async function restoreAppState(state) {
                 height: imgState.height
             };
             uploadedImages.push(image);
-            graphEvaluator.storeInput(imgState.id, imageData.data, imgState.width, imgState.height);
+            graphEvaluator.storeImage(imgState.id, imageData.data, imgState.width, imgState.height);
         } else {
             // 画像データが見つからない場合は警告
             missingImages.push(imgState.name);

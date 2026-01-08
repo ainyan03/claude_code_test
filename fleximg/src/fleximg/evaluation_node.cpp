@@ -496,16 +496,15 @@ RenderRequest OutputEvalNode::computeInputRequest(
 
 std::unique_ptr<EvaluationNode> PipelineBuilder::createEvalNode(
     const GraphNode& node,
-    const std::map<int, ViewPort>& inputLibrary,
-    const std::map<int, ViewPort>& outputLibrary) {
+    const std::map<int, ViewPort>& imageLibrary) {
 
     if (node.type == "image") {
         auto evalNode = std::make_unique<ImageEvalNode>();
         evalNode->id = node.id;
 
         // 画像データをViewPortとしてコピー
-        auto it = inputLibrary.find(node.imageId);
-        if (it != inputLibrary.end()) {
+        auto it = imageLibrary.find(node.imageId);
+        if (it != imageLibrary.end()) {
             evalNode->imageData = it->second;
         }
         evalNode->srcOriginX = node.srcOriginX;
@@ -537,9 +536,9 @@ std::unique_ptr<EvaluationNode> PipelineBuilder::createEvalNode(
         auto evalNode = std::make_unique<OutputEvalNode>();
         evalNode->id = node.id;
 
-        // 出力先ViewPortを設定
-        auto it = outputLibrary.find(node.outputId);
-        if (it != outputLibrary.end()) {
+        // 出力先ViewPortを設定（imageLibraryを参照）
+        auto it = imageLibrary.find(node.imageId);
+        if (it != imageLibrary.end()) {
             evalNode->outputTarget = it->second;
         }
 
@@ -553,8 +552,7 @@ std::unique_ptr<EvaluationNode> PipelineBuilder::createEvalNode(
 Pipeline PipelineBuilder::build(
     const std::vector<GraphNode>& nodes,
     const std::vector<GraphConnection>& connections,
-    const std::map<int, ViewPort>& inputLibrary,
-    const std::map<int, ViewPort>& outputLibrary) {
+    const std::map<int, ViewPort>& imageLibrary) {
 
     Pipeline pipeline;
 
@@ -562,7 +560,7 @@ Pipeline PipelineBuilder::build(
     std::map<std::string, EvaluationNode*> nodeMap;
 
     for (const auto& node : nodes) {
-        auto evalNode = createEvalNode(node, inputLibrary, outputLibrary);
+        auto evalNode = createEvalNode(node, imageLibrary);
         if (evalNode) {
             // 出力ノードを記録
             if (node.type == "output") {

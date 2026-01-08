@@ -41,29 +41,16 @@ void NodeGraphEvaluator::setDebugCheckerboard(bool enabled) {
     debugCheckerboard_ = enabled;
 }
 
-void NodeGraphEvaluator::registerInput(int id, const ViewPort& view) {
-    inputLibrary[id] = view;
-    pipelineDirty_ = true;  // パイプライン再構築が必要（ImageEvalNodeの参照を更新）
+void NodeGraphEvaluator::registerImage(int id, const ViewPort& view) {
+    imageLibrary[id] = view;
+    pipelineDirty_ = true;  // パイプライン再構築が必要
 }
 
-void NodeGraphEvaluator::registerInput(int id, const void* data, int width, int height, PixelFormatID format) {
+void NodeGraphEvaluator::registerImage(int id, void* data, int width, int height, PixelFormatID format) {
     const PixelFormatDescriptor* desc = PixelFormatRegistry::getInstance().getFormat(format);
     size_t bytesPerPixel = desc ? (desc->bitsPerPixel + 7) / 8 : 4;
     int stride = width * bytesPerPixel;
-    inputLibrary[id] = ViewPort(const_cast<void*>(data), format, stride, width, height);
-    pipelineDirty_ = true;
-}
-
-void NodeGraphEvaluator::registerOutput(int id, const ViewPort& view) {
-    outputLibrary[id] = view;
-    pipelineDirty_ = true;
-}
-
-void NodeGraphEvaluator::registerOutput(int id, void* data, int width, int height, PixelFormatID format) {
-    const PixelFormatDescriptor* desc = PixelFormatRegistry::getInstance().getFormat(format);
-    size_t bytesPerPixel = desc ? (desc->bitsPerPixel + 7) / 8 : 4;
-    int stride = width * bytesPerPixel;
-    outputLibrary[id] = ViewPort(data, format, stride, width, height);
+    imageLibrary[id] = ViewPort(data, format, stride, width, height);
     pipelineDirty_ = true;
 }
 
@@ -77,7 +64,7 @@ void NodeGraphEvaluator::setConnections(const std::vector<GraphConnection>& newC
     pipelineDirty_ = true;  // パイプライン再構築が必要
 }
 
-// ノードグラフ全体を評価（出力は登録済みのoutputLibraryに書き込まれる）
+// ノードグラフ全体を評価（出力はOutputノードが参照するimageLibraryに書き込まれる）
 void NodeGraphEvaluator::evaluateGraph() {
     // パフォーマンス計測をリセット
     perfMetrics.reset();
@@ -110,7 +97,7 @@ void NodeGraphEvaluator::buildPipelineIfNeeded() {
     }
 
     // パイプラインを構築
-    Pipeline newPipeline = PipelineBuilder::build(nodes, connections, inputLibrary, outputLibrary);
+    Pipeline newPipeline = PipelineBuilder::build(nodes, connections, imageLibrary);
 
     if (newPipeline.isValid()) {
         pipeline_ = std::make_unique<Pipeline>(std::move(newPipeline));
@@ -146,7 +133,7 @@ void NodeGraphEvaluator::evaluateWithPipeline(const RenderContext& context) {
             RenderRequest tileReq = RenderRequest::fromTile(context, tx, ty);
 
             // パイプラインでタイル評価
-            // OutputEvalNode が直接 outputLibrary に書き込む
+            // OutputEvalNode が直接 imageLibrary に書き込む
             pipeline_->outputNode->evaluate(tileReq, context);
         }
     }
