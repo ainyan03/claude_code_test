@@ -21,10 +21,10 @@ EvalResult ImageEvalNode::evaluate(const RenderRequest& request,
     }
 
     // 画像の基準相対座標範囲
-    // srcOriginX/Y は 9点セレクタ (0=左上, 0.5=中央, 1=右下)
-    // 例: 100x100画像、中央基準(0.5) → imgLeft = -50
-    float imgLeft = -srcOriginX * imageData.width;
-    float imgTop = -srcOriginY * imageData.height;
+    // srcOriginX/Y はピクセル座標（画像内での基準点位置）
+    // 例: 100x100画像、中央基準(50, 50) → imgLeft = -50
+    float imgLeft = -srcOriginX;
+    float imgTop = -srcOriginY;
     float imgRight = imgLeft + imageData.width;
     float imgBottom = imgTop + imageData.height;
 

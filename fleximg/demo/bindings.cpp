@@ -142,8 +142,7 @@ public:
                 if (nodeObj["imageId"].typeOf().as<std::string>() != "undefined") {
                     node.imageId = nodeObj["imageId"].as<int>();
                 }
-                // 原点情報（正規化座標 → ピクセル座標への変換は evaluateNode で行う）
-                // ここでは正規化座標のまま受け取る
+                // 原点情報（JS側でピクセル座標に変換済み）
                 if (nodeObj["originX"].typeOf().as<std::string>() != "undefined") {
                     node.srcOriginX = nodeObj["originX"].as<double>();
                 }
@@ -262,15 +261,17 @@ public:
         val nodes = val::array();
         for (int i = 0; i < NodeType::Count; i++) {
             val nodeMetrics = val::object();
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
             nodeMetrics.set("time_us", metrics.nodes[i].time_us);
             nodeMetrics.set("count", metrics.nodes[i].count);
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
             nodeMetrics.set("allocBytes", static_cast<double>(metrics.nodes[i].allocBytes));
             nodeMetrics.set("allocCount", metrics.nodes[i].allocCount);
             nodeMetrics.set("requestedPixels", static_cast<double>(metrics.nodes[i].requestedPixels));
             nodeMetrics.set("usedPixels", static_cast<double>(metrics.nodes[i].usedPixels));
             nodeMetrics.set("wasteRatio", metrics.nodes[i].wasteRatio());
 #else
+            nodeMetrics.set("time_us", 0);
+            nodeMetrics.set("count", 0);
             nodeMetrics.set("allocBytes", 0);
             nodeMetrics.set("allocCount", 0);
             nodeMetrics.set("requestedPixels", 0);
@@ -282,6 +283,7 @@ public:
         result.set("nodes", nodes);
 
         // 後方互換用フラットキー（主要な時間とカウント）
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
         result.set("filterTime", metrics.nodes[NodeType::Filter].time_us);
         result.set("affineTime", metrics.nodes[NodeType::Affine].time_us);
         result.set("compositeTime", metrics.nodes[NodeType::Composite].time_us);
@@ -290,6 +292,16 @@ public:
         result.set("affineCount", metrics.nodes[NodeType::Affine].count);
         result.set("compositeCount", metrics.nodes[NodeType::Composite].count);
         result.set("outputCount", metrics.nodes[NodeType::Output].count);
+#else
+        result.set("filterTime", 0);
+        result.set("affineTime", 0);
+        result.set("compositeTime", 0);
+        result.set("outputTime", 0);
+        result.set("filterCount", 0);
+        result.set("affineCount", 0);
+        result.set("compositeCount", 0);
+        result.set("outputCount", 0);
+#endif
 
         // 集計値
         result.set("totalTime", metrics.totalTime());
