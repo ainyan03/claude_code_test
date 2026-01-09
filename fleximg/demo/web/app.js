@@ -584,6 +584,9 @@ function setupEventListeners() {
     // サイドバー開閉
     setupSidebar();
 
+    // デバッグステータスバーのクリックイベント
+    setupDebugStatusBarClick();
+
     // スプリッターによるリサイズ
     setupSplitter();
 
@@ -2380,6 +2383,9 @@ function updatePreviewFromGraph() {
 
         // デバッグステータスバーを更新
         updateDebugStatusBar(totalTime, evalTime, details);
+
+        // サイドバーのデバッグ詳細セクションを更新
+        updateDebugDetails(metrics);
     } else {
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     }
@@ -2398,6 +2404,88 @@ function updateDebugStatusBar(totalTime, wasmTime, details) {
     }
     if (detailsEl) {
         detailsEl.textContent = details.join(' | ');
+    }
+}
+
+// サイドバーのデバッグ詳細セクションを更新
+function updateDebugDetails(metrics) {
+    if (!metrics) return;
+
+    const usToMs = (us) => (us / 1000).toFixed(2);
+    const formatBytes = (bytes) => {
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+    };
+
+    // ノードタイプ別の処理時間
+    const nodeIds = ['image', 'filter', 'affine', 'composite', 'output'];
+    if (metrics.nodes) {
+        for (let i = 0; i < metrics.nodes.length && i < nodeIds.length; i++) {
+            const m = metrics.nodes[i];
+            const el = document.getElementById(`debug-${nodeIds[i]}-time`);
+            if (el) {
+                if (m.count > 0) {
+                    let text = `${usToMs(m.time_us)}ms (x${m.count})`;
+                    // Filter/Affineノードのピクセル効率を表示
+                    if ((i === 1 || i === 2) && m.requestedPixels > 0) {
+                        const efficiency = ((1.0 - m.wasteRatio) * 100).toFixed(1);
+                        text += ` [${efficiency}%]`;
+                    }
+                    el.textContent = text;
+                } else {
+                    el.textContent = '--';
+                }
+            }
+        }
+    }
+
+    // 合計時間
+    const totalEl = document.getElementById('debug-total-time');
+    if (totalEl && metrics.totalTime !== undefined) {
+        totalEl.textContent = `${usToMs(metrics.totalTime)}ms`;
+    }
+
+    // メモリ確保量
+    const allocEl = document.getElementById('debug-alloc-bytes');
+    if (allocEl && metrics.totalAllocBytes !== undefined) {
+        allocEl.textContent = formatBytes(metrics.totalAllocBytes);
+    }
+}
+
+// ステータスバークリックでデバッグセクションを開く
+function setupDebugStatusBarClick() {
+    const statusBar = document.getElementById('debug-status-bar');
+    if (statusBar) {
+        statusBar.addEventListener('click', () => {
+            // サイドバーを開く
+            const sidebar = document.getElementById('sidebar');
+            const toggle = document.getElementById('sidebar-toggle');
+            const overlay = document.getElementById('sidebar-overlay');
+            if (sidebar && !sidebar.classList.contains('open')) {
+                sidebar.classList.add('open');
+                toggle?.classList.add('open');
+                overlay?.classList.add('visible');
+                document.body.classList.add('sidebar-open');
+            }
+
+            // デバッグセクションを開く
+            const debugItem = document.querySelector('.sidebar-accordion-item[data-accordion="debug"]');
+            if (debugItem && !debugItem.classList.contains('active')) {
+                // 他のアイテムを閉じる
+                document.querySelectorAll('.sidebar-accordion-item').forEach(item => {
+                    if (item !== debugItem) {
+                        item.classList.remove('active');
+                        const icon = item.querySelector('.sidebar-accordion-icon');
+                        if (icon) icon.textContent = '▶';
+                    }
+                });
+                // デバッグアイテムを開く
+                debugItem.classList.add('active');
+                const icon = debugItem.querySelector('.sidebar-accordion-icon');
+                if (icon) icon.textContent = '▼';
+            }
+        });
     }
 }
 

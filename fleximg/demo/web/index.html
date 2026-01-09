@@ -132,6 +132,56 @@
                 </div>
                 </div>
             </div>
+
+            <!-- デバッグ情報（アコーディオン） -->
+            <div class="sidebar-accordion-item" data-accordion="debug">
+                <button class="sidebar-accordion-header">
+                    <span class="sidebar-accordion-icon">▶</span>
+                    <span>🐛 デバッグ</span>
+                </button>
+                <div class="sidebar-accordion-content">
+                    <div class="debug-details" id="debug-details">
+                        <div class="debug-section">
+                            <div class="debug-section-header">処理時間</div>
+                            <div class="debug-metrics" id="debug-metrics-time">
+                                <div class="debug-metric-row">
+                                    <span class="debug-metric-label">Image</span>
+                                    <span class="debug-metric-value" id="debug-image-time">--</span>
+                                </div>
+                                <div class="debug-metric-row">
+                                    <span class="debug-metric-label">Filter</span>
+                                    <span class="debug-metric-value" id="debug-filter-time">--</span>
+                                </div>
+                                <div class="debug-metric-row">
+                                    <span class="debug-metric-label">Affine</span>
+                                    <span class="debug-metric-value" id="debug-affine-time">--</span>
+                                </div>
+                                <div class="debug-metric-row">
+                                    <span class="debug-metric-label">Composite</span>
+                                    <span class="debug-metric-value" id="debug-composite-time">--</span>
+                                </div>
+                                <div class="debug-metric-row">
+                                    <span class="debug-metric-label">Output</span>
+                                    <span class="debug-metric-value" id="debug-output-time">--</span>
+                                </div>
+                                <div class="debug-metric-row debug-metric-total">
+                                    <span class="debug-metric-label">合計</span>
+                                    <span class="debug-metric-value" id="debug-total-time">--</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="debug-section">
+                            <div class="debug-section-header">メモリ</div>
+                            <div class="debug-metrics">
+                                <div class="debug-metric-row">
+                                    <span class="debug-metric-label">確保量</span>
+                                    <span class="debug-metric-value" id="debug-alloc-bytes">--</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </aside>
 
