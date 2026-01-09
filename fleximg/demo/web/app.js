@@ -291,6 +291,7 @@ function setupSidebar() {
         toggle.classList.add('open');
         overlay.classList.add('visible');
         document.body.classList.add('sidebar-open');
+        localStorage.setItem('sidebarOpen', 'true');
     }
 
     function closeSidebar() {
@@ -298,6 +299,7 @@ function setupSidebar() {
         toggle.classList.remove('open');
         overlay.classList.remove('visible');
         document.body.classList.remove('sidebar-open');
+        localStorage.setItem('sidebarOpen', 'false');
     }
 
     function toggleSidebar() {
@@ -321,8 +323,13 @@ function setupSidebar() {
         }
     });
 
-    // 初期状態でサイドバーを開く
-    openSidebar();
+    // 初期状態を復元（デフォルトは開く）
+    const savedSidebarState = localStorage.getItem('sidebarOpen');
+    if (savedSidebarState === 'false') {
+        closeSidebar();
+    } else {
+        openSidebar();
+    }
 
     // アコーディオンのセットアップ
     setupSidebarAccordion();
@@ -332,6 +339,29 @@ function setupSidebar() {
 function setupSidebarAccordion() {
     const accordionItems = document.querySelectorAll('.sidebar-accordion-item');
 
+    // アコーディオンを開く関数
+    function openAccordion(item) {
+        // 他のアイテムを閉じる
+        accordionItems.forEach(otherItem => {
+            if (otherItem !== item) {
+                otherItem.classList.remove('active');
+                const icon = otherItem.querySelector('.sidebar-accordion-icon');
+                if (icon) icon.textContent = '▶';
+            }
+        });
+
+        // 指定されたアイテムを開く
+        item.classList.add('active');
+        const icon = item.querySelector('.sidebar-accordion-icon');
+        if (icon) icon.textContent = '▼';
+
+        // 状態を保存
+        const accordionId = item.dataset.accordion;
+        if (accordionId) {
+            localStorage.setItem('sidebarAccordion', accordionId);
+        }
+    }
+
     accordionItems.forEach(item => {
         const header = item.querySelector('.sidebar-accordion-header');
 
@@ -340,22 +370,18 @@ function setupSidebarAccordion() {
             if (item.classList.contains('active')) {
                 return;
             }
-
-            // 他のアイテムを閉じる
-            accordionItems.forEach(otherItem => {
-                if (otherItem !== item) {
-                    otherItem.classList.remove('active');
-                    const icon = otherItem.querySelector('.sidebar-accordion-icon');
-                    if (icon) icon.textContent = '▶';
-                }
-            });
-
-            // クリックされたアイテムを開く
-            item.classList.add('active');
-            const icon = item.querySelector('.sidebar-accordion-icon');
-            if (icon) icon.textContent = '▼';
+            openAccordion(item);
         });
     });
+
+    // 初期状態を復元
+    const savedAccordion = localStorage.getItem('sidebarAccordion');
+    if (savedAccordion) {
+        const targetItem = document.querySelector(`.sidebar-accordion-item[data-accordion="${savedAccordion}"]`);
+        if (targetItem) {
+            openAccordion(targetItem);
+        }
+    }
 }
 
 // スプリッターによるリサイズ処理
@@ -575,7 +601,7 @@ async function tryRestoreState() {
 function displayVersionInfo() {
     const versionEl = document.getElementById('version-info');
     if (versionEl && typeof BUILD_INFO !== 'undefined') {
-        versionEl.textContent = `Build: ${BUILD_INFO.buildDate} | Commit: ${BUILD_INFO.gitCommit} | ${BUILD_INFO.backend}`;
+        versionEl.textContent = `Build: ${BUILD_INFO.buildDate} | Commit: ${BUILD_INFO.gitCommit}`;
         console.log('Build Info:', BUILD_INFO);
     }
 }
@@ -2640,7 +2666,15 @@ function hideNodeDetailPanel() {
 }
 
 // 閉じるボタン
-detailPanelClose.addEventListener('click', hideNodeDetailPanel);
+detailPanelClose.addEventListener('click', (e) => {
+    e.stopPropagation();
+    hideNodeDetailPanel();
+});
+
+// パネル内クリックは外部に伝播させない（ボタンクリック時にパネルが閉じるのを防ぐ）
+detailPanel.addEventListener('click', (e) => {
+    e.stopPropagation();
+});
 
 // 外部クリックで閉じる
 document.addEventListener('click', (e) => {
@@ -2649,6 +2683,47 @@ document.addEventListener('click', (e) => {
         !contextMenu.contains(e.target)) {
         hideNodeDetailPanel();
     }
+});
+
+// ========================================
+// 詳細パネルのドラッグ移動
+// ========================================
+
+const detailPanelHeader = detailPanel.querySelector('.node-detail-header');
+let detailPanelDragging = false;
+let detailPanelDragOffsetX = 0;
+let detailPanelDragOffsetY = 0;
+
+detailPanelHeader.addEventListener('mousedown', (e) => {
+    // 閉じるボタン上でのドラッグ開始を防ぐ
+    if (e.target === detailPanelClose) return;
+
+    detailPanelDragging = true;
+
+    // transform を解除して left/top で位置管理
+    const rect = detailPanel.getBoundingClientRect();
+    detailPanel.style.transform = 'none';
+    detailPanel.style.left = rect.left + 'px';
+    detailPanel.style.top = rect.top + 'px';
+
+    detailPanelDragOffsetX = e.clientX - rect.left;
+    detailPanelDragOffsetY = e.clientY - rect.top;
+
+    e.preventDefault();
+});
+
+document.addEventListener('mousemove', (e) => {
+    if (!detailPanelDragging) return;
+
+    const newX = e.clientX - detailPanelDragOffsetX;
+    const newY = e.clientY - detailPanelDragOffsetY;
+
+    detailPanel.style.left = newX + 'px';
+    detailPanel.style.top = newY + 'px';
+});
+
+document.addEventListener('mouseup', () => {
+    detailPanelDragging = false;
 });
 
 // 詳細パネルのコンテンツを生成
