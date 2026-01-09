@@ -215,6 +215,14 @@ EvalResult AffineEvalNode::evaluate(const RenderRequest& request,
     // 1. 入力要求を計算
     RenderRequest inputReq = computeInputRequest(request);
 
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    // ピクセル効率計測: 上流に要求したピクセル数
+    if (context.perfMetrics) {
+        auto& m = context.perfMetrics->nodes[NodeType::Affine];
+        m.requestedPixels += static_cast<uint64_t>(inputReq.width) * inputReq.height;
+    }
+#endif
+
     // 2. 上流ノードを評価
     EvalResult inputResult = inputs[0]->evaluate(inputReq, context);
 
@@ -260,6 +268,8 @@ EvalResult AffineEvalNode::evaluate(const RenderRequest& request,
         auto& m = context.perfMetrics->nodes[NodeType::Affine];
         m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(affineEnd - affineStart).count();
         m.count++;
+        // ピクセル効率計測: 実際に使用したピクセル数（出力サイズ）
+        m.usedPixels += static_cast<uint64_t>(request.width) * request.height;
     }
 #endif
     return result;
