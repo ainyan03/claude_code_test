@@ -102,7 +102,8 @@ void affine(ViewPort& dst, float dstOriginX, float dstOriginY,
 
     // ピクセルスキャン（DDAアルゴリズム）
     size_t srcBpp = getBytesPerPixel(src.formatID);
-    const int inputStride = src.stride / srcBpp;
+    // stride を uint16_t 単位で計算（16bit版用）
+    const int inputStride16 = src.stride / sizeof(uint16_t);
     const int32_t rowOffsetX = fixedInvB >> 1;
     const int32_t rowOffsetY = fixedInvD >> 1;
     const int32_t dxOffsetX = fixedInvA >> 1;
@@ -132,7 +133,7 @@ void affine(ViewPort& dst, float dstOriginX, float dstOriginY,
                 uint32_t sy = static_cast<uint32_t>(srcY_fixed) >> FIXED_POINT_BITS;
 
                 if (sx < static_cast<uint32_t>(src.width) && sy < static_cast<uint32_t>(src.height)) {
-                    const uint16_t* srcPixel = srcData + sy * inputStride + sx * 4;
+                    const uint16_t* srcPixel = srcData + sy * inputStride16 + sx * 4;
                     dstRow[0] = srcPixel[0];
                     dstRow[1] = srcPixel[1];
                     dstRow[2] = srcPixel[2];
