@@ -22,20 +22,25 @@
     <!-- 左袖メニュー -->
     <aside id="sidebar" class="sidebar">
         <div class="sidebar-content">
-            <!-- 画像ライブラリ -->
-            <div class="sidebar-section">
-                <div class="sidebar-section-header">
-                    <h3>📸 画像ライブラリ</h3>
+            <!-- 画像ライブラリ（アコーディオン） -->
+            <div class="sidebar-accordion-item active" data-accordion="images">
+                <button class="sidebar-accordion-header">
+                    <span class="sidebar-accordion-icon">▼</span>
+                    <span>📸 画像ライブラリ</span>
+                </button>
+                <div class="sidebar-accordion-content">
+                    <button id="sidebar-add-image-btn" class="primary-btn sidebar-add-btn">📁 画像を追加</button>
+                    <div id="sidebar-images-library" class="sidebar-images-library"></div>
                 </div>
-                <button id="sidebar-add-image-btn" class="primary-btn sidebar-add-btn">📁 画像を追加</button>
-                <div id="sidebar-images-library" class="sidebar-images-library"></div>
             </div>
 
-            <!-- 出力設定 -->
-            <div class="sidebar-section sidebar-section-bottom">
-                <div class="sidebar-section-header">
-                    <h3>⚙️ 出力設定</h3>
-                </div>
+            <!-- 出力設定（アコーディオン） -->
+            <div class="sidebar-accordion-item" data-accordion="settings">
+                <button class="sidebar-accordion-header">
+                    <span class="sidebar-accordion-icon">▶</span>
+                    <span>⚙️ 出力設定</span>
+                </button>
+                <div class="sidebar-accordion-content">
                 <div class="sidebar-settings">
                     <div class="sidebar-setting-group">
                         <span class="sidebar-setting-label">原点</span>
@@ -122,6 +127,57 @@
                         <div class="sidebar-setting-row sidebar-state-buttons">
                             <button id="copy-state-url-btn" class="secondary-btn" title="現在の状態をURLとしてコピー">🔗 URLコピー</button>
                             <button id="reset-state-btn" class="secondary-btn danger" title="保存された状態をクリアしてリセット">🔄 リセット</button>
+                        </div>
+                    </div>
+                </div>
+                </div>
+            </div>
+
+            <!-- デバッグ情報（アコーディオン） -->
+            <div class="sidebar-accordion-item" data-accordion="debug">
+                <button class="sidebar-accordion-header">
+                    <span class="sidebar-accordion-icon">▶</span>
+                    <span>🐛 デバッグ</span>
+                </button>
+                <div class="sidebar-accordion-content">
+                    <div class="debug-details" id="debug-details">
+                        <div class="debug-section">
+                            <div class="debug-section-header">処理時間</div>
+                            <div class="debug-metrics" id="debug-metrics-time">
+                                <div class="debug-metric-row">
+                                    <span class="debug-metric-label">Image</span>
+                                    <span class="debug-metric-value" id="debug-image-time">--</span>
+                                </div>
+                                <div class="debug-metric-row">
+                                    <span class="debug-metric-label">Filter</span>
+                                    <span class="debug-metric-value" id="debug-filter-time">--</span>
+                                </div>
+                                <div class="debug-metric-row">
+                                    <span class="debug-metric-label">Affine</span>
+                                    <span class="debug-metric-value" id="debug-affine-time">--</span>
+                                </div>
+                                <div class="debug-metric-row">
+                                    <span class="debug-metric-label">Composite</span>
+                                    <span class="debug-metric-value" id="debug-composite-time">--</span>
+                                </div>
+                                <div class="debug-metric-row">
+                                    <span class="debug-metric-label">Output</span>
+                                    <span class="debug-metric-value" id="debug-output-time">--</span>
+                                </div>
+                                <div class="debug-metric-row debug-metric-total">
+                                    <span class="debug-metric-label">合計</span>
+                                    <span class="debug-metric-value" id="debug-total-time">--</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="debug-section">
+                            <div class="debug-section-header">メモリ</div>
+                            <div class="debug-metrics">
+                                <div class="debug-metric-row">
+                                    <span class="debug-metric-label">確保量</span>
+                                    <span class="debug-metric-value" id="debug-alloc-bytes">--</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

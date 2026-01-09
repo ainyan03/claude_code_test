@@ -935,7 +935,10 @@ button {
     left: 0;
     top: 0;
     width: 280px;
-    height: 100vh;
+    /* モバイルブラウザのUI（アドレスバー等）を考慮した高さ設定 */
+    height: 100vh;                      /* フォールバック */
+    height: 100dvh;                     /* Dynamic Viewport Height（推奨） */
+    height: -webkit-fill-available;     /* iOS Safari対応 */
     background: white;
     box-shadow: 4px 0 20px rgba(0, 0, 0, 0.15);
     z-index: 1000;
@@ -957,35 +960,144 @@ button {
     min-height: 0;
 }
 
-/* サイドバーセクション */
-.sidebar-section {
-    padding: 15px;
-    border-bottom: 1px solid #e0e0e0;
-}
+/* ===========================================
+   アコーディオンUI
+   =========================================== */
 
-.sidebar-section:first-child {
-    flex: 1;
+.sidebar-accordion-item {
     display: flex;
     flex-direction: column;
+    border-bottom: 1px solid #e0e0e0;
     min-height: 0;
+    flex-shrink: 0;
+    transition: flex 0.3s ease;
+}
+
+.sidebar-accordion-item:last-child {
+    border-bottom: none;
+}
+
+/* 開いている状態 */
+.sidebar-accordion-item.active {
+    flex: 1;
     overflow: hidden;
 }
 
-.sidebar-section-bottom {
-    flex-shrink: 0;
-    border-bottom: none;
-    border-top: 1px solid #e0e0e0;
-    background: #f9f9f9;
-}
-
-.sidebar-section-header {
-    margin-bottom: 12px;
-}
-
-.sidebar-section-header h3 {
+/* アコーディオンヘッダー */
+.sidebar-accordion-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 12px 15px;
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border: none;
+    border-radius: 0;
+    cursor: pointer;
     font-size: 1em;
+    font-weight: 600;
     color: #333;
-    margin: 0;
+    text-align: left;
+    flex-shrink: 0;
+    transition: background 0.3s ease, color 0.3s ease;
+}
+
+.sidebar-accordion-header:hover {
+    background: linear-gradient(135deg, #e9ecef 0%, #dee2e6 100%);
+}
+
+.sidebar-accordion-item.active .sidebar-accordion-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.sidebar-accordion-icon {
+    font-size: 0.8em;
+    transition: transform 0.2s;
+    width: 1em;
+    text-align: center;
+}
+
+/* アコーディオンコンテンツ */
+.sidebar-accordion-content {
+    display: none;
+    flex: 1;
+    flex-direction: column;
+    padding: 15px;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+.sidebar-accordion-item.active .sidebar-accordion-content {
+    display: flex;
+}
+
+/* ===========================================
+   デバッグ詳細セクション
+   =========================================== */
+
+.debug-details {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.debug-section {
+    background: #1a1a2e;
+    border-radius: 8px;
+    padding: 12px;
+}
+
+.debug-section-header {
+    font-size: 11px;
+    font-weight: 600;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #333;
+}
+
+.debug-metrics {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.debug-metric-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+}
+
+.debug-metric-label {
+    font-size: 12px;
+    color: #aaa;
+    font-family: 'Monaco', 'Consolas', monospace;
+}
+
+.debug-metric-value {
+    font-size: 12px;
+    color: #0f0;
+    font-family: 'Monaco', 'Consolas', monospace;
+    font-weight: 600;
+}
+
+.debug-metric-total {
+    border-top: 1px solid #333;
+    margin-top: 4px;
+    padding-top: 8px;
+}
+
+.debug-metric-total .debug-metric-label {
+    color: #fff;
+}
+
+.debug-metric-total .debug-metric-value {
+    color: #0ff;
+    font-size: 14px;
 }
 
 /* 画像追加ボタン */
@@ -1292,6 +1404,16 @@ button {
     padding: 0 10px;
     gap: 8px;
     z-index: 900;  /* サイドバー(1000)より下 */
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.debug-status-bar:hover {
+    background: rgba(0, 0, 0, 0.95);
+}
+
+.debug-status-bar:active {
+    background: rgba(30, 30, 60, 0.95);
 }
 
 .debug-status-label {
