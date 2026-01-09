@@ -323,6 +323,39 @@ function setupSidebar() {
 
     // 初期状態でサイドバーを開く
     openSidebar();
+
+    // アコーディオンのセットアップ
+    setupSidebarAccordion();
+}
+
+// サイドバーアコーディオン切り替えロジック
+function setupSidebarAccordion() {
+    const accordionItems = document.querySelectorAll('.sidebar-accordion-item');
+
+    accordionItems.forEach(item => {
+        const header = item.querySelector('.sidebar-accordion-header');
+
+        header.addEventListener('click', () => {
+            // 既にアクティブなら何もしない（常に1つは開いている）
+            if (item.classList.contains('active')) {
+                return;
+            }
+
+            // 他のアイテムを閉じる
+            accordionItems.forEach(otherItem => {
+                if (otherItem !== item) {
+                    otherItem.classList.remove('active');
+                    const icon = otherItem.querySelector('.sidebar-accordion-icon');
+                    if (icon) icon.textContent = '▶';
+                }
+            });
+
+            // クリックされたアイテムを開く
+            item.classList.add('active');
+            const icon = item.querySelector('.sidebar-accordion-icon');
+            if (icon) icon.textContent = '▼';
+        });
+    });
 }
 
 // スプリッターによるリサイズ処理

@@ -22,20 +22,25 @@
     <!-- 左袖メニュー -->
     <aside id="sidebar" class="sidebar">
         <div class="sidebar-content">
-            <!-- 画像ライブラリ -->
-            <div class="sidebar-section">
-                <div class="sidebar-section-header">
-                    <h3>📸 画像ライブラリ</h3>
+            <!-- 画像ライブラリ（アコーディオン） -->
+            <div class="sidebar-accordion-item active" data-accordion="images">
+                <button class="sidebar-accordion-header">
+                    <span class="sidebar-accordion-icon">▼</span>
+                    <span>📸 画像ライブラリ</span>
+                </button>
+                <div class="sidebar-accordion-content">
+                    <button id="sidebar-add-image-btn" class="primary-btn sidebar-add-btn">📁 画像を追加</button>
+                    <div id="sidebar-images-library" class="sidebar-images-library"></div>
                 </div>
-                <button id="sidebar-add-image-btn" class="primary-btn sidebar-add-btn">📁 画像を追加</button>
-                <div id="sidebar-images-library" class="sidebar-images-library"></div>
             </div>
 
-            <!-- 出力設定 -->
-            <div class="sidebar-section sidebar-section-bottom">
-                <div class="sidebar-section-header">
-                    <h3>⚙️ 出力設定</h3>
-                </div>
+            <!-- 出力設定（アコーディオン） -->
+            <div class="sidebar-accordion-item" data-accordion="settings">
+                <button class="sidebar-accordion-header">
+                    <span class="sidebar-accordion-icon">▶</span>
+                    <span>⚙️ 出力設定</span>
+                </button>
+                <div class="sidebar-accordion-content">
                 <div class="sidebar-settings">
                     <div class="sidebar-setting-group">
                         <span class="sidebar-setting-label">原点</span>
@@ -124,6 +129,7 @@
                             <button id="reset-state-btn" class="secondary-btn danger" title="保存された状態をクリアしてリセット">🔄 リセット</button>
                         </div>
                     </div>
+                </div>
                 </div>
             </div>
         </div>
