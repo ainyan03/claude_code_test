@@ -235,8 +235,16 @@ RenderResult Renderer::evaluateTransformNode(TransformNode* xform, const RenderR
         return RenderResult();
     }
 
-    // 出力要求の4頂点を固定小数点逆行列で逆変換してAABBを算出
-    // 固定小数点演算で範囲計算（DDAと同じ精度を保証）
+    // ========================================================================
+    // 入力要求範囲の算出
+    // ========================================================================
+    // 出力要求の4頂点を逆変換し、必要な入力領域のAABBを計算する。
+    // DDAと同じ固定小数点逆行列を使用することで、範囲計算の精度を保証。
+    //
+    // 逆変換の数式:
+    //   rx = out - T   (平行移動をキャンセル)
+    //   in = R^(-1) * rx   (回転/スケール逆変換)
+
     int32_t corners[4][2] = {
         {static_cast<int32_t>(-request.originX), static_cast<int32_t>(-request.originY)},
         {static_cast<int32_t>(request.width - request.originX), static_cast<int32_t>(-request.originY)},
@@ -246,13 +254,14 @@ RenderResult Renderer::evaluateTransformNode(TransformNode* xform, const RenderR
 
     int32_t minX = INT32_MAX, minY = INT32_MAX, maxX = INT32_MIN, maxY = INT32_MIN;
     for (int i = 0; i < 4; i++) {
-        // 固定小数点演算: result = (a * x + b * y + tx) >> FIXED_POINT_BITS
-        int64_t sx64 = static_cast<int64_t>(invMatrix.a) * corners[i][0]
-                     + static_cast<int64_t>(invMatrix.b) * corners[i][1]
-                     + invMatrix.tx;
-        int64_t sy64 = static_cast<int64_t>(invMatrix.c) * corners[i][0]
-                     + static_cast<int64_t>(invMatrix.d) * corners[i][1]
-                     + invMatrix.ty;
+        // 平行移動をキャンセル（整数演算）
+        int32_t rx = corners[i][0] - invMatrix.tx;
+        int32_t ry = corners[i][1] - invMatrix.ty;
+        // 回転/スケール逆変換（固定小数点演算）
+        int64_t sx64 = static_cast<int64_t>(invMatrix.a) * rx
+                     + static_cast<int64_t>(invMatrix.b) * ry;
+        int64_t sy64 = static_cast<int64_t>(invMatrix.c) * rx
+                     + static_cast<int64_t>(invMatrix.d) * ry;
         int32_t sx = static_cast<int32_t>(sx64 >> transform::FIXED_POINT_BITS);
         int32_t sy = static_cast<int32_t>(sy64 >> transform::FIXED_POINT_BITS);
         minX = std::min(minX, sx);

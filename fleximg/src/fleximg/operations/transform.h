@@ -10,49 +10,57 @@ namespace FLEXIMG_NAMESPACE {
 namespace transform {
 
 // ========================================================================
-// 固定小数点逆行列
+// 固定小数点定数
 // ========================================================================
-//
-// アフィン変換の逆行列を固定小数点形式で保持します。
-// renderer側で事前計算し、範囲計算とDDA処理の両方で使用することで
-// 一貫性を保証します。
-//
 
 constexpr int FIXED_POINT_BITS = 16;
 constexpr int32_t FIXED_POINT_SCALE = 1 << FIXED_POINT_BITS;
 
+// ========================================================================
+// FixedPointInverseMatrix - 固定小数点逆行列
+// ========================================================================
+//
+// アフィン変換の逆行列を固定小数点形式で保持します。
+//
+// 設計のポイント:
+// - 回転/スケール成分(a,b,c,d)は固定小数点で保持
+// - 平行移動成分(tx,ty)は整数で保持
+// - DDA処理時に tx * fixedInvA のように整数演算で逆変換を計算
+// - これにより、低精度(3bit等)でも回転中心が安定する
+//
+// 使用方法:
+// 1. Rendererで fromMatrix() を呼び出して逆行列を作成
+// 2. 範囲計算と transform::affine() の両方で同じ逆行列を使用
+//
+
 struct FixedPointInverseMatrix {
-    int32_t a, b, c, d;   // 2x2回転・スケール部分の逆行列
-    int32_t tx, ty;       // 平行移動部分の逆変換
-    bool valid;           // 逆行列が存在するか（非特異行列か）
+    int32_t a, b, c, d;   // 2x2逆行列（固定小数点、FIXED_POINT_BITS精度）
+    int32_t tx, ty;       // 平行移動成分（整数）
+    bool valid;           // 逆行列が存在するか
 
     FixedPointInverseMatrix() : a(0), b(0), c(0), d(0), tx(0), ty(0), valid(false) {}
 
-    // AffineMatrixから固定小数点逆行列を計算
+    // AffineMatrixから固定小数点逆行列を作成
     static FixedPointInverseMatrix fromMatrix(const AffineMatrix& matrix) {
         FixedPointInverseMatrix result;
 
         float det = matrix.a * matrix.d - matrix.b * matrix.c;
         if (std::abs(det) < 1e-10f) {
-            // 特異行列
             result.valid = false;
             return result;
         }
 
         float invDet = 1.0f / det;
-        float invA = matrix.d * invDet;
-        float invB = -matrix.b * invDet;
-        float invC = -matrix.c * invDet;
-        float invD = matrix.a * invDet;
-        float invTx = (-matrix.d * matrix.tx + matrix.b * matrix.ty) * invDet;
-        float invTy = (matrix.c * matrix.tx - matrix.a * matrix.ty) * invDet;
 
-        result.a  = std::lround(invA * FIXED_POINT_SCALE);
-        result.b  = std::lround(invB * FIXED_POINT_SCALE);
-        result.c  = std::lround(invC * FIXED_POINT_SCALE);
-        result.d  = std::lround(invD * FIXED_POINT_SCALE);
-        result.tx = std::lround(invTx * FIXED_POINT_SCALE);
-        result.ty = std::lround(invTy * FIXED_POINT_SCALE);
+        // 回転/スケール逆行列を固定小数点化
+        result.a = std::lround(matrix.d * invDet * FIXED_POINT_SCALE);
+        result.b = std::lround(-matrix.b * invDet * FIXED_POINT_SCALE);
+        result.c = std::lround(-matrix.c * invDet * FIXED_POINT_SCALE);
+        result.d = std::lround(matrix.a * invDet * FIXED_POINT_SCALE);
+
+        // 平行移動は整数で保持（DDA時に係数と乗算して使用）
+        result.tx = std::lround(matrix.tx);
+        result.ty = std::lround(matrix.ty);
         result.valid = true;
 
         return result;

@@ -20,34 +20,46 @@ void affine(ViewPort& dst, float dstOriginX, float dstOriginY,
     int outW = dst.width;
     int outH = dst.height;
 
-    // 事前計算された固定小数点逆行列を使用
-    int32_t fixedInvA  = invMatrix.a;
-    int32_t fixedInvB  = invMatrix.b;
-    int32_t fixedInvC  = invMatrix.c;
-    int32_t fixedInvD  = invMatrix.d;
-    int32_t fixedInvTx = invMatrix.tx;
-    int32_t fixedInvTy = invMatrix.ty;
+    // 固定小数点逆行列の回転/スケール成分
+    int32_t fixedInvA = invMatrix.a;
+    int32_t fixedInvB = invMatrix.b;
+    int32_t fixedInvC = invMatrix.c;
+    int32_t fixedInvD = invMatrix.d;
 
-    // 座標変換の式:
-    // dst座標(dx, dy) → 基準相対座標(dx - dstOriginX, dy - dstOriginY)
-    // 逆変換 → 入力の基準相対座標(rx, ry)
-    // → src座標(rx + srcOriginX, ry + srcOriginY)
-    //
-    // 整理:
-    // sx = invA*(dx-dstOriginX) + invB*(dy-dstOriginY) + invTx + srcOriginX
-    //    = invA*dx + invB*dy + (invTx - invA*dstOriginX - invB*dstOriginY + srcOriginX)
-
+    // 原点座標を整数化
     int32_t dstOriginXInt = std::lround(dstOriginX);
     int32_t dstOriginYInt = std::lround(dstOriginY);
     int32_t srcOriginXInt = std::lround(srcOriginX);
     int32_t srcOriginYInt = std::lround(srcOriginY);
 
-    fixedInvTx += -(dstOriginXInt * fixedInvA)
-                - (dstOriginYInt * fixedInvB)
-                + (srcOriginXInt << FIXED_POINT_BITS);
-    fixedInvTy += -(dstOriginXInt * fixedInvC)
-                - (dstOriginYInt * fixedInvD)
-                + (srcOriginYInt << FIXED_POINT_BITS);
+    // ========================================================================
+    // 逆変換オフセットの計算
+    // ========================================================================
+    //
+    // 逆変換の数式: srcPos = R^(-1) * dstPos + invT
+    //   invT = -R^(-1) * T = -(invA*tx + invB*ty, invC*tx + invD*ty)
+    //
+    // 重要: tx/tyは整数として保持し、固定小数点係数と乗算する。
+    // これにより、回転係数の量子化精度に関係なく、平行移動が正確に計算される。
+    // （低精度でも回転中心が安定する理由）
+    //
+    // 整数キャンセル方式:
+    // - dstOrigin位置での計算誤差を最小化するため、dstOriginを基準に展開
+    // - srcOriginを加算してソース座標系に変換
+
+    // 平行移動の逆変換: -(tx * invA + ty * invB)
+    int32_t invTxInt = -(invMatrix.tx * fixedInvA + invMatrix.ty * fixedInvB);
+    int32_t invTyInt = -(invMatrix.tx * fixedInvC + invMatrix.ty * fixedInvD);
+
+    // DDA用オフセット: 逆変換 + 整数キャンセル + srcOrigin
+    int32_t fixedInvTx = invTxInt
+                        - (dstOriginXInt * fixedInvA)
+                        - (dstOriginYInt * fixedInvB)
+                        + (srcOriginXInt << FIXED_POINT_BITS);
+    int32_t fixedInvTy = invTyInt
+                        - (dstOriginXInt * fixedInvC)
+                        - (dstOriginYInt * fixedInvD)
+                        + (srcOriginYInt << FIXED_POINT_BITS);
 
     // 有効描画範囲の事前計算
     auto calcValidRange = [](
