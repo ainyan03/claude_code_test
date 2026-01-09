@@ -2461,10 +2461,52 @@ function updateDebugDetails(metrics) {
         totalEl.textContent = `${usToMs(metrics.totalTime)}ms`;
     }
 
-    // メモリ確保量
+    // メモリ確保量（累計）
     const allocEl = document.getElementById('debug-alloc-bytes');
     if (allocEl && metrics.totalAllocBytes !== undefined) {
         allocEl.textContent = formatBytes(metrics.totalAllocBytes);
+    }
+
+    // ピークメモリ
+    const peakEl = document.getElementById('debug-peak-bytes');
+    if (peakEl && metrics.peakMemoryBytes !== undefined) {
+        peakEl.textContent = formatBytes(metrics.peakMemoryBytes);
+    }
+
+    // 最大単一確保
+    const maxAllocEl = document.getElementById('debug-max-alloc');
+    if (maxAllocEl && metrics.maxAllocBytes !== undefined) {
+        if (metrics.maxAllocBytes > 0) {
+            maxAllocEl.textContent = `${formatBytes(metrics.maxAllocBytes)} (${metrics.maxAllocWidth}x${metrics.maxAllocHeight})`;
+        } else {
+            maxAllocEl.textContent = '--';
+        }
+    }
+
+    // ノード別メモリ確保量
+    const allocNodeIds = ['image', 'filter', 'affine', 'composite'];
+    if (metrics.nodes) {
+        for (let i = 0; i < allocNodeIds.length && i < metrics.nodes.length; i++) {
+            const m = metrics.nodes[i];
+            // 累計確保量
+            const el = document.getElementById(`debug-${allocNodeIds[i]}-alloc`);
+            if (el) {
+                if (m.allocCount > 0) {
+                    el.textContent = `${formatBytes(m.allocatedBytes)} (x${m.allocCount})`;
+                } else {
+                    el.textContent = '--';
+                }
+            }
+            // 最大単一確保
+            const maxEl = document.getElementById(`debug-${allocNodeIds[i]}-max`);
+            if (maxEl) {
+                if (m.maxAllocBytes > 0) {
+                    maxEl.textContent = `${formatBytes(m.maxAllocBytes)} (${m.maxAllocWidth}x${m.maxAllocHeight})`;
+                } else {
+                    maxEl.textContent = '--';
+                }
+            }
+        }
     }
 }
 

@@ -40,6 +40,15 @@ public:
         debugCheckerboard_ = enabled;
     }
 
+    // パフォーマンス計測結果を取得
+    const PerfMetrics& getPerfMetrics() const {
+        return PerfMetrics::instance();
+    }
+
+    void resetPerfMetrics() {
+        PerfMetrics::instance().reset();
+    }
+
     // ========================================
     // 簡易API
     // ========================================

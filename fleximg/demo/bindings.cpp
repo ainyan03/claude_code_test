@@ -257,7 +257,63 @@ public:
 
     val getPerfMetrics() {
         val result = val::object();
-        // TODO: パフォーマンス計測の実装
+
+        // ノードタイプ名
+        static const char* nodeNames[] = {
+            "source", "filter", "transform", "composite", "output"
+        };
+
+        // nodes配列を構築
+        val nodes = val::array();
+        for (int i = 0; i < NodeType::Count; i++) {
+            val nodeMetrics = val::object();
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+            nodeMetrics.set("time_us", lastPerfMetrics_.nodes[i].time_us);
+            nodeMetrics.set("count", lastPerfMetrics_.nodes[i].count);
+            nodeMetrics.set("requestedPixels", static_cast<double>(lastPerfMetrics_.nodes[i].requestedPixels));
+            nodeMetrics.set("usedPixels", static_cast<double>(lastPerfMetrics_.nodes[i].usedPixels));
+            nodeMetrics.set("wasteRatio", lastPerfMetrics_.nodes[i].wasteRatio());
+            nodeMetrics.set("allocatedBytes", static_cast<double>(lastPerfMetrics_.nodes[i].allocatedBytes));
+            nodeMetrics.set("allocCount", lastPerfMetrics_.nodes[i].allocCount);
+            nodeMetrics.set("maxAllocBytes", static_cast<double>(lastPerfMetrics_.nodes[i].maxAllocBytes));
+            nodeMetrics.set("maxAllocWidth", lastPerfMetrics_.nodes[i].maxAllocWidth);
+            nodeMetrics.set("maxAllocHeight", lastPerfMetrics_.nodes[i].maxAllocHeight);
+#else
+            nodeMetrics.set("time_us", 0);
+            nodeMetrics.set("count", 0);
+            nodeMetrics.set("requestedPixels", 0.0);
+            nodeMetrics.set("usedPixels", 0.0);
+            nodeMetrics.set("wasteRatio", 0.0f);
+            nodeMetrics.set("allocatedBytes", 0.0);
+            nodeMetrics.set("allocCount", 0);
+            nodeMetrics.set("maxAllocBytes", 0.0);
+            nodeMetrics.set("maxAllocWidth", 0);
+            nodeMetrics.set("maxAllocHeight", 0);
+#endif
+            nodes.call<void>("push", nodeMetrics);
+        }
+        result.set("nodes", nodes);
+
+        // 後方互換用フラットキー（主要な時間とカウント）
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        result.set("filterTime", lastPerfMetrics_.nodes[NodeType::Filter].time_us);
+        result.set("affineTime", lastPerfMetrics_.nodes[NodeType::Transform].time_us);
+        result.set("compositeTime", lastPerfMetrics_.nodes[NodeType::Composite].time_us);
+        result.set("outputTime", lastPerfMetrics_.nodes[NodeType::Output].time_us);
+        result.set("filterCount", lastPerfMetrics_.nodes[NodeType::Filter].count);
+        result.set("affineCount", lastPerfMetrics_.nodes[NodeType::Transform].count);
+        result.set("compositeCount", lastPerfMetrics_.nodes[NodeType::Composite].count);
+        result.set("outputCount", lastPerfMetrics_.nodes[NodeType::Output].count);
+        result.set("totalTime", lastPerfMetrics_.totalTime());
+        // グローバルメモリ統計
+        result.set("totalAllocBytes", static_cast<double>(lastPerfMetrics_.totalAllocatedBytes));
+        result.set("peakMemoryBytes", static_cast<double>(lastPerfMetrics_.peakMemoryBytes));
+        result.set("nodeAllocBytes", static_cast<double>(lastPerfMetrics_.totalNodeAllocatedBytes()));
+        // 最大確保サイズ
+        result.set("maxAllocBytes", static_cast<double>(lastPerfMetrics_.maxAllocBytes));
+        result.set("maxAllocWidth", lastPerfMetrics_.maxAllocWidth);
+        result.set("maxAllocHeight", lastPerfMetrics_.maxAllocHeight);
+#else
         result.set("filterTime", 0);
         result.set("affineTime", 0);
         result.set("compositeTime", 0);
@@ -268,7 +324,13 @@ public:
         result.set("outputCount", 0);
         result.set("totalTime", 0);
         result.set("totalAllocBytes", 0);
-        result.set("nodes", val::array());
+        result.set("peakMemoryBytes", 0);
+        result.set("nodeAllocBytes", 0);
+        result.set("maxAllocBytes", 0);
+        result.set("maxAllocWidth", 0);
+        result.set("maxAllocHeight", 0);
+#endif
+
         return result;
     }
 
@@ -282,6 +344,7 @@ private:
     std::map<int, ViewPort> imageViews_;
     std::vector<GraphNode> graphNodes_;
     std::vector<GraphConnection> graphConnections_;
+    PerfMetrics lastPerfMetrics_;
 
     // グラフを解析してv2ノードを構築・実行
     void buildAndExecute() {
@@ -464,6 +527,9 @@ private:
         }
         renderer.setDebugCheckerboard(debugCheckerboard_);
         renderer.exec();
+
+        // パフォーマンスメトリクスを保存
+        lastPerfMetrics_ = renderer.getPerfMetrics();
     }
 };
 

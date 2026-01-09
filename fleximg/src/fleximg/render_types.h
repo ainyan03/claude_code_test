@@ -4,6 +4,7 @@
 #include <utility>
 #include "common.h"
 #include "image_buffer.h"
+#include "perf_metrics.h"
 
 namespace FLEXIMG_NAMESPACE {
 
