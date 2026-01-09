@@ -14,9 +14,19 @@ namespace FLEXIMG_NAMESPACE {
 
 EvalResult ImageEvalNode::evaluate(const RenderRequest& request,
                                    const RenderContext& context) {
-    (void)context;
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    auto imageStart = std::chrono::high_resolution_clock::now();
+#endif
 
     if (!imageData.isValid()) {
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        if (context.perfMetrics) {
+            auto& m = context.perfMetrics->nodes[NodeType::Image];
+            m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::high_resolution_clock::now() - imageStart).count();
+            m.count++;
+        }
+#endif
         return EvalResult();  // 空の結果
     }
 
@@ -43,6 +53,14 @@ EvalResult ImageEvalNode::evaluate(const RenderRequest& request,
 
     // 交差領域がない場合は空の結果を返却
     if (interLeft >= interRight || interTop >= interBottom) {
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        if (context.perfMetrics) {
+            auto& m = context.perfMetrics->nodes[NodeType::Image];
+            m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::high_resolution_clock::now() - imageStart).count();
+            m.count++;
+        }
+#endif
         return EvalResult(ImageBuffer(), Point2f(reqLeft, reqTop));
     }
 
@@ -63,6 +81,14 @@ EvalResult ImageEvalNode::evaluate(const RenderRequest& request,
     }
 
     // origin は「基準点から見た画像左上の相対座標」
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    if (context.perfMetrics) {
+        auto& m = context.perfMetrics->nodes[NodeType::Image];
+        m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::high_resolution_clock::now() - imageStart).count();
+        m.count++;
+    }
+#endif
     return EvalResult(std::move(result), Point2f(interLeft, interTop));
 }
 
@@ -351,6 +377,11 @@ EvalResult CompositeEvalNode::evaluate(const RenderRequest& request,
         return EvalResult();  // 空の結果
     }
 
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    uint32_t compositeTime = 0;
+    int compositeCount = 0;
+#endif
+
     EvalResult canvas;
     bool canvasInitialized = false;
     float canvasOriginX = -request.originX;
@@ -364,6 +395,10 @@ EvalResult CompositeEvalNode::evaluate(const RenderRequest& request,
         if (!inputResult.isValid()) {
             continue;
         }
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        auto compStart = std::chrono::high_resolution_clock::now();
+#endif
 
         // フォーマット変換（必要な場合）
         if (inputResult.buffer.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
@@ -393,8 +428,22 @@ EvalResult CompositeEvalNode::evaluate(const RenderRequest& request,
             CompositeOperator::blendOnto(canvasView, canvas.origin.x, canvas.origin.y,
                                         inputResult.buffer.view(), inputResult.origin.x, inputResult.origin.y);
         }
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        compositeTime += std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::high_resolution_clock::now() - compStart).count();
+        compositeCount++;
+#endif
         // inputResult はここでスコープを抜けて解放される
     }
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    if (context.perfMetrics && compositeCount > 0) {
+        auto& m = context.perfMetrics->nodes[NodeType::Composite];
+        m.time_us += compositeTime;
+        m.count += compositeCount;
+    }
+#endif
 
     // 全ての入力が空だった場合
     if (!canvasInitialized) {
