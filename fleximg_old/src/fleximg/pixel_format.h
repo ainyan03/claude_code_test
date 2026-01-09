@@ -2,7 +2,7 @@
 #define FLEXIMG_PIXEL_FORMAT_H
 
 #include <cstdint>
-#include <cstddef>
+
 #include "common.h"
 
 namespace FLEXIMG_NAMESPACE {
@@ -17,6 +17,23 @@ namespace PixelFormatIDs {
     // 16bit RGBA系（0x0000～0x00FF）
     constexpr PixelFormatID RGBA16_Straight       = 0x0001;
     constexpr PixelFormatID RGBA16_Premultiplied  = 0x0002;
+
+    // ========================================================================
+    // RGBA16_Premultiplied 用アルファ閾値（constexpr）
+    // ========================================================================
+    // 新方式: A_tmp = A8 + 1 により、A16の範囲は255-65280
+    // 透明(A8=0) → A16=255, 不透明(A8=255) → A16=65280
+    namespace RGBA16Premul {
+        constexpr uint16_t ALPHA_TRANSPARENT_MAX = 255;   // この値以下は透明
+        constexpr uint16_t ALPHA_OPAQUE_MIN = 65280;      // この値以上は不透明
+
+        inline constexpr bool isTransparent(uint16_t a) {
+            return a <= ALPHA_TRANSPARENT_MAX;
+        }
+        inline constexpr bool isOpaque(uint16_t a) {
+            return a >= ALPHA_OPAQUE_MIN;
+        }
+    }
 
     // パックドRGB系（0x0100～0x01FF）
     constexpr PixelFormatID RGB565_LE             = 0x0100;
@@ -46,15 +63,6 @@ namespace PixelFormatIDs {
 
     // ユーザー定義フォーマット用の範囲（0x10000000～）
     constexpr PixelFormatID USER_DEFINED_BASE     = 0x10000000;
-
-    // RGBA16_Premultiplied用アルファ閾値
-    namespace RGBA16Premul {
-        constexpr uint16_t ALPHA_TRANSPARENT_MAX = 255;
-        constexpr uint16_t ALPHA_OPAQUE_MIN = 65280;
-
-        inline constexpr bool isTransparent(uint16_t a) { return a <= ALPHA_TRANSPARENT_MAX; }
-        inline constexpr bool isOpaque(uint16_t a) { return a >= ALPHA_OPAQUE_MIN; }
-    }
 }
 
 // ========================================================================
@@ -96,9 +104,10 @@ struct PixelFormatDescriptor {
     const char* name;
 
     // 基本情報
-    uint8_t bitsPerPixel;       // ピクセルあたりのビット数
+    uint8_t bitsPerPixel;       // ピクセルあたりのビット数（1,2,3,4,8,16,24,32等）
     uint8_t pixelsPerUnit;      // 1ユニットあたりのピクセル数
     uint8_t bytesPerUnit;       // 1ユニットあたりのバイト数
+    // 制約: bitsPerPixel * pixelsPerUnit == bytesPerUnit * 8
 
     // チャンネル情報（ダイレクトカラーの場合）
     ChannelDescriptor channels[4];  // R, G, B, A の順
@@ -109,22 +118,23 @@ struct PixelFormatDescriptor {
 
     // パレット情報（インデックスカラーの場合）
     bool isIndexed;
-    uint16_t maxPaletteSize;
+    uint16_t maxPaletteSize;   // 最大パレットサイズ（2^bitsPerPixel）
 
     // エンディアン情報
-    BitOrder bitOrder;
-    ByteOrder byteOrder;
+    BitOrder bitOrder;      // ビット順序（bit-packed形式で使用）
+    ByteOrder byteOrder;    // バイト順序（multi-byte pixel形式で使用）
 
-    // 変換関数の型定義（標準フォーマット RGBA8_Straight との相互変換）
+    // 変換関数の型定義
+    // 標準フォーマット（RGBA8_Straight）との相互変換
     using ToStandardFunc = void(*)(const void* src, uint8_t* dst, int pixelCount);
     using FromStandardFunc = void(*)(const uint8_t* src, void* dst, int pixelCount);
     using ToStandardIndexedFunc = void(*)(const void* src, uint8_t* dst, int pixelCount, const uint16_t* palette);
     using FromStandardIndexedFunc = void(*)(const uint8_t* src, void* dst, int pixelCount, const uint16_t* palette);
 
-    // 変換関数ポインタ
+    // 変換関数ポインタ（インデックスカラーかどうかで使い分け）
     union {
-        ToStandardFunc toStandard;
-        ToStandardIndexedFunc toStandardIndexed;
+        ToStandardFunc toStandard;              // ダイレクトカラー用
+        ToStandardIndexedFunc toStandardIndexed; // インデックスカラー用
     };
 
     union {
@@ -140,23 +150,6 @@ struct PixelFormatDescriptor {
           bitOrder(BitOrder::MSBFirst), byteOrder(ByteOrder::Native),
           toStandard(nullptr) {}
 };
-
-// ========================================================================
-// ピクセルフォーマット情報取得（簡易版）
-// ========================================================================
-
-inline size_t getBytesPerPixel(PixelFormatID formatID) {
-    switch (formatID) {
-        case PixelFormatIDs::RGBA16_Straight:
-        case PixelFormatIDs::RGBA16_Premultiplied:
-            return 8;  // 16bit x 4 = 64bit = 8bytes
-        case PixelFormatIDs::RGBA8_Straight:
-        case PixelFormatIDs::RGBA8_Premultiplied:
-            return 4;  // 8bit x 4 = 32bit = 4bytes
-        default:
-            return 4;
-    }
-}
 
 } // namespace FLEXIMG_NAMESPACE
 

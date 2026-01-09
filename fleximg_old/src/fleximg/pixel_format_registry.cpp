@@ -21,10 +21,11 @@ static void rgba8Straight_fromStandard(const uint8_t* src, void* dst, int pixelC
 // ========================================================================
 // RGBA16_Premultiplied: 16bit Premultiplied ↔ 8bit Straight 変換
 // ========================================================================
-// 変換方式: A_tmp = A8 + 1 を使用
+// 新方式: A_tmp = A8 + 1 を使用
 // - Forward変換: 除算ゼロ（乗算のみ）
 // - Reverse変換: 除数が1-256に限定（テーブル化やSIMD最適化が容易）
-// - A8=0 でもRGB情報を保持
+// - A8=0 でもRGB情報を保持（将来の「アルファを濃くするフィルタ」に対応）
+// ========================================================================
 
 static void rgba16Premul_toStandard(const void* src, uint8_t* dst, int pixelCount) {
     const uint16_t* s = static_cast<const uint16_t*>(src);
@@ -62,51 +63,6 @@ static void rgba16Premul_fromStandard(const uint8_t* src, void* dst, int pixelCo
 
         // Premultiply: RGB * A_tmp（除算なし）
         // A16 = 255 * A_tmp (範囲: 255-65280)
-        d[idx]     = static_cast<uint16_t>(r8 * a_tmp);
-        d[idx + 1] = static_cast<uint16_t>(g8 * a_tmp);
-        d[idx + 2] = static_cast<uint16_t>(b8 * a_tmp);
-        d[idx + 3] = static_cast<uint16_t>(255 * a_tmp);
-    }
-}
-
-// ========================================================================
-// 直接変換関数（最適化用）
-// ========================================================================
-
-// RGBA16_Premultiplied → RGBA8_Straight（直接変換）
-static void directConvert_rgba16PremulToRgba8Straight(const void* src, void* dst, int pixelCount) {
-    const uint16_t* s = static_cast<const uint16_t*>(src);
-    uint8_t* d = static_cast<uint8_t*>(dst);
-    for (int i = 0; i < pixelCount; i++) {
-        int idx = i * 4;
-        uint16_t r16 = s[idx];
-        uint16_t g16 = s[idx + 1];
-        uint16_t b16 = s[idx + 2];
-        uint16_t a16 = s[idx + 3];
-
-        uint8_t a8 = a16 >> 8;
-        uint16_t a_tmp = a8 + 1;
-
-        d[idx]     = static_cast<uint8_t>(r16 / a_tmp);
-        d[idx + 1] = static_cast<uint8_t>(g16 / a_tmp);
-        d[idx + 2] = static_cast<uint8_t>(b16 / a_tmp);
-        d[idx + 3] = a8;
-    }
-}
-
-// RGBA8_Straight → RGBA16_Premultiplied（直接変換）
-static void directConvert_rgba8StraightToRgba16Premul(const void* src, void* dst, int pixelCount) {
-    const uint8_t* s = static_cast<const uint8_t*>(src);
-    uint16_t* d = static_cast<uint16_t*>(dst);
-    for (int i = 0; i < pixelCount; i++) {
-        int idx = i * 4;
-        uint16_t r8 = s[idx];
-        uint16_t g8 = s[idx + 1];
-        uint16_t b8 = s[idx + 2];
-        uint16_t a8 = s[idx + 3];
-
-        uint16_t a_tmp = a8 + 1;
-
         d[idx]     = static_cast<uint16_t>(r8 * a_tmp);
         d[idx + 1] = static_cast<uint16_t>(g8 * a_tmp);
         d[idx + 2] = static_cast<uint16_t>(b8 * a_tmp);
@@ -179,16 +135,6 @@ PixelFormatRegistry::PixelFormatRegistry()
     // 組み込みフォーマットを登録
     formats_[PixelFormatIDs::RGBA16_Premultiplied] = BuiltinFormats::RGBA16_Premultiplied;
     formats_[PixelFormatIDs::RGBA8_Straight] = BuiltinFormats::RGBA8_Straight;
-
-    // 頻出パターンの直接変換を登録
-    registerDirectConversion(
-        PixelFormatIDs::RGBA16_Premultiplied,
-        PixelFormatIDs::RGBA8_Straight,
-        directConvert_rgba16PremulToRgba8Straight);
-    registerDirectConversion(
-        PixelFormatIDs::RGBA8_Straight,
-        PixelFormatIDs::RGBA16_Premultiplied,
-        directConvert_rgba8StraightToRgba16Premul);
 }
 
 PixelFormatRegistry& PixelFormatRegistry::getInstance() {
@@ -209,17 +155,6 @@ const PixelFormatDescriptor* PixelFormatRegistry::getFormat(PixelFormatID id) co
     return (it != formats_.end()) ? &it->second : nullptr;
 }
 
-void PixelFormatRegistry::registerDirectConversion(
-    PixelFormatID srcFormat, PixelFormatID dstFormat, DirectConvertFunc func) {
-    directConversions_[{srcFormat, dstFormat}] = func;
-}
-
-PixelFormatRegistry::DirectConvertFunc PixelFormatRegistry::getDirectConversion(
-    PixelFormatID srcFormat, PixelFormatID dstFormat) const {
-    auto it = directConversions_.find({srcFormat, dstFormat});
-    return (it != directConversions_.end()) ? it->second : nullptr;
-}
-
 void PixelFormatRegistry::convert(const void* src, PixelFormatID srcFormatID,
                                    void* dst, PixelFormatID dstFormatID,
                                    int pixelCount,
@@ -235,20 +170,12 @@ void PixelFormatRegistry::convert(const void* src, PixelFormatID srcFormatID,
         return;
     }
 
-    // 直接変換が登録されていれば使用（最適化パス）
-    DirectConvertFunc directFunc = getDirectConversion(srcFormatID, dstFormatID);
-    if (directFunc) {
-        directFunc(src, dst, pixelCount);
-        return;
-    }
-
-    // 標準フォーマット（RGBA8_Straight）経由で変換
     const PixelFormatDescriptor* srcDesc = getFormat(srcFormatID);
     const PixelFormatDescriptor* dstDesc = getFormat(dstFormatID);
 
     if (!srcDesc || !dstDesc) return;
 
-    // 一時バッファを確保
+    // 標準フォーマット（RGBA8_Straight）を経由して変換
     conversionBuffer_.resize(pixelCount * 4);
 
     // src → RGBA8_Straight

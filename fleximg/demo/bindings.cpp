@@ -1,46 +1,39 @@
+// fleximg WASM Bindings
+// 既存JSアプリとの後方互換性を維持しつつ、内部でv2 Node/Portモデルを使用
+
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
 #include <vector>
 #include <map>
-#include "../src/fleximg/node_graph.h"
+#include <memory>
+#include <string>
+
+#include "../src/fleximg/renderer.h"
 
 using namespace emscripten;
 using namespace FLEXIMG_NAMESPACE;
 
 // ========================================================================
-// ImageStore - 入出力画像データの永続化管理クラス
+// ImageStore - 入出力画像データの永続化管理
 // ========================================================================
 
 class ImageStore {
 public:
     // 外部データをコピーして保存（入力画像用）
     ViewPort store(int id, const uint8_t* data, int w, int h, PixelFormatID fmt) {
-        size_t bytesPerPixel = getBytesPerPixelForFormat(fmt);
-        size_t size = w * h * bytesPerPixel;
+        size_t bpp = getBytesPerPixel(fmt);
+        size_t size = w * h * bpp;
         storage_[id].assign(data, data + size);
-        return ViewPort(storage_[id].data(), fmt, w * bytesPerPixel, w, h);
+        return ViewPort(storage_[id].data(), fmt, w * bpp, w, h);
     }
 
-    // バッファを確保（出力用、または空の入力用）
+    // バッファを確保（出力用）
     ViewPort allocate(int id, int w, int h, PixelFormatID fmt) {
-        size_t bytesPerPixel = getBytesPerPixelForFormat(fmt);
-        size_t size = w * h * bytesPerPixel;
+        size_t bpp = getBytesPerPixel(fmt);
+        size_t size = w * h * bpp;
         storage_[id].resize(size, 0);
-        return ViewPort(storage_[id].data(), fmt, w * bytesPerPixel, w, h);
+        return ViewPort(storage_[id].data(), fmt, w * bpp, w, h);
     }
-
-private:
-    // フォーマットからbytesPerPixelを取得するヘルパー
-    static size_t getBytesPerPixelForFormat(PixelFormatID fmt) {
-        const PixelFormatDescriptor* desc = PixelFormatRegistry::getInstance().getFormat(fmt);
-        if (!desc) return 4;  // デフォルトは4バイト（RGBA8）
-        if (desc->pixelsPerUnit > 1) {
-            return (desc->bytesPerUnit + desc->pixelsPerUnit - 1) / desc->pixelsPerUnit;
-        }
-        return (desc->bitsPerPixel + 7) / 8;
-    }
-
-public:
 
     // データ取得（JSへ返す用）
     const std::vector<uint8_t>& get(int id) const {
@@ -57,7 +50,6 @@ public:
         storage_.clear();
     }
 
-    // 指定IDのバッファをゼロクリア
     void zeroFill(int id) {
         auto it = storage_.find(id);
         if (it != storage_.end()) {
@@ -70,33 +62,58 @@ private:
 };
 
 // ========================================================================
-// NodeGraphEvaluatorのラッパークラス
+// GraphNode/GraphConnection 構造体（既存APIとの互換用）
+// ========================================================================
+
+struct GraphNode {
+    std::string type;
+    std::string id;
+    int imageId = -1;
+    double srcOriginX = 0;
+    double srcOriginY = 0;
+    std::string filterType;
+    std::vector<float> filterParams;
+    bool independent = false;
+    struct { double a=1, b=0, c=0, d=1, tx=0, ty=0; } affineMatrix;
+    std::vector<std::string> compositeInputIds;  // compositeノード用
+};
+
+struct GraphConnection {
+    std::string fromNodeId;
+    std::string fromPort;
+    std::string toNodeId;
+    std::string toPort;
+};
+
+// ========================================================================
+// NodeGraphEvaluatorWrapper - 既存API互換ラッパー
 // ========================================================================
 
 class NodeGraphEvaluatorWrapper {
 public:
     NodeGraphEvaluatorWrapper(int width, int height)
-        : evaluator(width, height) {}
+        : canvasWidth_(width), canvasHeight_(height) {}
 
     void setCanvasSize(int width, int height) {
-        evaluator.setCanvasSize(width, height);
+        canvasWidth_ = width;
+        canvasHeight_ = height;
     }
 
     void setDstOrigin(double x, double y) {
-        evaluator.setDstOrigin(x, y);
+        dstOriginX_ = x;
+        dstOriginY_ = y;
     }
 
-    // タイル分割サイズを設定（0 = 分割なし）
     void setTileSize(int width, int height) {
-        evaluator.setTileSize(width, height);
+        tileWidth_ = width;
+        tileHeight_ = height;
     }
 
-    // デバッグ用市松模様スキップを設定
     void setDebugCheckerboard(bool enabled) {
-        evaluator.setDebugCheckerboard(enabled);
+        debugCheckerboard_ = enabled;
     }
 
-    // 画像を登録（データをコピー、RGBA8_Straight形式）
+    // 画像を登録（データをコピー）
     void storeImage(int id, const val& imageData, int width, int height) {
         unsigned int length = imageData["length"].as<unsigned int>();
         std::vector<uint8_t> tempData(length);
@@ -105,19 +122,19 @@ public:
             tempData[i] = imageData[i].as<uint8_t>();
         }
 
-        ViewPort view = imageStore.store(id, tempData.data(), width, height, PixelFormatIDs::RGBA8_Straight);
-        evaluator.registerImage(id, view);
+        imageViews_[id] = imageStore_.store(id, tempData.data(), width, height,
+                                            PixelFormatIDs::RGBA8_Straight);
     }
 
-    // 画像バッファを確保（RGBA8_Straight形式）
+    // 画像バッファを確保
     void allocateImage(int id, int width, int height) {
-        ViewPort view = imageStore.allocate(id, width, height, PixelFormatIDs::RGBA8_Straight);
-        evaluator.registerImage(id, view);
+        imageViews_[id] = imageStore_.allocate(id, width, height,
+                                               PixelFormatIDs::RGBA8_Straight);
     }
 
     // 画像データを取得
     val getImage(int id) {
-        const std::vector<uint8_t>& data = imageStore.get(id);
+        const std::vector<uint8_t>& data = imageStore_.get(id);
         if (data.empty()) {
             return val::null();
         }
@@ -126,9 +143,10 @@ public:
         );
     }
 
+    // ノード設定（既存API互換）
     void setNodes(const val& nodesArray) {
+        graphNodes_.clear();
         unsigned int nodeCount = nodesArray["length"].as<unsigned int>();
-        std::vector<GraphNode> nodes;
 
         for (unsigned int i = 0; i < nodeCount; i++) {
             val nodeObj = nodesArray[i];
@@ -142,7 +160,6 @@ public:
                 if (nodeObj["imageId"].typeOf().as<std::string>() != "undefined") {
                     node.imageId = nodeObj["imageId"].as<int>();
                 }
-                // 原点情報（JS側でピクセル座標に変換済み）
                 if (nodeObj["originX"].typeOf().as<std::string>() != "undefined") {
                     node.srcOriginX = nodeObj["originX"].as<double>();
                 }
@@ -155,11 +172,8 @@ public:
             if (node.type == "filter") {
                 if (nodeObj["independent"].typeOf().as<std::string>() != "undefined") {
                     node.independent = nodeObj["independent"].as<bool>();
-
                     if (node.independent) {
                         node.filterType = nodeObj["filterType"].as<std::string>();
-
-                        // filterParamsを配列として受け取る
                         if (nodeObj["filterParams"].typeOf().as<std::string>() != "undefined") {
                             val paramsArray = nodeObj["filterParams"];
                             unsigned int paramCount = paramsArray["length"].as<unsigned int>();
@@ -173,21 +187,17 @@ public:
 
             // composite用パラメータ
             if (node.type == "composite") {
-                // 動的入力配列
                 if (nodeObj["inputs"].typeOf().as<std::string>() != "undefined") {
                     val inputsArray = nodeObj["inputs"];
                     unsigned int inputCount = inputsArray["length"].as<unsigned int>();
                     for (unsigned int j = 0; j < inputCount; j++) {
                         val inputObj = inputsArray[j];
-                        CompositeInput input;
-                        input.id = inputObj["id"].as<std::string>();
-                        node.compositeInputs.push_back(input);
+                        node.compositeInputIds.push_back(inputObj["id"].as<std::string>());
                     }
                 }
             }
 
-            // affine用パラメータ（アフィン変換ノード）
-            // JS側で行列に統一されているため、常に行列モードとして処理
+            // affine用パラメータ
             if (node.type == "affine") {
                 if (nodeObj["matrix"].typeOf().as<std::string>() != "undefined") {
                     val matrix = nodeObj["matrix"];
@@ -206,22 +216,21 @@ public:
                 }
             }
 
-            // output用パラメータ（imageIdで出力先を指定）
+            // output用パラメータ
             if (node.type == "output") {
                 if (nodeObj["imageId"].typeOf().as<std::string>() != "undefined") {
                     node.imageId = nodeObj["imageId"].as<int>();
                 }
             }
 
-            nodes.push_back(node);
+            graphNodes_.push_back(node);
         }
-
-        evaluator.setNodes(nodes);
     }
 
+    // 接続設定（既存API互換）
     void setConnections(const val& connectionsArray) {
+        graphConnections_.clear();
         unsigned int connCount = connectionsArray["length"].as<unsigned int>();
-        std::vector<GraphConnection> connections;
 
         for (unsigned int i = 0; i < connCount; i++) {
             val connObj = connectionsArray[i];
@@ -232,67 +241,23 @@ public:
             conn.toNodeId = connObj["toNodeId"].as<std::string>();
             conn.toPort = connObj["toPortId"].as<std::string>();
 
-            connections.push_back(conn);
+            graphConnections_.push_back(conn);
         }
-
-        evaluator.setConnections(connections);
     }
 
+    // グラフ評価
     void evaluateGraph() {
-        evaluator.evaluateGraph();
+        // グラフからv2ノードを構築して実行
+        buildAndExecute();
     }
 
-    // 画像バッファをクリア（市松模様などで以前の画像が残らないように）
     void clearImage(int id) {
-        imageStore.zeroFill(id);
+        imageStore_.zeroFill(id);
     }
 
     val getPerfMetrics() {
         val result = val::object();
-
-        const PerfMetrics& metrics = evaluator.getPerfMetrics();
-
-        // ノードタイプ名
-        static const char* nodeNames[] = {
-            "image", "filter", "affine", "composite", "output"
-        };
-
-        // nodes配列を構築
-        val nodes = val::array();
-        for (int i = 0; i < NodeType::Count; i++) {
-            val nodeMetrics = val::object();
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-            nodeMetrics.set("time_us", metrics.nodes[i].time_us);
-            nodeMetrics.set("count", metrics.nodes[i].count);
-            nodeMetrics.set("allocBytes", static_cast<double>(metrics.nodes[i].allocBytes));
-            nodeMetrics.set("allocCount", metrics.nodes[i].allocCount);
-            nodeMetrics.set("requestedPixels", static_cast<double>(metrics.nodes[i].requestedPixels));
-            nodeMetrics.set("usedPixels", static_cast<double>(metrics.nodes[i].usedPixels));
-            nodeMetrics.set("wasteRatio", metrics.nodes[i].wasteRatio());
-#else
-            nodeMetrics.set("time_us", 0);
-            nodeMetrics.set("count", 0);
-            nodeMetrics.set("allocBytes", 0);
-            nodeMetrics.set("allocCount", 0);
-            nodeMetrics.set("requestedPixels", 0);
-            nodeMetrics.set("usedPixels", 0);
-            nodeMetrics.set("wasteRatio", 0.0f);
-#endif
-            nodes.call<void>("push", nodeMetrics);
-        }
-        result.set("nodes", nodes);
-
-        // 後方互換用フラットキー（主要な時間とカウント）
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        result.set("filterTime", metrics.nodes[NodeType::Filter].time_us);
-        result.set("affineTime", metrics.nodes[NodeType::Affine].time_us);
-        result.set("compositeTime", metrics.nodes[NodeType::Composite].time_us);
-        result.set("outputTime", metrics.nodes[NodeType::Output].time_us);
-        result.set("filterCount", metrics.nodes[NodeType::Filter].count);
-        result.set("affineCount", metrics.nodes[NodeType::Affine].count);
-        result.set("compositeCount", metrics.nodes[NodeType::Composite].count);
-        result.set("outputCount", metrics.nodes[NodeType::Output].count);
-#else
+        // TODO: パフォーマンス計測の実装
         result.set("filterTime", 0);
         result.set("affineTime", 0);
         result.set("compositeTime", 0);
@@ -301,19 +266,210 @@ public:
         result.set("affineCount", 0);
         result.set("compositeCount", 0);
         result.set("outputCount", 0);
-#endif
-
-        // 集計値
-        result.set("totalTime", metrics.totalTime());
-        result.set("totalAllocBytes", static_cast<double>(metrics.totalAllocBytes()));
-
+        result.set("totalTime", 0);
+        result.set("totalAllocBytes", 0);
+        result.set("nodes", val::array());
         return result;
     }
 
 private:
-    NodeGraphEvaluator evaluator;
-    ImageStore imageStore;
+    int canvasWidth_, canvasHeight_;
+    double dstOriginX_ = 0, dstOriginY_ = 0;
+    int tileWidth_ = 0, tileHeight_ = 0;
+    bool debugCheckerboard_ = false;
+
+    ImageStore imageStore_;
+    std::map<int, ViewPort> imageViews_;
+    std::vector<GraphNode> graphNodes_;
+    std::vector<GraphConnection> graphConnections_;
+
+    // グラフを解析してv2ノードを構築・実行
+    void buildAndExecute() {
+        // ノードIDからGraphNodeへのマップ
+        std::map<std::string, const GraphNode*> nodeMap;
+        for (const auto& node : graphNodes_) {
+            nodeMap[node.id] = &node;
+        }
+
+        // 接続情報からtoNodeId -> fromNodeIdのマップを構築
+        std::map<std::string, std::vector<std::string>> inputConnections;
+        for (const auto& conn : graphConnections_) {
+            inputConnections[conn.toNodeId].push_back(conn.fromNodeId);
+        }
+
+        // outputノードを探す
+        const GraphNode* outputNode = nullptr;
+        for (const auto& node : graphNodes_) {
+            if (node.type == "output") {
+                outputNode = &node;
+                break;
+            }
+        }
+
+        if (!outputNode || outputNode->imageId < 0) return;
+
+        // 出力先ViewPortを取得
+        auto outputIt = imageViews_.find(outputNode->imageId);
+        if (outputIt == imageViews_.end()) return;
+        ViewPort outputView = outputIt->second;
+
+        // 出力バッファをクリア（以前の描画結果を消去）
+        view_ops::clear(outputView, 0, 0, outputView.width, outputView.height);
+
+        // v2ノードを一時的に保持するコンテナ
+        std::map<std::string, std::unique_ptr<Node>> v2Nodes;
+        std::map<std::string, std::unique_ptr<SourceNode>> sourceNodes;
+
+        // SinkNodeを作成
+        auto sinkNode = std::make_unique<SinkNode>();
+        sinkNode->setTarget(outputView);
+        sinkNode->setOrigin(static_cast<float>(dstOriginX_),
+                           static_cast<float>(dstOriginY_));
+
+        // 再帰的にノードを構築
+        std::function<Node*(const std::string&)> buildNode;
+        buildNode = [&](const std::string& nodeId) -> Node* {
+            auto nodeIt = nodeMap.find(nodeId);
+            if (nodeIt == nodeMap.end()) return nullptr;
+            const GraphNode& gnode = *nodeIt->second;
+
+            // 既に構築済みならそれを返す
+            auto v2It = v2Nodes.find(nodeId);
+            if (v2It != v2Nodes.end()) {
+                return v2It->second.get();
+            }
+            auto srcIt = sourceNodes.find(nodeId);
+            if (srcIt != sourceNodes.end()) {
+                return srcIt->second.get();
+            }
+
+            // ノードタイプに応じて構築
+            if (gnode.type == "image") {
+                auto viewIt = imageViews_.find(gnode.imageId);
+                if (viewIt == imageViews_.end()) return nullptr;
+
+                auto src = std::make_unique<SourceNode>();
+                src->setSource(viewIt->second);
+                src->setOrigin(static_cast<float>(gnode.srcOriginX),
+                              static_cast<float>(gnode.srcOriginY));
+
+                Node* result = src.get();
+                sourceNodes[nodeId] = std::move(src);
+                return result;
+            }
+            else if (gnode.type == "filter" && gnode.independent) {
+                auto filterNode = std::make_unique<FilterNode>();
+
+                if (gnode.filterType == "brightness" && !gnode.filterParams.empty()) {
+                    filterNode->setBrightness(gnode.filterParams[0]);
+                }
+                else if (gnode.filterType == "grayscale") {
+                    filterNode->setGrayscale();
+                }
+                else if ((gnode.filterType == "blur" || gnode.filterType == "boxBlur") && !gnode.filterParams.empty()) {
+                    filterNode->setBoxBlur(static_cast<int>(gnode.filterParams[0]));
+                }
+                else if (gnode.filterType == "alpha" && !gnode.filterParams.empty()) {
+                    filterNode->setAlpha(gnode.filterParams[0]);
+                }
+
+                // 入力を接続
+                auto connIt = inputConnections.find(nodeId);
+                if (connIt != inputConnections.end() && !connIt->second.empty()) {
+                    Node* upstream = buildNode(connIt->second[0]);
+                    if (upstream) {
+                        upstream->connectTo(*filterNode);
+                    }
+                }
+
+                Node* result = filterNode.get();
+                v2Nodes[nodeId] = std::move(filterNode);
+                return result;
+            }
+            else if (gnode.type == "affine") {
+                auto transformNode = std::make_unique<TransformNode>();
+
+                AffineMatrix mat;
+                mat.a = static_cast<float>(gnode.affineMatrix.a);
+                mat.b = static_cast<float>(gnode.affineMatrix.b);
+                mat.c = static_cast<float>(gnode.affineMatrix.c);
+                mat.d = static_cast<float>(gnode.affineMatrix.d);
+                mat.tx = static_cast<float>(gnode.affineMatrix.tx);
+                mat.ty = static_cast<float>(gnode.affineMatrix.ty);
+                transformNode->setMatrix(mat);
+
+                // 入力を接続
+                auto connIt = inputConnections.find(nodeId);
+                if (connIt != inputConnections.end() && !connIt->second.empty()) {
+                    Node* upstream = buildNode(connIt->second[0]);
+                    if (upstream) {
+                        upstream->connectTo(*transformNode);
+                    }
+                }
+
+                Node* result = transformNode.get();
+                v2Nodes[nodeId] = std::move(transformNode);
+                return result;
+            }
+            else if (gnode.type == "composite") {
+                int inputCount = static_cast<int>(gnode.compositeInputIds.size());
+                if (inputCount < 2) inputCount = 2;
+
+                auto compositeNode = std::make_unique<CompositeNode>(inputCount);
+
+                // 各入力を接続
+                auto connIt = inputConnections.find(nodeId);
+                if (connIt != inputConnections.end()) {
+                    int portIndex = 0;
+                    for (const auto& inputId : connIt->second) {
+                        Node* upstream = buildNode(inputId);
+                        if (upstream && portIndex < inputCount) {
+                            upstream->connectTo(*compositeNode, portIndex);
+                            portIndex++;
+                        }
+                    }
+                }
+
+                Node* result = compositeNode.get();
+                v2Nodes[nodeId] = std::move(compositeNode);
+                return result;
+            }
+            else if (gnode.type == "filter" && !gnode.independent) {
+                // パススルーフィルタ（独立でない場合）
+                auto connIt = inputConnections.find(nodeId);
+                if (connIt != inputConnections.end() && !connIt->second.empty()) {
+                    return buildNode(connIt->second[0]);
+                }
+            }
+
+            return nullptr;
+        };
+
+        // outputノードの入力を構築
+        auto connIt = inputConnections.find(outputNode->id);
+        if (connIt != inputConnections.end() && !connIt->second.empty()) {
+            Node* upstream = buildNode(connIt->second[0]);
+            if (upstream) {
+                upstream->connectTo(*sinkNode);
+            }
+        }
+
+        // Rendererで実行
+        Renderer renderer(*sinkNode);
+        // タイル分割設定（幅0の場合はキャンバス幅を使用=スキャンライン）
+        int effectiveTileW = (tileWidth_ > 0) ? tileWidth_ : canvasWidth_;
+        int effectiveTileH = (tileHeight_ > 0) ? tileHeight_ : canvasHeight_;
+        if (tileWidth_ > 0 || tileHeight_ > 0) {
+            renderer.setTileConfig(TileConfig(effectiveTileW, effectiveTileH));
+        }
+        renderer.setDebugCheckerboard(debugCheckerboard_);
+        renderer.exec();
+    }
 };
+
+// ========================================================================
+// EMSCRIPTEN バインディング
+// ========================================================================
 
 EMSCRIPTEN_BINDINGS(image_transform) {
     class_<NodeGraphEvaluatorWrapper>("NodeGraphEvaluator")

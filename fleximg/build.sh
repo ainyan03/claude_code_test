@@ -58,12 +58,12 @@ echo "};" >> demo/web/version.js
 echo "📝 Build info: $BUILD_DATE (commit: $GIT_COMMIT)"
 
 # WebAssemblyにコンパイル
-emcc src/fleximg/pixel_format_registry.cpp \
-     src/fleximg/viewport.cpp \
-     src/fleximg/image_buffer.cpp \
-     src/fleximg/operators.cpp \
-     src/fleximg/node_graph.cpp \
-     src/fleximg/evaluation_node.cpp \
+emcc src/fleximg/viewport.cpp \
+     src/fleximg/renderer.cpp \
+     src/fleximg/pixel_format_registry.cpp \
+     src/fleximg/operations/blend.cpp \
+     src/fleximg/operations/transform.cpp \
+     src/fleximg/operations/filters.cpp \
      demo/bindings.cpp \
     -I src \
     -o demo/web/image_transform.js \

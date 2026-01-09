@@ -2077,14 +2077,29 @@ function getNodePorts(node) {
 
 // 接続を追加
 function addConnection(fromNodeId, fromPortId, toNodeId, toPortId) {
-    // 既存の接続をチェック（同じポートへの接続は1つのみ）
-    const existingIndex = globalConnections.findIndex(
+    // 既存の接続をチェック（入力ポートへの接続は1つのみ）
+    const existingToIndex = globalConnections.findIndex(
         conn => conn.toNodeId === toNodeId && conn.toPortId === toPortId
     );
 
-    if (existingIndex >= 0) {
+    // 出力ポートからの接続も1つのみに制限
+    const existingFromIndex = globalConnections.findIndex(
+        conn => conn.fromNodeId === fromNodeId && conn.fromPortId === fromPortId
+    );
+
+    // 出力側に既存接続がある場合は削除
+    if (existingFromIndex >= 0) {
+        globalConnections.splice(existingFromIndex, 1);
+    }
+
+    // 入力側に既存接続がある場合のインデックスを再取得（削除でずれる可能性）
+    const existingToIndexNew = globalConnections.findIndex(
+        conn => conn.toNodeId === toNodeId && conn.toPortId === toPortId
+    );
+
+    if (existingToIndexNew >= 0) {
         // 既存の接続を置き換え
-        globalConnections[existingIndex] = {
+        globalConnections[existingToIndexNew] = {
             fromNodeId,
             fromPortId,
             toNodeId,

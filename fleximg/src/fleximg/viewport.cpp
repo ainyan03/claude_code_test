@@ -1,122 +1,111 @@
 #include "viewport.h"
-#include "image_buffer.h"
-#include "pixel_format.h"
+#include "pixel_format_registry.h"
 #include <cstring>
 #include <algorithm>
 
 namespace FLEXIMG_NAMESPACE {
+namespace view_ops {
 
-// ========================================================================
-// blendFirst - 透明キャンバスへの最初の描画（memcpy最適化）
-// ========================================================================
+void copy(ViewPort& dst, int dstX, int dstY,
+          const ViewPort& src, int srcX, int srcY,
+          int width, int height) {
+    if (!dst.isValid() || !src.isValid()) return;
 
-void ViewPort::blendFirst(const ViewPort& src, int offsetX, int offsetY) {
-    // クリッピング範囲を計算
-    int srcStartX = std::max(0, -offsetX);
-    int srcStartY = std::max(0, -offsetY);
-    int dstStartX = std::max(0, offsetX);
-    int dstStartY = std::max(0, offsetY);
-    int copyWidth = std::min(src.width - srcStartX, width - dstStartX);
-    int copyHeight = std::min(src.height - srcStartY, height - dstStartY);
+    // クリッピング
+    if (srcX < 0) { dstX -= srcX; width += srcX; srcX = 0; }
+    if (srcY < 0) { dstY -= srcY; height += srcY; srcY = 0; }
+    if (dstX < 0) { srcX -= dstX; width += dstX; dstX = 0; }
+    if (dstY < 0) { srcY -= dstY; height += dstY; dstY = 0; }
+    width = std::min(width, std::min(src.width - srcX, dst.width - dstX));
+    height = std::min(height, std::min(src.height - srcY, dst.height - dstY));
+    if (width <= 0 || height <= 0) return;
 
-    if (copyWidth <= 0 || copyHeight <= 0) return;
+    // 同一フォーマットならmemcpy
+    if (src.formatID == dst.formatID) {
+        size_t bpp = dst.bytesPerPixel();
+        for (int y = 0; y < height; ++y) {
+            const uint8_t* srcRow = static_cast<const uint8_t*>(src.pixelAt(srcX, srcY + y));
+            uint8_t* dstRow = static_cast<uint8_t*>(dst.pixelAt(dstX, dstY + y));
+            std::memcpy(dstRow, srcRow, width * bpp);
+        }
+        return;
+    }
 
-    // 行単位でmemcpy（透明キャンバスへの最初の合成なのでブレンド不要）
-    for (int y = 0; y < copyHeight; y++) {
-        const uint16_t* srcRow = src.getPixelPtr<uint16_t>(srcStartX, srcStartY + y);
-        uint16_t* dstRow = getPixelPtr<uint16_t>(dstStartX, dstStartY + y);
-        std::memcpy(dstRow, srcRow, copyWidth * 4 * sizeof(uint16_t));
+    // 異なるフォーマット間のコピー → PixelFormatRegistry で変換
+    PixelFormatRegistry& registry = PixelFormatRegistry::getInstance();
+    for (int y = 0; y < height; ++y) {
+        const void* srcRow = src.pixelAt(srcX, srcY + y);
+        void* dstRow = dst.pixelAt(dstX, dstY + y);
+        registry.convert(srcRow, src.formatID, dstRow, dst.formatID, width);
     }
 }
 
-// ========================================================================
-// blendOnto - 既存画像への合成（アルファブレンド）
-// ========================================================================
+void clear(ViewPort& dst, int x, int y, int width, int height) {
+    if (!dst.isValid()) return;
 
-void ViewPort::blendOnto(const ViewPort& src, int offsetX, int offsetY) {
-    // ループ範囲を事前計算
-    int yStart = std::max(0, -offsetY);
-    int yEnd = std::min(src.height, height - offsetY);
-    int xStart = std::max(0, -offsetX);
-    int xEnd = std::min(src.width, width - offsetX);
+    size_t bpp = dst.bytesPerPixel();
+    for (int row = 0; row < height; ++row) {
+        int dy = y + row;
+        if (dy < 0 || dy >= dst.height) continue;
+        uint8_t* dstRow = static_cast<uint8_t*>(dst.pixelAt(x, dy));
+        std::memset(dstRow, 0, width * bpp);
+    }
+}
 
-    if (yStart >= yEnd || xStart >= xEnd) return;
+void blendFirst(ViewPort& dst, int dstX, int dstY,
+                const ViewPort& src, int srcX, int srcY,
+                int width, int height) {
+    // 最初のブレンドはmemcpy最適化
+    copy(dst, dstX, dstY, src, srcX, srcY, width, height);
+}
 
-    // 閾値定数をローカル変数にキャッシュ（ループ最適化）
-    constexpr uint16_t ALPHA_TRANS_MAX = PixelFormatIDs::RGBA16Premul::ALPHA_TRANSPARENT_MAX;
-    constexpr uint16_t ALPHA_OPAQUE_MIN = PixelFormatIDs::RGBA16Premul::ALPHA_OPAQUE_MIN;
+void blendOnto(ViewPort& dst, int dstX, int dstY,
+               const ViewPort& src, int srcX, int srcY,
+               int width, int height) {
+    if (!dst.isValid() || !src.isValid()) return;
+    if (dst.formatID != PixelFormatIDs::RGBA16_Premultiplied ||
+        src.formatID != PixelFormatIDs::RGBA16_Premultiplied) {
+        // 非対応フォーマットはコピーにフォールバック
+        copy(dst, dstX, dstY, src, srcX, srcY, width, height);
+        return;
+    }
 
-    for (int y = yStart; y < yEnd; y++) {
-        const uint16_t* srcRow = src.getPixelPtr<uint16_t>(0, y);
-        uint16_t* dstRow = getPixelPtr<uint16_t>(0, y + offsetY);
+    // RGBA16_Premultiplied アルファブレンド
+    for (int y = 0; y < height; ++y) {
+        int sy = srcY + y;
+        int dy = dstY + y;
+        if (sy < 0 || sy >= src.height || dy < 0 || dy >= dst.height) continue;
 
-        for (int x = xStart; x < xEnd; x++) {
-            const uint16_t* srcPixel = srcRow + x * 4;
-            uint16_t* dstPixel = dstRow + (x + offsetX) * 4;
+        const uint16_t* srcRow = static_cast<const uint16_t*>(src.pixelAt(srcX, sy));
+        uint16_t* dstRow = static_cast<uint16_t*>(dst.pixelAt(dstX, dy));
 
-            uint16_t srcA = srcPixel[3];
-            // 透明スキップ
-            if (srcA <= ALPHA_TRANS_MAX) continue;
+        for (int x = 0; x < width; ++x) {
+            const uint16_t* sp = srcRow + x * 4;
+            uint16_t* dp = dstRow + x * 4;
 
-            uint16_t srcR = srcPixel[0];
-            uint16_t srcG = srcPixel[1];
-            uint16_t srcB = srcPixel[2];
-            uint16_t dstA = dstPixel[3];
+            uint16_t srcA = sp[3];
 
-            // 不透明最適化
-            if (srcA < ALPHA_OPAQUE_MIN && dstA != 0) {
-                // プリマルチプライド合成: src over dst
-                uint16_t invSrcA = 65535 - srcA;
-                srcR += (dstPixel[0] * invSrcA) >> 16;
-                srcG += (dstPixel[1] * invSrcA) >> 16;
-                srcB += (dstPixel[2] * invSrcA) >> 16;
-                srcA += (dstA * invSrcA) >> 16;
+            if (PixelFormatIDs::RGBA16Premul::isTransparent(srcA)) {
+                continue;  // 透明 - スキップ
+            }
+            if (PixelFormatIDs::RGBA16Premul::isOpaque(srcA)) {
+                // 不透明 - 上書き
+                dp[0] = sp[0];
+                dp[1] = sp[1];
+                dp[2] = sp[2];
+                dp[3] = sp[3];
+                continue;
             }
 
-            dstPixel[0] = srcR;
-            dstPixel[1] = srcG;
-            dstPixel[2] = srcB;
-            dstPixel[3] = srcA;
+            // アルファブレンド: dst = src + dst * (1 - srcA/65535)
+            uint32_t invAlpha = 65535 - srcA;
+            dp[0] = sp[0] + ((dp[0] * invAlpha) >> 16);
+            dp[1] = sp[1] + ((dp[1] * invAlpha) >> 16);
+            dp[2] = sp[2] + ((dp[2] * invAlpha) >> 16);
+            dp[3] = sp[3] + ((dp[3] * invAlpha) >> 16);
         }
     }
 }
 
-// ========================================================================
-// toImageBuffer - ビューをImageBufferにコピー（フォーマット変換対応）
-// ========================================================================
-
-ImageBuffer ViewPort::toImageBuffer(PixelFormatID targetFormat) const {
-    if (!isValid()) {
-        return ImageBuffer();
-    }
-
-    // ターゲットフォーマットが指定されていない場合は現在のフォーマットを使用
-    PixelFormatID outputFormat = (targetFormat == 0) ? formatID : targetFormat;
-
-    // 同じフォーマットの場合は単純コピー
-    if (outputFormat == formatID) {
-        ImageBuffer result(width, height, formatID);
-        size_t bytesPerPixel = getBytesPerPixel();
-        for (int y = 0; y < height; y++) {
-            const void* srcRow = getPixelAddress(0, y);
-            void* dstRow = result.getPixelAddress(0, y);
-            std::memcpy(dstRow, srcRow, width * bytesPerPixel);
-        }
-        return result;
-    }
-
-    // フォーマット変換が必要
-    // ImageBuffer::convertTo を使用するため、まず同じフォーマットでコピー
-    ImageBuffer temp(width, height, formatID);
-    size_t bytesPerPixel = getBytesPerPixel();
-    for (int y = 0; y < height; y++) {
-        const void* srcRow = getPixelAddress(0, y);
-        void* dstRow = temp.getPixelAddress(0, y);
-        std::memcpy(dstRow, srcRow, width * bytesPerPixel);
-    }
-
-    // フォーマット変換して返す
-    return temp.convertTo(outputFormat);
-}
-
+} // namespace view_ops
 } // namespace FLEXIMG_NAMESPACE
