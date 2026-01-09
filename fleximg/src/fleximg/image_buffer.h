@@ -30,15 +30,13 @@ public:
 
     // デフォルトコンストラクタ（空の画像）
     ImageBuffer()
-        : data_(nullptr), formatID_(PixelFormatIDs::RGBA8_Straight),
-          stride_(0), width_(0), height_(0), capacity_(0),
+        : view_(), capacity_(0),
           allocator_(&DefaultAllocator::getInstance()) {}
 
     // サイズ指定コンストラクタ
     ImageBuffer(int w, int h, PixelFormatID fmt = PixelFormatIDs::RGBA8_Straight,
                 ImageAllocator* alloc = &DefaultAllocator::getInstance())
-        : data_(nullptr), formatID_(fmt), stride_(0), width_(w), height_(h),
-          capacity_(0), allocator_(alloc) {
+        : view_(nullptr, fmt, 0, w, h), capacity_(0), allocator_(alloc) {
         allocate();
     }
 
@@ -53,9 +51,8 @@ public:
 
     // コピーコンストラクタ（ディープコピー）
     ImageBuffer(const ImageBuffer& other)
-        : data_(nullptr), formatID_(other.formatID_), stride_(0),
-          width_(other.width_), height_(other.height_), capacity_(0),
-          allocator_(other.allocator_) {
+        : view_(nullptr, other.view_.formatID, 0, other.view_.width, other.view_.height),
+          capacity_(0), allocator_(other.allocator_) {
         if (other.isValid()) {
             allocate();
             copyFrom(other);
@@ -66,9 +63,9 @@ public:
     ImageBuffer& operator=(const ImageBuffer& other) {
         if (this != &other) {
             deallocate();
-            formatID_ = other.formatID_;
-            width_ = other.width_;
-            height_ = other.height_;
+            view_.formatID = other.view_.formatID;
+            view_.width = other.view_.width;
+            view_.height = other.view_.height;
             allocator_ = other.allocator_;
             if (other.isValid()) {
                 allocate();
@@ -80,29 +77,26 @@ public:
 
     // ムーブコンストラクタ
     ImageBuffer(ImageBuffer&& other) noexcept
-        : data_(other.data_), formatID_(other.formatID_), stride_(other.stride_),
-          width_(other.width_), height_(other.height_), capacity_(other.capacity_),
+        : view_(other.view_), capacity_(other.capacity_),
           allocator_(other.allocator_) {
-        other.data_ = nullptr;
-        other.width_ = other.height_ = 0;
-        other.stride_ = other.capacity_ = 0;
+        other.view_.data = nullptr;
+        other.view_.width = other.view_.height = 0;
+        other.view_.stride = 0;
+        other.capacity_ = 0;
     }
 
     // ムーブ代入
     ImageBuffer& operator=(ImageBuffer&& other) noexcept {
         if (this != &other) {
             deallocate();
-            data_ = other.data_;
-            formatID_ = other.formatID_;
-            stride_ = other.stride_;
-            width_ = other.width_;
-            height_ = other.height_;
+            view_ = other.view_;
             capacity_ = other.capacity_;
             allocator_ = other.allocator_;
 
-            other.data_ = nullptr;
-            other.width_ = other.height_ = 0;
-            other.stride_ = other.capacity_ = 0;
+            other.view_.data = nullptr;
+            other.view_.width = other.view_.height = 0;
+            other.view_.stride = 0;
+            other.capacity_ = 0;
         }
         return *this;
     }
@@ -111,80 +105,71 @@ public:
     // ビュー取得
     // ========================================
 
-    ViewPort view() {
-        return ViewPort(data_, formatID_, stride_, width_, height_);
-    }
+    // 値で返す（安全性重視、呼び出し側での変更がImageBufferに影響しない）
+    ViewPort view() { return view_; }
+    ViewPort view() const { return view_; }
 
-    ViewPort view() const {
-        return ViewPort(const_cast<void*>(static_cast<const void*>(data_)),
-                        formatID_, stride_, width_, height_);
-    }
+    // 参照で返す（効率重視、直接操作可能）
+    ViewPort& viewRef() { return view_; }
+    const ViewPort& viewRef() const { return view_; }
 
     ViewPort subView(int x, int y, int w, int h) const {
-        return view_ops::subView(view(), x, y, w, h);
+        return view_ops::subView(view_, x, y, w, h);
     }
 
     // ========================================
-    // アクセサ
+    // アクセサ（ViewPortに委譲）
     // ========================================
 
-    bool isValid() const { return data_ != nullptr && width_ > 0 && height_ > 0; }
+    bool isValid() const { return view_.isValid(); }
 
-    int width() const { return width_; }
-    int height() const { return height_; }
-    size_t stride() const { return stride_; }
-    PixelFormatID formatID() const { return formatID_; }
+    int width() const { return view_.width; }
+    int height() const { return view_.height; }
+    size_t stride() const { return view_.stride; }
+    PixelFormatID formatID() const { return view_.formatID; }
 
-    void* data() { return data_; }
-    const void* data() const { return data_; }
+    void* data() { return view_.data; }
+    const void* data() const { return view_.data; }
 
-    void* pixelAt(int x, int y) {
-        return static_cast<uint8_t*>(data_) + y * stride_ + x * getBytesPerPixel(formatID_);
-    }
+    void* pixelAt(int x, int y) { return view_.pixelAt(x, y); }
+    const void* pixelAt(int x, int y) const { return view_.pixelAt(x, y); }
 
-    const void* pixelAt(int x, int y) const {
-        return static_cast<const uint8_t*>(data_) + y * stride_ + x * getBytesPerPixel(formatID_);
-    }
-
-    size_t bytesPerPixel() const { return getBytesPerPixel(formatID_); }
-    size_t totalBytes() const { return height_ * stride_; }
+    size_t bytesPerPixel() const { return view_.bytesPerPixel(); }
+    size_t totalBytes() const { return view_.height * view_.stride; }
 
 private:
-    void* data_;
-    PixelFormatID formatID_;
-    size_t stride_;
-    int width_, height_;
+    ViewPort view_;           // コンポジション: 画像データへのビュー
     size_t capacity_;
     ImageAllocator* allocator_;
 
     void allocate() {
-        size_t bpp = getBytesPerPixel(formatID_);
-        stride_ = width_ * bpp;
-        capacity_ = stride_ * height_;
+        size_t bpp = getBytesPerPixel(view_.formatID);
+        view_.stride = view_.width * bpp;
+        capacity_ = view_.stride * view_.height;
         if (capacity_ > 0 && allocator_) {
-            data_ = allocator_->allocate(capacity_);
-            if (data_) {
-                std::memset(data_, 0, capacity_);
+            view_.data = allocator_->allocate(capacity_);
+            if (view_.data) {
+                std::memset(view_.data, 0, capacity_);
             }
         }
     }
 
     void deallocate() {
-        if (data_ && allocator_) {
-            allocator_->deallocate(data_);
+        if (view_.data && allocator_) {
+            allocator_->deallocate(view_.data);
         }
-        data_ = nullptr;
+        view_.data = nullptr;
         capacity_ = 0;
     }
 
     void copyFrom(const ImageBuffer& other) {
         if (!isValid() || !other.isValid()) return;
-        size_t copyBytes = std::min(stride_, other.stride_);
-        int copyHeight = std::min(height_, other.height_);
+        size_t copyBytes = std::min(view_.stride, other.view_.stride);
+        int copyHeight = std::min(view_.height, other.view_.height);
         for (int y = 0; y < copyHeight; ++y) {
             std::memcpy(
-                static_cast<uint8_t*>(data_) + y * stride_,
-                static_cast<const uint8_t*>(other.data_) + y * other.stride_,
+                static_cast<uint8_t*>(view_.data) + y * view_.stride,
+                static_cast<const uint8_t*>(other.view_.data) + y * other.view_.stride,
                 copyBytes
             );
         }
