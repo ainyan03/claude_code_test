@@ -121,6 +121,64 @@ EvaluationNode (基底クラス)
 
 各ノードは `evaluate()` メソッドで上流ノードを再帰的に評価します。
 
+## ノードグラフAPI
+
+### 基本的な使用方法
+
+```cpp
+NodeGraphEvaluator evaluator(outputWidth, outputHeight);
+
+// 画像を登録（id=0: 入力, id=1: 出力）
+evaluator.registerImage(0, inputData, inputWidth, inputHeight);
+evaluator.registerImage(1, outputData, outputWidth, outputHeight);
+
+// 出力の基準点を設定
+evaluator.setDstOrigin(originX, originY);
+
+// ノードを設定
+std::vector<GraphNode> nodes(3);
+nodes[0].type = "image";
+nodes[0].id = "img";
+nodes[0].imageId = 0;
+nodes[0].srcOriginX = 0.5f;  // 中央基準
+nodes[0].srcOriginY = 0.5f;
+
+nodes[1].type = "affine";
+nodes[1].id = "affine";
+nodes[1].affineMatrix = matrix;
+
+nodes[2].type = "output";
+nodes[2].id = "out";
+nodes[2].imageId = 1;
+
+evaluator.setNodes(nodes);
+
+// 接続を設定
+std::vector<GraphConnection> connections = {
+    {"img", "output", "affine", "in"},
+    {"affine", "output", "out", "in"},
+};
+evaluator.setConnections(connections);
+
+// 評価実行（結果はoutputDataに書き込まれる）
+evaluator.evaluateGraph();
+```
+
+### 注意点
+
+| 項目 | 説明 |
+|------|------|
+| srcOriginX/Y | **0〜1の正規化値**（9点セレクタ）。0=左上/上端、0.5=中央、1=右下/下端 |
+| 入力ポート名 | 単一入力ノードは `"in"`。Compositeノードは `compositeInputs[].id` |
+| 出力ポート名 | すべてのノードで `"output"` |
+
+**srcOriginの解釈:**
+```cpp
+// ImageEvalNode での座標計算
+float imgLeft = -srcOriginX * imageWidth;   // 0.5 → -width/2
+float imgTop = -srcOriginY * imageHeight;   // 0.5 → -height/2
+```
+
 ## ピクセルフォーマット
 
 ### 使用するフォーマット
