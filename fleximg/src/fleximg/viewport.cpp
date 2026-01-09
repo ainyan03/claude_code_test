@@ -1,4 +1,5 @@
 #include "viewport.h"
+#include "pixel_format_registry.h"
 #include <cstring>
 #include <algorithm>
 
@@ -30,38 +31,13 @@ void copy(ViewPort& dst, int dstX, int dstY,
         return;
     }
 
-    // RGBA16_Premultiplied → RGBA8_Straight 変換
-    if (src.formatID == PixelFormatIDs::RGBA16_Premultiplied &&
-        dst.formatID == PixelFormatIDs::RGBA8_Straight) {
-        for (int y = 0; y < height; ++y) {
-            const uint16_t* srcRow = static_cast<const uint16_t*>(src.pixelAt(srcX, srcY + y));
-            uint8_t* dstRow = static_cast<uint8_t*>(dst.pixelAt(dstX, dstY + y));
-
-            for (int x = 0; x < width; ++x) {
-                uint16_t r = srcRow[x * 4 + 0];
-                uint16_t g = srcRow[x * 4 + 1];
-                uint16_t b = srcRow[x * 4 + 2];
-                uint16_t a = srcRow[x * 4 + 3];
-
-                // Premultiplied → Straight (アルファで除算)
-                if (a > 0) {
-                    r = std::min(65535u, (static_cast<uint32_t>(r) * 65535) / a);
-                    g = std::min(65535u, (static_cast<uint32_t>(g) * 65535) / a);
-                    b = std::min(65535u, (static_cast<uint32_t>(b) * 65535) / a);
-                }
-
-                // 16bit → 8bit
-                dstRow[x * 4 + 0] = static_cast<uint8_t>(r >> 8);
-                dstRow[x * 4 + 1] = static_cast<uint8_t>(g >> 8);
-                dstRow[x * 4 + 2] = static_cast<uint8_t>(b >> 8);
-                dstRow[x * 4 + 3] = static_cast<uint8_t>(a >> 8);
-            }
-        }
-        return;
+    // 異なるフォーマット間のコピー → PixelFormatRegistry で変換
+    PixelFormatRegistry& registry = PixelFormatRegistry::getInstance();
+    for (int y = 0; y < height; ++y) {
+        const void* srcRow = src.pixelAt(srcX, srcY + y);
+        void* dstRow = dst.pixelAt(dstX, dstY + y);
+        registry.convert(srcRow, src.formatID, dstRow, dst.formatID, width);
     }
-
-    // RGBA8_Straight → RGBA8_Straight (異なる場合のフォールバック)
-    // その他のフォーマット組み合わせは未対応
 }
 
 void clear(ViewPort& dst, int x, int y, int width, int height) {

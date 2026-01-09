@@ -2,6 +2,7 @@
 #include "operations/transform.h"
 #include "operations/filters.h"
 #include "operations/blend.h"
+#include "pixel_format_registry.h"
 #include <cstring>
 #include <algorithm>
 #include <cmath>
@@ -77,8 +78,25 @@ void Renderer::processTile(int tileX, int tileY) {
         int dstX = tileLeft + static_cast<int>(result.origin.x + request.originX);
         int dstY = tileTop + static_cast<int>(result.origin.y + request.originY);
 
-        view_ops::copy(target, dstX, dstY, resultView, 0, 0,
-                       resultView.width, resultView.height);
+        // 結果バッファ内のソース開始位置（タイル境界に合わせる）
+        int srcX = 0;
+        int srcY = 0;
+        if (dstX < tileLeft) {
+            srcX = tileLeft - dstX;
+            dstX = tileLeft;
+        }
+        if (dstY < tileTop) {
+            srcY = tileTop - dstY;
+            dstY = tileTop;
+        }
+
+        // コピーサイズをタイル境界に制限
+        int copyW = std::min(resultView.width - srcX, tileW - (dstX - tileLeft));
+        int copyH = std::min(resultView.height - srcY, tileH - (dstY - tileTop));
+
+        if (copyW > 0 && copyH > 0) {
+            view_ops::copy(target, dstX, dstY, resultView, srcX, srcY, copyW, copyH);
+        }
     }
 }
 
@@ -246,31 +264,64 @@ RenderResult Renderer::evaluateFilterNode(FilterNode* filter, const RenderReques
         return inputResult;
     }
 
-    // 出力バッファを作成
-    ImageBuffer output(inputResult.buffer.width(), inputResult.buffer.height(),
-                       inputResult.buffer.formatID());
-    ViewPort inputView = inputResult.view();
-    ViewPort outputView = output.view();
+    PixelFormatID inputFormatID = inputResult.buffer.formatID();
+    bool needsConversion = (inputFormatID != PixelFormatIDs::RGBA8_Straight);
 
-    // フィルタを適用
+    // フィルタは8bit処理のため、必要に応じてRGBA8_Straightに変換
+    ImageBuffer workBuffer;
+    ViewPort workInputView;
+
+    if (needsConversion) {
+        // RGBA8_Straightに変換
+        workBuffer = ImageBuffer(inputResult.buffer.width(), inputResult.buffer.height(),
+                                 PixelFormatIDs::RGBA8_Straight);
+        int pixelCount = workBuffer.width() * workBuffer.height();
+        PixelFormatRegistry::getInstance().convert(
+            inputResult.buffer.data(), inputFormatID,
+            workBuffer.data(), PixelFormatIDs::RGBA8_Straight,
+            pixelCount);
+        workInputView = workBuffer.view();
+    } else {
+        workInputView = inputResult.view();
+    }
+
+    // 出力バッファを作成（8bit）
+    ImageBuffer output8bit(inputResult.buffer.width(), inputResult.buffer.height(),
+                           PixelFormatIDs::RGBA8_Straight);
+    ViewPort outputView = output8bit.view();
+
+    // フィルタを適用（8bit処理）
     switch (filter->filterType()) {
         case FilterType::Brightness:
-            filters::brightness(outputView, inputView, filter->brightnessAmount());
+            filters::brightness(outputView, workInputView, filter->brightnessAmount());
             break;
         case FilterType::Grayscale:
-            filters::grayscale(outputView, inputView);
+            filters::grayscale(outputView, workInputView);
             break;
         case FilterType::BoxBlur:
-            filters::boxBlur(outputView, inputView, filter->blurRadius());
+            filters::boxBlur(outputView, workInputView, filter->blurRadius());
             break;
         case FilterType::Alpha:
-            filters::alpha(outputView, inputView, filter->alphaScale());
+            filters::alpha(outputView, workInputView, filter->alphaScale());
             break;
         case FilterType::None:
         default:
             // パススルー
-            view_ops::copy(outputView, 0, 0, inputView, 0, 0, inputView.width, inputView.height);
+            view_ops::copy(outputView, 0, 0, workInputView, 0, 0, workInputView.width, workInputView.height);
             break;
+    }
+
+    // 必要に応じて元のフォーマットに戻す
+    ImageBuffer finalOutput;
+    if (needsConversion) {
+        finalOutput = ImageBuffer(output8bit.width(), output8bit.height(), inputFormatID);
+        int pixelCount = finalOutput.width() * finalOutput.height();
+        PixelFormatRegistry::getInstance().convert(
+            output8bit.data(), PixelFormatIDs::RGBA8_Straight,
+            finalOutput.data(), inputFormatID,
+            pixelCount);
+    } else {
+        finalOutput = std::move(output8bit);
     }
 
     // ブラーの場合は要求範囲を切り出す
@@ -282,18 +333,19 @@ RenderResult Renderer::evaluateFilterNode(FilterNode* filter, const RenderReques
 
         // 範囲チェック
         if (startX >= 0 && startY >= 0 &&
-            startX + request.width <= output.width() &&
-            startY + request.height <= output.height()) {
+            startX + request.width <= finalOutput.width() &&
+            startY + request.height <= finalOutput.height()) {
             // 要求範囲を切り出し
-            ImageBuffer cropped(request.width, request.height, output.formatID());
+            ImageBuffer cropped(request.width, request.height, finalOutput.formatID());
             ViewPort croppedView = cropped.view();
-            view_ops::copy(croppedView, 0, 0, outputView, startX, startY,
+            ViewPort finalView = finalOutput.view();
+            view_ops::copy(croppedView, 0, 0, finalView, startX, startY,
                           request.width, request.height);
             return RenderResult(std::move(cropped), Point2f(reqLeft, reqTop));
         }
     }
 
-    return RenderResult(std::move(output), inputResult.origin);
+    return RenderResult(std::move(finalOutput), inputResult.origin);
 }
 
 // ========================================================================
