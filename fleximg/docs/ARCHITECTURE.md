@@ -140,8 +140,8 @@ std::vector<GraphNode> nodes(3);
 nodes[0].type = "image";
 nodes[0].id = "img";
 nodes[0].imageId = 0;
-nodes[0].srcOriginX = 0.5f;  // 中央基準
-nodes[0].srcOriginY = 0.5f;
+nodes[0].srcOriginX = inputWidth / 2.0f;  // 中央基準（ピクセル座標）
+nodes[0].srcOriginY = inputHeight / 2.0f;
 
 nodes[1].type = "affine";
 nodes[1].id = "affine";
@@ -168,15 +168,22 @@ evaluator.evaluateGraph();
 
 | 項目 | 説明 |
 |------|------|
-| srcOriginX/Y | **0〜1の正規化値**（9点セレクタ）。0=左上/上端、0.5=中央、1=右下/下端 |
+| srcOriginX/Y | **ピクセル座標**（画像内での基準点位置）。0=左上、width/2=中央X、height/2=中央Y |
 | 入力ポート名 | 単一入力ノードは `"in"`。Compositeノードは `compositeInputs[].id` |
 | 出力ポート名 | すべてのノードで `"output"` |
 
 **srcOriginの解釈:**
 ```cpp
 // ImageEvalNode での座標計算
-float imgLeft = -srcOriginX * imageWidth;   // 0.5 → -width/2
-float imgTop = -srcOriginY * imageHeight;   // 0.5 → -height/2
+float imgLeft = -srcOriginX;   // 50 → -50（画像左上は基準点の左50px）
+float imgTop = -srcOriginY;    // 50 → -50（画像上端は基準点の上50px）
+```
+
+**JS側での変換（UI層）:**
+```javascript
+// 9点セレクタ（0-1正規化値）からピクセル座標に変換
+const pixelOriginX = normalizedOriginX * imageWidth;
+const pixelOriginY = normalizedOriginY * imageHeight;
 ```
 
 ## ピクセルフォーマット

@@ -30,26 +30,26 @@ constexpr int OUTPUT_SIZE = 32;
 constexpr float DST_ORIGIN_X = 16.0f;
 constexpr float DST_ORIGIN_Y = 16.0f;
 
-// 基準点定義（0〜1の正規化値、9点セレクタ）
+// 基準点定義（ピクセル座標）
 // srcOriginX/Y は ImageEvalNode で以下のように解釈される:
-//   imgLeft = -srcOriginX * imageWidth
-//   imgTop = -srcOriginY * imageHeight
-// 例: 中央基準(0.5, 0.5) → 画像の中央が原点に対応
+//   imgLeft = -srcOriginX
+//   imgTop = -srcOriginY
+// 例: 中央基準(2.5, 5.0) → 画像の中央が原点に対応
 struct SrcOriginPoint {
     const char* name;
-    float x, y;  // 0.0〜1.0の正規化値
+    float x, y;  // ピクセル座標
 };
 
 const SrcOriginPoint SRC_ORIGINS[] = {
     {"TopLeft",      0.0f, 0.0f},
-    {"TopCenter",    0.5f, 0.0f},
-    {"TopRight",     1.0f, 0.0f},
-    {"MiddleLeft",   0.0f, 0.5f},
-    {"Center",       0.5f, 0.5f},
-    {"MiddleRight",  1.0f, 0.5f},
-    {"BottomLeft",   0.0f, 1.0f},
-    {"BottomCenter", 0.5f, 1.0f},
-    {"BottomRight",  1.0f, 1.0f},
+    {"TopCenter",    INPUT_WIDTH / 2.0f, 0.0f},                      // 2.5
+    {"TopRight",     static_cast<float>(INPUT_WIDTH), 0.0f},         // 5.0
+    {"MiddleLeft",   0.0f, INPUT_HEIGHT / 2.0f},                     // 5.0
+    {"Center",       INPUT_WIDTH / 2.0f, INPUT_HEIGHT / 2.0f},       // 2.5, 5.0
+    {"MiddleRight",  static_cast<float>(INPUT_WIDTH), INPUT_HEIGHT / 2.0f},
+    {"BottomLeft",   0.0f, static_cast<float>(INPUT_HEIGHT)},        // 10.0
+    {"BottomCenter", INPUT_WIDTH / 2.0f, static_cast<float>(INPUT_HEIGHT)},
+    {"BottomRight",  static_cast<float>(INPUT_WIDTH), static_cast<float>(INPUT_HEIGHT)},
 };
 
 // 回転角度
@@ -223,20 +223,22 @@ TEST_F(NodeGraphIntegrationTest, IdentityTransformPosition) {
 }
 
 TEST_F(NodeGraphIntegrationTest, CenterOriginIdentity) {
-    // 単位行列、中央原点(0.5, 0.5)の場合
-    // srcOrigin=(0.5, 0.5) → imgLeft = -2.5, imgTop = -5
+    // 単位行列、中央原点(2.5, 5.0)の場合
+    // srcOrigin=(2.5, 5.0) → imgLeft = -2.5, imgTop = -5
     // 入力の中央が出力の基準点(16,16)に対応
     AffineMatrix identity;
     identity.a = 1.0f; identity.b = 0.0f;
     identity.c = 0.0f; identity.d = 1.0f;
     identity.tx = 0.0f; identity.ty = 0.0f;
 
-    evaluateImageAffineOutput(0.5f, 0.5f, identity);
+    float centerX = INPUT_WIDTH / 2.0f;   // 2.5
+    float centerY = INPUT_HEIGHT / 2.0f;  // 5.0
+    evaluateImageAffineOutput(centerX, centerY, identity);
 
     int minX, minY, maxX, maxY;
     ASSERT_TRUE(getOutputBounds(outputData, OUTPUT_SIZE, OUTPUT_SIZE, minX, minY, maxX, maxY));
 
-    // srcOrigin=(0.5, 0.5) → imgLeft = -0.5*5 = -2.5, imgTop = -0.5*10 = -5
+    // srcOrigin=(2.5, 5.0) → imgLeft = -2.5, imgTop = -5
     // 画像は基準点を中心に配置
     // 入力左上は出力の (16-2.5, 16-5) = (13.5, 11) 付近
     // 入力右下は出力の (16+2.5, 16+5) = (18.5, 21) 付近
@@ -415,9 +417,9 @@ INSTANTIATE_TEST_SUITE_P(
 TEST_F(NodeGraphIntegrationTest, TileSplitProducesSameResult) {
     AffineMatrix rot45 = createRotationMatrix(45.0f);
 
-    // 中央原点（正規化値）
-    float centerX = 0.5f;
-    float centerY = 0.5f;
+    // 中央原点（ピクセル座標）
+    float centerX = INPUT_WIDTH / 2.0f;   // 2.5
+    float centerY = INPUT_HEIGHT / 2.0f;  // 5.0
 
     // タイル分割なしで評価
     evaluateImageAffineOutput(centerX, centerY, rot45);

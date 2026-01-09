@@ -2236,6 +2236,20 @@ function updatePreviewFromGraph() {
 
     // ノードデータをC++に渡す形式に変換
     const nodesForCpp = globalNodes.map(node => {
+        // 画像ノード: 正規化originをピクセル座標に変換
+        if (node.type === 'image') {
+            const image = uploadedImages.find(img => img.id === node.imageId);
+            if (image) {
+                const ox = node.originX ?? 0.5;
+                const oy = node.originY ?? 0.5;
+                return {
+                    ...node,
+                    // ピクセル座標に変換してC++に渡す
+                    originX: ox * image.width,
+                    originY: oy * image.height
+                };
+            }
+        }
         // アフィンノード: パラメータを行列に統一
         if (node.type === 'affine' && !node.matrixMode) {
             const matrix = calculateMatrixFromParams(
