@@ -12,6 +12,9 @@ src/fleximg/*.o
 test/integration_test
 test/viewport_test
 
+# CLI binary
+cli/imgproc
+
 # Emscripten cache
 .emscripten_cache/
 
