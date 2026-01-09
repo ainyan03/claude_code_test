@@ -4,6 +4,7 @@
 #include "operations/blend.h"
 #include "pixel_format_registry.h"
 #include <cstring>
+#include <cstdint>
 #include <algorithm>
 #include <cmath>
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
@@ -227,43 +228,44 @@ RenderResult Renderer::evaluateTransformNode(TransformNode* xform, const RenderR
 
     const AffineMatrix& matrix = xform->matrix();
 
-    // 逆行列を計算（入力要求範囲の算出に必要）
-    float det = matrix.a * matrix.d - matrix.b * matrix.c;
-    if (std::abs(det) < 1e-10f) {
+    // 固定小数点逆行列を事前計算
+    auto invMatrix = transform::FixedPointInverseMatrix::fromMatrix(matrix);
+    if (!invMatrix.valid) {
         // 特異行列
         return RenderResult();
     }
 
-    float invDet = 1.0f / det;
-    float invA = matrix.d * invDet;
-    float invB = -matrix.b * invDet;
-    float invC = -matrix.c * invDet;
-    float invD = matrix.a * invDet;
-    float invTx = (-matrix.d * matrix.tx + matrix.b * matrix.ty) * invDet;
-    float invTy = (matrix.c * matrix.tx - matrix.a * matrix.ty) * invDet;
-
-    // 出力要求の4頂点を逆変換してAABBを算出
-    float corners[4][2] = {
-        {-request.originX, -request.originY},
-        {request.width - request.originX, -request.originY},
-        {-request.originX, request.height - request.originY},
-        {request.width - request.originX, request.height - request.originY}
+    // 出力要求の4頂点を固定小数点逆行列で逆変換してAABBを算出
+    // 固定小数点演算で範囲計算（DDAと同じ精度を保証）
+    int32_t corners[4][2] = {
+        {static_cast<int32_t>(-request.originX), static_cast<int32_t>(-request.originY)},
+        {static_cast<int32_t>(request.width - request.originX), static_cast<int32_t>(-request.originY)},
+        {static_cast<int32_t>(-request.originX), static_cast<int32_t>(request.height - request.originY)},
+        {static_cast<int32_t>(request.width - request.originX), static_cast<int32_t>(request.height - request.originY)}
     };
 
-    float minX = 1e9f, minY = 1e9f, maxX = -1e9f, maxY = -1e9f;
+    int32_t minX = INT32_MAX, minY = INT32_MAX, maxX = INT32_MIN, maxY = INT32_MIN;
     for (int i = 0; i < 4; i++) {
-        float sx = invA * corners[i][0] + invB * corners[i][1] + invTx;
-        float sy = invC * corners[i][0] + invD * corners[i][1] + invTy;
+        // 固定小数点演算: result = (a * x + b * y + tx) >> FIXED_POINT_BITS
+        int64_t sx64 = static_cast<int64_t>(invMatrix.a) * corners[i][0]
+                     + static_cast<int64_t>(invMatrix.b) * corners[i][1]
+                     + invMatrix.tx;
+        int64_t sy64 = static_cast<int64_t>(invMatrix.c) * corners[i][0]
+                     + static_cast<int64_t>(invMatrix.d) * corners[i][1]
+                     + invMatrix.ty;
+        int32_t sx = static_cast<int32_t>(sx64 >> transform::FIXED_POINT_BITS);
+        int32_t sy = static_cast<int32_t>(sy64 >> transform::FIXED_POINT_BITS);
         minX = std::min(minX, sx);
         minY = std::min(minY, sy);
         maxX = std::max(maxX, sx);
         maxY = std::max(maxY, sy);
     }
 
-    int reqLeft = static_cast<int>(std::floor(minX));
-    int reqTop = static_cast<int>(std::floor(minY));
-    int inputWidth = static_cast<int>(std::ceil(maxX) - std::floor(minX)) + 1;
-    int inputHeight = static_cast<int>(std::ceil(maxY) - std::floor(minY)) + 1;
+    // マージンを追加（固定小数点の丸め誤差対策）
+    int reqLeft = minX - 1;
+    int reqTop = minY - 1;
+    int inputWidth = maxX - minX + 3;
+    int inputHeight = maxY - minY + 3;
 
     RenderRequest inputReq;
     inputReq.width = inputWidth;
@@ -296,12 +298,12 @@ RenderResult Renderer::evaluateTransformNode(TransformNode* xform, const RenderR
 #endif
     ViewPort outputView = output.view();
 
-    // アフィン変換を適用
+    // アフィン変換を適用（事前計算した固定小数点逆行列を使用）
     ViewPort inputView = inputResult.view();
     transform::affine(outputView, request.originX, request.originY,
                       inputView,
                       -inputResult.origin.x, -inputResult.origin.y,
-                      matrix);
+                      invMatrix);
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
     auto& mTransEnd = PerfMetrics::instance().nodes[NodeType::Transform];

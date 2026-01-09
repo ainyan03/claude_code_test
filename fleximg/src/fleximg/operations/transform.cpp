@@ -13,38 +13,20 @@ namespace transform {
 
 void affine(ViewPort& dst, float dstOriginX, float dstOriginY,
             const ViewPort& src, float srcOriginX, float srcOriginY,
-            const AffineMatrix& matrix) {
+            const FixedPointInverseMatrix& invMatrix) {
     if (!dst.isValid() || !src.isValid()) return;
+    if (!invMatrix.valid) return;
 
     int outW = dst.width;
     int outH = dst.height;
 
-    // 逆行列を計算（出力→入力の座標変換）
-    float det = matrix.a * matrix.d - matrix.b * matrix.c;
-    if (std::abs(det) < 1e-10f) {
-        // 特異行列の場合は何もしない
-        return;
-    }
-
-    float invDet = 1.0f / det;
-    float invA = matrix.d * invDet;
-    float invB = -matrix.b * invDet;
-    float invC = -matrix.c * invDet;
-    float invD = matrix.a * invDet;
-    float invTx = (-matrix.d * matrix.tx + matrix.b * matrix.ty) * invDet;
-    float invTy = (matrix.c * matrix.tx - matrix.a * matrix.ty) * invDet;
-
-    // 固定小数点の小数部ビット数
-    constexpr int FIXED_POINT_BITS = 16;
-    constexpr int32_t FIXED_POINT_SCALE = 1 << FIXED_POINT_BITS;
-
-    // 固定小数点形式に変換
-    int32_t fixedInvA  = std::lround(invA * FIXED_POINT_SCALE);
-    int32_t fixedInvB  = std::lround(invB * FIXED_POINT_SCALE);
-    int32_t fixedInvC  = std::lround(invC * FIXED_POINT_SCALE);
-    int32_t fixedInvD  = std::lround(invD * FIXED_POINT_SCALE);
-    int32_t fixedInvTx = std::lround(invTx * FIXED_POINT_SCALE);
-    int32_t fixedInvTy = std::lround(invTy * FIXED_POINT_SCALE);
+    // 事前計算された固定小数点逆行列を使用
+    int32_t fixedInvA  = invMatrix.a;
+    int32_t fixedInvB  = invMatrix.b;
+    int32_t fixedInvC  = invMatrix.c;
+    int32_t fixedInvD  = invMatrix.d;
+    int32_t fixedInvTx = invMatrix.tx;
+    int32_t fixedInvTy = invMatrix.ty;
 
     // 座標変換の式:
     // dst座標(dx, dy) → 基準相対座標(dx - dstOriginX, dy - dstOriginY)
@@ -71,8 +53,8 @@ void affine(ViewPort& dst, float dstOriginX, float dstOriginY,
     auto calcValidRange = [](
         int32_t coeff, int32_t base, int minVal, int maxVal, int canvasSize
     ) -> std::pair<int, int> {
-        constexpr int BITS = 16;
-        constexpr int32_t SCALE = 1 << BITS;
+        constexpr int BITS = FIXED_POINT_BITS;
+        constexpr int32_t SCALE = FIXED_POINT_SCALE;
         int32_t coeffHalf = coeff >> 1;
 
         if (coeff == 0) {

@@ -3,9 +3,61 @@
 
 #include "../common.h"
 #include "../viewport.h"
+#include <cmath>
+#include <cstdint>
 
 namespace FLEXIMG_NAMESPACE {
 namespace transform {
+
+// ========================================================================
+// 固定小数点逆行列
+// ========================================================================
+//
+// アフィン変換の逆行列を固定小数点形式で保持します。
+// renderer側で事前計算し、範囲計算とDDA処理の両方で使用することで
+// 一貫性を保証します。
+//
+
+constexpr int FIXED_POINT_BITS = 16;
+constexpr int32_t FIXED_POINT_SCALE = 1 << FIXED_POINT_BITS;
+
+struct FixedPointInverseMatrix {
+    int32_t a, b, c, d;   // 2x2回転・スケール部分の逆行列
+    int32_t tx, ty;       // 平行移動部分の逆変換
+    bool valid;           // 逆行列が存在するか（非特異行列か）
+
+    FixedPointInverseMatrix() : a(0), b(0), c(0), d(0), tx(0), ty(0), valid(false) {}
+
+    // AffineMatrixから固定小数点逆行列を計算
+    static FixedPointInverseMatrix fromMatrix(const AffineMatrix& matrix) {
+        FixedPointInverseMatrix result;
+
+        float det = matrix.a * matrix.d - matrix.b * matrix.c;
+        if (std::abs(det) < 1e-10f) {
+            // 特異行列
+            result.valid = false;
+            return result;
+        }
+
+        float invDet = 1.0f / det;
+        float invA = matrix.d * invDet;
+        float invB = -matrix.b * invDet;
+        float invC = -matrix.c * invDet;
+        float invD = matrix.a * invDet;
+        float invTx = (-matrix.d * matrix.tx + matrix.b * matrix.ty) * invDet;
+        float invTy = (matrix.c * matrix.tx - matrix.a * matrix.ty) * invDet;
+
+        result.a  = std::lround(invA * FIXED_POINT_SCALE);
+        result.b  = std::lround(invB * FIXED_POINT_SCALE);
+        result.c  = std::lround(invC * FIXED_POINT_SCALE);
+        result.d  = std::lround(invD * FIXED_POINT_SCALE);
+        result.tx = std::lround(invTx * FIXED_POINT_SCALE);
+        result.ty = std::lround(invTy * FIXED_POINT_SCALE);
+        result.valid = true;
+
+        return result;
+    }
+};
 
 // ========================================================================
 // アフィン変換（純関数）
@@ -37,11 +89,11 @@ namespace transform {
 // - dstOriginX/Y: 出力バッファ内での基準点位置
 // - src: 入力バッファ
 // - srcOriginX/Y: 入力バッファ内での基準点位置
-// - matrix: アフィン変換行列（回転・拡縮・平行移動）
+// - invMatrix: 事前計算された固定小数点逆行列
 //
 void affine(ViewPort& dst, float dstOriginX, float dstOriginY,
             const ViewPort& src, float srcOriginX, float srcOriginY,
-            const AffineMatrix& matrix);
+            const FixedPointInverseMatrix& invMatrix);
 
 } // namespace transform
 } // namespace FLEXIMG_NAMESPACE
