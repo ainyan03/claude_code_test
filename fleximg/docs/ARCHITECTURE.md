@@ -4,64 +4,90 @@ fleximg の C++ コアライブラリの設計について説明します。
 
 ## 処理パイプライン
 
-ノードグラフは以下の3段階で評価されます：
+ノードグラフは Renderer クラスによって評価されます。
 
 ```
-【段階1: パイプライン構築】（ノード構成変更時のみ）
-GraphNode/GraphConnection → EvaluationNode のポインタグラフに変換
-
-【段階2: 描画準備】（evaluateGraph 開始時に1回）
-逆行列計算、カーネル準備など
-
-【段階3: タイル描画】（タイル分割ループ）
-出力ノードから再帰的に evaluate() を呼び出し
+【処理フロー】
+SinkNode（出力先）
+    │
+    │ Renderer.exec()
+    ▼
+タイル分割ループ
+    │ processTile(tx, ty)
+    ▼
+上流ノードを再帰評価
+    │ evaluateUpstream()
+    ▼
+結果を出力先にコピー
 ```
 
-### 処理フロー
+### タイル分割
+
+メモリ制約のある環境向けに、キャンバスをタイルに分割して処理できます。
+
+```cpp
+Renderer renderer(sinkNode);
+renderer.setTileConfig(TileConfig{64, 64});  // 64x64タイル
+renderer.exec();
+```
+
+**サイズ指定の例:**
+- `{0, 0}` - 分割なし（一括処理）
+- `{0, 1}` - スキャンライン（1行ずつ）
+- `{64, 64}` - 64x64タイル
+
+## ノードシステム
+
+### ノードタイプ
 
 ```
-RenderRequest (要求)
-    │
-    ▼
-OutputNode.evaluate()
-    │ computeInputRequest()
-    ▼
-AffineNode.evaluate()
-    │ computeInputRequest()
-    ▼
-ImageNode.evaluate()
-    │
-    │ return EvalResult (画像データ + 座標)
-    ▼
-AffineNode: 変換適用
-    │
-    │ return EvalResult
-    ▼
-OutputNode: 最終結果
+Node (基底クラス)
+│
+├── SourceNode      # 画像データを提供
+├── SinkNode        # 出力先を保持
+├── TransformNode   # アフィン変換
+├── FilterNode      # フィルタ処理
+└── CompositeNode   # 複数入力の合成
+```
+
+### 接続方式
+
+ノード間は Port オブジェクトで接続します。
+
+```cpp
+SourceNode source(imageView);
+TransformNode transform;
+SinkNode sink(outputView, canvasWidth, canvasHeight);
+
+// 接続: source → transform → sink
+transform.input(0)->connect(source.output());
+sink.input(0)->connect(transform.output());
+
+// 実行
+Renderer renderer(sink);
+renderer.exec();
 ```
 
 ## データ型
 
-### 3つの主要な型
+### 主要な型
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  ViewPort（純粋ビュー）                                   │
 │  - data, formatID, stride, width, height                │
-│  - blendFirst(), blendOnto()                            │
 │  - 所有権なし、軽量                                       │
 └─────────────────────────────────────────────────────────┘
             ▲
-            │ 包含
+            │ view() で取得
 ┌─────────────────────────────────────────────────────────┐
 │  ImageBuffer（メモリ所有）                                │
-│  - ViewPort を内包                                       │
-│  - capacity, allocator, ownsData                        │
+│  - ViewPort を生成可能                                   │
 │  - RAII によるメモリ管理                                  │
 └─────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────┐
-│  EvalResult（パイプライン評価結果）                        │
+│  RenderResult（パイプライン評価結果）                      │
 │  - ImageBuffer buffer                                   │
 │  - Point2f origin（基準点からの相対座標）                  │
 └─────────────────────────────────────────────────────────┘
@@ -73,117 +99,38 @@ OutputNode: 最終結果
 |---|------|--------|
 | ViewPort | 画像データへのアクセス | なし |
 | ImageBuffer | メモリの確保・解放 | あり |
-| EvalResult | パイプライン処理結果と座標 | ImageBuffer を所有 |
+| RenderResult | パイプライン処理結果と座標 | ImageBuffer を所有 |
 
-## オペレーターシステム
+## 座標系
 
-### クラス階層
+### 基準相対座標系
 
-```
-NodeOperator (抽象基底クラス)
-│
-├── SingleInputOperator (1入力用基底クラス)
-│   ├── BrightnessOperator
-│   ├── GrayscaleOperator
-│   ├── BoxBlurOperator
-│   ├── AlphaOperator
-│   └── AffineOperator
-│
-└── CompositeOperator (複数入力)
-```
+すべての座標は「基準点を 0 とした相対位置」で表現します。
 
-### 主なメソッド
+- 絶対座標という概念は不要
+- 左/上方向が負、右/下方向が正
+- 各ノードは「基準点からの相対位置」のみを扱う
+
+### 主要な座標構造体
 
 ```cpp
-class NodeOperator {
-public:
-    // 入力から出力を生成
-    virtual EvalResult apply(const OperatorInput& input,
-                             const RenderRequest& request) const = 0;
+// 下流からの要求
+struct RenderRequest {
+    int width, height;       // 要求サイズ
+    float originX, originY;  // バッファ内での基準点位置
+};
 
-    // 入力要求を計算（フィルタ用の拡大など）
-    virtual RenderRequest computeInputRequest(
-        const RenderRequest& outputRequest) const;
+// 評価結果の座標
+struct Point2f {
+    float x, y;  // 基準点から見た出力左上の相対座標
 };
 ```
 
-## 評価ノード
+### 座標の関係
 
 ```
-EvaluationNode (基底クラス)
-│
-├── ImageEvalNode      # 画像データを返す（終端）
-├── FilterEvalNode     # フィルタ処理を適用
-├── AffineEvalNode     # アフィン変換を適用
-├── CompositeEvalNode  # 複数入力を合成
-└── OutputEvalNode     # 出力ノード（透過）
-```
-
-各ノードは `evaluate()` メソッドで上流ノードを再帰的に評価します。
-
-## ノードグラフAPI
-
-### 基本的な使用方法
-
-```cpp
-NodeGraphEvaluator evaluator(outputWidth, outputHeight);
-
-// 画像を登録（id=0: 入力, id=1: 出力）
-evaluator.registerImage(0, inputData, inputWidth, inputHeight);
-evaluator.registerImage(1, outputData, outputWidth, outputHeight);
-
-// 出力の基準点を設定
-evaluator.setDstOrigin(originX, originY);
-
-// ノードを設定
-std::vector<GraphNode> nodes(3);
-nodes[0].type = "image";
-nodes[0].id = "img";
-nodes[0].imageId = 0;
-nodes[0].srcOriginX = inputWidth / 2.0f;  // 中央基準（ピクセル座標）
-nodes[0].srcOriginY = inputHeight / 2.0f;
-
-nodes[1].type = "affine";
-nodes[1].id = "affine";
-nodes[1].affineMatrix = matrix;
-
-nodes[2].type = "output";
-nodes[2].id = "out";
-nodes[2].imageId = 1;
-
-evaluator.setNodes(nodes);
-
-// 接続を設定
-std::vector<GraphConnection> connections = {
-    {"img", "output", "affine", "in"},
-    {"affine", "output", "out", "in"},
-};
-evaluator.setConnections(connections);
-
-// 評価実行（結果はoutputDataに書き込まれる）
-evaluator.evaluateGraph();
-```
-
-### 注意点
-
-| 項目 | 説明 |
-|------|------|
-| srcOriginX/Y | **ピクセル座標**（画像内での基準点位置）。0=左上、width/2=中央X、height/2=中央Y |
-| 入力ポート名 | 単一入力ノードは `"in"`。Compositeノードは `compositeInputs[].id` |
-| 出力ポート名 | すべてのノードで `"output"` |
-
-**srcOriginの解釈:**
-```cpp
-// ImageEvalNode での座標計算
-float imgLeft = -srcOriginX;   // 50 → -50（画像左上は基準点の左50px）
-float imgTop = -srcOriginY;    // 50 → -50（画像上端は基準点の上50px）
-```
-
-**JS側での変換（UI層）:**
-```javascript
-// 9点セレクタ（0-1正規化値）からピクセル座標に変換
-const pixelOriginX = normalizedOriginX * imageWidth;
-const pixelOriginY = normalizedOriginY * imageHeight;
+バッファの左上 (0, 0) の基準相対座標 = -originX
+バッファの (originX, originY) の基準相対座標 = (0, 0)
 ```
 
 ## ピクセルフォーマット
@@ -209,107 +156,110 @@ A_tmp = A8 + 1;          // 1-256
 R8 = R16 / A_tmp;        // 除数範囲が限定的
 ```
 
-## 座標系
+## 操作モジュール
 
-### 基準相対座標系
-
-すべての座標は「基準点を 0 とした相対位置」で表現します。
-
-- 絶対座標という概念は不要
-- 左/上方向が負、右/下方向が正
-- 各ノードは「基準点からの相対位置」のみを扱う
-
-### 主要な座標構造体
+### フィルタ (operations/filters.h)
 
 ```cpp
-// 下流からの要求
-struct RenderRequest {
-    int width, height;    // 要求サイズ
-    float originX, originY;  // バッファ内での基準点位置
-};
-
-// 評価結果の座標
-struct Point2f {
-    float x, y;  // 基準点から見た出力左上の相対座標
-};
+namespace filters {
+    void brightness(ViewPort& dst, const ViewPort& src, float amount);
+    void grayscale(ViewPort& dst, const ViewPort& src);
+    void boxBlur(ViewPort& dst, const ViewPort& src, int radius);
+    void alpha(ViewPort& dst, const ViewPort& src, float scale);
+}
 ```
 
-### 座標の関係
-
-```
-バッファの左上 (0, 0) の基準相対座標 = -originX
-バッファの (originX, originY) の基準相対座標 = (0, 0)
-```
-
-## タイル分割処理
-
-メモリ制約のある環境向けに、キャンバスをタイルに分割して処理できます。
+### アフィン変換 (operations/transform.h)
 
 ```cpp
-// タイルサイズを設定（0 = 分割なし）
-void setTileSize(int width, int height);
-
-// デバッグ用市松模様スキップを設定
-void setDebugCheckerboard(bool enabled);
+namespace transform {
+    void affine(ViewPort& dst, float dstOriginX, float dstOriginY,
+                const ViewPort& src, float srcOriginX, float srcOriginY,
+                const AffineMatrix& matrix);
+}
 ```
 
-**サイズ指定の例：**
-- `(0, 0)` - 分割なし（一括処理）
-- `(0, 1)` - スキャンライン（1行ずつ）
-- `(16, 16)` - 16×16タイル
-- `(64, 64)` - 64×64タイル
+### ブレンド (operations/blend.h)
 
-各タイルは独立して処理され、基準相対座標系により一貫した結果が得られます。
+```cpp
+namespace blend {
+    void first(ViewPort& canvas, float canvasOriginX, float canvasOriginY,
+               const ViewPort& src, float srcOriginX, float srcOriginY);
+    void onto(ViewPort& canvas, float canvasOriginX, float canvasOriginY,
+              const ViewPort& src, float srcOriginX, float srcOriginY);
+}
+```
 
 ## ファイル構成
 
 ```
 src/fleximg/
-├── common.h              # 共通定義（Point2f など）
-├── image_types.h         # 基本型（Image, AffineMatrix）
-├── image_allocator.h     # カスタムアロケータ
+├── common.h              # 共通定義（Point2f, AffineMatrix）
 ├── pixel_format.h        # ピクセルフォーマット定義
-├── pixel_format_registry.h/cpp  # フォーマット変換
+├── image_allocator.h     # カスタムアロケータ
+├── image_buffer.h        # ImageBuffer
 ├── viewport.h/cpp        # ViewPort
-├── image_buffer.h/cpp    # ImageBuffer
-├── eval_result.h         # EvalResult
-├── operators.h/cpp       # オペレーター群
-├── evaluation_node.h/cpp # 評価ノード
-└── node_graph.h/cpp      # ノードグラフエンジン
+├── port.h                # Port（ノード接続）
+├── node.h                # Node 基底クラス
+├── render_types.h        # RenderRequest, RenderResult 等
+├── renderer.h/cpp        # Renderer（パイプライン実行）
+├── nodes/
+│   ├── source_node.h     # SourceNode
+│   ├── sink_node.h       # SinkNode
+│   ├── transform_node.h  # TransformNode
+│   ├── filter_node.h     # FilterNode
+│   └── composite_node.h  # CompositeNode
+└── operations/
+    ├── transform.h/cpp   # アフィン変換
+    ├── filters.h/cpp     # フィルタ処理
+    └── blend.h/cpp       # ブレンド処理
 ```
 
-## パフォーマンス計測
+## 使用例
 
-デバッグビルド（`--debug`フラグ）では、ノードタイプ別のパフォーマンス計測が有効になります。
+### 基本的なパイプライン
 
-### 計測項目
+```cpp
+#include "fleximg/common.h"
+#include "fleximg/viewport.h"
+#include "fleximg/image_buffer.h"
+#include "fleximg/nodes/source_node.h"
+#include "fleximg/nodes/sink_node.h"
+#include "fleximg/nodes/transform_node.h"
+#include "fleximg/renderer.h"
 
-| 項目 | 説明 |
-|------|------|
-| time_us | 処理時間（マイクロ秒） |
-| count | 呼び出し回数 |
-| requestedPixels | 上流に要求したピクセル数 |
-| usedPixels | 実際に使用したピクセル数 |
-| wasteRatio | 不要ピクセル率（1 - used/requested） |
+using namespace fleximg;
 
-### ピクセル効率
+// 入出力バッファ
+ViewPort inputView = /* 入力画像 */;
+ImageBuffer outputBuffer(320, 240, PixelFormatIDs::RGBA8_Straight);
+ViewPort outputView = outputBuffer.view();
 
-タイル分割処理やアフィン変換では、出力に必要な範囲を逆算して上流に要求します。
-この際、AABBで近似するため余分なピクセルを要求することがあります。
+// ノード作成
+SourceNode source(inputView);
+source.setOrigin(inputView.width / 2.0f, inputView.height / 2.0f);
 
-- **アフィン変換**: 45度回転時、スキャンライン分割では効率が1%以下に低下
-- **ブラーフィルタ**: 半径Rの場合、入力は出力より各辺2R拡大される
+TransformNode transform;
+transform.setMatrix(AffineMatrix::rotate(0.5f));  // 約30度回転
 
-効率はブラウザのコンソールログで確認できます：
+SinkNode sink(outputView, 320, 240);
+sink.setOrigin(160, 120);  // キャンバス中央
+
+// 接続
+transform.input(0)->connect(source.output());
+sink.input(0)->connect(transform.output());
+
+// 実行
+Renderer renderer(sink);
+renderer.exec();
+// 結果は outputBuffer に書き込まれる
 ```
-[Perf] Affine: 1.23ms (x4) [eff:48.9%]
+
+### タイル分割処理
+
+```cpp
+Renderer renderer(sink);
+renderer.setTileConfig(TileConfig{64, 64});
+renderer.setDebugCheckerboard(true);  // デバッグ用市松模様
+renderer.exec();
 ```
-
-## 関連ドキュメント
-
-詳細な設計については以下を参照：
-
-- [DESIGN_TILE_COORDINATE_SYSTEM.md](DESIGN_TILE_COORDINATE_SYSTEM.md): 座標系の詳細
-- [DESIGN_VIEWPORT_REFACTOR.md](DESIGN_VIEWPORT_REFACTOR.md): 型構造の詳細
-- [DESIGN_ALPHA_CONVERSION.md](DESIGN_ALPHA_CONVERSION.md): ピクセルフォーマット変換の詳細
-- [DESIGN_PERF_METRICS.md](DESIGN_PERF_METRICS.md): パフォーマンス計測の詳細

@@ -7,13 +7,14 @@
 #define FLEXIMG_COMMON_H
 
 // Namespace definition
+// Users can override this by defining FLEXIMG_NAMESPACE before including fleximg.h
 #ifndef FLEXIMG_NAMESPACE
 #define FLEXIMG_NAMESPACE fleximg
 #endif
 
 // Version information
-#define FLEXIMG_VERSION_MAJOR 2
-#define FLEXIMG_VERSION_MINOR 0
+#define FLEXIMG_VERSION_MAJOR 0
+#define FLEXIMG_VERSION_MINOR 1
 #define FLEXIMG_VERSION_PATCH 0
 
 namespace FLEXIMG_NAMESPACE {
@@ -33,32 +34,6 @@ struct Point2f {
     Point2f operator-(const Point2f& o) const { return {x - o.x, y - o.y}; }
     Point2f& operator+=(const Point2f& o) { x += o.x; y += o.y; return *this; }
     Point2f& operator-=(const Point2f& o) { x -= o.x; y -= o.y; return *this; }
-};
-
-// ========================================================================
-// AffineMatrix - アフィン変換行列
-// ========================================================================
-
-struct AffineMatrix {
-    float a = 1, b = 0;  // | a  b  tx |
-    float c = 0, d = 1;  // | c  d  ty |
-    float tx = 0, ty = 0;
-
-    AffineMatrix() = default;
-    AffineMatrix(float a_, float b_, float c_, float d_, float tx_, float ty_)
-        : a(a_), b(b_), c(c_), d(d_), tx(tx_), ty(ty_) {}
-
-    // 単位行列
-    static AffineMatrix identity() { return {1, 0, 0, 1, 0, 0}; }
-
-    // 平行移動
-    static AffineMatrix translate(float x, float y) { return {1, 0, 0, 1, x, y}; }
-
-    // スケール
-    static AffineMatrix scale(float sx, float sy) { return {sx, 0, 0, sy, 0, 0}; }
-
-    // 回転（ラジアン）
-    static AffineMatrix rotate(float radians);
 };
 
 } // namespace FLEXIMG_NAMESPACE

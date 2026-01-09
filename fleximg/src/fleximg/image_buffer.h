@@ -3,102 +3,192 @@
 
 #include <cstddef>
 #include <cstdint>
-
+#include <cstring>
+#include <algorithm>
 #include "common.h"
 #include "pixel_format.h"
-#include "pixel_format_registry.h"
-#include "image_allocator.h"
 #include "viewport.h"
+#include "image_allocator.h"
 
 namespace FLEXIMG_NAMESPACE {
 
 // ========================================================================
-// ImageBuffer - メモリ所有画像（RAII）
+// ImageBuffer - メモリ所有画像（コンポジション、RAII）
 // ========================================================================
 //
-// ImageBufferは、ViewPortを継承し、メモリを所有する画像データ構造です。
-// - ViewPortの全機能を継承（ピクセルアクセス、ブレンド操作等）
-// - カスタムアロケータ対応（組込み環境でのメモリ管理）
-// - RAII原則に従った安全なメモリ管理
-// - ViewPortを期待する関数にそのまま渡せる
+// 画像データを所有するクラスです。
+// - ViewPortを継承しない（コンポジション）
+// - view()でViewPortを取得
+// - RAIIによる安全なメモリ管理
 //
-// 使用例:
-//   ImageBuffer img(800, 600, PixelFormatIDs::RGBA16_Premultiplied);
-//   processImage(img);  // ViewPort& を受け取る関数に直接渡せる
-//
-// 注意: ImageBufferをViewPortとしてコピーした場合、元のImageBufferが
-// 破棄されるとdanglingポインタになります。長期保持には注意してください。
-//
-struct ImageBuffer : public ViewPort {
-    // ========================================================================
-    // メモリ管理（ImageBuffer固有）
-    // ========================================================================
-    size_t capacity;          // 確保済みバイト数
-    ImageAllocator* allocator; // メモリアロケータ
 
-    // ========================================================================
+class ImageBuffer {
+public:
+    // ========================================
     // コンストラクタ / デストラクタ
-    // ========================================================================
+    // ========================================
 
     // デフォルトコンストラクタ（空の画像）
-    ImageBuffer();
+    ImageBuffer()
+        : data_(nullptr), formatID_(PixelFormatIDs::RGBA8_Straight),
+          stride_(0), width_(0), height_(0), capacity_(0),
+          allocator_(&DefaultAllocator::getInstance()) {}
 
     // サイズ指定コンストラクタ
-    ImageBuffer(int w, int h, PixelFormatID fmtID,
-                ImageAllocator* alloc = &DefaultAllocator::getInstance());
+    ImageBuffer(int w, int h, PixelFormatID fmt = PixelFormatIDs::RGBA8_Straight,
+                ImageAllocator* alloc = &DefaultAllocator::getInstance())
+        : data_(nullptr), formatID_(fmt), stride_(0), width_(w), height_(h),
+          capacity_(0), allocator_(alloc) {
+        allocate();
+    }
 
-    // デストラクタ（メモリ解放）
-    ~ImageBuffer();
+    // デストラクタ
+    ~ImageBuffer() {
+        deallocate();
+    }
 
-    // ========================================================================
+    // ========================================
     // コピー / ムーブセマンティクス
-    // ========================================================================
+    // ========================================
 
     // コピーコンストラクタ（ディープコピー）
-    ImageBuffer(const ImageBuffer& other);
+    ImageBuffer(const ImageBuffer& other)
+        : data_(nullptr), formatID_(other.formatID_), stride_(0),
+          width_(other.width_), height_(other.height_), capacity_(0),
+          allocator_(other.allocator_) {
+        if (other.isValid()) {
+            allocate();
+            copyFrom(other);
+        }
+    }
 
-    // コピー代入演算子
-    ImageBuffer& operator=(const ImageBuffer& other);
+    // コピー代入
+    ImageBuffer& operator=(const ImageBuffer& other) {
+        if (this != &other) {
+            deallocate();
+            formatID_ = other.formatID_;
+            width_ = other.width_;
+            height_ = other.height_;
+            allocator_ = other.allocator_;
+            if (other.isValid()) {
+                allocate();
+                copyFrom(other);
+            }
+        }
+        return *this;
+    }
 
-    // ムーブコンストラクタ（所有権移転）
-    ImageBuffer(ImageBuffer&& other) noexcept;
+    // ムーブコンストラクタ
+    ImageBuffer(ImageBuffer&& other) noexcept
+        : data_(other.data_), formatID_(other.formatID_), stride_(other.stride_),
+          width_(other.width_), height_(other.height_), capacity_(other.capacity_),
+          allocator_(other.allocator_) {
+        other.data_ = nullptr;
+        other.width_ = other.height_ = 0;
+        other.stride_ = other.capacity_ = 0;
+    }
 
-    // ムーブ代入演算子
-    ImageBuffer& operator=(ImageBuffer&& other) noexcept;
+    // ムーブ代入
+    ImageBuffer& operator=(ImageBuffer&& other) noexcept {
+        if (this != &other) {
+            deallocate();
+            data_ = other.data_;
+            formatID_ = other.formatID_;
+            stride_ = other.stride_;
+            width_ = other.width_;
+            height_ = other.height_;
+            capacity_ = other.capacity_;
+            allocator_ = other.allocator_;
 
-    // ========================================================================
-    // ViewPort取得
-    // ========================================================================
+            other.data_ = nullptr;
+            other.width_ = other.height_ = 0;
+            other.stride_ = other.capacity_ = 0;
+        }
+        return *this;
+    }
 
-    // 全体へのビューを取得（スライシングでViewPort部分を返す）
-    ViewPort view() { return static_cast<ViewPort&>(*this); }
-    ViewPort view() const { return static_cast<const ViewPort&>(*this); }
+    // ========================================
+    // ビュー取得
+    // ========================================
 
-    // 注: ピクセルアクセス、フォーマット情報、判定、subView等は
-    //     ViewPortから継承されるため、ここでの宣言は不要
+    ViewPort view() {
+        return ViewPort(data_, formatID_, stride_, width_, height_);
+    }
 
-    // ========================================================================
-    // ImageBuffer固有のユーティリティ
-    // ========================================================================
+    ViewPort view() const {
+        return ViewPort(const_cast<void*>(static_cast<const void*>(data_)),
+                        formatID_, stride_, width_, height_);
+    }
 
-    size_t getTotalBytes() const { return height * getRowBytes(); }
+    ViewPort subView(int x, int y, int w, int h) const {
+        return view_ops::subView(view(), x, y, w, h);
+    }
 
-    // ========================================================================
-    // 変換
-    // ========================================================================
+    // ========================================
+    // アクセサ
+    // ========================================
 
-    // 指定フォーマットに変換
-    ImageBuffer convertTo(PixelFormatID targetFormat) const;
+    bool isValid() const { return data_ != nullptr && width_ > 0 && height_ > 0; }
 
-    // 外部データから構築
-    static ImageBuffer fromExternalData(const void* externalData, int w, int h,
-                                         PixelFormatID fmtID,
-                                         ImageAllocator* alloc = &DefaultAllocator::getInstance());
+    int width() const { return width_; }
+    int height() const { return height_; }
+    size_t stride() const { return stride_; }
+    PixelFormatID formatID() const { return formatID_; }
+
+    void* data() { return data_; }
+    const void* data() const { return data_; }
+
+    void* pixelAt(int x, int y) {
+        return static_cast<uint8_t*>(data_) + y * stride_ + x * getBytesPerPixel(formatID_);
+    }
+
+    const void* pixelAt(int x, int y) const {
+        return static_cast<const uint8_t*>(data_) + y * stride_ + x * getBytesPerPixel(formatID_);
+    }
+
+    size_t bytesPerPixel() const { return getBytesPerPixel(formatID_); }
+    size_t totalBytes() const { return height_ * stride_; }
 
 private:
-    void allocateMemory();
-    void deallocateMemory();
-    void deepCopy(const ImageBuffer& other);
+    void* data_;
+    PixelFormatID formatID_;
+    size_t stride_;
+    int width_, height_;
+    size_t capacity_;
+    ImageAllocator* allocator_;
+
+    void allocate() {
+        size_t bpp = getBytesPerPixel(formatID_);
+        stride_ = width_ * bpp;
+        capacity_ = stride_ * height_;
+        if (capacity_ > 0 && allocator_) {
+            data_ = allocator_->allocate(capacity_);
+            if (data_) {
+                std::memset(data_, 0, capacity_);
+            }
+        }
+    }
+
+    void deallocate() {
+        if (data_ && allocator_) {
+            allocator_->deallocate(data_);
+        }
+        data_ = nullptr;
+        capacity_ = 0;
+    }
+
+    void copyFrom(const ImageBuffer& other) {
+        if (!isValid() || !other.isValid()) return;
+        size_t copyBytes = std::min(stride_, other.stride_);
+        int copyHeight = std::min(height_, other.height_);
+        for (int y = 0; y < copyHeight; ++y) {
+            std::memcpy(
+                static_cast<uint8_t*>(data_) + y * stride_,
+                static_cast<const uint8_t*>(other.data_) + y * other.stride_,
+                copyBytes
+            );
+        }
+    }
 };
 
 } // namespace FLEXIMG_NAMESPACE
