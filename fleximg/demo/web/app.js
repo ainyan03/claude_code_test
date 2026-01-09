@@ -2307,8 +2307,8 @@ function updatePreviewFromGraph() {
                 const m = metrics.nodes[i];
                 if (m.count > 0) {
                     let entry = `${nodeNames[i]}: ${usToMs(m.time_us)}ms (x${m.count})`;
-                    // Affineノードのピクセル効率を表示
-                    if (i === 2 && m.requestedPixels > 0) {  // NodeType::Affine = 2
+                    // Filter/Affineノードのピクセル効率を表示
+                    if ((i === 1 || i === 2) && m.requestedPixels > 0) {  // NodeType::Filter=1, Affine=2
                         const efficiency = ((1.0 - m.wasteRatio) * 100).toFixed(1);
                         entry += ` [eff:${efficiency}%]`;
                     }
