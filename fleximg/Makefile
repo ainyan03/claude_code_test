@@ -63,7 +63,8 @@ $(BUILD_DIR)/imgproc: cli/main.cpp cli/stb_impl.cpp $(CORE_OBJS) | $(BUILD_DIR)
 test_runner: $(BUILD_DIR)/test_runner
 
 TEST_SRCS := $(TEST_DIR)/viewport_test.cpp \
-             $(TEST_DIR)/affine_mapping_test.cpp
+             $(TEST_DIR)/affine_mapping_test.cpp \
+             $(TEST_DIR)/node_graph_test.cpp
 
 $(BUILD_DIR)/test_runner: $(TEST_SRCS) $(CORE_OBJS) | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(GTEST_CFLAGS) -o $@ $^ $(GTEST_LIBS)

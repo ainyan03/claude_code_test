@@ -14,8 +14,11 @@
 - [x] テストフレームワークの導入（Google Test 1.17.0） ✅ `make test`
 - [x] ImageBuffer/NewViewPort の単体テスト ✅ `test/viewport_test.cpp` (24テスト)
 - [x] AffineOperator の単体テスト ✅ `test/affine_mapping_test.cpp` (36テスト)
+- [x] NodeGraphEvaluator の統合テスト ✅ `test/node_graph_test.cpp` (133テスト)
+  - 9基準点 × 7角度のパラメータ化テスト
+  - タイル分割の一貫性テスト
+  - ピクセル値保持の検証
 - [ ] その他 Operators の単体テスト（Brightness, Grayscale, BoxBlur, Alpha）
-- [ ] NodeGraphEvaluator の統合テスト
 
 #### 精度改善
 - [x] Premultiply変換の精度改善 ✅ `A_tmp = A8 + 1` 方式で除算回避
