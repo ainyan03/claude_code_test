@@ -127,9 +127,20 @@
 - [x] RGBA16_Straightを廃止
 - [x] `ImageProcessor::convertPixelFormat()` を廃止し `ViewPort::convertTo()` に統一
 
-### アフィン変換の入力要求範囲分割（検討中）
+### パフォーマンス測定基盤 ✅
 
-**前提条件**: パフォーマンス測定基盤の整備が必要
+ノードタイプ別の処理時間・ピクセル効率を計測する基盤を整備済み。
+
+- [x] NodeMetrics/PerfMetrics 構造体
+- [x] Filter/Affine ノードのピクセル効率計測
+- [x] ブラウザコンソールでの効率表示（`[eff:XX.X%]`）
+- [ ] メモリ確保の計測（課題あり）
+
+詳細: [docs/DESIGN_PERF_METRICS.md](docs/DESIGN_PERF_METRICS.md)
+
+---
+
+### アフィン変換の入力要求範囲分割（検討中）
 
 入力AABBをY方向に分割し、不要ピクセルの取得を削減する最適化。45度回転時に約50倍の効率改善が期待できる。上流ノードタイプをビットマスクで判定し、重いフィルタがある場合のみ分割を実行。
 
@@ -139,11 +150,8 @@
 
 ### In-place Mutation 最適化（検討中）
 
-**前提条件**: パフォーマンス測定基盤の整備が必要
+上流ノードが「改変可能」フラグをつけてEvalResultを渡すことで、下流ノード（Brightness, Grayscale, Alpha等の単純フィルタ）が新規メモリ確保せずに直接バッファを改変できるようにする。
 
-**アイデア**: 上流ノードが「改変可能」フラグをつけてEvalResultを渡すことで、下流ノード（Brightness, Grayscale, Alpha等の単純フィルタ）が新規メモリ確保せずに直接バッファを改変できるようにする。
-
-- [ ] パフォーマンス測定基盤の整備（メモリ確保回数、処理時間の計測）
 - [ ] EvalResultに `canMutate` フラグを追加
 - [ ] 対応フィルタの実装（フォーマット一致時のみ有効）
 - [ ] 効果測定と評価
@@ -191,3 +199,5 @@
 - [docs/DESIGN_TILE_COORDINATE_SYSTEM.md](docs/DESIGN_TILE_COORDINATE_SYSTEM.md): タイル座標系設計
 - [docs/DESIGN_VIEWPORT_REFACTOR.md](docs/DESIGN_VIEWPORT_REFACTOR.md): 型構造設計
 - [docs/DESIGN_ALPHA_CONVERSION.md](docs/DESIGN_ALPHA_CONVERSION.md): ピクセルフォーマット変換設計
+- [docs/DESIGN_PERF_METRICS.md](docs/DESIGN_PERF_METRICS.md): パフォーマンス計測設計
+- [docs/DESIGN_AFFINE_REQUEST_SPLITTING.md](docs/DESIGN_AFFINE_REQUEST_SPLITTING.md): アフィン分割最適化設計（未実装）

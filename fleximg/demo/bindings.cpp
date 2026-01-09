@@ -251,34 +251,49 @@ public:
     val getPerfMetrics() {
         val result = val::object();
 
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
         const PerfMetrics& metrics = evaluator.getPerfMetrics();
 
-        // インデックス名とキー名のマッピング
-        static const char* timeKeys[] = {
-            "filterTime", "affineTime", "compositeTime", "convertTime", "outputTime"
-        };
-        static const char* countKeys[] = {
-            "filterCount", "affineCount", "compositeCount", "convertCount", "outputCount"
+        // ノードタイプ名
+        static const char* nodeNames[] = {
+            "image", "filter", "affine", "composite", "output"
         };
 
-        for (int i = 0; i < PerfMetricIndex::Count; i++) {
-            result.set(timeKeys[i], metrics.times[i]);
-            result.set(countKeys[i], metrics.counts[i]);
-        }
+        // nodes配列を構築
+        val nodes = val::array();
+        for (int i = 0; i < NodeType::Count; i++) {
+            val nodeMetrics = val::object();
+            nodeMetrics.set("time_us", metrics.nodes[i].time_us);
+            nodeMetrics.set("count", metrics.nodes[i].count);
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+            nodeMetrics.set("allocBytes", static_cast<double>(metrics.nodes[i].allocBytes));
+            nodeMetrics.set("allocCount", metrics.nodes[i].allocCount);
+            nodeMetrics.set("requestedPixels", static_cast<double>(metrics.nodes[i].requestedPixels));
+            nodeMetrics.set("usedPixels", static_cast<double>(metrics.nodes[i].usedPixels));
+            nodeMetrics.set("wasteRatio", metrics.nodes[i].wasteRatio());
 #else
-        // リリースビルド: ダミー値を返す（時間はマイクロ秒）
-        result.set("filterTime", 0);
-        result.set("affineTime", 0);
-        result.set("compositeTime", 0);
-        result.set("convertTime", 0);
-        result.set("outputTime", 0);
-        result.set("filterCount", 0);
-        result.set("affineCount", 0);
-        result.set("compositeCount", 0);
-        result.set("convertCount", 0);
-        result.set("outputCount", 0);
+            nodeMetrics.set("allocBytes", 0);
+            nodeMetrics.set("allocCount", 0);
+            nodeMetrics.set("requestedPixels", 0);
+            nodeMetrics.set("usedPixels", 0);
+            nodeMetrics.set("wasteRatio", 0.0f);
 #endif
+            nodes.call<void>("push", nodeMetrics);
+        }
+        result.set("nodes", nodes);
+
+        // 後方互換用フラットキー（主要な時間とカウント）
+        result.set("filterTime", metrics.nodes[NodeType::Filter].time_us);
+        result.set("affineTime", metrics.nodes[NodeType::Affine].time_us);
+        result.set("compositeTime", metrics.nodes[NodeType::Composite].time_us);
+        result.set("outputTime", metrics.nodes[NodeType::Output].time_us);
+        result.set("filterCount", metrics.nodes[NodeType::Filter].count);
+        result.set("affineCount", metrics.nodes[NodeType::Affine].count);
+        result.set("compositeCount", metrics.nodes[NodeType::Composite].count);
+        result.set("outputCount", metrics.nodes[NodeType::Output].count);
+
+        // 集計値
+        result.set("totalTime", metrics.totalTime());
+        result.set("totalAllocBytes", static_cast<double>(metrics.totalAllocBytes()));
 
         return result;
     }

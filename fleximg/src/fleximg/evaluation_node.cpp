@@ -95,6 +95,14 @@ EvalResult FilterEvalNode::evaluate(const RenderRequest& request,
     // 1. 入力要求を計算（ブラー等では拡大される）
     RenderRequest inputReq = computeInputRequest(request);
 
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    // ピクセル効率計測: 上流に要求したピクセル数
+    if (context.perfMetrics) {
+        auto& m = context.perfMetrics->nodes[NodeType::Filter];
+        m.requestedPixels += static_cast<uint64_t>(inputReq.width) * inputReq.height;
+    }
+#endif
+
     // 2. 上流ノードを評価
     EvalResult inputResult = inputs[0]->evaluate(inputReq, context);
 
@@ -115,8 +123,11 @@ EvalResult FilterEvalNode::evaluate(const RenderRequest& request,
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         auto filterEnd = std::chrono::high_resolution_clock::now();
         if (context.perfMetrics) {
-            context.perfMetrics->add(PerfMetricIndex::Filter,
-                std::chrono::duration_cast<std::chrono::microseconds>(filterEnd - filterStart).count());
+            auto& m = context.perfMetrics->nodes[NodeType::Filter];
+            m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(filterEnd - filterStart).count();
+            m.count++;
+            // ピクセル効率計測: 実際に使用したピクセル数（出力サイズ）
+            m.usedPixels += static_cast<uint64_t>(request.width) * request.height;
         }
 #endif
 
@@ -214,6 +225,14 @@ EvalResult AffineEvalNode::evaluate(const RenderRequest& request,
     // 1. 入力要求を計算
     RenderRequest inputReq = computeInputRequest(request);
 
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    // ピクセル効率計測: 上流に要求したピクセル数
+    if (context.perfMetrics) {
+        auto& m = context.perfMetrics->nodes[NodeType::Affine];
+        m.requestedPixels += static_cast<uint64_t>(inputReq.width) * inputReq.height;
+    }
+#endif
+
     // 2. 上流ノードを評価
     EvalResult inputResult = inputs[0]->evaluate(inputReq, context);
 
@@ -256,8 +275,11 @@ EvalResult AffineEvalNode::evaluate(const RenderRequest& request,
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
     auto affineEnd = std::chrono::high_resolution_clock::now();
     if (context.perfMetrics) {
-        context.perfMetrics->add(PerfMetricIndex::Affine,
-            std::chrono::duration_cast<std::chrono::microseconds>(affineEnd - affineStart).count());
+        auto& m = context.perfMetrics->nodes[NodeType::Affine];
+        m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(affineEnd - affineStart).count();
+        m.count++;
+        // ピクセル効率計測: 実際に使用したピクセル数（出力サイズ）
+        m.usedPixels += static_cast<uint64_t>(request.width) * request.height;
     }
 #endif
     return result;
@@ -427,8 +449,9 @@ EvalResult OutputEvalNode::evaluate(const RenderRequest& request,
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         auto outputEnd = std::chrono::high_resolution_clock::now();
         if (context.perfMetrics) {
-            context.perfMetrics->add(PerfMetricIndex::Output,
-                std::chrono::duration_cast<std::chrono::microseconds>(outputEnd - outputStart).count());
+            auto& m = context.perfMetrics->nodes[NodeType::Output];
+            m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(outputEnd - outputStart).count();
+            m.count++;
         }
 #endif
         return EvalResult();
@@ -476,8 +499,9 @@ EvalResult OutputEvalNode::evaluate(const RenderRequest& request,
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
     auto outputEnd = std::chrono::high_resolution_clock::now();
     if (context.perfMetrics) {
-        context.perfMetrics->add(PerfMetricIndex::Output,
-            std::chrono::duration_cast<std::chrono::microseconds>(outputEnd - outputStart).count());
+        auto& m = context.perfMetrics->nodes[NodeType::Output];
+        m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(outputEnd - outputStart).count();
+        m.count++;
     }
 #endif
 

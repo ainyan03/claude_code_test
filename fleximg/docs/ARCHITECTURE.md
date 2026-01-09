@@ -213,6 +213,33 @@ src/fleximg/
 └── node_graph.h/cpp      # ノードグラフエンジン
 ```
 
+## パフォーマンス計測
+
+デバッグビルド（`--debug`フラグ）では、ノードタイプ別のパフォーマンス計測が有効になります。
+
+### 計測項目
+
+| 項目 | 説明 |
+|------|------|
+| time_us | 処理時間（マイクロ秒） |
+| count | 呼び出し回数 |
+| requestedPixels | 上流に要求したピクセル数 |
+| usedPixels | 実際に使用したピクセル数 |
+| wasteRatio | 不要ピクセル率（1 - used/requested） |
+
+### ピクセル効率
+
+タイル分割処理やアフィン変換では、出力に必要な範囲を逆算して上流に要求します。
+この際、AABBで近似するため余分なピクセルを要求することがあります。
+
+- **アフィン変換**: 45度回転時、スキャンライン分割では効率が1%以下に低下
+- **ブラーフィルタ**: 半径Rの場合、入力は出力より各辺2R拡大される
+
+効率はブラウザのコンソールログで確認できます：
+```
+[Perf] Affine: 1.23ms (x4) [eff:48.9%]
+```
+
 ## 関連ドキュメント
 
 詳細な設計については以下を参照：
@@ -220,3 +247,4 @@ src/fleximg/
 - [DESIGN_TILE_COORDINATE_SYSTEM.md](DESIGN_TILE_COORDINATE_SYSTEM.md): 座標系の詳細
 - [DESIGN_VIEWPORT_REFACTOR.md](DESIGN_VIEWPORT_REFACTOR.md): 型構造の詳細
 - [DESIGN_ALPHA_CONVERSION.md](DESIGN_ALPHA_CONVERSION.md): ピクセルフォーマット変換の詳細
+- [DESIGN_PERF_METRICS.md](DESIGN_PERF_METRICS.md): パフォーマンス計測の詳細

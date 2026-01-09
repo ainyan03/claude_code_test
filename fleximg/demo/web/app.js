@@ -2299,21 +2299,35 @@ function updatePreviewFromGraph() {
         // マイクロ秒→ミリ秒変換ヘルパー
         const usToMs = (us) => (us / 1000).toFixed(2);
 
-        // 詳細ログ出力
+        // 詳細ログ出力（新API: nodes配列を使用）
+        const nodeNames = ['Image', 'Filter', 'Affine', 'Composite', 'Output'];
         const details = [];
-        if (metrics.filterCount > 0) {
-            details.push(`Filter: ${usToMs(metrics.filterTime)}ms (x${metrics.filterCount})`);
+        if (metrics.nodes) {
+            for (let i = 0; i < metrics.nodes.length; i++) {
+                const m = metrics.nodes[i];
+                if (m.count > 0) {
+                    let entry = `${nodeNames[i]}: ${usToMs(m.time_us)}ms (x${m.count})`;
+                    // Filter/Affineノードのピクセル効率を表示
+                    if ((i === 1 || i === 2) && m.requestedPixels > 0) {  // NodeType::Filter=1, Affine=2
+                        const efficiency = ((1.0 - m.wasteRatio) * 100).toFixed(1);
+                        entry += ` [eff:${efficiency}%]`;
+                    }
+                    details.push(entry);
+                }
+            }
+        } else {
+            // 後方互換（旧API）
+            if (metrics.filterCount > 0) {
+                details.push(`Filter: ${usToMs(metrics.filterTime)}ms (x${metrics.filterCount})`);
+            }
+            if (metrics.affineCount > 0) {
+                details.push(`Affine: ${usToMs(metrics.affineTime)}ms (x${metrics.affineCount})`);
+            }
+            if (metrics.compositeCount > 0) {
+                details.push(`Composite: ${usToMs(metrics.compositeTime)}ms (x${metrics.compositeCount})`);
+            }
+            details.push(`Output: ${usToMs(metrics.outputTime)}ms`);
         }
-        if (metrics.affineCount > 0) {
-            details.push(`Affine: ${usToMs(metrics.affineTime)}ms (x${metrics.affineCount})`);
-        }
-        if (metrics.compositeCount > 0) {
-            details.push(`Composite: ${usToMs(metrics.compositeTime)}ms (x${metrics.compositeCount})`);
-        }
-        if (metrics.convertCount > 0) {
-            details.push(`Convert: ${usToMs(metrics.convertTime)}ms (x${metrics.convertCount})`);
-        }
-        details.push(`Output: ${usToMs(metrics.outputTime)}ms`);
 
         console.log(`[Perf] Total: ${totalTime.toFixed(1)}ms | WASM: ${evalTime.toFixed(1)}ms (${details.join(', ')}) | Draw: ${drawTime.toFixed(1)}ms`);
 
