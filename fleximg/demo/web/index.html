@@ -174,8 +174,48 @@
                             <div class="debug-section-header">メモリ</div>
                             <div class="debug-metrics">
                                 <div class="debug-metric-row">
-                                    <span class="debug-metric-label">確保量</span>
+                                    <span class="debug-metric-label">累計確保</span>
                                     <span class="debug-metric-value" id="debug-alloc-bytes">--</span>
+                                </div>
+                                <div class="debug-metric-row">
+                                    <span class="debug-metric-label">ピーク</span>
+                                    <span class="debug-metric-value" id="debug-peak-bytes">--</span>
+                                </div>
+                                <div class="debug-metric-row">
+                                    <span class="debug-metric-label">最大単一</span>
+                                    <span class="debug-metric-value" id="debug-max-alloc">--</span>
+                                </div>
+                                <div class="debug-metric-row debug-metric-sub">
+                                    <span class="debug-metric-label">├ Image</span>
+                                    <span class="debug-metric-value" id="debug-image-alloc">--</span>
+                                </div>
+                                <div class="debug-metric-row debug-metric-sub debug-metric-max">
+                                    <span class="debug-metric-label">│  └ max</span>
+                                    <span class="debug-metric-value" id="debug-image-max">--</span>
+                                </div>
+                                <div class="debug-metric-row debug-metric-sub">
+                                    <span class="debug-metric-label">├ Filter</span>
+                                    <span class="debug-metric-value" id="debug-filter-alloc">--</span>
+                                </div>
+                                <div class="debug-metric-row debug-metric-sub debug-metric-max">
+                                    <span class="debug-metric-label">│  └ max</span>
+                                    <span class="debug-metric-value" id="debug-filter-max">--</span>
+                                </div>
+                                <div class="debug-metric-row debug-metric-sub">
+                                    <span class="debug-metric-label">├ Affine</span>
+                                    <span class="debug-metric-value" id="debug-affine-alloc">--</span>
+                                </div>
+                                <div class="debug-metric-row debug-metric-sub debug-metric-max">
+                                    <span class="debug-metric-label">│  └ max</span>
+                                    <span class="debug-metric-value" id="debug-affine-max">--</span>
+                                </div>
+                                <div class="debug-metric-row debug-metric-sub">
+                                    <span class="debug-metric-label">├ Composite</span>
+                                    <span class="debug-metric-value" id="debug-composite-alloc">--</span>
+                                </div>
+                                <div class="debug-metric-row debug-metric-sub debug-metric-max">
+                                    <span class="debug-metric-label">│  └ max</span>
+                                    <span class="debug-metric-value" id="debug-composite-max">--</span>
                                 </div>
                             </div>
                         </div>

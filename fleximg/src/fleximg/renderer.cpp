@@ -6,11 +6,17 @@
 #include <cstring>
 #include <algorithm>
 #include <cmath>
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+#include <chrono>
+#endif
 
 namespace FLEXIMG_NAMESPACE {
 
 void Renderer::prepare() {
     if (!output_ || !output_->target().isValid()) return;
+
+    // メトリクスをリセット
+    PerfMetrics::instance().reset();
 
     // コンテキスト初期化
     context_.canvasWidth = output_->canvasWidth();
@@ -44,6 +50,10 @@ void Renderer::finalize() {
 }
 
 void Renderer::processTile(int tileX, int tileY) {
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    auto outputStart = std::chrono::high_resolution_clock::now();
+#endif
+
     context_.tileX = tileX;
     context_.tileY = tileY;
 
@@ -98,6 +108,13 @@ void Renderer::processTile(int tileX, int tileY) {
             view_ops::copy(target, dstX, dstY, resultView, srcX, srcY, copyW, copyH);
         }
     }
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    auto& m = PerfMetrics::instance().nodes[NodeType::Output];
+    m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::high_resolution_clock::now() - outputStart).count();
+    m.count++;
+#endif
 }
 
 RenderResult Renderer::evaluateUpstream(Node* node, const RenderRequest& request) {
@@ -132,8 +149,20 @@ RenderResult Renderer::evaluateUpstream(Node* node, const RenderRequest& request
 // ========================================================================
 
 RenderResult Renderer::evaluateSourceNode(SourceNode* src, const RenderRequest& request) {
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    auto sourceStart = std::chrono::high_resolution_clock::now();
+#endif
+
     const ViewPort& source = src->source();
-    if (!source.isValid()) return RenderResult();
+    if (!source.isValid()) {
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        auto& m = PerfMetrics::instance().nodes[NodeType::Source];
+        m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::high_resolution_clock::now() - sourceStart).count();
+        m.count++;
+#endif
+        return RenderResult();
+    }
 
     // ソース画像の基準相対座標範囲
     float srcOriginX = src->originX();
@@ -156,6 +185,12 @@ RenderResult Renderer::evaluateSourceNode(SourceNode* src, const RenderRequest& 
     float interBottom = std::min(imgBottom, reqBottom);
 
     if (interLeft >= interRight || interTop >= interBottom) {
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        auto& m = PerfMetrics::instance().nodes[NodeType::Source];
+        m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::high_resolution_clock::now() - sourceStart).count();
+        m.count++;
+#endif
         return RenderResult(ImageBuffer(), Point2f(reqLeft, reqTop));
     }
 
@@ -166,9 +201,19 @@ RenderResult Renderer::evaluateSourceNode(SourceNode* src, const RenderRequest& 
     int interH = static_cast<int>(interBottom - interTop);
 
     ImageBuffer result(interW, interH, source.formatID);
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    PerfMetrics::instance().nodes[NodeType::Source].recordAlloc(
+        result.totalBytes(), result.width(), result.height());
+#endif
     ViewPort resultView = result.view();
     view_ops::copy(resultView, 0, 0, source, srcX, srcY, interW, interH);
 
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    auto& m = PerfMetrics::instance().nodes[NodeType::Source];
+    m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::high_resolution_clock::now() - sourceStart).count();
+    m.count++;
+#endif
     return RenderResult(std::move(result), Point2f(interLeft, interTop));
 }
 
@@ -226,14 +271,29 @@ RenderResult Renderer::evaluateTransformNode(TransformNode* xform, const RenderR
     inputReq.originX = static_cast<float>(-reqLeft);
     inputReq.originY = static_cast<float>(-reqTop);
 
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    // ピクセル効率計測: 上流に要求したピクセル数
+    auto& mTrans = PerfMetrics::instance().nodes[NodeType::Transform];
+    mTrans.requestedPixels += static_cast<uint64_t>(inputReq.width) * inputReq.height;
+    mTrans.usedPixels += static_cast<uint64_t>(request.width) * request.height;
+#endif
+
     // 上流を評価
     RenderResult inputResult = evaluateUpstream(upstream, inputReq);
     if (!inputResult.isValid()) {
         return RenderResult(ImageBuffer(), Point2f(-request.originX, -request.originY));
     }
 
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    auto transformStart = std::chrono::high_resolution_clock::now();
+#endif
+
     // 出力バッファを作成（ゼロ初期化済み）
     ImageBuffer output(request.width, request.height, inputResult.buffer.formatID());
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    PerfMetrics::instance().nodes[NodeType::Transform].recordAlloc(
+        output.totalBytes(), output.width(), output.height());
+#endif
     ViewPort outputView = output.view();
 
     // アフィン変換を適用
@@ -242,6 +302,13 @@ RenderResult Renderer::evaluateTransformNode(TransformNode* xform, const RenderR
                       inputView,
                       -inputResult.origin.x, -inputResult.origin.y,
                       matrix);
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    auto& mTransEnd = PerfMetrics::instance().nodes[NodeType::Transform];
+    mTransEnd.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::high_resolution_clock::now() - transformStart).count();
+    mTransEnd.count++;
+#endif
 
     return RenderResult(std::move(output), Point2f(-request.originX, -request.originY));
 }
@@ -258,11 +325,22 @@ RenderResult Renderer::evaluateFilterNode(FilterNode* filter, const RenderReques
     int margin = filter->kernelRadius();
     RenderRequest inputReq = request.expand(margin);
 
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    // ピクセル効率計測: 上流に要求したピクセル数
+    auto& mFilt = PerfMetrics::instance().nodes[NodeType::Filter];
+    mFilt.requestedPixels += static_cast<uint64_t>(inputReq.width) * inputReq.height;
+    mFilt.usedPixels += static_cast<uint64_t>(request.width) * request.height;
+#endif
+
     // 上流を評価
     RenderResult inputResult = evaluateUpstream(upstream, inputReq);
     if (!inputResult.isValid()) {
         return inputResult;
     }
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    auto filterStart = std::chrono::high_resolution_clock::now();
+#endif
 
     PixelFormatID inputFormatID = inputResult.buffer.formatID();
     bool needsConversion = (inputFormatID != PixelFormatIDs::RGBA8_Straight);
@@ -275,6 +353,10 @@ RenderResult Renderer::evaluateFilterNode(FilterNode* filter, const RenderReques
         // RGBA8_Straightに変換
         workBuffer = ImageBuffer(inputResult.buffer.width(), inputResult.buffer.height(),
                                  PixelFormatIDs::RGBA8_Straight);
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        PerfMetrics::instance().nodes[NodeType::Filter].recordAlloc(
+            workBuffer.totalBytes(), workBuffer.width(), workBuffer.height());
+#endif
         int pixelCount = workBuffer.width() * workBuffer.height();
         PixelFormatRegistry::getInstance().convert(
             inputResult.buffer.data(), inputFormatID,
@@ -288,6 +370,10 @@ RenderResult Renderer::evaluateFilterNode(FilterNode* filter, const RenderReques
     // 出力バッファを作成（8bit）
     ImageBuffer output8bit(inputResult.buffer.width(), inputResult.buffer.height(),
                            PixelFormatIDs::RGBA8_Straight);
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    PerfMetrics::instance().nodes[NodeType::Filter].recordAlloc(
+        output8bit.totalBytes(), output8bit.width(), output8bit.height());
+#endif
     ViewPort outputView = output8bit.view();
 
     // フィルタを適用（8bit処理）
@@ -311,10 +397,21 @@ RenderResult Renderer::evaluateFilterNode(FilterNode* filter, const RenderReques
             break;
     }
 
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    auto& mFiltEnd = PerfMetrics::instance().nodes[NodeType::Filter];
+    mFiltEnd.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::high_resolution_clock::now() - filterStart).count();
+    mFiltEnd.count++;
+#endif
+
     // 必要に応じて元のフォーマットに戻す
     ImageBuffer finalOutput;
     if (needsConversion) {
         finalOutput = ImageBuffer(output8bit.width(), output8bit.height(), inputFormatID);
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        PerfMetrics::instance().nodes[NodeType::Filter].recordAlloc(
+            finalOutput.totalBytes(), finalOutput.width(), finalOutput.height());
+#endif
         int pixelCount = finalOutput.width() * finalOutput.height();
         PixelFormatRegistry::getInstance().convert(
             output8bit.data(), PixelFormatIDs::RGBA8_Straight,
@@ -337,6 +434,10 @@ RenderResult Renderer::evaluateFilterNode(FilterNode* filter, const RenderReques
             startY + request.height <= finalOutput.height()) {
             // 要求範囲を切り出し
             ImageBuffer cropped(request.width, request.height, finalOutput.formatID());
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+            PerfMetrics::instance().nodes[NodeType::Filter].recordAlloc(
+                cropped.totalBytes(), cropped.width(), cropped.height());
+#endif
             ViewPort croppedView = cropped.view();
             ViewPort finalView = finalOutput.view();
             view_ops::copy(croppedView, 0, 0, finalView, startX, startY,
@@ -356,6 +457,11 @@ RenderResult Renderer::evaluateCompositeNode(CompositeNode* composite, const Ren
     int inputCount = composite->inputCount();
     if (inputCount == 0) return RenderResult();
 
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    uint32_t compositeTime = 0;
+    int compositeCount = 0;
+#endif
+
     RenderResult canvas;
     bool canvasInitialized = false;
     float canvasOriginX = -request.originX;
@@ -371,11 +477,19 @@ RenderResult Renderer::evaluateCompositeNode(CompositeNode* composite, const Ren
         // 空入力はスキップ
         if (!inputResult.isValid()) continue;
 
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        auto compStart = std::chrono::high_resolution_clock::now();
+#endif
+
         if (!canvasInitialized) {
             // 最初の非空入力 → 常に新しいキャンバスを作成
             // これにより、バッファ内基準点位置とcanvas.originが一貫する
             ImageBuffer canvasBuf(request.width, request.height,
                                   PixelFormatIDs::RGBA16_Premultiplied);
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+            PerfMetrics::instance().nodes[NodeType::Composite].recordAlloc(
+                canvasBuf.totalBytes(), canvasBuf.width(), canvasBuf.height());
+#endif
             ViewPort canvasView = canvasBuf.view();
             ViewPort inputView = inputResult.view();
 
@@ -393,7 +507,21 @@ RenderResult Renderer::evaluateCompositeNode(CompositeNode* composite, const Ren
             blend::onto(canvasView, -canvas.origin.x, -canvas.origin.y,
                        inputView, -inputResult.origin.x, -inputResult.origin.y);
         }
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        compositeTime += std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::high_resolution_clock::now() - compStart).count();
+        compositeCount++;
+#endif
     }
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    if (compositeCount > 0) {
+        auto& mComp = PerfMetrics::instance().nodes[NodeType::Composite];
+        mComp.time_us += compositeTime;
+        mComp.count += compositeCount;
+    }
+#endif
 
     // 全ての入力が空だった場合
     if (!canvasInitialized) {

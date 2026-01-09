@@ -1,5 +1,35 @@
 # Changelog
 
+## [2.1.0] - 2026-01-09
+
+### 追加
+
+- **パフォーマンス計測基盤**: デバッグビルド時にノード別の処理時間を計測
+  - `./build.sh --debug` で有効化
+  - ノードタイプ別の処理時間（μs）、呼び出し回数を記録
+  - Filter/Transformノードのピクセル効率（wasteRatio）を計測
+  - `Renderer::getPerfMetrics()` でC++から取得
+  - `evaluator.getPerfMetrics()` でJSから取得
+
+- **メモリ確保統計**: ノード別・グローバルのメモリ使用量を計測
+  - `NodeMetrics.allocatedBytes`: ノード別確保バイト数
+  - `NodeMetrics.allocCount`: ノード別確保回数
+  - `NodeMetrics.maxAllocBytes/Width/Height`: 一回の最大確保サイズ
+  - `PerfMetrics.totalAllocatedBytes`: 累計確保バイト数
+  - `PerfMetrics.peakMemoryBytes`: ピークメモリ使用量
+  - `PerfMetrics.maxAllocBytes/Width/Height`: グローバル最大確保サイズ
+
+- **シングルトンパターン**: `PerfMetrics::instance()` でグローバルアクセス
+  - ImageBuffer のコンストラクタ/デストラクタで自動記録
+  - 正確なピークメモリ追跡が可能に
+
+### ファイル追加
+
+- `src/fleximg/perf_metrics.h`: メトリクス構造体定義（シングルトン）
+- `docs/DESIGN_PERF_METRICS.md`: 設計ドキュメント
+
+---
+
 ## [2.0.0] - 2026-01-09
 
 C++コアライブラリを大幅に刷新しました。

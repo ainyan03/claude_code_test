@@ -9,6 +9,7 @@
 #include "pixel_format.h"
 #include "viewport.h"
 #include "image_allocator.h"
+#include "perf_metrics.h"
 
 namespace FLEXIMG_NAMESPACE {
 
@@ -150,12 +151,18 @@ private:
             view_.data = allocator_->allocate(capacity_);
             if (view_.data) {
                 std::memset(view_.data, 0, capacity_);
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+                PerfMetrics::instance().recordAlloc(capacity_, view_.width, view_.height);
+#endif
             }
         }
     }
 
     void deallocate() {
         if (view_.data && allocator_) {
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+            PerfMetrics::instance().recordFree(capacity_);
+#endif
             allocator_->deallocate(view_.data);
         }
         view_.data = nullptr;
