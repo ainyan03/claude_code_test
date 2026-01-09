@@ -13,66 +13,60 @@ namespace transform {
 
 void affine(ViewPort& dst, float dstOriginX, float dstOriginY,
             const ViewPort& src, float srcOriginX, float srcOriginY,
-            const AffineMatrix& matrix) {
+            const FixedPointInverseMatrix& invMatrix) {
     if (!dst.isValid() || !src.isValid()) return;
+    if (!invMatrix.valid) return;
 
     int outW = dst.width;
     int outH = dst.height;
 
-    // 逆行列を計算（出力→入力の座標変換）
-    float det = matrix.a * matrix.d - matrix.b * matrix.c;
-    if (std::abs(det) < 1e-10f) {
-        // 特異行列の場合は何もしない
-        return;
-    }
+    // 固定小数点逆行列の回転/スケール成分
+    int32_t fixedInvA = invMatrix.a;
+    int32_t fixedInvB = invMatrix.b;
+    int32_t fixedInvC = invMatrix.c;
+    int32_t fixedInvD = invMatrix.d;
 
-    float invDet = 1.0f / det;
-    float invA = matrix.d * invDet;
-    float invB = -matrix.b * invDet;
-    float invC = -matrix.c * invDet;
-    float invD = matrix.a * invDet;
-    float invTx = (-matrix.d * matrix.tx + matrix.b * matrix.ty) * invDet;
-    float invTy = (matrix.c * matrix.tx - matrix.a * matrix.ty) * invDet;
-
-    // 固定小数点の小数部ビット数
-    constexpr int FIXED_POINT_BITS = 16;
-    constexpr int32_t FIXED_POINT_SCALE = 1 << FIXED_POINT_BITS;
-
-    // 固定小数点形式に変換
-    int32_t fixedInvA  = std::lround(invA * FIXED_POINT_SCALE);
-    int32_t fixedInvB  = std::lround(invB * FIXED_POINT_SCALE);
-    int32_t fixedInvC  = std::lround(invC * FIXED_POINT_SCALE);
-    int32_t fixedInvD  = std::lround(invD * FIXED_POINT_SCALE);
-    int32_t fixedInvTx = std::lround(invTx * FIXED_POINT_SCALE);
-    int32_t fixedInvTy = std::lround(invTy * FIXED_POINT_SCALE);
-
-    // 座標変換の式:
-    // dst座標(dx, dy) → 基準相対座標(dx - dstOriginX, dy - dstOriginY)
-    // 逆変換 → 入力の基準相対座標(rx, ry)
-    // → src座標(rx + srcOriginX, ry + srcOriginY)
-    //
-    // 整理:
-    // sx = invA*(dx-dstOriginX) + invB*(dy-dstOriginY) + invTx + srcOriginX
-    //    = invA*dx + invB*dy + (invTx - invA*dstOriginX - invB*dstOriginY + srcOriginX)
-
+    // 原点座標を整数化
     int32_t dstOriginXInt = std::lround(dstOriginX);
     int32_t dstOriginYInt = std::lround(dstOriginY);
     int32_t srcOriginXInt = std::lround(srcOriginX);
     int32_t srcOriginYInt = std::lround(srcOriginY);
 
-    fixedInvTx += -(dstOriginXInt * fixedInvA)
-                - (dstOriginYInt * fixedInvB)
-                + (srcOriginXInt << FIXED_POINT_BITS);
-    fixedInvTy += -(dstOriginXInt * fixedInvC)
-                - (dstOriginYInt * fixedInvD)
-                + (srcOriginYInt << FIXED_POINT_BITS);
+    // ========================================================================
+    // 逆変換オフセットの計算
+    // ========================================================================
+    //
+    // 逆変換の数式: srcPos = R^(-1) * dstPos + invT
+    //   invT = -R^(-1) * T = -(invA*tx + invB*ty, invC*tx + invD*ty)
+    //
+    // 重要: tx/tyは整数として保持し、固定小数点係数と乗算する。
+    // これにより、回転係数の量子化精度に関係なく、平行移動が正確に計算される。
+    // （低精度でも回転中心が安定する理由）
+    //
+    // 整数キャンセル方式:
+    // - dstOrigin位置での計算誤差を最小化するため、dstOriginを基準に展開
+    // - srcOriginを加算してソース座標系に変換
+
+    // 平行移動の逆変換: -(tx * invA + ty * invB)
+    int32_t invTxInt = -(invMatrix.tx * fixedInvA + invMatrix.ty * fixedInvB);
+    int32_t invTyInt = -(invMatrix.tx * fixedInvC + invMatrix.ty * fixedInvD);
+
+    // DDA用オフセット: 逆変換 + 整数キャンセル + srcOrigin
+    int32_t fixedInvTx = invTxInt
+                        - (dstOriginXInt * fixedInvA)
+                        - (dstOriginYInt * fixedInvB)
+                        + (srcOriginXInt << FIXED_POINT_BITS);
+    int32_t fixedInvTy = invTyInt
+                        - (dstOriginXInt * fixedInvC)
+                        - (dstOriginYInt * fixedInvD)
+                        + (srcOriginYInt << FIXED_POINT_BITS);
 
     // 有効描画範囲の事前計算
     auto calcValidRange = [](
         int32_t coeff, int32_t base, int minVal, int maxVal, int canvasSize
     ) -> std::pair<int, int> {
-        constexpr int BITS = 16;
-        constexpr int32_t SCALE = 1 << BITS;
+        constexpr int BITS = FIXED_POINT_BITS;
+        constexpr int32_t SCALE = FIXED_POINT_SCALE;
         int32_t coeffHalf = coeff >> 1;
 
         if (coeff == 0) {
