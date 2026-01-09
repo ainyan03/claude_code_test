@@ -115,8 +115,9 @@ EvalResult FilterEvalNode::evaluate(const RenderRequest& request,
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         auto filterEnd = std::chrono::high_resolution_clock::now();
         if (context.perfMetrics) {
-            context.perfMetrics->add(PerfMetricIndex::Filter,
-                std::chrono::duration_cast<std::chrono::microseconds>(filterEnd - filterStart).count());
+            auto& m = context.perfMetrics->nodes[NodeType::Filter];
+            m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(filterEnd - filterStart).count();
+            m.count++;
         }
 #endif
 
@@ -256,8 +257,9 @@ EvalResult AffineEvalNode::evaluate(const RenderRequest& request,
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
     auto affineEnd = std::chrono::high_resolution_clock::now();
     if (context.perfMetrics) {
-        context.perfMetrics->add(PerfMetricIndex::Affine,
-            std::chrono::duration_cast<std::chrono::microseconds>(affineEnd - affineStart).count());
+        auto& m = context.perfMetrics->nodes[NodeType::Affine];
+        m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(affineEnd - affineStart).count();
+        m.count++;
     }
 #endif
     return result;
@@ -427,8 +429,9 @@ EvalResult OutputEvalNode::evaluate(const RenderRequest& request,
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         auto outputEnd = std::chrono::high_resolution_clock::now();
         if (context.perfMetrics) {
-            context.perfMetrics->add(PerfMetricIndex::Output,
-                std::chrono::duration_cast<std::chrono::microseconds>(outputEnd - outputStart).count());
+            auto& m = context.perfMetrics->nodes[NodeType::Output];
+            m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(outputEnd - outputStart).count();
+            m.count++;
         }
 #endif
         return EvalResult();
@@ -476,8 +479,9 @@ EvalResult OutputEvalNode::evaluate(const RenderRequest& request,
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
     auto outputEnd = std::chrono::high_resolution_clock::now();
     if (context.perfMetrics) {
-        context.perfMetrics->add(PerfMetricIndex::Output,
-            std::chrono::duration_cast<std::chrono::microseconds>(outputEnd - outputStart).count());
+        auto& m = context.perfMetrics->nodes[NodeType::Output];
+        m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(outputEnd - outputStart).count();
+        m.count++;
     }
 #endif
 

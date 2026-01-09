@@ -107,37 +107,73 @@ struct RenderRequest {
 // パフォーマンス計測（FLEXIMG_DEBUG有効時のみ）
 // ========================================================================
 
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-
-namespace PerfMetricIndex {
-    constexpr int Filter = 0;
-    constexpr int Affine = 1;
-    constexpr int Composite = 2;
-    constexpr int Convert = 3;
+// ノードタイプ定義（デバッグ/リリース共通）
+namespace NodeType {
+    constexpr int Image = 0;
+    constexpr int Filter = 1;
+    constexpr int Affine = 2;
+    constexpr int Composite = 3;
     constexpr int Output = 4;
     constexpr int Count = 5;
 }
 
-struct PerfMetrics {
-    uint32_t times[PerfMetricIndex::Count] = {};  // マイクロ秒
-    int counts[PerfMetricIndex::Count] = {};
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
 
-    void add(int index, uint32_t us) {
-        times[index] += us;
-        counts[index]++;
-    }
+// ノード別メトリクス
+struct NodeMetrics {
+    uint32_t time_us = 0;         // 処理時間（マイクロ秒）
+    int count = 0;                // 呼び出し回数
+    size_t allocBytes = 0;        // メモリ確保バイト数
+    int allocCount = 0;           // メモリ確保回数
+    uint64_t requestedPixels = 0; // 上流に要求したピクセル数
+    uint64_t usedPixels = 0;      // 実際に使用したピクセル数
 
     void reset() {
-        std::fill(std::begin(times), std::end(times), 0u);
-        std::fill(std::begin(counts), std::end(counts), 0);
+        *this = NodeMetrics{};
+    }
+
+    // 不要ピクセル率（0.0〜1.0）
+    float wasteRatio() const {
+        if (requestedPixels == 0) return 0;
+        return 1.0f - static_cast<float>(usedPixels) / static_cast<float>(requestedPixels);
+    }
+};
+
+struct PerfMetrics {
+    NodeMetrics nodes[NodeType::Count];
+
+    void reset() {
+        for (auto& n : nodes) n.reset();
+    }
+
+    // 全ノード合計のメモリ確保バイト数
+    size_t totalAllocBytes() const {
+        size_t sum = 0;
+        for (const auto& n : nodes) sum += n.allocBytes;
+        return sum;
+    }
+
+    // 全ノード合計の処理時間
+    uint32_t totalTime() const {
+        uint32_t sum = 0;
+        for (const auto& n : nodes) sum += n.time_us;
+        return sum;
     }
 };
 
 #else
 
 // リリースビルド用のダミー構造体（最小サイズ）
-struct PerfMetrics {
+struct NodeMetrics {
     void reset() {}
+    float wasteRatio() const { return 0; }
+};
+
+struct PerfMetrics {
+    NodeMetrics nodes[NodeType::Count];
+    void reset() {}
+    size_t totalAllocBytes() const { return 0; }
+    uint32_t totalTime() const { return 0; }
 };
 
 #endif // FLEXIMG_DEBUG_PERF_METRICS

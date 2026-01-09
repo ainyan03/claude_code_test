@@ -234,12 +234,12 @@ void PerfMetrics::add(int nodeType, uint32_t us) {
 
 ## 実装ステップ
 
-1. [ ] `NodeType` 名前空間を `node_graph.h` に追加
-2. [ ] `NodeMetrics` 構造体を定義
-3. [ ] `PerfMetrics` を新構造に置き換え
-4. [ ] 各ノードの `evaluate()` で新APIを使用
-5. [ ] WASM bindingsを更新
-6. [ ] JS側の表示を更新
+1. [x] `NodeType` 名前空間を `node_graph.h` に追加
+2. [x] `NodeMetrics` 構造体を定義
+3. [x] `PerfMetrics` を新構造に置き換え
+4. [x] 各ノードの `evaluate()` で新APIを使用
+5. [x] WASM bindingsを更新
+6. [x] JS側の表示を更新
 7. [ ] メモリ確保の計測方法を決定・実装
 
 ## 関連ファイル
