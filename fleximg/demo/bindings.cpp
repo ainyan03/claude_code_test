@@ -379,6 +379,12 @@ private:
             inputConnections[conn.toNodeId].push_back(conn.fromNodeId);
         }
 
+        // 接続情報からfromNodeId -> toNodeIdのマップを構築（下流探索用）
+        std::map<std::string, std::vector<std::string>> outputConnections;
+        for (const auto& conn : graphConnections_) {
+            outputConnections[conn.fromNodeId].push_back(conn.toNodeId);
+        }
+
         // sinkノードを探す
         const GraphNode* sinkGraphNode = nullptr;
         for (const auto& node : graphNodes_) {
@@ -542,8 +548,77 @@ private:
             return nullptr;
         };
 
-        // renderer ノードの入力を探す（JSグラフ: upstream → renderer → sink）
-        // rendererはC++で動的生成するため、JSグラフ上の renderer ノードの入力を取得
+        // Renderer下流のチェーンを再帰的に構築する関数
+        std::function<Node*(const std::string&)> buildDownstreamChain;
+        buildDownstreamChain = [&](const std::string& nodeId) -> Node* {
+            // sinkノードならそれを返す
+            if (nodeId == "sink" || nodeId == sinkGraphNode->id) {
+                return sinkNode.get();
+            }
+
+            auto nodeIt = nodeMap.find(nodeId);
+            if (nodeIt == nodeMap.end()) return nullptr;
+            const GraphNode& gnode = *nodeIt->second;
+
+            // 既に構築済みならそれを返す
+            auto v2It = v2Nodes.find(nodeId);
+            if (v2It != v2Nodes.end()) {
+                return v2It->second.get();
+            }
+
+            // ノードタイプに応じて構築
+            std::unique_ptr<Node> newNode;
+
+            if (gnode.type == "filter" && gnode.independent) {
+                if (gnode.filterType == "brightness" && !gnode.filterParams.empty()) {
+                    auto node = std::make_unique<BrightnessNode>();
+                    node->setAmount(gnode.filterParams[0]);
+                    newNode = std::move(node);
+                }
+                else if (gnode.filterType == "grayscale") {
+                    newNode = std::make_unique<GrayscaleNode>();
+                }
+                else if ((gnode.filterType == "blur" || gnode.filterType == "boxBlur") && !gnode.filterParams.empty()) {
+                    auto node = std::make_unique<BoxBlurNode>();
+                    node->setRadius(static_cast<int>(gnode.filterParams[0]));
+                    newNode = std::move(node);
+                }
+                else if (gnode.filterType == "alpha" && !gnode.filterParams.empty()) {
+                    auto node = std::make_unique<AlphaNode>();
+                    node->setScale(gnode.filterParams[0]);
+                    newNode = std::move(node);
+                }
+            }
+            else if (gnode.type == "affine") {
+                auto transformNode = std::make_unique<TransformNode>();
+                AffineMatrix mat;
+                mat.a = static_cast<float>(gnode.affineMatrix.a);
+                mat.b = static_cast<float>(gnode.affineMatrix.b);
+                mat.c = static_cast<float>(gnode.affineMatrix.c);
+                mat.d = static_cast<float>(gnode.affineMatrix.d);
+                mat.tx = static_cast<float>(gnode.affineMatrix.tx);
+                mat.ty = static_cast<float>(gnode.affineMatrix.ty);
+                transformNode->setMatrix(mat);
+                newNode = std::move(transformNode);
+            }
+
+            if (!newNode) return nullptr;
+
+            // 次の下流を探して接続
+            auto outputIt = outputConnections.find(nodeId);
+            if (outputIt != outputConnections.end() && !outputIt->second.empty()) {
+                Node* downstream = buildDownstreamChain(outputIt->second[0]);
+                if (downstream) {
+                    newNode->connectTo(*downstream);
+                }
+            }
+
+            Node* result = newNode.get();
+            v2Nodes[nodeId] = std::move(newNode);
+            return result;
+        };
+
+        // renderer ノードの入力を探す（JSグラフ: upstream → renderer → ... → sink）
         std::string rendererInputId;
         auto rendererConnIt = inputConnections.find("renderer");
         if (rendererConnIt != inputConnections.end() && !rendererConnIt->second.empty()) {
@@ -553,7 +628,6 @@ private:
             auto sinkConnIt = inputConnections.find(sinkGraphNode->id);
             if (sinkConnIt != inputConnections.end() && !sinkConnIt->second.empty()) {
                 const std::string& inputId = sinkConnIt->second[0];
-                // "renderer" ならスキップ（rendererの入力を使用済み）
                 if (inputId != "renderer") {
                     rendererInputId = inputId;
                 }
@@ -563,9 +637,19 @@ private:
         if (!rendererInputId.empty()) {
             Node* upstream = buildNode(rendererInputId);
             if (upstream) {
-                // パイプライン: upstream >> rendererNode >> sinkNode
                 upstream->connectTo(*rendererNode);
-                rendererNode->connectTo(*sinkNode);
+
+                // Renderer下流のチェーンを構築
+                auto rendererOutputIt = outputConnections.find("renderer");
+                if (rendererOutputIt != outputConnections.end() && !rendererOutputIt->second.empty()) {
+                    Node* downstream = buildDownstreamChain(rendererOutputIt->second[0]);
+                    if (downstream) {
+                        rendererNode->connectTo(*downstream);
+                    }
+                } else {
+                    // フォールバック: 直接Sinkに接続
+                    rendererNode->connectTo(*sinkNode);
+                }
             }
         }
 

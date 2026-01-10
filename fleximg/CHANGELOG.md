@@ -1,5 +1,27 @@
 # Changelog
 
+## [2.7.0] - 2026-01-10
+
+### 追加
+
+- **Renderer 下流の動的接続**
+  - Renderer → Filter → Sink のようなチェーン構成が可能に
+  - `buildDownstreamChain()`: Renderer下流のノードチェーンを再帰構築
+  - `outputConnections`: fromNodeId → toNodeId[] マップを追加
+
+### 変更
+
+- **Renderer → Sink 自動接続の条件緩和**
+  - Sink への入力がない場合のみデフォルト接続を作成
+  - Renderer下流にフィルタを配置した場合は自動接続しない
+
+### 既知の制限
+
+- タイル分割時、Renderer下流のBoxBlurフィルタはタイル境界で正しく動作しない
+  - 上流側に配置すれば正常動作
+
+---
+
 ## [2.6.0] - 2026-01-10
 
 ### 追加
