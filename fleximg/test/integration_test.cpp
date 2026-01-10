@@ -9,7 +9,7 @@
 #include "fleximg/image_buffer.h"
 #include "fleximg/nodes/source_node.h"
 #include "fleximg/nodes/sink_node.h"
-#include "fleximg/nodes/transform_node.h"
+#include "fleximg/nodes/affine_node.h"
 #include "fleximg/nodes/grayscale_node.h"
 #include "fleximg/nodes/composite_node.h"
 #include "fleximg/nodes/renderer_node.h"
@@ -132,7 +132,7 @@ void testAffineTransform() {
     src.setSource(srcImg.view());
     src.setOrigin(32, 32);  // 中央基準
 
-    TransformNode transform;
+    AffineNode transform;
     transform.setRotation(0.0f);  // 回転なし（パススルー）
 
     RendererNode renderer;

@@ -9,8 +9,10 @@ namespace FLEXIMG_NAMESPACE {
 namespace transform {
 
 // ========================================================================
-// affine - アフィン変換
+// affine - アフィン変換【非推奨・削除予定】
 // ========================================================================
+// 代替: AffineNode::applyAffine() (affine_node.h)
+// 制限: tx/ty が整数精度のため、サブピクセル平行移動に非対応
 
 void affine(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
             const ViewPort& src, int_fixed8 srcOriginX, int_fixed8 srcOriginY,

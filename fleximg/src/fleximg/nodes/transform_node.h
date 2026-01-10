@@ -15,17 +15,21 @@
 namespace FLEXIMG_NAMESPACE {
 
 // ========================================================================
-// TransformNode - アフィン変換ノード
+// TransformNode - アフィン変換ノード【非推奨・削除予定】
 // ========================================================================
 //
+// !! このクラスは AffineNode に置き換えられました !!
+// !! 次バージョンで削除予定です !!
+//
+// 代替: AffineNode (affine_node.h)
+// - prepare() で逆行列を事前計算
+// - tx/ty のサブピクセル精度に対応
+// - process() に変換処理を分離
+//
+// 旧仕様（参考用に残存）:
 // 入力画像に対してアフィン変換（回転・拡縮・平行移動）を適用します。
 // - 入力: 1ポート
 // - 出力: 1ポート
-//
-// 使用例:
-//   TransformNode transform;
-//   transform.setMatrix(AffineMatrix::rotation(0.5f));
-//   src >> transform >> sink;
 //
 
 class TransformNode : public Node {
