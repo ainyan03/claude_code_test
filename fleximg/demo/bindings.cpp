@@ -10,7 +10,7 @@
 
 #include "../src/fleximg/nodes/source_node.h"
 #include "../src/fleximg/nodes/sink_node.h"
-#include "../src/fleximg/nodes/transform_node.h"
+#include "../src/fleximg/nodes/affine_node.h"
 #include "../src/fleximg/nodes/filter_node_base.h"
 #include "../src/fleximg/nodes/brightness_node.h"
 #include "../src/fleximg/nodes/grayscale_node.h"
@@ -317,11 +317,11 @@ public:
                            + lastPerfMetrics_.nodes[NodeType::BoxBlur].count
                            + lastPerfMetrics_.nodes[NodeType::Alpha].count;
         result.set("filterTime", filterTimeSum);
-        result.set("affineTime", lastPerfMetrics_.nodes[NodeType::Transform].time_us);
+        result.set("affineTime", lastPerfMetrics_.nodes[NodeType::Affine].time_us);
         result.set("compositeTime", lastPerfMetrics_.nodes[NodeType::Composite].time_us);
         result.set("outputTime", lastPerfMetrics_.nodes[NodeType::Renderer].time_us);
         result.set("filterCount", filterCountSum);
-        result.set("affineCount", lastPerfMetrics_.nodes[NodeType::Transform].count);
+        result.set("affineCount", lastPerfMetrics_.nodes[NodeType::Affine].count);
         result.set("compositeCount", lastPerfMetrics_.nodes[NodeType::Composite].count);
         result.set("outputCount", lastPerfMetrics_.nodes[NodeType::Renderer].count);
         result.set("totalTime", lastPerfMetrics_.totalTime());
@@ -496,7 +496,7 @@ private:
                 return nullptr;
             }
             else if (gnode.type == "affine") {
-                auto transformNode = std::make_unique<TransformNode>();
+                auto affineNode = std::make_unique<AffineNode>();
 
                 AffineMatrix mat;
                 mat.a = static_cast<float>(gnode.affineMatrix.a);
@@ -505,19 +505,19 @@ private:
                 mat.d = static_cast<float>(gnode.affineMatrix.d);
                 mat.tx = static_cast<float>(gnode.affineMatrix.tx);
                 mat.ty = static_cast<float>(gnode.affineMatrix.ty);
-                transformNode->setMatrix(mat);
+                affineNode->setMatrix(mat);
 
                 // 入力を接続
                 auto connIt = inputConnections.find(nodeId);
                 if (connIt != inputConnections.end() && !connIt->second.empty()) {
                     Node* upstream = buildNode(connIt->second[0]);
                     if (upstream) {
-                        upstream->connectTo(*transformNode);
+                        upstream->connectTo(*affineNode);
                     }
                 }
 
-                Node* result = transformNode.get();
-                v2Nodes[nodeId] = std::move(transformNode);
+                Node* result = affineNode.get();
+                v2Nodes[nodeId] = std::move(affineNode);
                 return result;
             }
             else if (gnode.type == "composite") {
@@ -596,7 +596,7 @@ private:
                 }
             }
             else if (gnode.type == "affine") {
-                auto transformNode = std::make_unique<TransformNode>();
+                auto affineNode = std::make_unique<AffineNode>();
                 AffineMatrix mat;
                 mat.a = static_cast<float>(gnode.affineMatrix.a);
                 mat.b = static_cast<float>(gnode.affineMatrix.b);
@@ -604,8 +604,8 @@ private:
                 mat.d = static_cast<float>(gnode.affineMatrix.d);
                 mat.tx = static_cast<float>(gnode.affineMatrix.tx);
                 mat.ty = static_cast<float>(gnode.affineMatrix.ty);
-                transformNode->setMatrix(mat);
-                newNode = std::move(transformNode);
+                affineNode->setMatrix(mat);
+                newNode = std::move(affineNode);
             }
 
             if (!newNode) return nullptr;

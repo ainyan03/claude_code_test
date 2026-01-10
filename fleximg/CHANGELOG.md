@@ -1,5 +1,34 @@
 # Changelog
 
+## [2.9.0] - 2026-01-10
+
+### 追加
+
+- **AffineNode**: TransformNode を置き換える新しいアフィン変換ノード
+  - `prepare()` で逆行列を事前計算
+  - `process()` に変換処理を分離（責務分離）
+  - `computeInputRequest()`: 入力要求計算を virtual 化
+  - tx/ty を Q24.8 固定小数点で保持（サブピクセル精度）
+
+- **サブピクセル精度の平行移動**: 回転・拡縮時に tx/ty の小数成分が DDA に反映
+  - 1/256 ピクセル精度で平行移動を表現
+  - 微調整時に滑らかなピクセルシフトを実現
+
+- **構想ドキュメント**: `docs/ideas/IDEA_PUSH_MODE_AFFINE.md`
+  - MCU 単位プッシュ処理に対応するアフィン変換の設計
+
+### 変更
+
+- **NodeType::Transform → NodeType::Affine**: 命名の一貫性向上
+- **NODE_TYPES.transform → NODE_TYPES.affine**: JavaScript 側も同様に変更
+
+### 非推奨（次バージョンで削除予定）
+
+- **TransformNode** (`transform_node.h`): AffineNode に置き換え
+- **transform::affine()**: AffineNode::applyAffine() に置き換え
+
+---
+
 ## [2.8.0] - 2026-01-10
 
 ### 追加

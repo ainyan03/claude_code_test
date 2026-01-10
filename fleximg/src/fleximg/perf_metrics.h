@@ -25,7 +25,7 @@ namespace NodeType {
     constexpr int Source = 1;     // 画像入力
     constexpr int Sink = 2;       // 画像出力
     // 構造系
-    constexpr int Transform = 3;  // アフィン変換
+    constexpr int Affine = 3;     // アフィン変換
     constexpr int Composite = 4;  // 合成
     // フィルタ系
     constexpr int Brightness = 5;

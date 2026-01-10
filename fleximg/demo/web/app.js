@@ -26,7 +26,7 @@ const NODE_TYPES = {
     source:     { index: 1, name: 'Source',     category: 'system',    showEfficiency: false },
     sink:       { index: 2, name: 'Sink',       category: 'system',    showEfficiency: false },
     // 構造系（変換・合成）
-    transform:  { index: 3, name: 'Affine',     category: 'structure', showEfficiency: true },
+    affine:     { index: 3, name: 'Affine',     category: 'structure', showEfficiency: true },
     composite:  { index: 4, name: 'Composite',  category: 'structure', showEfficiency: false },
     // フィルタ系
     brightness: { index: 5, name: 'Brightness', category: 'filter',    showEfficiency: true },
