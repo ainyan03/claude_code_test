@@ -88,11 +88,12 @@ public:
         // ================================================================
         // 出力要求の4頂点を逆変換し、必要な入力領域のAABBを計算する。
 
+        // 出力要求の4頂点（基準相対座標 = -origin）
         int32_t corners[4][2] = {
-            {static_cast<int32_t>(-request.originX), static_cast<int32_t>(-request.originY)},
-            {static_cast<int32_t>(request.width - request.originX), static_cast<int32_t>(-request.originY)},
-            {static_cast<int32_t>(-request.originX), static_cast<int32_t>(request.height - request.originY)},
-            {static_cast<int32_t>(request.width - request.originX), static_cast<int32_t>(request.height - request.originY)}
+            {static_cast<int32_t>(-request.origin.x), static_cast<int32_t>(-request.origin.y)},
+            {static_cast<int32_t>(request.width - request.origin.x), static_cast<int32_t>(-request.origin.y)},
+            {static_cast<int32_t>(-request.origin.x), static_cast<int32_t>(request.height - request.origin.y)},
+            {static_cast<int32_t>(request.width - request.origin.x), static_cast<int32_t>(request.height - request.origin.y)}
         };
 
         int32_t minX = INT32_MAX, minY = INT32_MAX, maxX = INT32_MIN, maxY = INT32_MIN;
@@ -122,8 +123,8 @@ public:
         RenderRequest inputReq;
         inputReq.width = inputWidth;
         inputReq.height = inputHeight;
-        inputReq.originX = static_cast<float>(-reqLeft);
-        inputReq.originY = static_cast<float>(-reqTop);
+        inputReq.origin.x = static_cast<float>(-reqLeft);
+        inputReq.origin.y = static_cast<float>(-reqTop);
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         // ピクセル効率計測
@@ -135,7 +136,7 @@ public:
         // 上流を評価（新APIを使用）
         RenderResult inputResult = upstream->pullProcess(inputReq);
         if (!inputResult.isValid()) {
-            return RenderResult(ImageBuffer(), Point2f(-request.originX, -request.originY));
+            return RenderResult(ImageBuffer(), request.origin);
         }
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
@@ -152,9 +153,9 @@ public:
 
         // アフィン変換を適用
         ViewPort inputView = inputResult.view();
-        transform::affine(outputView, request.originX, request.originY,
+        transform::affine(outputView, request.origin.x, request.origin.y,
                           inputView,
-                          -inputResult.origin.x, -inputResult.origin.y,
+                          inputResult.origin.x, inputResult.origin.y,
                           invMatrix);
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
@@ -164,7 +165,7 @@ public:
         mTransEnd.count++;
 #endif
 
-        return RenderResult(std::move(output), Point2f(-request.originX, -request.originY));
+        return RenderResult(std::move(output), request.origin);
     }
 
 private:

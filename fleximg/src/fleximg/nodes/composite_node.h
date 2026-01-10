@@ -103,8 +103,9 @@ public:
 
         RenderResult canvas;
         bool canvasInitialized = false;
-        float canvasOriginX = -request.originX;
-        float canvasOriginY = -request.originY;
+        // バッファ内基準点位置
+        float canvasOriginX = request.origin.x;
+        float canvasOriginY = request.origin.y;
 
         // 逐次合成: 入力を1つずつ評価して合成
         for (int i = 0; i < numInputs; i++) {
@@ -132,8 +133,8 @@ public:
                 ViewPort canvasView = canvasBuf.view();
                 ViewPort inputView = inputResult.view();
 
-                blend::first(canvasView, request.originX, request.originY,
-                            inputView, -inputResult.origin.x, -inputResult.origin.y);
+                blend::first(canvasView, request.origin.x, request.origin.y,
+                            inputView, inputResult.origin.x, inputResult.origin.y);
 
                 canvas = RenderResult(std::move(canvasBuf),
                                      Point2f(canvasOriginX, canvasOriginY));
@@ -143,8 +144,8 @@ public:
                 ViewPort canvasView = canvas.view();
                 ViewPort inputView = inputResult.view();
 
-                blend::onto(canvasView, -canvas.origin.x, -canvas.origin.y,
-                           inputView, -inputResult.origin.x, -inputResult.origin.y);
+                blend::onto(canvasView, canvas.origin.x, canvas.origin.y,
+                           inputView, inputResult.origin.x, inputResult.origin.y);
             }
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS

@@ -1,5 +1,30 @@
 # Changelog
 
+## [2.4.0] - 2026-01-10
+
+### 変更
+
+- **origin 座標系の統一**: RenderRequest と RenderResult の origin を統一
+  - 両方とも「バッファ内での基準点位置」を意味するように変更
+  - RenderRequest: `originX/Y` → `Point2f origin` に変更
+  - RenderResult: origin の意味を反転（旧: 基準相対座標 → 新: バッファ内位置）
+  - 符号反転 (`-origin.x`) が不要になり、コードが明確化
+
+- **影響を受けるノード**:
+  - SourceNode: origin 計算を新座標系に変更
+  - CompositeNode: blend 引数の符号反転を削除
+  - FilterNodeBase/BoxBlurNode: マージン切り出し計算を修正
+  - TransformNode: affine 引数の符号反転を削除
+  - SinkNode: 配置計算を新座標系に変更
+  - RendererNode: RenderRequest 生成を修正
+
+### ドキュメント
+
+- ARCHITECTURE.md: 座標系の説明を更新
+- DESIGN_TYPE_STRUCTURE.md: origin の意味を更新
+
+---
+
 ## [2.3.1] - 2026-01-10
 
 ### ドキュメント

@@ -29,8 +29,7 @@ struct TileConfig {
 struct RenderRequest {
     int width = 0;
     int height = 0;
-    float originX = 0;  // バッファ内での基準点X位置
-    float originY = 0;  // バッファ内での基準点Y位置
+    Point2f origin;  // バッファ内での基準点位置
 
     bool isEmpty() const { return width <= 0 || height <= 0; }
 
@@ -38,7 +37,7 @@ struct RenderRequest {
     RenderRequest expand(int margin) const {
         return {
             width + margin * 2, height + margin * 2,
-            originX + margin, originY + margin
+            {origin.x + margin, origin.y + margin}
         };
     }
 };
@@ -49,7 +48,7 @@ struct RenderRequest {
 
 struct RenderResult {
     ImageBuffer buffer;
-    Point2f origin;  // 基準点からの相対座標（画像左上の位置）
+    Point2f origin;  // バッファ内での基準点位置
 
     RenderResult() = default;
 

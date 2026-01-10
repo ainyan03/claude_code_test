@@ -144,7 +144,7 @@ ImageBuffer working = std::move(input.buffer).toFormat(PixelFormatIDs::RGBA8_Str
 ```cpp
 struct RenderResult {
     ImageBuffer buffer;
-    Point2f origin;  // 基準点からの相対座標（画像左上の位置）
+    Point2f origin;  // バッファ内での基準点位置
 
     // コンストラクタ
     RenderResult();
@@ -166,13 +166,13 @@ struct RenderResult {
 
 ### origin の意味
 
-`origin` は基準点を原点 (0, 0) として、画像の左上がどこにあるかを表します。
+`origin` はバッファ内での基準点のピクセル位置を表します。RenderRequest と同じ意味です。
 
 | 画像サイズ | 基準点位置 | origin.x | origin.y |
 |-----------|-----------|----------|----------|
 | 100x100 | 左上 (0, 0) | 0 | 0 |
-| 100x100 | 中央 | -50 | -50 |
-| 100x100 | 右下 | -100 | -100 |
+| 100x100 | 中央 | 50 | 50 |
+| 100x100 | 右下 | 100 | 100 |
 
 ## 使用例
 
@@ -182,9 +182,10 @@ struct RenderResult {
 // ノードから結果を取得
 RenderResult result = node->pullProcess(request);
 
-// オフセット計算（基準点を合わせる）
-int offsetX = static_cast<int>(request.originX + result.origin.x);
-int offsetY = static_cast<int>(request.originY + result.origin.y);
+// 両方の origin は同じ意味（バッファ内基準点位置）なので直接比較可能
+// オフセット = request の基準点位置 - result の基準点位置
+int offsetX = static_cast<int>(request.origin.x - result.origin.x);
+int offsetY = static_cast<int>(request.origin.y - result.origin.y);
 
 // キャンバスにブレンド
 ViewPort canvas = canvasBuffer.view();
