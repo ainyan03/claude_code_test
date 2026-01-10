@@ -1,5 +1,35 @@
 # Changelog
 
+## [2.8.0] - 2026-01-10
+
+### 追加
+
+- **循環参照検出**: ノードグラフの循環を検出しスタックオーバーフローを防止
+  - `PrepareState` enum: `Idle`, `Preparing`, `Prepared`, `CycleError` の4状態
+  - `ExecResult` enum: `Success=0`, `CycleDetected=1`, `NoUpstream=2`, `NoDownstream=3`
+  - `pullPrepare()` / `pushPrepare()`: 循環検出時に `false` を返却
+  - `pullProcess()` / `pushProcess()`: 循環エラー状態のノードは処理をスキップ
+  - DAG（有向非巡回グラフ）共有ノードを正しくサポート
+
+- **WebUI エラー通知**: 循環参照検出時にアラートを表示
+
+### 変更
+
+- **RendererNode::exec()**: 戻り値を `void` → `ExecResult` に変更
+- **bindings.cpp**: `evaluateGraph()` が `int` を返却（0=成功、非0=エラー）
+
+### テスト
+
+- `integration_test.cpp`: 循環参照検出テストを追加
+  - `pullPrepare()` での循環検出
+  - `RendererNode::exec()` での循環検出
+
+### 削除
+
+- `docs/ideas/IDEA_CYCLE_DETECTION.md`: 実装完了により削除
+
+---
+
 ## [2.7.0] - 2026-01-10
 
 ### 追加

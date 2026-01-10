@@ -67,20 +67,50 @@ public:
     // プル型インターフェース
     // ========================================
 
-    // 全上流ノードに準備を伝播
-    void pullPrepare(const RenderRequest& screenInfo) override {
+    // 全上流ノードに準備を伝播（循環参照検出付き）
+    bool pullPrepare(const RenderRequest& screenInfo) override {
+        // 循環参照検出: Preparing状態で再訪問 = 循環
+        if (pullPrepareState_ == PrepareState::Preparing) {
+            pullPrepareState_ = PrepareState::CycleError;
+            return false;
+        }
+        // DAG共有ノード: スキップ
+        if (pullPrepareState_ == PrepareState::Prepared) {
+            return true;
+        }
+        // 既にエラー状態
+        if (pullPrepareState_ == PrepareState::CycleError) {
+            return false;
+        }
+
+        pullPrepareState_ = PrepareState::Preparing;
+
+        // 全上流へ伝播
         int numInputs = inputCount();
         for (int i = 0; i < numInputs; ++i) {
             Node* upstream = upstreamNode(i);
             if (upstream) {
-                upstream->pullPrepare(screenInfo);
+                if (!upstream->pullPrepare(screenInfo)) {
+                    pullPrepareState_ = PrepareState::CycleError;
+                    return false;
+                }
             }
         }
+
         prepare(screenInfo);
+        pullPrepareState_ = PrepareState::Prepared;
+        return true;
     }
 
     // 全上流ノードに終了を伝播
     void pullFinalize() override {
+        // 既にIdleなら何もしない（循環防止）
+        if (pullPrepareState_ == PrepareState::Idle) {
+            return;
+        }
+        // 状態リセット
+        pullPrepareState_ = PrepareState::Idle;
+
         finalize();
         int numInputs = inputCount();
         for (int i = 0; i < numInputs; ++i) {
@@ -93,6 +123,10 @@ public:
 
     // 複数の上流から画像を取得して合成するため、pullProcess()を直接オーバーライド
     RenderResult pullProcess(const RenderRequest& request) override {
+        // 循環エラー状態ならスキップ（無限再帰防止）
+        if (pullPrepareState_ != PrepareState::Prepared) {
+            return RenderResult();
+        }
         int numInputs = inputCount();
         if (numInputs == 0) return RenderResult();
 

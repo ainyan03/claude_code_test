@@ -94,31 +94,45 @@ public:
     // ========================================
 
     // 簡易API（prepare → execute → finalize）
-    void exec() {
-        execPrepare();
+    // 戻り値: ExecResult（Success = 0、エラー = 非0）
+    ExecResult exec() {
+        ExecResult result = execPrepare();
+        if (result != ExecResult::Success) {
+            // エラー時も状態をリセット
+            execFinalize();
+            return result;
+        }
         execProcess();
         execFinalize();
+        return ExecResult::Success;
     }
 
     // 詳細API
-    void execPrepare() {
+    // 戻り値: ExecResult（Success = 0、エラー = 非0）
+    ExecResult execPrepare() {
         // メトリクスをリセット
         PerfMetrics::instance().reset();
 
         // スクリーン全体の情報をRenderRequestとして作成
         RenderRequest screenInfo = createScreenRequest();
 
-        // 上流へ準備を伝播（プル型）
+        // 上流へ準備を伝播（プル型、循環参照検出付き）
         Node* upstream = upstreamNode(0);
         if (upstream) {
-            upstream->pullPrepare(screenInfo);
+            if (!upstream->pullPrepare(screenInfo)) {
+                return ExecResult::CycleDetected;
+            }
         }
 
-        // 下流へ準備を伝播（プッシュ型）
+        // 下流へ準備を伝播（プッシュ型、循環参照検出付き）
         Node* downstream = downstreamNode(0);
         if (downstream) {
-            downstream->pushPrepare(screenInfo);
+            if (!downstream->pushPrepare(screenInfo)) {
+                return ExecResult::CycleDetected;
+            }
         }
+
+        return ExecResult::Success;
     }
 
     void execProcess() {

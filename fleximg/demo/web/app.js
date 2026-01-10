@@ -2487,7 +2487,13 @@ function updatePreviewFromGraph() {
     graphEvaluator.allocateImage(outputImageId, canvasWidth, canvasHeight);
 
     // C++側でノードグラフ全体を評価（出力はimageLibraryに書き込まれる）
-    graphEvaluator.evaluateGraph();
+    // 戻り値: 0 = 成功、1 = 循環参照検出
+    const execResult = graphEvaluator.evaluateGraph();
+    if (execResult === 1) {
+        console.error('Cycle detected in node graph');
+        alert('エラー: ノードグラフに循環参照があります。接続を修正してください。');
+        return;
+    }
 
     // 出力データを取得
     const resultData = graphEvaluator.getImage(outputImageId);

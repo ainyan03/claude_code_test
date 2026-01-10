@@ -9,6 +9,17 @@
 namespace FLEXIMG_NAMESPACE {
 
 // ========================================================================
+// PrepareState - ノードの準備状態（循環参照検出用）
+// ========================================================================
+
+enum class PrepareState {
+    Idle,       // 未処理（初期状態）
+    Preparing,  // 処理中（この状態で再訪問 = 循環参照）
+    Prepared,   // 処理完了（この状態で再訪問 = DAG共有、スキップ可）
+    CycleError  // 循環参照エラー（processをスキップ）
+};
+
+// ========================================================================
 // Node - ノード基底クラス
 // ========================================================================
 //
@@ -102,23 +113,58 @@ public:
 
     // 上流から画像を取得して処理
     virtual RenderResult pullProcess(const RenderRequest& request) {
+        // 循環エラー状態ならスキップ（無限再帰防止）
+        if (pullPrepareState_ != PrepareState::Prepared) {
+            return RenderResult();
+        }
         Node* upstream = upstreamNode(0);
         if (!upstream) return RenderResult();
         RenderResult input = upstream->pullProcess(request);
         return process(std::move(input), request);
     }
 
-    // 上流へ準備を伝播
-    virtual void pullPrepare(const RenderRequest& screenInfo) {
+    // 上流へ準備を伝播（循環参照検出付き）
+    // 戻り値: true = 成功、false = 循環参照検出
+    virtual bool pullPrepare(const RenderRequest& screenInfo) {
+        // 循環参照検出: Preparing状態で再訪問 = 循環
+        if (pullPrepareState_ == PrepareState::Preparing) {
+            pullPrepareState_ = PrepareState::CycleError;  // エラー状態を設定
+            return false;
+        }
+        // DAG共有ノード: スキップ
+        if (pullPrepareState_ == PrepareState::Prepared) {
+            return true;
+        }
+        // 既にエラー状態
+        if (pullPrepareState_ == PrepareState::CycleError) {
+            return false;
+        }
+
+        pullPrepareState_ = PrepareState::Preparing;
+
+        // 上流へ伝播
         Node* upstream = upstreamNode(0);
         if (upstream) {
-            upstream->pullPrepare(screenInfo);
+            if (!upstream->pullPrepare(screenInfo)) {
+                pullPrepareState_ = PrepareState::CycleError;  // 上流エラーも伝播
+                return false;
+            }
         }
+
         prepare(screenInfo);
+        pullPrepareState_ = PrepareState::Prepared;
+        return true;
     }
 
     // 上流へ終了を伝播
     virtual void pullFinalize() {
+        // 既にIdleなら何もしない（循環防止）
+        if (pullPrepareState_ == PrepareState::Idle) {
+            return;
+        }
+        // 状態リセット
+        pullPrepareState_ = PrepareState::Idle;
+
         finalize();
         Node* upstream = upstreamNode(0);
         if (upstream) {
@@ -133,6 +179,10 @@ public:
     // 上流から画像を受け取って処理し、下流へ渡す
     virtual void pushProcess(RenderResult&& input,
                              const RenderRequest& request) {
+        // 循環エラー状態ならスキップ（無限再帰防止）
+        if (pushPrepareState_ != PrepareState::Prepared) {
+            return;
+        }
         RenderResult output = process(std::move(input), request);
         Node* downstream = downstreamNode(0);
         if (downstream) {
@@ -140,17 +190,49 @@ public:
         }
     }
 
-    // 下流へ準備を伝播
-    virtual void pushPrepare(const RenderRequest& screenInfo) {
+    // 下流へ準備を伝播（循環参照検出付き）
+    // 戻り値: true = 成功、false = 循環参照検出
+    virtual bool pushPrepare(const RenderRequest& screenInfo) {
+        // 循環参照検出: Preparing状態で再訪問 = 循環
+        if (pushPrepareState_ == PrepareState::Preparing) {
+            pushPrepareState_ = PrepareState::CycleError;
+            return false;
+        }
+        // DAG共有ノード: スキップ
+        if (pushPrepareState_ == PrepareState::Prepared) {
+            return true;
+        }
+        // 既にエラー状態
+        if (pushPrepareState_ == PrepareState::CycleError) {
+            return false;
+        }
+
+        pushPrepareState_ = PrepareState::Preparing;
+
         prepare(screenInfo);
+
+        // 下流へ伝播
         Node* downstream = downstreamNode(0);
         if (downstream) {
-            downstream->pushPrepare(screenInfo);
+            if (!downstream->pushPrepare(screenInfo)) {
+                pushPrepareState_ = PrepareState::CycleError;
+                return false;
+            }
         }
+
+        pushPrepareState_ = PrepareState::Prepared;
+        return true;
     }
 
     // 下流へ終了を伝播
     virtual void pushFinalize() {
+        // 既にIdleなら何もしない（循環防止）
+        if (pushPrepareState_ == PrepareState::Idle) {
+            return;
+        }
+        // 状態リセット
+        pushPrepareState_ = PrepareState::Idle;
+
         Node* downstream = downstreamNode(0);
         if (downstream) {
             downstream->pushFinalize();
@@ -184,6 +266,10 @@ public:
 protected:
     std::vector<Port> inputs_;
     std::vector<Port> outputs_;
+
+    // 循環参照検出用状態
+    PrepareState pullPrepareState_ = PrepareState::Idle;
+    PrepareState pushPrepareState_ = PrepareState::Idle;
 
     // 派生クラス用：ポート初期化
     void initPorts(int inputCount, int outputCount) {

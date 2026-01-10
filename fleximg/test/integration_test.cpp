@@ -234,6 +234,78 @@ void testComposite() {
 }
 
 // ========================================
+// 循環参照検出テスト
+// ========================================
+void testCycleDetection() {
+    std::cout << "--- Cycle Detection Tests ---" << std::endl;
+
+    // テスト1: pullPrepare での循環検出
+    {
+        GrayscaleNode filterA;
+        GrayscaleNode filterB;
+
+        filterA.connectTo(filterB);
+        filterB.connectTo(filterA);
+
+        RenderRequest req;
+        req.width = 64;
+        req.height = 64;
+
+        bool result = filterA.pullPrepare(req);
+        reportTest("pullPrepare cycle detection", !result);
+    }
+
+    // テスト2: RendererNode.exec() での循環検出
+    // Renderer → Filter → Renderer の下流循環
+    {
+        ImageBuffer dstImg(64, 64, PixelFormatIDs::RGBA8_Straight);
+
+        SourceNode source;
+        ImageBuffer srcImg = createTestImage(64, 64);
+        source.setSource(srcImg.view());
+
+        GrayscaleNode filter;
+        RendererNode renderer;
+        renderer.setVirtualScreen(64, 64, 32, 32);
+
+        SinkNode sink;
+        sink.setTarget(dstImg.view());
+
+        // 正常接続: source → renderer → filter → sink
+        source >> renderer;
+        renderer >> filter >> sink;
+
+        // 循環を追加: filter → renderer（filter出力をrenderer入力に接続）
+        // これで renderer → filter → renderer の循環ができる
+        // ただしsinkへの接続を維持するために、filterの出力を両方に接続するのは無理
+        // なのでsinkへの接続を外して循環を作る
+        filter.outputPort(0)->disconnect();  // filter → sink を切断
+        renderer.inputPort(0)->disconnect();  // source → renderer を切断
+        filter.connectTo(renderer);  // filter → renderer（循環完成）
+
+        std::cout << "  renderer upstream: " << (renderer.upstreamNode(0) ? renderer.upstreamNode(0)->name() : "null") << std::endl;
+        std::cout << "  filter upstream: " << (filter.upstreamNode(0) ? filter.upstreamNode(0)->name() : "null") << std::endl;
+        std::cout << "  filter downstream: " << (filter.downstreamNode(0) ? filter.downstreamNode(0)->name() : "null") << std::endl;
+
+        // 手動でpullPrepareを試す
+        RenderRequest req;
+        req.width = 64;
+        req.height = 64;
+        std::cout << "  Testing filter.pullPrepare()..." << std::endl;
+        bool prepResult = filter.pullPrepare(req);
+        std::cout << "  pullPrepare result: " << (prepResult ? "true" : "false (cycle)") << std::endl;
+
+        // 状態をリセット
+        filter.pullFinalize();
+
+        std::cout << "  Calling renderer.exec()..." << std::endl;
+        ExecResult result = renderer.exec();
+        std::cout << "  exec result: " << static_cast<int>(result) << std::endl;
+        reportTest("RendererNode.exec() cycle detection", result == ExecResult::CycleDetected);
+    }
+}
+
+// ========================================
 // メイン
 // ========================================
 int main() {
@@ -245,6 +317,7 @@ int main() {
     testAffineTransform();
     testGrayscaleFilter();
     testComposite();
+    testCycleDetection();
 
     std::cout << std::endl;
     std::cout << "=== Results ===" << std::endl;
