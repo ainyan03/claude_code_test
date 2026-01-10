@@ -8,7 +8,12 @@
 #include <memory>
 #include <string>
 
-#include "../src/fleximg/renderer.h"
+#include "../src/fleximg/nodes/source_node.h"
+#include "../src/fleximg/nodes/sink_node.h"
+#include "../src/fleximg/nodes/transform_node.h"
+#include "../src/fleximg/nodes/filter_node.h"
+#include "../src/fleximg/nodes/composite_node.h"
+#include "../src/fleximg/nodes/renderer_node.h"
 
 using namespace emscripten;
 using namespace FLEXIMG_NAMESPACE;
@@ -383,6 +388,12 @@ private:
         std::map<std::string, std::unique_ptr<Node>> v2Nodes;
         std::map<std::string, std::unique_ptr<SourceNode>> sourceNodes;
 
+        // RendererNodeを作成
+        auto rendererNode = std::make_unique<RendererNode>();
+        rendererNode->setVirtualScreen(canvasWidth_, canvasHeight_,
+                                       static_cast<float>(dstOriginX_),
+                                       static_cast<float>(dstOriginY_));
+
         // SinkNodeを作成
         auto sinkNode = std::make_unique<SinkNode>();
         sinkNode->setTarget(outputView);
@@ -513,23 +524,24 @@ private:
         if (connIt != inputConnections.end() && !connIt->second.empty()) {
             Node* upstream = buildNode(connIt->second[0]);
             if (upstream) {
-                upstream->connectTo(*sinkNode);
+                // 新パイプライン: upstream >> rendererNode >> sinkNode
+                upstream->connectTo(*rendererNode);
+                rendererNode->connectTo(*sinkNode);
             }
         }
 
-        // Rendererで実行
-        Renderer renderer(*sinkNode);
+        // RendererNodeで実行
         // タイル分割設定（幅0の場合はキャンバス幅を使用=スキャンライン）
         int effectiveTileW = (tileWidth_ > 0) ? tileWidth_ : canvasWidth_;
         int effectiveTileH = (tileHeight_ > 0) ? tileHeight_ : canvasHeight_;
         if (tileWidth_ > 0 || tileHeight_ > 0) {
-            renderer.setTileConfig(TileConfig(effectiveTileW, effectiveTileH));
+            rendererNode->setTileConfig(effectiveTileW, effectiveTileH);
         }
-        renderer.setDebugCheckerboard(debugCheckerboard_);
-        renderer.exec();
+        rendererNode->setDebugCheckerboard(debugCheckerboard_);
+        rendererNode->exec();
 
         // パフォーマンスメトリクスを保存
-        lastPerfMetrics_ = renderer.getPerfMetrics();
+        lastPerfMetrics_ = rendererNode->getPerfMetrics();
     }
 };
 

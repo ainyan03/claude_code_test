@@ -7,12 +7,12 @@
 #include "fleximg/common.h"
 #include "fleximg/viewport.h"
 #include "fleximg/image_buffer.h"
-#include "fleximg/renderer.h"
 #include "fleximg/nodes/source_node.h"
 #include "fleximg/nodes/sink_node.h"
 #include "fleximg/nodes/transform_node.h"
 #include "fleximg/nodes/filter_node.h"
 #include "fleximg/nodes/composite_node.h"
+#include "fleximg/nodes/renderer_node.h"
 
 using namespace fleximg;
 
@@ -60,7 +60,7 @@ void reportTest(const char* name, bool passed) {
 }
 
 // ========================================
-// テスト1: 基本パイプライン (src >> sink)
+// テスト1: 基本パイプライン (src >> renderer >> sink)
 // ========================================
 void testBasicPipeline() {
     ImageBuffer srcImg = createTestImage(64, 64);
@@ -70,13 +70,14 @@ void testBasicPipeline() {
     src.setSource(srcImg.view());
     src.setOrigin(0, 0);
 
+    RendererNode renderer;
+    renderer.setVirtualScreen(64, 64, 0, 0);
+
     SinkNode sink;
     sink.setTarget(dstImg.view());
     sink.setOrigin(0, 0);
 
-    src >> sink;
-
-    Renderer renderer(sink);
+    src >> renderer >> sink;
     renderer.exec();
 
     bool passed = comparePixels(srcImg.view(), dstImg.view());
@@ -95,10 +96,11 @@ void testTiledPipeline() {
     {
         SourceNode src;
         src.setSource(srcImg.view());
+        RendererNode renderer;
+        renderer.setVirtualScreen(128, 128, 0, 0);
         SinkNode sink;
         sink.setTarget(dstImg1.view());
-        src >> sink;
-        Renderer renderer(sink);
+        src >> renderer >> sink;
         renderer.exec();
     }
 
@@ -106,11 +108,12 @@ void testTiledPipeline() {
     {
         SourceNode src;
         src.setSource(srcImg.view());
+        RendererNode renderer;
+        renderer.setVirtualScreen(128, 128, 0, 0);
+        renderer.setTileConfig(32, 32);
         SinkNode sink;
         sink.setTarget(dstImg2.view());
-        src >> sink;
-        Renderer renderer(sink);
-        renderer.setTileConfig(TileConfig(32, 32));
+        src >> renderer >> sink;
         renderer.exec();
     }
 
@@ -132,13 +135,14 @@ void testAffineTransform() {
     TransformNode transform;
     transform.setRotation(0.0f);  // 回転なし（パススルー）
 
+    RendererNode renderer;
+    renderer.setVirtualScreen(64, 64, 32, 32);
+
     SinkNode sink;
     sink.setTarget(dstImg.view());
     sink.setOrigin(32, 32);
 
-    src >> transform >> sink;
-
-    Renderer renderer(sink);
+    src >> transform >> renderer >> sink;
     renderer.exec();
 
     // 回転0なのでほぼ同じはず（浮動小数点誤差許容）
@@ -159,12 +163,13 @@ void testGrayscaleFilter() {
     FilterNode filter;
     filter.setGrayscale();
 
+    RendererNode renderer;
+    renderer.setVirtualScreen(32, 32, 0, 0);
+
     SinkNode sink;
     sink.setTarget(dstImg.view());
 
-    src >> filter >> sink;
-
-    Renderer renderer(sink);
+    src >> filter >> renderer >> sink;
     renderer.exec();
 
     // グレースケール確認: R=G=Bになっているか
@@ -211,14 +216,15 @@ void testComposite() {
 
     CompositeNode composite(2);
 
+    RendererNode renderer;
+    renderer.setVirtualScreen(64, 64, 0, 0);
+
     SinkNode sink;
     sink.setTarget(dstImg.view());
 
     srcBg >> composite;
     srcFg.connectTo(composite, 1);
-    composite >> sink;
-
-    Renderer renderer(sink);
+    composite >> renderer >> sink;
     renderer.exec();
 
     // 合成結果が背景でも前景でもないことを確認
