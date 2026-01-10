@@ -1451,11 +1451,10 @@ function renderNodeGraph() {
         });
     }
 
-    // Renderer → Sink の接続を確認（常にチェック）
-    const hasRendererToSink = globalConnections.some(
-        c => c.fromNodeId === 'renderer' && c.toNodeId === 'sink'
-    );
-    if (!hasRendererToSink) {
+    // Sink への入力がない場合のみ Renderer → Sink のデフォルト接続を作成
+    // （Renderer下流にフィルタを配置した場合は自動接続しない）
+    const sinkHasInput = globalConnections.some(c => c.toNodeId === 'sink');
+    if (!sinkHasInput) {
         globalConnections.push({
             fromNodeId: 'renderer',
             fromPortId: 'out',
