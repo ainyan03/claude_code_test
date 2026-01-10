@@ -117,9 +117,28 @@ fleximg/
 │       ├── image_transform.js    # WebAssemblyラッパー
 │       └── image_transform.wasm  # WebAssemblyバイナリ
 ├── test/                         # ユニットテスト
+├── docs/                         # ドキュメント
+│   ├── ARCHITECTURE.md           # アーキテクチャ概要
+│   ├── DESIGN_*.md               # 設計ドキュメント
+│   └── ideas/                    # 構想段階のアイデア
+│       └── IDEA_*.md
 ├── build.sh                      # WASMビルドスクリプト
+├── TODO.md                       # タスク管理
 └── README.md                     # このファイル
 ```
+
+### ドキュメント運用
+
+| フォルダ/ファイル | 役割 | 内容 |
+|------------------|------|------|
+| `TODO.md` | タスク管理 | 簡潔なタスクリスト、詳細へのリンク |
+| `docs/DESIGN_*.md` | 設計ドキュメント | 実装済み機能の設計説明 |
+| `docs/ideas/IDEA_*.md` | 構想段階 | 未実装のアイデア・検討中の設計 |
+
+**運用指針**:
+- 構想段階のアイデアは `docs/ideas/` に詳細を記載し、`TODO.md` には概要とリンクのみ
+- 実装が決まったら `docs/DESIGN_*.md` に昇格
+- `TODO.md` は閲覧性を重視し、簡潔に保つ
 
 ## 技術詳細
 
