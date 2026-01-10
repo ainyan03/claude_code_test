@@ -1,5 +1,30 @@
 # Changelog
 
+## [2.3.1] - 2026-01-10
+
+### ドキュメント
+
+- **DESIGN_TYPE_STRUCTURE.md**: 型構造設計ドキュメントを新規作成
+  - ViewPort、ImageBuffer、RenderResult の設計と使用方法
+  - コンポジション設計の利点を説明
+
+- **DESIGN_PIXEL_FORMAT.md**: ピクセルフォーマット変換ドキュメントを追加
+  - RGBA8_Straight ↔ RGBA16_Premultiplied 変換アルゴリズム
+  - アルファ閾値定数の説明
+
+- **GITHUB_PAGES_SETUP.md**: GitHub Pages セットアップガイドを追加
+  - 自動ビルド＆デプロイの設定手順
+  - トラブルシューティング
+
+- **ドキュメント整合性修正**
+  - ARCHITECTURE.md: 関連ドキュメントリンクを更新
+  - DESIGN_PERF_METRICS.md: NodeType enum を8種類に更新
+  - DESIGN_RENDERER_NODE.md: フィルタノード表記を修正
+  - README.md: ファイル構成、ポート番号を更新
+  - test/integration_test.cpp: 削除された filter_node.h の参照を修正
+
+---
+
 ## [2.3.0] - 2026-01-10
 
 ### 追加

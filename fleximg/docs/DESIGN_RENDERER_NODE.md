@@ -11,7 +11,7 @@ SourceNode                    SinkNode
     ↑ pullProcess()              ↓ pushProcess()
 TransformNode        →      RendererNode
     ↑ pullProcess()           (発火点)
-FilterNode
+フィルタノード
 ```
 
 ## 基本的な使い方
@@ -223,7 +223,7 @@ exec() 呼び出し時:
 |------|------------|-----|
 | 入力端点 | 上流のみ | SourceNode |
 | 出力端点 | 下流のみ | SinkNode |
-| 処理ノード | 中間（上流側） | TransformNode, FilterNode, CompositeNode |
+| 処理ノード | 中間（上流側） | TransformNode, フィルタノード, CompositeNode |
 | 発火点 | 中央 | RendererNode |
 
 ## カスタム拡張

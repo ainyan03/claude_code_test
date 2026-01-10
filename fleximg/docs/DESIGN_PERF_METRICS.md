@@ -13,11 +13,15 @@
 ```cpp
 namespace NodeType {
     constexpr int Source = 0;
-    constexpr int Filter = 1;
-    constexpr int Transform = 2;
-    constexpr int Composite = 3;
-    constexpr int Output = 4;
-    constexpr int Count = 5;
+    constexpr int Transform = 1;
+    constexpr int Composite = 2;
+    constexpr int Output = 3;
+    // フィルタ系（種類別）
+    constexpr int Brightness = 4;
+    constexpr int Grayscale = 5;
+    constexpr int BoxBlur = 6;
+    constexpr int Alpha = 7;
+    constexpr int Count = 8;
 }
 ```
 
@@ -81,19 +85,22 @@ ImageBuffer::deallocate() {
 
 ## 計測ポイント
 
-### 時間計測（全5ノード実装済み）
+### 時間計測（全8ノードタイプ）
 
 | ノード | 計測範囲 |
 |--------|----------|
-| Source | `evaluate()` 全体（画像データコピー含む） |
-| Filter | フィルタ処理のみ（上流評価除外） |
+| Source | `pullProcess()` 全体（画像データコピー含む） |
 | Transform | アフィン変換処理のみ（上流評価除外） |
 | Composite | ブレンド処理のみ（上流評価除外） |
 | Output | `processTile()` 全体（上流評価含む） |
+| Brightness | 明るさ調整処理 |
+| Grayscale | グレースケール変換処理 |
+| BoxBlur | ぼかし処理（マージン処理含む） |
+| Alpha | アルファ調整処理 |
 
 ### ピクセル効率計測
 
-Filter/Transformノードで入力要求サイズと出力サイズを比較：
+Transform/フィルタノードで入力要求サイズと出力サイズを比較：
 
 - `requestedPixels`: 上流に要求したピクセル数（AABBサイズ）
 - `usedPixels`: 出力要求サイズ（`request.width * request.height`）
@@ -118,9 +125,12 @@ ImageBuffer のコンストラクタ/デストラクタで自動的に記録：
 | ノード | 計測対象 |
 |--------|----------|
 | Source | 交差領域コピー用バッファ |
-| Filter | 作業バッファ、出力バッファ、クロップバッファ |
 | Transform | 出力バッファ |
 | Composite | キャンバスバッファ |
+| Brightness | 作業バッファ、出力バッファ |
+| Grayscale | 作業バッファ、出力バッファ |
+| BoxBlur | 作業バッファ、出力バッファ、クロップバッファ |
+| Alpha | 作業バッファ、出力バッファ |
 
 ノード別統計:
 - `allocatedBytes`: このノードが確保したバイト数
@@ -132,11 +142,12 @@ ImageBuffer のコンストラクタ/デストラクタで自動的に記録：
 ### C++側
 
 ```cpp
-Renderer renderer(sinkNode);
+RendererNode renderer;
 renderer.exec();
 
-const PerfMetrics& metrics = renderer.getPerfMetrics();
-std::cout << "Filter time: " << metrics.nodes[NodeType::Filter].time_us << "us\n";
+const PerfMetrics& metrics = PerfMetrics::instance();
+std::cout << "Transform time: " << metrics.nodes[NodeType::Transform].time_us << "us\n";
+std::cout << "Brightness time: " << metrics.nodes[NodeType::Brightness].time_us << "us\n";
 std::cout << "Total time: " << metrics.totalTime() << "us\n";
 ```
 
@@ -178,7 +189,7 @@ console.log(metrics.filterTime, metrics.affineTime);
 |---------|------|
 | `src/fleximg/perf_metrics.h` | NodeType, NodeMetrics, PerfMetrics 定義（シングルトン） |
 | `src/fleximg/image_buffer.h` | ImageBuffer（自動統計記録） |
-| `src/fleximg/renderer.h` | Renderer.getPerfMetrics() |
-| `src/fleximg/renderer.cpp` | 各ノードの計測コード |
+| `src/fleximg/nodes/renderer_node.h` | RendererNode（パイプライン実行） |
+| `src/fleximg/nodes/*_node.h` | 各ノードの計測コード |
 | `demo/bindings.cpp` | WASM bindings |
-| `demo/web/app.js` | 表示UI |
+| `demo/web/app.js` | 表示UI（NODE_TYPES定義） |
