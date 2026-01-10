@@ -955,19 +955,20 @@ function addImageToLibrary(imageData) {
 
 // デバッグ用テストパターン画像を生成
 function generateTestPatterns() {
-    const size = 128;
     const patterns = [];
 
-    // パターン1: チェッカーパターン（点対称）
+    // パターン1: チェッカーパターン（128x96、4:3比率）
     {
+        const width = 128;
+        const height = 96;
         const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = size;
-        tempCanvas.height = size;
+        tempCanvas.width = width;
+        tempCanvas.height = height;
         const tempCtx = tempCanvas.getContext('2d');
 
         const cellSize = 16;
-        for (let y = 0; y < size; y += cellSize) {
-            for (let x = 0; x < size; x += cellSize) {
+        for (let y = 0; y < height; y += cellSize) {
+            for (let x = 0; x < width; x += cellSize) {
                 const isWhite = ((x / cellSize) + (y / cellSize)) % 2 === 0;
                 tempCtx.fillStyle = isWhite ? '#ffffff' : '#4a90d9';
                 tempCtx.fillRect(x, y, cellSize, cellSize);
@@ -976,20 +977,21 @@ function generateTestPatterns() {
         // 中心マーク
         tempCtx.fillStyle = '#ff0000';
         tempCtx.beginPath();
-        tempCtx.arc(size / 2, size / 2, 4, 0, Math.PI * 2);
+        tempCtx.arc(width / 2, height / 2, 4, 0, Math.PI * 2);
         tempCtx.fill();
 
-        const imageData = tempCtx.getImageData(0, 0, size, size);
+        const imageData = tempCtx.getImageData(0, 0, width, height);
         patterns.push({
             name: 'Checker',
             data: new Uint8ClampedArray(imageData.data),
-            width: size,
-            height: size
+            width: width,
+            height: height
         });
     }
 
-    // パターン2: 同心円ターゲット（点対称）
+    // パターン2: 同心円ターゲット（128x128、正方形）
     {
+        const size = 128;
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = size;
         tempCanvas.height = size;
@@ -1025,8 +1027,9 @@ function generateTestPatterns() {
         });
     }
 
-    // パターン3: グリッド＋十字線（点対称）
+    // パターン3: グリッド＋十字線（128x128、正方形）
     {
+        const size = 128;
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = size;
         tempCanvas.height = size;
@@ -1081,6 +1084,106 @@ function generateTestPatterns() {
             data: new Uint8ClampedArray(imageData.data),
             width: size,
             height: size
+        });
+    }
+
+    // パターン4: クロスヘア（101x63、奇数×奇数、精度検証用）
+    // 中心ピクセルを基準に180度点対称
+    {
+        const width = 101;
+        const height = 63;
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = width;
+        tempCanvas.height = height;
+        const tempCtx = tempCanvas.getContext('2d');
+
+        // 背景（薄い青）
+        tempCtx.fillStyle = '#e8f4fc';
+        tempCtx.fillRect(0, 0, width, height);
+
+        // 中心ピクセル（奇数サイズなので中央の1ピクセル: 50, 31）
+        const centerPixelX = Math.floor(width / 2);   // 50
+        const centerPixelY = Math.floor(height / 2);  // 31
+
+        // 外枠（青色、fillRectで描画し、全周で同じ1ピクセル幅を保証）
+        tempCtx.fillStyle = '#0066cc';
+        tempCtx.fillRect(0, 0, width, 1);           // 上辺
+        tempCtx.fillRect(0, height - 1, width, 1);  // 下辺
+        tempCtx.fillRect(0, 0, 1, height);          // 左辺
+        tempCtx.fillRect(width - 1, 0, 1, height);  // 右辺
+
+        // グリッド線（中心ピクセルから±10px間隔で対称に配置）
+        tempCtx.fillStyle = '#cccccc';
+        // 縦線: 中心から ±10, ±20, ±30, ±40, ±50
+        for (let offset = 10; offset <= 50; offset += 10) {
+            const xLeft = centerPixelX - offset;
+            const xRight = centerPixelX + offset;
+            if (xLeft >= 0) {
+                tempCtx.fillRect(xLeft, 0, 1, height);
+            }
+            if (xRight < width) {
+                tempCtx.fillRect(xRight, 0, 1, height);
+            }
+        }
+        // 横線: 中心から ±10, ±20, ±30
+        for (let offset = 10; offset <= 30; offset += 10) {
+            const yTop = centerPixelY - offset;
+            const yBottom = centerPixelY + offset;
+            if (yTop >= 0) {
+                tempCtx.fillRect(0, yTop, width, 1);
+            }
+            if (yBottom < height) {
+                tempCtx.fillRect(0, yBottom, width, 1);
+            }
+        }
+
+        // 中心十字線（1ピクセル幅、赤）
+        tempCtx.fillStyle = '#ff0000';
+        tempCtx.fillRect(centerPixelX, 0, 1, height);  // 垂直線
+        tempCtx.fillRect(0, centerPixelY, width, 1);   // 水平線
+
+        // 中心マーカー（3x3、赤塗り）
+        tempCtx.fillRect(centerPixelX - 1, centerPixelY - 1, 3, 3);
+
+        const imageData = tempCtx.getImageData(0, 0, width, height);
+        patterns.push({
+            name: 'CrossHair',
+            data: new Uint8ClampedArray(imageData.data),
+            width: width,
+            height: height
+        });
+    }
+
+    // パターン5: 小チェッカー（70x35、偶数×奇数、5x5セル）
+    {
+        const width = 70;
+        const height = 35;
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = width;
+        tempCanvas.height = height;
+        const tempCtx = tempCanvas.getContext('2d');
+
+        const cellSize = 5;
+        for (let y = 0; y < height; y += cellSize) {
+            for (let x = 0; x < width; x += cellSize) {
+                const isWhite = ((x / cellSize) + (y / cellSize)) % 2 === 0;
+                tempCtx.fillStyle = isWhite ? '#ffffff' : '#4a90d9';
+                tempCtx.fillRect(x, y, cellSize, cellSize);
+            }
+        }
+
+        // 中心マーク
+        tempCtx.fillStyle = '#ff0000';
+        tempCtx.beginPath();
+        tempCtx.arc(width / 2, height / 2, 3, 0, Math.PI * 2);
+        tempCtx.fill();
+
+        const imageData = tempCtx.getImageData(0, 0, width, height);
+        patterns.push({
+            name: 'SmallCheck',
+            data: new Uint8ClampedArray(imageData.data),
+            width: width,
+            height: height
         });
     }
 
@@ -1683,17 +1786,17 @@ function drawGlobalNode(node) {
         slider.type = 'range';
         slider.min = '-180';
         slider.max = '180';
-        slider.step = '1';
+        slider.step = '0.1';
         slider.value = String(node.rotation || 0);
         slider.style.cssText = 'flex: 1; min-width: 50px;';
 
         const display = document.createElement('span');
-        display.style.cssText = 'min-width: 35px; text-align: right;';
-        display.textContent = `${Math.round(node.rotation || 0)}°`;
+        display.style.cssText = 'min-width: 40px; text-align: right;';
+        display.textContent = `${(node.rotation || 0).toFixed(1)}°`;
 
         slider.addEventListener('input', (e) => {
             node.rotation = parseFloat(e.target.value);
-            display.textContent = `${Math.round(node.rotation)}°`;
+            display.textContent = `${node.rotation.toFixed(1)}°`;
             node.matrix = calculateMatrixFromParams(
                 node.translateX || 0,
                 node.translateY || 0,
@@ -3047,11 +3150,11 @@ function buildAffineDetailContent(node) {
     if (!node.matrixMode) {
         // パラメータモード
         const params = [
-            { key: 'translateX', label: 'X移動', min: -500, max: 500, step: 1, default: 0, format: v => Math.round(v) },
-            { key: 'translateY', label: 'Y移動', min: -500, max: 500, step: 1, default: 0, format: v => Math.round(v) },
-            { key: 'rotation', label: '回転', min: -180, max: 180, step: 1, default: 0, format: v => `${Math.round(v)}°` },
-            { key: 'scaleX', label: 'X倍率', min: 0.1, max: 3, step: 0.1, default: 1, format: v => v.toFixed(1) },
-            { key: 'scaleY', label: 'Y倍率', min: 0.1, max: 3, step: 0.1, default: 1, format: v => v.toFixed(1) }
+            { key: 'translateX', label: 'X移動', min: -500, max: 500, step: 0.1, default: 0, format: v => v.toFixed(1) },
+            { key: 'translateY', label: 'Y移動', min: -500, max: 500, step: 0.1, default: 0, format: v => v.toFixed(1) },
+            { key: 'rotation', label: '回転', min: -180, max: 180, step: 0.1, default: 0, format: v => `${v.toFixed(1)}°` },
+            { key: 'scaleX', label: 'X倍率', min: 0.1, max: 3, step: 0.01, default: 1, format: v => v.toFixed(2) },
+            { key: 'scaleY', label: 'Y倍率', min: 0.1, max: 3, step: 0.01, default: 1, format: v => v.toFixed(2) }
         ];
 
         params.forEach(p => {
@@ -3092,12 +3195,12 @@ function buildAffineDetailContent(node) {
     } else {
         // 行列モード
         const matrixParams = [
-            { name: 'a', min: -3, max: 3, step: 0.1, default: 1 },
-            { name: 'b', min: -3, max: 3, step: 0.1, default: 0 },
-            { name: 'c', min: -3, max: 3, step: 0.1, default: 0 },
-            { name: 'd', min: -3, max: 3, step: 0.1, default: 1 },
-            { name: 'tx', min: -500, max: 500, step: 1, default: 0 },
-            { name: 'ty', min: -500, max: 500, step: 1, default: 0 }
+            { name: 'a', min: -3, max: 3, step: 0.01, default: 1, decimals: 2 },
+            { name: 'b', min: -3, max: 3, step: 0.01, default: 0, decimals: 2 },
+            { name: 'c', min: -3, max: 3, step: 0.01, default: 0, decimals: 2 },
+            { name: 'd', min: -3, max: 3, step: 0.01, default: 1, decimals: 2 },
+            { name: 'tx', min: -500, max: 500, step: 0.1, default: 0, decimals: 1 },
+            { name: 'ty', min: -500, max: 500, step: 0.1, default: 0, decimals: 1 }
         ];
 
         matrixParams.forEach(p => {
@@ -3117,12 +3220,12 @@ function buildAffineDetailContent(node) {
 
             const display = document.createElement('span');
             display.className = 'value-display';
-            display.textContent = value.toFixed(p.step >= 1 ? 0 : 2);
+            display.textContent = value.toFixed(p.decimals);
 
             slider.addEventListener('input', (e) => {
                 if (!node.matrix) node.matrix = { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
                 node.matrix[p.name] = parseFloat(e.target.value);
-                display.textContent = node.matrix[p.name].toFixed(p.step >= 1 ? 0 : 2);
+                display.textContent = node.matrix[p.name].toFixed(p.decimals);
                 renderNodeGraph();
                 throttledUpdatePreview();
             });
