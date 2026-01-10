@@ -181,7 +181,7 @@ protected:
         }
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto& m = PerfMetrics::instance().nodes[NodeType::Output];
+        auto& m = PerfMetrics::instance().nodes[NodeType::Renderer];
         m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::high_resolution_clock::now() - renderStart).count();
         m.count++;

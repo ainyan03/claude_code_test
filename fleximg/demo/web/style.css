@@ -690,12 +690,20 @@ button {
     border-color: #667eea;
 }
 
-.node-box.node-type-output {
-    border-color: #ed8936;
+.node-box.node-type-affine {
+    border-color: #38b2ac; /* ティール: アフィン変換 */
 }
 
 .node-box.node-type-composite {
     border-color: #9f7aea;
+}
+
+.node-box.node-type-renderer {
+    border-color: #f56565; /* 赤系: パイプライン発火点 */
+}
+
+.node-box.node-type-sink {
+    border-color: #ed8936; /* オレンジ: 出力 */
 }
 
 .node-box.dragging {
@@ -1266,6 +1274,13 @@ button {
     font-size: 12px;
     font-weight: 600;
     color: #667eea;
+}
+
+.sidebar-hint {
+    font-size: 10px;
+    color: #888;
+    margin: 8px 0 0 0;
+    padding: 0;
 }
 
 /* タイル分割設定 */
