@@ -10,6 +10,7 @@
 #include "viewport.h"
 #include "image_allocator.h"
 #include "perf_metrics.h"
+#include "pixel_format_registry.h"
 
 namespace FLEXIMG_NAMESPACE {
 
@@ -137,6 +138,28 @@ public:
 
     size_t bytesPerPixel() const { return view_.bytesPerPixel(); }
     size_t totalBytes() const { return view_.height * view_.stride; }
+
+    // ========================================
+    // フォーマット変換
+    // ========================================
+
+    // 右辺値参照版: 同じフォーマットならムーブ、異なるなら変換
+    // 使用例: ImageBuffer working = std::move(input.buffer).toFormat(PixelFormatIDs::RGBA8_Straight);
+    ImageBuffer toFormat(PixelFormatID target) && {
+        if (view_.formatID == target) {
+            return std::move(*this);  // ムーブで返す（コピーなし）
+        }
+        // 変換して新しいバッファを返す
+        ImageBuffer converted(view_.width, view_.height, target, allocator_);
+        if (isValid() && converted.isValid()) {
+            int pixelCount = view_.width * view_.height;
+            PixelFormatRegistry::getInstance().convert(
+                view_.data, view_.formatID,
+                converted.view_.data, target,
+                pixelCount);
+        }
+        return converted;
+    }
 
 private:
     ViewPort view_;           // コンポジション: 画像データへのビュー
