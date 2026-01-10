@@ -1,5 +1,6 @@
 #include "blend.h"
 #include "../pixel_format.h"
+#include "../types.h"
 #include <cstring>
 #include <algorithm>
 
@@ -10,13 +11,13 @@ namespace blend {
 // first - 透明キャンバスへの最初の描画
 // ========================================================================
 
-void first(ViewPort& dst, float dstOriginX, float dstOriginY,
-           const ViewPort& src, float srcOriginX, float srcOriginY) {
+void first(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
+           const ViewPort& src, int_fixed8 srcOriginX, int_fixed8 srcOriginY) {
     if (!dst.isValid() || !src.isValid()) return;
 
-    // 基準点を一致させるためのオフセット計算
-    int offsetX = static_cast<int>(dstOriginX - srcOriginX);
-    int offsetY = static_cast<int>(dstOriginY - srcOriginY);
+    // 基準点を一致させるためのオフセット計算（固定小数点演算）
+    int offsetX = from_fixed8(dstOriginX - srcOriginX);
+    int offsetY = from_fixed8(dstOriginY - srcOriginY);
 
     // クリッピング範囲を計算
     int srcStartX = std::max(0, -offsetX);
@@ -77,19 +78,19 @@ void first(ViewPort& dst, float dstOriginX, float dstOriginY,
 // onto - 既存画像への合成
 // ========================================================================
 
-void onto(ViewPort& dst, float dstOriginX, float dstOriginY,
-          const ViewPort& src, float srcOriginX, float srcOriginY) {
+void onto(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
+          const ViewPort& src, int_fixed8 srcOriginX, int_fixed8 srcOriginY) {
     if (!dst.isValid() || !src.isValid()) return;
 
-    // 基準点を一致させるためのオフセット計算
-    int offsetX = static_cast<int>(dstOriginX - srcOriginX);
-    int offsetY = static_cast<int>(dstOriginY - srcOriginY);
+    // 基準点を一致させるためのオフセット計算（固定小数点演算）
+    int offsetX = from_fixed8(dstOriginX - srcOriginX);
+    int offsetY = from_fixed8(dstOriginY - srcOriginY);
 
     // ループ範囲を事前計算
-    int yStart = std::max(0, -offsetY);
-    int yEnd = std::min(src.height, dst.height - offsetY);
-    int xStart = std::max(0, -offsetX);
-    int xEnd = std::min(src.width, dst.width - offsetX);
+    int_fast32_t yStart = std::max(0, -offsetY);
+    int_fast32_t yEnd = std::min<int_fast32_t>(src.height, dst.height - offsetY);
+    int_fast32_t xStart = std::max(0, -offsetX);
+    int_fast32_t xEnd = std::min<int_fast32_t>(src.width, dst.width - offsetX);
 
     if (yStart >= yEnd || xStart >= xEnd) return;
 

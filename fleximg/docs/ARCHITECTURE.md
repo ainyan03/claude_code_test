@@ -124,16 +124,18 @@ renderer.exec();
 ```cpp
 // 下流からの要求
 struct RenderRequest {
-    int width, height;  // 要求サイズ
-    Point2f origin;     // バッファ内での基準点位置
+    int16_t width, height;  // 要求サイズ
+    Point origin;           // バッファ内での基準点位置（int_fixed8）
 };
 
 // 評価結果
 struct RenderResult {
     ImageBuffer buffer;
-    Point2f origin;  // バッファ内での基準点位置
+    Point origin;  // バッファ内での基準点位置（int_fixed8）
 };
 ```
+
+※ `Point` は固定小数点 Q24.8（`int_fixed8`）をメンバに持つ構造体です。
 
 ### 座標の意味
 
@@ -189,9 +191,9 @@ namespace filters {
 
 ```cpp
 namespace transform {
-    void affine(ViewPort& dst, float dstOriginX, float dstOriginY,
-                const ViewPort& src, float srcOriginX, float srcOriginY,
-                const AffineMatrix& matrix);
+    void affine(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
+                const ViewPort& src, int_fixed8 srcOriginX, int_fixed8 srcOriginY,
+                const FixedPointInverseMatrix& invMatrix);
 }
 ```
 
@@ -199,18 +201,21 @@ namespace transform {
 
 ```cpp
 namespace blend {
-    void first(ViewPort& canvas, float canvasOriginX, float canvasOriginY,
-               const ViewPort& src, float srcOriginX, float srcOriginY);
-    void onto(ViewPort& canvas, float canvasOriginX, float canvasOriginY,
-              const ViewPort& src, float srcOriginX, float srcOriginY);
+    void first(ViewPort& canvas, int_fixed8 canvasOriginX, int_fixed8 canvasOriginY,
+               const ViewPort& src, int_fixed8 srcOriginX, int_fixed8 srcOriginY);
+    void onto(ViewPort& canvas, int_fixed8 canvasOriginX, int_fixed8 canvasOriginY,
+              const ViewPort& src, int_fixed8 srcOriginX, int_fixed8 srcOriginY);
 }
 ```
+
+※ `int_fixed8` は Q24.8 固定小数点型です（`types.h` で定義）。
 
 ## ファイル構成
 
 ```
 src/fleximg/
-├── common.h              # 共通定義（Point2f, AffineMatrix）
+├── types.h               # 固定小数点型定義（int_fixed8, int_fixed16）
+├── common.h              # 共通定義（Point, AffineMatrix）
 ├── pixel_format.h        # ピクセルフォーマット定義
 ├── image_allocator.h     # カスタムアロケータ
 ├── image_buffer.h        # ImageBuffer
@@ -258,7 +263,7 @@ ViewPort outputView = outputBuffer.view();
 
 // ノード作成
 SourceNode source(inputView);
-source.setOrigin(inputView.width / 2.0f, inputView.height / 2.0f);
+source.setOriginf(inputView.width / 2.0f, inputView.height / 2.0f);  // float引数版
 
 TransformNode transform;
 transform.setMatrix(AffineMatrix::rotate(0.5f));  // 約30度回転

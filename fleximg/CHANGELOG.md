@@ -1,5 +1,45 @@
 # Changelog
 
+## [2.5.0] - 2026-01-10
+
+### 追加
+
+- **固定小数点型 (types.h)**
+  - `int_fixed8` (Q24.8): 座標・origin用の固定小数点型
+  - `int_fixed16` (Q16.16): 将来のアフィン行列用固定小数点型
+  - 変換関数: `to_fixed8()`, `from_fixed8()`, `float_to_fixed8()` など
+
+### 変更
+
+- **Point 構造体**: float メンバから int_fixed8 メンバに変更
+  - マイグレーション用 float コンストラクタを維持
+  - `xf()`, `yf()` アクセサで float 値を取得可能
+
+- **RenderRequest/RenderResult**: width/height を int16_t に変更
+
+- **ViewPort/ImageBuffer**:
+  - width/height を int16_t に変更
+  - stride を int32_t に変更（Y軸反転対応）
+
+- **各ノードの origin 処理を固定小数点化**
+  - SourceNode: `setOriginf()` マイグレーション API 追加
+  - SinkNode: `setOriginf()` マイグレーション API 追加
+  - RendererNode: `setVirtualScreenf()` マイグレーション API 追加
+  - blend::first/onto: int_fixed8 引数に変更
+  - transform::affine: int_fixed8 引数に変更
+
+### 技術的詳細
+
+- 組み込み環境への移植を見据え、浮動小数点を排除
+- Q24.8 形式: 整数部24bit、小数部8bit（精度 1/256 ピクセル）
+- クロスプラットフォーム対応のため明示的な型幅を使用
+
+### ファイル追加
+
+- `src/fleximg/types.h`: 固定小数点型定義
+
+---
+
 ## [2.4.0] - 2026-01-10
 
 ### 変更

@@ -103,9 +103,9 @@ public:
 
         RenderResult canvas;
         bool canvasInitialized = false;
-        // バッファ内基準点位置
-        float canvasOriginX = request.origin.x;
-        float canvasOriginY = request.origin.y;
+        // バッファ内基準点位置（固定小数点 Q24.8）
+        int_fixed8 canvasOriginX = request.origin.x;
+        int_fixed8 canvasOriginY = request.origin.y;
 
         // 逐次合成: 入力を1つずつ評価して合成
         for (int i = 0; i < numInputs; i++) {
@@ -137,7 +137,7 @@ public:
                             inputView, inputResult.origin.x, inputResult.origin.y);
 
                 canvas = RenderResult(std::move(canvasBuf),
-                                     Point2f(canvasOriginX, canvasOriginY));
+                                     Point{canvasOriginX, canvasOriginY});
                 canvasInitialized = true;
             } else {
                 // 2枚目以降 → ブレンド処理
@@ -165,7 +165,7 @@ public:
 
         // 全ての入力が空だった場合
         if (!canvasInitialized) {
-            return RenderResult(ImageBuffer(), Point2f(canvasOriginX, canvasOriginY));
+            return RenderResult(ImageBuffer(), Point{canvasOriginX, canvasOriginY});
         }
 
         return canvas;

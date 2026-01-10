@@ -21,36 +21,44 @@ namespace FLEXIMG_NAMESPACE {
 struct ViewPort {
     void* data = nullptr;
     PixelFormatID formatID = PixelFormatIDs::RGBA8_Straight;
-    size_t stride = 0;
-    int width = 0;
-    int height = 0;
+    int32_t stride = 0;     // 負値でY軸反転対応
+    int16_t width = 0;
+    int16_t height = 0;
 
     // デフォルトコンストラクタ
     ViewPort() = default;
 
     // 直接初期化
-    ViewPort(void* d, PixelFormatID fmt, size_t str, int w, int h)
+    ViewPort(void* d, PixelFormatID fmt, int32_t str, int16_t w, int16_t h)
         : data(d), formatID(fmt), stride(str), width(w), height(h) {}
 
     // 簡易初期化（strideを自動計算）
     ViewPort(void* d, int w, int h, PixelFormatID fmt = PixelFormatIDs::RGBA8_Straight)
-        : data(d), formatID(fmt), stride(w * getBytesPerPixel(fmt)), width(w), height(h) {}
+        : data(d), formatID(fmt)
+        , stride(static_cast<int32_t>(w * getBytesPerPixel(fmt)))
+        , width(static_cast<int16_t>(w))
+        , height(static_cast<int16_t>(h)) {}
 
     // 有効判定
     bool isValid() const { return data != nullptr && width > 0 && height > 0; }
 
-    // ピクセルアドレス取得
+    // ピクセルアドレス取得（strideが負の場合もサポート）
     void* pixelAt(int x, int y) {
-        return static_cast<uint8_t*>(data) + y * stride + x * getBytesPerPixel(formatID);
+        return static_cast<uint8_t*>(data) + static_cast<int_fast32_t>(y) * stride
+               + x * getBytesPerPixel(formatID);
     }
 
     const void* pixelAt(int x, int y) const {
-        return static_cast<const uint8_t*>(data) + y * stride + x * getBytesPerPixel(formatID);
+        return static_cast<const uint8_t*>(data) + static_cast<int_fast32_t>(y) * stride
+               + x * getBytesPerPixel(formatID);
     }
 
     // バイト情報
     size_t bytesPerPixel() const { return getBytesPerPixel(formatID); }
-    size_t rowBytes() const { return stride > 0 ? stride : width * bytesPerPixel(); }
+    uint32_t rowBytes() const {
+        return stride > 0 ? static_cast<uint32_t>(stride)
+                          : static_cast<uint32_t>(width) * bytesPerPixel();
+    }
 };
 
 // ========================================================================

@@ -1,4 +1,5 @@
 #include "transform.h"
+#include "../types.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -11,8 +12,8 @@ namespace transform {
 // affine - アフィン変換
 // ========================================================================
 
-void affine(ViewPort& dst, float dstOriginX, float dstOriginY,
-            const ViewPort& src, float srcOriginX, float srcOriginY,
+void affine(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
+            const ViewPort& src, int_fixed8 srcOriginX, int_fixed8 srcOriginY,
             const FixedPointInverseMatrix& invMatrix) {
     if (!dst.isValid() || !src.isValid()) return;
     if (!invMatrix.valid) return;
@@ -26,11 +27,11 @@ void affine(ViewPort& dst, float dstOriginX, float dstOriginY,
     int32_t fixedInvC = invMatrix.c;
     int32_t fixedInvD = invMatrix.d;
 
-    // 原点座標を整数化
-    int32_t dstOriginXInt = std::lround(dstOriginX);
-    int32_t dstOriginYInt = std::lround(dstOriginY);
-    int32_t srcOriginXInt = std::lround(srcOriginX);
-    int32_t srcOriginYInt = std::lround(srcOriginY);
+    // 原点座標を整数化（固定小数点から変換）
+    int32_t dstOriginXInt = from_fixed8(dstOriginX);
+    int32_t dstOriginYInt = from_fixed8(dstOriginY);
+    int32_t srcOriginXInt = from_fixed8(srcOriginX);
+    int32_t srcOriginYInt = from_fixed8(srcOriginY);
 
     // ========================================================================
     // 逆変換オフセットの計算

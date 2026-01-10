@@ -38,7 +38,8 @@ public:
     // サイズ指定コンストラクタ
     ImageBuffer(int w, int h, PixelFormatID fmt = PixelFormatIDs::RGBA8_Straight,
                 ImageAllocator* alloc = &DefaultAllocator::getInstance())
-        : view_(nullptr, fmt, 0, w, h), capacity_(0), allocator_(alloc) {
+        : view_(nullptr, fmt, 0, static_cast<int16_t>(w), static_cast<int16_t>(h))
+        , capacity_(0), allocator_(alloc) {
         allocate();
     }
 
@@ -53,8 +54,9 @@ public:
 
     // コピーコンストラクタ（ディープコピー）
     ImageBuffer(const ImageBuffer& other)
-        : view_(nullptr, other.view_.formatID, 0, other.view_.width, other.view_.height),
-          capacity_(0), allocator_(other.allocator_) {
+        : view_(nullptr, other.view_.formatID, 0,
+                other.view_.width, other.view_.height)
+        , capacity_(0), allocator_(other.allocator_) {
         if (other.isValid()) {
             allocate();
             copyFrom(other);
@@ -125,9 +127,9 @@ public:
 
     bool isValid() const { return view_.isValid(); }
 
-    int width() const { return view_.width; }
-    int height() const { return view_.height; }
-    size_t stride() const { return view_.stride; }
+    int16_t width() const { return view_.width; }
+    int16_t height() const { return view_.height; }
+    int32_t stride() const { return view_.stride; }
     PixelFormatID formatID() const { return view_.formatID; }
 
     void* data() { return view_.data; }
@@ -137,7 +139,11 @@ public:
     const void* pixelAt(int x, int y) const { return view_.pixelAt(x, y); }
 
     size_t bytesPerPixel() const { return view_.bytesPerPixel(); }
-    size_t totalBytes() const { return view_.height * view_.stride; }
+    uint32_t totalBytes() const {
+        // strideが負の場合は絶対値を使用
+        int32_t absStride = stride() >= 0 ? stride() : -stride();
+        return static_cast<uint32_t>(view_.height) * static_cast<uint32_t>(absStride);
+    }
 
     // ========================================
     // フォーマット変換
@@ -168,8 +174,8 @@ private:
 
     void allocate() {
         size_t bpp = getBytesPerPixel(view_.formatID);
-        view_.stride = view_.width * bpp;
-        capacity_ = view_.stride * view_.height;
+        view_.stride = static_cast<int32_t>(view_.width * bpp);
+        capacity_ = static_cast<size_t>(view_.stride) * view_.height;
         if (capacity_ > 0 && allocator_) {
             view_.data = allocator_->allocate(capacity_);
             if (view_.data) {
@@ -194,13 +200,13 @@ private:
 
     void copyFrom(const ImageBuffer& other) {
         if (!isValid() || !other.isValid()) return;
-        size_t copyBytes = std::min(view_.stride, other.view_.stride);
-        int copyHeight = std::min(view_.height, other.view_.height);
-        for (int y = 0; y < copyHeight; ++y) {
+        int32_t copyBytes = std::min(view_.stride, other.view_.stride);
+        int16_t copyHeight = std::min(view_.height, other.view_.height);
+        for (int_fast16_t y = 0; y < copyHeight; ++y) {
             std::memcpy(
                 static_cast<uint8_t*>(view_.data) + y * view_.stride,
                 static_cast<const uint8_t*>(other.view_.data) + y * other.view_.stride,
-                copyBytes
+                static_cast<size_t>(copyBytes)
             );
         }
     }

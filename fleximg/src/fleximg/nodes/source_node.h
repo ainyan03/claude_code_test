@@ -29,19 +29,33 @@ public:
         initPorts(0, 1);  // 入力0、出力1
     }
 
-    SourceNode(const ViewPort& vp, float originX = 0, float originY = 0)
+    SourceNode(const ViewPort& vp, int_fixed8 originX = 0, int_fixed8 originY = 0)
         : source_(vp), originX_(originX), originY_(originY) {
+        initPorts(0, 1);
+    }
+
+    // 移行用コンストラクタ（float引数、最終的に削除予定）
+    SourceNode(const ViewPort& vp, float originX, float originY)
+        : source_(vp)
+        , originX_(float_to_fixed8(originX))
+        , originY_(float_to_fixed8(originY)) {
         initPorts(0, 1);
     }
 
     // ソース設定
     void setSource(const ViewPort& vp) { source_ = vp; }
-    void setOrigin(float x, float y) { originX_ = x; originY_ = y; }
+    void setOrigin(int_fixed8 x, int_fixed8 y) { originX_ = x; originY_ = y; }
+
+    // 移行用セッター（float引数、最終的に削除予定）
+    void setOriginf(float x, float y) {
+        originX_ = float_to_fixed8(x);
+        originY_ = float_to_fixed8(y);
+    }
 
     // アクセサ
     const ViewPort& source() const { return source_; }
-    float originX() const { return originX_; }
-    float originY() const { return originY_; }
+    int_fixed8 originX() const { return originX_; }
+    int_fixed8 originY() const { return originY_; }
 
     const char* name() const override { return "SourceNode"; }
 
@@ -65,23 +79,23 @@ public:
             return RenderResult();
         }
 
-        // ソース画像の基準相対座標範囲
-        float imgLeft = -originX_;
-        float imgTop = -originY_;
-        float imgRight = imgLeft + source_.width;
-        float imgBottom = imgTop + source_.height;
+        // ソース画像の基準相対座標範囲（固定小数点 Q24.8）
+        int_fixed8 imgLeft = -originX_;
+        int_fixed8 imgTop = -originY_;
+        int_fixed8 imgRight = imgLeft + to_fixed8(source_.width);
+        int_fixed8 imgBottom = imgTop + to_fixed8(source_.height);
 
-        // 要求範囲の基準相対座標
-        float reqLeft = -request.origin.x;
-        float reqTop = -request.origin.y;
-        float reqRight = reqLeft + request.width;
-        float reqBottom = reqTop + request.height;
+        // 要求範囲の基準相対座標（固定小数点 Q24.8）
+        int_fixed8 reqLeft = -request.origin.x;
+        int_fixed8 reqTop = -request.origin.y;
+        int_fixed8 reqRight = reqLeft + to_fixed8(request.width);
+        int_fixed8 reqBottom = reqTop + to_fixed8(request.height);
 
         // 交差領域
-        float interLeft = std::max(imgLeft, reqLeft);
-        float interTop = std::max(imgTop, reqTop);
-        float interRight = std::min(imgRight, reqRight);
-        float interBottom = std::min(imgBottom, reqBottom);
+        int_fixed8 interLeft = std::max(imgLeft, reqLeft);
+        int_fixed8 interTop = std::max(imgTop, reqTop);
+        int_fixed8 interRight = std::min(imgRight, reqRight);
+        int_fixed8 interBottom = std::min(imgBottom, reqBottom);
 
         if (interLeft >= interRight || interTop >= interBottom) {
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
@@ -90,15 +104,15 @@ public:
                 std::chrono::high_resolution_clock::now() - sourceStart).count();
             m.count++;
 #endif
-            // バッファ内基準点位置 = -reqLeft, -reqTop = request.origin.x, request.origin.y
+            // バッファ内基準点位置 = request.origin
             return RenderResult(ImageBuffer(), request.origin);
         }
 
-        // 交差領域をコピー
-        int srcX = static_cast<int>(interLeft - imgLeft);
-        int srcY = static_cast<int>(interTop - imgTop);
-        int interW = static_cast<int>(interRight - interLeft);
-        int interH = static_cast<int>(interBottom - interTop);
+        // 交差領域をコピー（固定小数点から整数へ変換）
+        int srcX = from_fixed8(interLeft - imgLeft);
+        int srcY = from_fixed8(interTop - imgTop);
+        int interW = from_fixed8(interRight - interLeft);
+        int interH = from_fixed8(interBottom - interTop);
 
         ImageBuffer result(interW, interH, source_.formatID);
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
@@ -115,13 +129,13 @@ public:
         m.count++;
 #endif
         // バッファ内基準点位置 = -interLeft, -interTop
-        return RenderResult(std::move(result), Point2f(-interLeft, -interTop));
+        return RenderResult(std::move(result), Point{-interLeft, -interTop});
     }
 
 private:
     ViewPort source_;
-    float originX_ = 0;  // 画像内の基準点X（ピクセル座標）
-    float originY_ = 0;  // 画像内の基準点Y（ピクセル座標）
+    int_fixed8 originX_ = 0;  // 画像内の基準点X（固定小数点 Q24.8）
+    int_fixed8 originY_ = 0;  // 画像内の基準点Y（固定小数点 Q24.8）
 };
 
 } // namespace FLEXIMG_NAMESPACE
