@@ -81,8 +81,8 @@ public:
     void prepare(const RenderRequest& screenInfo) override {
         (void)screenInfo;
 
-        // 逆行列を事前計算
-        invMatrix_ = transform::FixedPointInverseMatrix::fromMatrix(matrix_);
+        // 逆行列を事前計算（2x2部分のみ、tx/tyは別途管理）
+        invMatrix_ = inverseFixed16(matrix_);
 
         // tx/ty を Q24.8 固定小数点で保持（サブピクセル精度）
         txFixed8_ = float_to_fixed8(matrix_.tx);
@@ -197,8 +197,8 @@ protected:
                          + static_cast<int64_t>(invMatrix_.b) * ry;
             int64_t sy64 = static_cast<int64_t>(invMatrix_.c) * rx
                          + static_cast<int64_t>(invMatrix_.d) * ry;
-            int32_t sx = static_cast<int32_t>(sx64 >> transform::FIXED_POINT_BITS);
-            int32_t sy = static_cast<int32_t>(sy64 >> transform::FIXED_POINT_BITS);
+            int32_t sx = static_cast<int32_t>(sx64 >> INT_FIXED16_SHIFT);
+            int32_t sy = static_cast<int32_t>(sy64 >> INT_FIXED16_SHIFT);
             minX = std::min(minX, sx);
             minY = std::min(minY, sy);
             maxX = std::max(maxX, sx);
@@ -222,7 +222,7 @@ protected:
 
 private:
     AffineMatrix matrix_;  // 恒等行列がデフォルト
-    transform::FixedPointInverseMatrix invMatrix_;  // prepare() で計算
+    Matrix2x2_fixed16 invMatrix_;  // prepare() で計算（2x2逆行列）
     int_fixed8 txFixed8_ = 0;  // tx を Q24.8 で保持
     int_fixed8 tyFixed8_ = 0;  // ty を Q24.8 で保持
 
@@ -277,11 +277,11 @@ private:
         int32_t fixedInvTx = invTxFixed
                             - (dstOriginXInt * fixedInvA)
                             - (dstOriginYInt * fixedInvB)
-                            + (srcOriginXInt << transform::FIXED_POINT_BITS);
+                            + (srcOriginXInt << INT_FIXED16_SHIFT);
         int32_t fixedInvTy = invTyFixed
                             - (dstOriginXInt * fixedInvC)
                             - (dstOriginYInt * fixedInvD)
-                            + (srcOriginYInt << transform::FIXED_POINT_BITS);
+                            + (srcOriginYInt << INT_FIXED16_SHIFT);
 
         // ピクセルスキャン（DDAアルゴリズム）
         size_t srcBpp = getBytesPerPixel(src.formatID);
@@ -311,8 +311,8 @@ private:
                 const uint16_t* srcData = static_cast<const uint16_t*>(src.data);
 
                 for (int dx = dxStart; dx <= dxEnd; dx++) {
-                    uint32_t sx = static_cast<uint32_t>(srcX_fixed) >> transform::FIXED_POINT_BITS;
-                    uint32_t sy = static_cast<uint32_t>(srcY_fixed) >> transform::FIXED_POINT_BITS;
+                    uint32_t sx = static_cast<uint32_t>(srcX_fixed) >> INT_FIXED16_SHIFT;
+                    uint32_t sy = static_cast<uint32_t>(srcY_fixed) >> INT_FIXED16_SHIFT;
 
 #ifdef FLEXIMG_DEBUG
                     // calcValidRange が正しければ範囲内のはず
@@ -352,8 +352,8 @@ private:
                 const int stride8 = src.stride;
 
                 for (int dx = dxStart; dx <= dxEnd; dx++) {
-                    uint32_t sx = static_cast<uint32_t>(srcX_fixed) >> transform::FIXED_POINT_BITS;
-                    uint32_t sy = static_cast<uint32_t>(srcY_fixed) >> transform::FIXED_POINT_BITS;
+                    uint32_t sx = static_cast<uint32_t>(srcX_fixed) >> INT_FIXED16_SHIFT;
+                    uint32_t sy = static_cast<uint32_t>(srcY_fixed) >> INT_FIXED16_SHIFT;
 
 #ifdef FLEXIMG_DEBUG
                     // calcValidRange が正しければ範囲内のはず

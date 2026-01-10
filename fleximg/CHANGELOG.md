@@ -1,5 +1,32 @@
 # Changelog
 
+## [2.11.0] - 2026-01-11
+
+### 追加
+
+- **Matrix2x2<T> テンプレート**: 2x2行列の汎用テンプレート型
+  - `types.h` に追加
+  - `Matrix2x2_fixed16`: int_fixed16 版エイリアス
+  - 逆行列か順行列かは変数名で区別（型名には含まない）
+
+- **inverseFixed16() 関数**: AffineMatrix → Matrix2x2_fixed16 変換
+  - `common.h` に追加
+  - 2x2 部分のみ逆行列化、tx/ty は含まない
+
+### 変更
+
+- **AffineNode**: `Matrix2x2_fixed16` を使用するよう移行
+  - `invMatrix_` の型を `FixedPointInverseMatrix` → `Matrix2x2_fixed16` に変更
+  - `prepare()` で `inverseFixed16()` を使用
+  - `INT_FIXED16_SHIFT` を使用（`transform::FIXED_POINT_BITS` から移行）
+
+### 非推奨（次バージョンで削除予定）
+
+- **FixedPointInverseMatrix** (`transform.h`): Matrix2x2_fixed16 + inverseFixed16() に置き換え
+- **FIXED_POINT_BITS / FIXED_POINT_SCALE**: INT_FIXED16_SHIFT / INT_FIXED16_ONE に置き換え
+
+---
+
 ## [2.10.0] - 2026-01-11
 
 ### 追加

@@ -12,16 +12,23 @@ namespace FLEXIMG_NAMESPACE {
 namespace transform {
 
 // ========================================================================
-// 固定小数点定数
+// 固定小数点定数【非推奨・削除予定】
 // ========================================================================
+//
+// !! INT_FIXED16_SHIFT (types.h) を使用してください !!
+//
 
 constexpr int FIXED_POINT_BITS = 16;
 constexpr int32_t FIXED_POINT_SCALE = 1 << FIXED_POINT_BITS;
 
 // ========================================================================
-// FixedPointInverseMatrix - 固定小数点逆行列
+// FixedPointInverseMatrix - 固定小数点逆行列【非推奨・削除予定】
 // ========================================================================
 //
+// !! Matrix2x2_fixed16 + inverseFixed16() (types.h, common.h) に置き換えられました !!
+// !! 次バージョンで削除予定です !!
+//
+// 旧仕様（参考用に残存）:
 // アフィン変換の逆行列を固定小数点形式で保持します。
 //
 // 設計のポイント:
@@ -30,9 +37,10 @@ constexpr int32_t FIXED_POINT_SCALE = 1 << FIXED_POINT_BITS;
 // - DDA処理時に tx * fixedInvA のように整数演算で逆変換を計算
 // - これにより、低精度(3bit等)でも回転中心が安定する
 //
-// 使用方法:
-// 1. Rendererで fromMatrix() を呼び出して逆行列を作成
-// 2. 範囲計算と transform::affine() の両方で同じ逆行列を使用
+// 代替:
+// - Matrix2x2_fixed16: 2x2行列テンプレートのint_fixed16版
+// - inverseFixed16(): AffineMatrixから逆行列を計算
+// - tx/tyは呼び出し側で int_fixed8 として別途管理
 //
 
 struct FixedPointInverseMatrix {
