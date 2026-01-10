@@ -12,16 +12,19 @@
 
 ```cpp
 namespace NodeType {
-    constexpr int Source = 0;
-    constexpr int Transform = 1;
-    constexpr int Composite = 2;
-    constexpr int Output = 3;
-    // フィルタ系（種類別）
-    constexpr int Brightness = 4;
-    constexpr int Grayscale = 5;
-    constexpr int BoxBlur = 6;
-    constexpr int Alpha = 7;
-    constexpr int Count = 8;
+    // システム系
+    constexpr int Renderer = 0;   // パイプライン発火点
+    constexpr int Source = 1;     // 画像入力
+    constexpr int Sink = 2;       // 画像出力
+    // 構造系
+    constexpr int Transform = 3;  // アフィン変換
+    constexpr int Composite = 4;  // 合成
+    // フィルタ系
+    constexpr int Brightness = 5;
+    constexpr int Grayscale = 6;
+    constexpr int BoxBlur = 7;
+    constexpr int Alpha = 8;
+    constexpr int Count = 9;
 }
 ```
 
@@ -85,14 +88,15 @@ ImageBuffer::deallocate() {
 
 ## 計測ポイント
 
-### 時間計測（全8ノードタイプ）
+### 時間計測（全9ノードタイプ）
 
 | ノード | 計測範囲 |
 |--------|----------|
+| Renderer | パイプライン全体の実行時間 |
 | Source | `pullProcess()` 全体（画像データコピー含む） |
+| Sink | 出力バッファへの書き込み |
 | Transform | アフィン変換処理のみ（上流評価除外） |
 | Composite | ブレンド処理のみ（上流評価除外） |
-| Output | `processTile()` 全体（上流評価含む） |
 | Brightness | 明るさ調整処理 |
 | Grayscale | グレースケール変換処理 |
 | BoxBlur | ぼかし処理（マージン処理含む） |

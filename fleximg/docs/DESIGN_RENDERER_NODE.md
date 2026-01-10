@@ -87,14 +87,14 @@ SourceNode (100x100, origin: 50,50)     SinkNode (200x200, origin: 100,100)
 ```cpp
 // 下流から上流への要求
 struct RenderRequest {
-    int width, height;      // 要求サイズ
-    float originX, originY; // バッファ内での基準点位置
+    int16_t width, height;  // 要求サイズ
+    Point origin;           // バッファ内での基準点位置（int_fixed8）
 };
 
 // 上流から下流への応答
 struct RenderResult {
     ImageBuffer buffer;
-    Point2f origin;  // 画像左上の基準点相対座標
+    Point origin;  // バッファ内での基準点位置（int_fixed8）
 };
 ```
 
@@ -223,8 +223,10 @@ exec() 呼び出し時:
 |------|------------|-----|
 | 入力端点 | 上流のみ | SourceNode |
 | 出力端点 | 下流のみ | SinkNode |
-| 処理ノード | 中間（上流側） | TransformNode, フィルタノード, CompositeNode |
+| 処理ノード | 中間（上流/下流） | TransformNode, フィルタノード, CompositeNode |
 | 発火点 | 中央 | RendererNode |
+
+**注意**: タイル分割時、Renderer下流に配置したBoxBlurフィルタはタイル境界で正しく動作しません。
 
 ## カスタム拡張
 
