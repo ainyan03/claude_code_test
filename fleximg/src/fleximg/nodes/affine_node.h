@@ -7,6 +7,7 @@
 #include "../operations/transform.h"
 #include "../perf_metrics.h"
 #include <algorithm>
+#include <cassert>
 #include <cstdint>
 #include <cmath>
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
@@ -254,23 +255,23 @@ private:
         int32_t srcOriginYInt = from_fixed8(srcOriginY);
 
         // ================================================================
-        // 逆変換オフセットの計算（tx/ty Q24.8 版）
+        // 逆変換オフセットの計算（tx/ty 固定小数点版）
         // ================================================================
         //
         // 逆変換の数式: srcPos = R^(-1) * dstPos + invT
         //   invT = -R^(-1) * T = -(invA*tx + invB*ty, invC*tx + invD*ty)
         //
-        // tx/ty は Q24.8、invA 等は Q0.24
-        // → 積は Q24.32、これを Q0.24 に変換するため >> 8
+        // tx/ty は Q(32-S8).S8、invA 等は Q(32-S16).S16
+        // → 積は Q(64-S8-S16).(S8+S16)、これを Q(32-S16).S16 に変換するため >> S8
         //
 
-        // 平行移動の逆変換（Q24.8 × Q0.24 = Q24.32 → >> 8 → Q0.24）
+        // 平行移動の逆変換
         int64_t invTx64 = -(static_cast<int64_t>(txFixed8_) * fixedInvA
                           + static_cast<int64_t>(tyFixed8_) * fixedInvB);
         int64_t invTy64 = -(static_cast<int64_t>(txFixed8_) * fixedInvC
                           + static_cast<int64_t>(tyFixed8_) * fixedInvD);
-        int32_t invTxFixed = static_cast<int32_t>(invTx64 >> 8);
-        int32_t invTyFixed = static_cast<int32_t>(invTy64 >> 8);
+        int32_t invTxFixed = static_cast<int32_t>(invTx64 >> INT_FIXED8_SHIFT);
+        int32_t invTyFixed = static_cast<int32_t>(invTy64 >> INT_FIXED8_SHIFT);
 
         // DDA用オフセット: 逆変換 + 整数キャンセル + srcOrigin
         int32_t fixedInvTx = invTxFixed
@@ -281,39 +282,6 @@ private:
                             - (dstOriginXInt * fixedInvC)
                             - (dstOriginYInt * fixedInvD)
                             + (srcOriginYInt << transform::FIXED_POINT_BITS);
-
-        // 有効描画範囲の事前計算
-        auto calcValidRange = [](
-            int32_t coeff, int32_t base, int minVal, int maxVal, int canvasSize
-        ) -> std::pair<int, int> {
-            constexpr int BITS = transform::FIXED_POINT_BITS;
-            constexpr int32_t SCALE = transform::FIXED_POINT_SCALE;
-            int32_t coeffHalf = coeff >> 1;
-
-            if (coeff == 0) {
-                int val = base >> BITS;
-                if (base < 0 && (base & (SCALE - 1)) != 0) val--;
-                return (val >= minVal && val <= maxVal)
-                    ? std::make_pair(0, canvasSize - 1)
-                    : std::make_pair(1, 0);
-            }
-
-            float baseWithHalf = static_cast<float>(base + coeffHalf);
-            float minThreshold = static_cast<float>(minVal) * SCALE;
-            float maxThreshold = static_cast<float>(maxVal + 1) * SCALE;
-            float dxForMin = (minThreshold - baseWithHalf) / coeff;
-            float dxForMax = (maxThreshold - baseWithHalf) / coeff;
-
-            int dxStart, dxEnd;
-            if (coeff > 0) {
-                dxStart = static_cast<int>(std::ceil(dxForMin));
-                dxEnd = static_cast<int>(std::ceil(dxForMax)) - 1;
-            } else {
-                dxStart = static_cast<int>(std::ceil(dxForMax));
-                dxEnd = static_cast<int>(std::ceil(dxForMin)) - 1;
-            }
-            return {dxStart, dxEnd};
-        };
 
         // ピクセルスキャン（DDAアルゴリズム）
         size_t srcBpp = getBytesPerPixel(src.formatID);
@@ -329,8 +297,8 @@ private:
                 int32_t rowBaseX = fixedInvB * dy + fixedInvTx + rowOffsetX;
                 int32_t rowBaseY = fixedInvD * dy + fixedInvTy + rowOffsetY;
 
-                auto [xStart, xEnd] = calcValidRange(fixedInvA, rowBaseX, 0, src.width - 1, outW);
-                auto [yStart, yEnd] = calcValidRange(fixedInvC, rowBaseY, 0, src.height - 1, outW);
+                auto [xStart, xEnd] = transform::calcValidRange(fixedInvA, rowBaseX, src.width, outW);
+                auto [yStart, yEnd] = transform::calcValidRange(fixedInvC, rowBaseY, src.height, outW);
                 int dxStart = std::max({0, xStart, yStart});
                 int dxEnd = std::min({outW - 1, xEnd, yEnd});
 
@@ -346,13 +314,16 @@ private:
                     uint32_t sx = static_cast<uint32_t>(srcX_fixed) >> transform::FIXED_POINT_BITS;
                     uint32_t sy = static_cast<uint32_t>(srcY_fixed) >> transform::FIXED_POINT_BITS;
 
-                    if (sx < static_cast<uint32_t>(src.width) && sy < static_cast<uint32_t>(src.height)) {
-                        const uint16_t* srcPixel = srcData + sy * inputStride16 + sx * 4;
-                        dstRow[0] = srcPixel[0];
-                        dstRow[1] = srcPixel[1];
-                        dstRow[2] = srcPixel[2];
-                        dstRow[3] = srcPixel[3];
-                    }
+#ifdef FLEXIMG_DEBUG
+                    // calcValidRange が正しければ範囲内のはず
+                    assert(sx < static_cast<uint32_t>(src.width) && "calcValidRange mismatch: sx out of range");
+                    assert(sy < static_cast<uint32_t>(src.height) && "calcValidRange mismatch: sy out of range");
+#endif
+                    const uint16_t* srcPixel = srcData + sy * inputStride16 + sx * 4;
+                    dstRow[0] = srcPixel[0];
+                    dstRow[1] = srcPixel[1];
+                    dstRow[2] = srcPixel[2];
+                    dstRow[3] = srcPixel[3];
 
                     dstRow += 4;
                     srcX_fixed += fixedInvA;
@@ -366,8 +337,8 @@ private:
                 int32_t rowBaseX = fixedInvB * dy + fixedInvTx + rowOffsetX;
                 int32_t rowBaseY = fixedInvD * dy + fixedInvTy + rowOffsetY;
 
-                auto [xStart, xEnd] = calcValidRange(fixedInvA, rowBaseX, 0, src.width - 1, outW);
-                auto [yStart, yEnd] = calcValidRange(fixedInvC, rowBaseY, 0, src.height - 1, outW);
+                auto [xStart, xEnd] = transform::calcValidRange(fixedInvA, rowBaseX, src.width, outW);
+                auto [yStart, yEnd] = transform::calcValidRange(fixedInvC, rowBaseY, src.height, outW);
                 int dxStart = std::max({0, xStart, yStart});
                 int dxEnd = std::min({outW - 1, xEnd, yEnd});
 
@@ -384,13 +355,16 @@ private:
                     uint32_t sx = static_cast<uint32_t>(srcX_fixed) >> transform::FIXED_POINT_BITS;
                     uint32_t sy = static_cast<uint32_t>(srcY_fixed) >> transform::FIXED_POINT_BITS;
 
-                    if (sx < static_cast<uint32_t>(src.width) && sy < static_cast<uint32_t>(src.height)) {
-                        const uint8_t* srcPixel = srcData + sy * stride8 + sx * 4;
-                        dstRow[0] = srcPixel[0];
-                        dstRow[1] = srcPixel[1];
-                        dstRow[2] = srcPixel[2];
-                        dstRow[3] = srcPixel[3];
-                    }
+#ifdef FLEXIMG_DEBUG
+                    // calcValidRange が正しければ範囲内のはず
+                    assert(sx < static_cast<uint32_t>(src.width) && "calcValidRange mismatch: sx out of range");
+                    assert(sy < static_cast<uint32_t>(src.height) && "calcValidRange mismatch: sy out of range");
+#endif
+                    const uint8_t* srcPixel = srcData + sy * stride8 + sx * 4;
+                    dstRow[0] = srcPixel[0];
+                    dstRow[1] = srcPixel[1];
+                    dstRow[2] = srcPixel[2];
+                    dstRow[3] = srcPixel[3];
 
                     dstRow += 4;
                     srcX_fixed += fixedInvA;

@@ -1,6 +1,7 @@
 #include "transform.h"
 #include "../types.h"
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <cstdint>
 #include <utility>
@@ -64,39 +65,6 @@ void affine(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
                         - (dstOriginYInt * fixedInvD)
                         + (srcOriginYInt << FIXED_POINT_BITS);
 
-    // 有効描画範囲の事前計算
-    auto calcValidRange = [](
-        int32_t coeff, int32_t base, int minVal, int maxVal, int canvasSize
-    ) -> std::pair<int, int> {
-        constexpr int BITS = FIXED_POINT_BITS;
-        constexpr int32_t SCALE = FIXED_POINT_SCALE;
-        int32_t coeffHalf = coeff >> 1;
-
-        if (coeff == 0) {
-            int val = base >> BITS;
-            if (base < 0 && (base & (SCALE - 1)) != 0) val--;
-            return (val >= minVal && val <= maxVal)
-                ? std::make_pair(0, canvasSize - 1)
-                : std::make_pair(1, 0);
-        }
-
-        float baseWithHalf = static_cast<float>(base + coeffHalf);
-        float minThreshold = static_cast<float>(minVal) * SCALE;
-        float maxThreshold = static_cast<float>(maxVal + 1) * SCALE;
-        float dxForMin = (minThreshold - baseWithHalf) / coeff;
-        float dxForMax = (maxThreshold - baseWithHalf) / coeff;
-
-        int dxStart, dxEnd;
-        if (coeff > 0) {
-            dxStart = static_cast<int>(std::ceil(dxForMin));
-            dxEnd = static_cast<int>(std::ceil(dxForMax)) - 1;
-        } else {
-            dxStart = static_cast<int>(std::ceil(dxForMax));
-            dxEnd = static_cast<int>(std::ceil(dxForMin)) - 1;
-        }
-        return {dxStart, dxEnd};
-    };
-
     // ピクセルスキャン（DDAアルゴリズム）
     size_t srcBpp = getBytesPerPixel(src.formatID);
     // stride を uint16_t 単位で計算（16bit版用）
@@ -112,8 +80,8 @@ void affine(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
             int32_t rowBaseX = fixedInvB * dy + fixedInvTx + rowOffsetX;
             int32_t rowBaseY = fixedInvD * dy + fixedInvTy + rowOffsetY;
 
-            auto [xStart, xEnd] = calcValidRange(fixedInvA, rowBaseX, 0, src.width - 1, outW);
-            auto [yStart, yEnd] = calcValidRange(fixedInvC, rowBaseY, 0, src.height - 1, outW);
+            auto [xStart, xEnd] = calcValidRange(fixedInvA, rowBaseX, src.width, outW);
+            auto [yStart, yEnd] = calcValidRange(fixedInvC, rowBaseY, src.height, outW);
             int dxStart = std::max({0, xStart, yStart});
             int dxEnd = std::min({outW - 1, xEnd, yEnd});
 
@@ -129,13 +97,16 @@ void affine(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
                 uint32_t sx = static_cast<uint32_t>(srcX_fixed) >> FIXED_POINT_BITS;
                 uint32_t sy = static_cast<uint32_t>(srcY_fixed) >> FIXED_POINT_BITS;
 
-                if (sx < static_cast<uint32_t>(src.width) && sy < static_cast<uint32_t>(src.height)) {
-                    const uint16_t* srcPixel = srcData + sy * inputStride16 + sx * 4;
-                    dstRow[0] = srcPixel[0];
-                    dstRow[1] = srcPixel[1];
-                    dstRow[2] = srcPixel[2];
-                    dstRow[3] = srcPixel[3];
-                }
+#ifdef FLEXIMG_DEBUG
+                // calcValidRange が正しければ範囲内のはず
+                assert(sx < static_cast<uint32_t>(src.width) && "calcValidRange mismatch: sx out of range");
+                assert(sy < static_cast<uint32_t>(src.height) && "calcValidRange mismatch: sy out of range");
+#endif
+                const uint16_t* srcPixel = srcData + sy * inputStride16 + sx * 4;
+                dstRow[0] = srcPixel[0];
+                dstRow[1] = srcPixel[1];
+                dstRow[2] = srcPixel[2];
+                dstRow[3] = srcPixel[3];
 
                 dstRow += 4;
                 srcX_fixed += fixedInvA;
@@ -149,8 +120,8 @@ void affine(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
             int32_t rowBaseX = fixedInvB * dy + fixedInvTx + rowOffsetX;
             int32_t rowBaseY = fixedInvD * dy + fixedInvTy + rowOffsetY;
 
-            auto [xStart, xEnd] = calcValidRange(fixedInvA, rowBaseX, 0, src.width - 1, outW);
-            auto [yStart, yEnd] = calcValidRange(fixedInvC, rowBaseY, 0, src.height - 1, outW);
+            auto [xStart, xEnd] = calcValidRange(fixedInvA, rowBaseX, src.width, outW);
+            auto [yStart, yEnd] = calcValidRange(fixedInvC, rowBaseY, src.height, outW);
             int dxStart = std::max({0, xStart, yStart});
             int dxEnd = std::min({outW - 1, xEnd, yEnd});
 
@@ -167,13 +138,16 @@ void affine(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
                 uint32_t sx = static_cast<uint32_t>(srcX_fixed) >> FIXED_POINT_BITS;
                 uint32_t sy = static_cast<uint32_t>(srcY_fixed) >> FIXED_POINT_BITS;
 
-                if (sx < static_cast<uint32_t>(src.width) && sy < static_cast<uint32_t>(src.height)) {
-                    const uint8_t* srcPixel = srcData + sy * stride8 + sx * 4;
-                    dstRow[0] = srcPixel[0];
-                    dstRow[1] = srcPixel[1];
-                    dstRow[2] = srcPixel[2];
-                    dstRow[3] = srcPixel[3];
-                }
+#ifdef FLEXIMG_DEBUG
+                // calcValidRange が正しければ範囲内のはず
+                assert(sx < static_cast<uint32_t>(src.width) && "calcValidRange mismatch: sx out of range");
+                assert(sy < static_cast<uint32_t>(src.height) && "calcValidRange mismatch: sy out of range");
+#endif
+                const uint8_t* srcPixel = srcData + sy * stride8 + sx * 4;
+                dstRow[0] = srcPixel[0];
+                dstRow[1] = srcPixel[1];
+                dstRow[2] = srcPixel[2];
+                dstRow[3] = srcPixel[3];
 
                 dstRow += 4;
                 srcX_fixed += fixedInvA;
