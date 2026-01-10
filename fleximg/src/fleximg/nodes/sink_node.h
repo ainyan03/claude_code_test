@@ -24,24 +24,38 @@ public:
         initPorts(1, 0);  // 入力1、出力0
     }
 
-    SinkNode(const ViewPort& vp, float originX = 0, float originY = 0)
+    SinkNode(const ViewPort& vp, int_fixed8 originX = 0, int_fixed8 originY = 0)
         : target_(vp), originX_(originX), originY_(originY) {
+        initPorts(1, 0);
+    }
+
+    // 移行用コンストラクタ（float引数、最終的に削除予定）
+    SinkNode(const ViewPort& vp, float originX, float originY)
+        : target_(vp)
+        , originX_(float_to_fixed8(originX))
+        , originY_(float_to_fixed8(originY)) {
         initPorts(1, 0);
     }
 
     // ターゲット設定
     void setTarget(const ViewPort& vp) { target_ = vp; }
-    void setOrigin(float x, float y) { originX_ = x; originY_ = y; }
+    void setOrigin(int_fixed8 x, int_fixed8 y) { originX_ = x; originY_ = y; }
+
+    // 移行用セッター（float引数、最終的に削除予定）
+    void setOriginf(float x, float y) {
+        originX_ = float_to_fixed8(x);
+        originY_ = float_to_fixed8(y);
+    }
 
     // アクセサ
     const ViewPort& target() const { return target_; }
     ViewPort& target() { return target_; }
-    float originX() const { return originX_; }
-    float originY() const { return originY_; }
+    int_fixed8 originX() const { return originX_; }
+    int_fixed8 originY() const { return originY_; }
 
     // キャンバスサイズ（targetから取得）
-    int canvasWidth() const { return target_.width; }
-    int canvasHeight() const { return target_.height; }
+    int16_t canvasWidth() const { return target_.width; }
+    int16_t canvasHeight() const { return target_.height; }
 
     const char* name() const override { return "SinkNode"; }
 
@@ -58,31 +72,31 @@ public:
 
         ViewPort inputView = input.view();
 
-        // 基準点一致ルールに基づく配置計算
+        // 基準点一致ルールに基づく配置計算（固定小数点演算）
         // input.origin: 入力バッファ内での基準点位置
         // originX_/Y_: 出力バッファ内での基準点位置
-        // 入力画像左上の基準相対座標 = -input.origin
-        // dstX = originX_ + (-input.origin.x) = originX_ - input.origin.x
-        int dstX = static_cast<int>(originX_ - input.origin.x);
-        int dstY = static_cast<int>(originY_ - input.origin.y);
+        // dstX = originX_ - input.origin.x
+        int dstX = from_fixed8(originX_ - input.origin.x);
+        int dstY = from_fixed8(originY_ - input.origin.y);
 
         // クリッピング処理
         int srcX = 0, srcY = 0;
         if (dstX < 0) { srcX = -dstX; dstX = 0; }
         if (dstY < 0) { srcY = -dstY; dstY = 0; }
 
-        int copyW = std::min(inputView.width - srcX, target_.width - dstX);
-        int copyH = std::min(inputView.height - srcY, target_.height - dstY);
+        int_fast32_t copyW = std::min<int_fast32_t>(inputView.width - srcX, target_.width - dstX);
+        int_fast32_t copyH = std::min<int_fast32_t>(inputView.height - srcY, target_.height - dstY);
 
         if (copyW > 0 && copyH > 0) {
-            view_ops::copy(target_, dstX, dstY, inputView, srcX, srcY, copyW, copyH);
+            view_ops::copy(target_, dstX, dstY, inputView, srcX, srcY,
+                          static_cast<int>(copyW), static_cast<int>(copyH));
         }
     }
 
 private:
     ViewPort target_;
-    float originX_ = 0;  // 出力先の基準点X（ピクセル座標）
-    float originY_ = 0;  // 出力先の基準点Y（ピクセル座標）
+    int_fixed8 originX_ = 0;  // 出力先の基準点X（固定小数点 Q24.8）
+    int_fixed8 originY_ = 0;  // 出力先の基準点Y（固定小数点 Q24.8）
 };
 
 } // namespace FLEXIMG_NAMESPACE

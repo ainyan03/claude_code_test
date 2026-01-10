@@ -2,6 +2,7 @@
 #define FLEXIMG_OPERATIONS_TRANSFORM_H
 
 #include "../common.h"
+#include "../types.h"
 #include "../viewport.h"
 #include <cmath>
 #include <cstdint>
@@ -94,13 +95,13 @@ struct FixedPointInverseMatrix {
 //
 // パラメータ:
 // - dst: 出力バッファ（事前確保、ゼロクリア済み）
-// - dstOriginX/Y: 出力バッファ内での基準点位置
+// - dstOriginX/Y: 出力バッファ内での基準点位置（固定小数点 Q24.8）
 // - src: 入力バッファ
-// - srcOriginX/Y: 入力バッファ内での基準点位置
+// - srcOriginX/Y: 入力バッファ内での基準点位置（固定小数点 Q24.8）
 // - invMatrix: 事前計算された固定小数点逆行列
 //
-void affine(ViewPort& dst, float dstOriginX, float dstOriginY,
-            const ViewPort& src, float srcOriginX, float srcOriginY,
+void affine(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
+            const ViewPort& src, int_fixed8 srcOriginX, int_fixed8 srcOriginY,
             const FixedPointInverseMatrix& invMatrix);
 
 } // namespace transform

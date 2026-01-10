@@ -4,6 +4,7 @@
 #include "../node.h"
 #include "../render_types.h"
 #include "../perf_metrics.h"
+#include "../types.h"
 #include <algorithm>
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
 #include <chrono>
@@ -45,7 +46,7 @@ public:
     // ========================================
 
     // 仮想スクリーン設定
-    void setVirtualScreen(int width, int height, float originX, float originY) {
+    void setVirtualScreen(int width, int height, int_fixed8 originX, int_fixed8 originY) {
         virtualWidth_ = width;
         virtualHeight_ = height;
         originX_ = originX;
@@ -54,8 +55,13 @@ public:
 
     void setVirtualScreen(int width, int height) {
         setVirtualScreen(width, height,
-                         static_cast<float>(width) / 2,
-                         static_cast<float>(height) / 2);
+                         to_fixed8(width / 2),
+                         to_fixed8(height / 2));
+    }
+
+    // マイグレーション用float版（将来削除予定）
+    void setVirtualScreenf(int width, int height, float originX, float originY) {
+        setVirtualScreen(width, height, float_to_fixed8(originX), float_to_fixed8(originY));
     }
 
     // タイル設定
@@ -75,8 +81,10 @@ public:
     // アクセサ
     int virtualWidth() const { return virtualWidth_; }
     int virtualHeight() const { return virtualHeight_; }
-    float originX() const { return originX_; }
-    float originY() const { return originY_; }
+    int_fixed8 originX() const { return originX_; }
+    int_fixed8 originY() const { return originY_; }
+    float originXf() const { return fixed8_to_float(originX_); }
+    float originYf() const { return fixed8_to_float(originY_); }
     const TileConfig& tileConfig() const { return tileConfig_; }
 
     const char* name() const override { return "RendererNode"; }
@@ -183,8 +191,8 @@ protected:
 private:
     int virtualWidth_ = 0;
     int virtualHeight_ = 0;
-    float originX_ = 0;
-    float originY_ = 0;
+    int_fixed8 originX_ = 0;
+    int_fixed8 originY_ = 0;
     TileConfig tileConfig_;
     bool debugCheckerboard_ = false;
 
@@ -211,8 +219,8 @@ private:
     // スクリーン全体のRenderRequestを作成
     RenderRequest createScreenRequest() const {
         RenderRequest req;
-        req.width = virtualWidth_;
-        req.height = virtualHeight_;
+        req.width = static_cast<int16_t>(virtualWidth_);
+        req.height = static_cast<int16_t>(virtualHeight_);
         req.origin.x = originX_;
         req.origin.y = originY_;
         return req;
@@ -230,10 +238,10 @@ private:
         int tileH = std::min(th, virtualHeight_ - tileTop);
 
         RenderRequest req;
-        req.width = tileW;
-        req.height = tileH;
-        req.origin.x = originX_ - tileLeft;
-        req.origin.y = originY_ - tileTop;
+        req.width = static_cast<int16_t>(tileW);
+        req.height = static_cast<int16_t>(tileH);
+        req.origin.x = originX_ - to_fixed8(tileLeft);
+        req.origin.y = originY_ - to_fixed8(tileTop);
         return req;
     }
 };

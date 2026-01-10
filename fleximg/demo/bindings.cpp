@@ -404,15 +404,15 @@ private:
 
         // RendererNodeを作成
         auto rendererNode = std::make_unique<RendererNode>();
-        rendererNode->setVirtualScreen(canvasWidth_, canvasHeight_,
-                                       static_cast<float>(dstOriginX_),
-                                       static_cast<float>(dstOriginY_));
+        rendererNode->setVirtualScreenf(canvasWidth_, canvasHeight_,
+                                        static_cast<float>(dstOriginX_),
+                                        static_cast<float>(dstOriginY_));
 
         // SinkNodeを作成
         auto sinkNode = std::make_unique<SinkNode>();
         sinkNode->setTarget(outputView);
-        sinkNode->setOrigin(static_cast<float>(dstOriginX_),
-                           static_cast<float>(dstOriginY_));
+        sinkNode->setOriginf(static_cast<float>(dstOriginX_),
+                             static_cast<float>(dstOriginY_));
 
         // 再帰的にノードを構築
         std::function<Node*(const std::string&)> buildNode;
@@ -438,8 +438,8 @@ private:
 
                 auto src = std::make_unique<SourceNode>();
                 src->setSource(viewIt->second);
-                src->setOrigin(static_cast<float>(gnode.srcOriginX),
-                              static_cast<float>(gnode.srcOriginY));
+                src->setOriginf(static_cast<float>(gnode.srcOriginX),
+                                static_cast<float>(gnode.srcOriginY));
 
                 Node* result = src.get();
                 sourceNodes[nodeId] = std::move(src);

@@ -6,10 +6,12 @@
 #ifndef FLEXIMG_COMMON_H
 #define FLEXIMG_COMMON_H
 
-// Namespace definition
+// Namespace definition (types.h より前に必要)
 #ifndef FLEXIMG_NAMESPACE
 #define FLEXIMG_NAMESPACE fleximg
 #endif
+
+#include "types.h"
 
 // Version information
 #define FLEXIMG_VERSION_MAJOR 2
@@ -19,21 +21,33 @@
 namespace FLEXIMG_NAMESPACE {
 
 // ========================================================================
-// Point2f - 2D座標構造体
+// Point - 2D座標構造体（固定小数点 Q24.8）
 // ========================================================================
 
-struct Point2f {
-    float x = 0;
-    float y = 0;
+struct Point {
+    int_fixed8 x = 0;
+    int_fixed8 y = 0;
 
-    Point2f() = default;
-    Point2f(float x_, float y_) : x(x_), y(y_) {}
+    Point() = default;
+    Point(int_fixed8 x_, int_fixed8 y_) : x(x_), y(y_) {}
 
-    Point2f operator+(const Point2f& o) const { return {x + o.x, y + o.y}; }
-    Point2f operator-(const Point2f& o) const { return {x - o.x, y - o.y}; }
-    Point2f& operator+=(const Point2f& o) { x += o.x; y += o.y; return *this; }
-    Point2f& operator-=(const Point2f& o) { x -= o.x; y -= o.y; return *this; }
+    // 移行用コンストラクタ（float引数、最終的に削除予定）
+    Point(float x_, float y_)
+        : x(float_to_fixed8(x_)), y(float_to_fixed8(y_)) {}
+
+    Point operator+(const Point& o) const { return {x + o.x, y + o.y}; }
+    Point operator-(const Point& o) const { return {x - o.x, y - o.y}; }
+    Point operator-() const { return {-x, -y}; }
+    Point& operator+=(const Point& o) { x += o.x; y += o.y; return *this; }
+    Point& operator-=(const Point& o) { x -= o.x; y -= o.y; return *this; }
+
+    // 移行用アクセサ（float変換、最終的に削除予定）
+    float xf() const { return fixed8_to_float(x); }
+    float yf() const { return fixed8_to_float(y); }
 };
+
+// 後方互換性のためのエイリアス（最終的に削除予定）
+using Point2f = Point;
 
 // ========================================================================
 // AffineMatrix - アフィン変換行列

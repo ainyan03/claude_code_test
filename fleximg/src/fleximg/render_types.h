@@ -2,6 +2,7 @@
 #define FLEXIMG_RENDER_TYPES_H
 
 #include <utility>
+#include <cstdint>
 #include "common.h"
 #include "image_buffer.h"
 #include "perf_metrics.h"
@@ -13,11 +14,13 @@ namespace FLEXIMG_NAMESPACE {
 // ========================================================================
 
 struct TileConfig {
-    int tileWidth = 0;   // 0 = 分割なし
-    int tileHeight = 0;
+    int16_t tileWidth = 0;   // 0 = 分割なし
+    int16_t tileHeight = 0;
 
     TileConfig() = default;
-    TileConfig(int w, int h) : tileWidth(w), tileHeight(h) {}
+    TileConfig(int w, int h)
+        : tileWidth(static_cast<int16_t>(w))
+        , tileHeight(static_cast<int16_t>(h)) {}
 
     bool isEnabled() const { return tileWidth > 0 && tileHeight > 0; }
 };
@@ -27,17 +30,19 @@ struct TileConfig {
 // ========================================================================
 
 struct RenderRequest {
-    int width = 0;
-    int height = 0;
-    Point2f origin;  // バッファ内での基準点位置
+    int16_t width = 0;
+    int16_t height = 0;
+    Point origin;  // バッファ内での基準点位置（固定小数点 Q24.8）
 
     bool isEmpty() const { return width <= 0 || height <= 0; }
 
     // マージン分拡大（フィルタ用）
     RenderRequest expand(int margin) const {
+        int_fixed8 marginFixed = to_fixed8(margin);
         return {
-            width + margin * 2, height + margin * 2,
-            {origin.x + margin, origin.y + margin}
+            static_cast<int16_t>(width + margin * 2),
+            static_cast<int16_t>(height + margin * 2),
+            {origin.x + marginFixed, origin.y + marginFixed}
         };
     }
 };
@@ -48,13 +53,14 @@ struct RenderRequest {
 
 struct RenderResult {
     ImageBuffer buffer;
-    Point2f origin;  // バッファ内での基準点位置
+    Point origin;  // バッファ内での基準点位置（固定小数点 Q24.8）
 
     RenderResult() = default;
 
-    RenderResult(ImageBuffer&& buf, Point2f org)
+    RenderResult(ImageBuffer&& buf, Point org)
         : buffer(std::move(buf)), origin(org) {}
 
+    // 移行用コンストラクタ（float引数、最終的に削除予定）
     RenderResult(ImageBuffer&& buf, float ox, float oy)
         : buffer(std::move(buf)), origin(ox, oy) {}
 

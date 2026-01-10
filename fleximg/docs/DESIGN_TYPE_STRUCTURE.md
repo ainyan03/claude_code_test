@@ -21,7 +21,7 @@ fleximg における画像データ関連の型構造について説明します
 ┌─────────────────────────────────────────────────────────┐
 │  RenderResult（パイプライン評価結果）                      │
 │  - ImageBuffer buffer                                   │
-│  - Point2f origin（基準点からの相対座標）                  │
+│  - Point origin（バッファ内での基準点位置、int_fixed8）    │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -33,9 +33,9 @@ fleximg における画像データ関連の型構造について説明します
 struct ViewPort {
     void* data = nullptr;
     PixelFormatID formatID = PixelFormatIDs::RGBA8_Straight;
-    size_t stride = 0;
-    int width = 0;
-    int height = 0;
+    int32_t stride = 0;   // 負値でY軸反転対応
+    int16_t width = 0;
+    int16_t height = 0;
 
     // 有効判定
     bool isValid() const;
@@ -46,7 +46,7 @@ struct ViewPort {
 
     // バイト情報
     size_t bytesPerPixel() const;
-    size_t rowBytes() const;
+    uint32_t rowBytes() const;
 };
 ```
 
@@ -103,10 +103,11 @@ public:
 
     // アクセサ
     bool isValid() const;
-    int width() const;
-    int height() const;
-    size_t stride() const;
+    int16_t width() const;
+    int16_t height() const;
+    int32_t stride() const;
     PixelFormatID formatID() const;
+    uint32_t totalBytes() const;
     void* data();
     const void* data() const;
 
@@ -144,12 +145,12 @@ ImageBuffer working = std::move(input.buffer).toFormat(PixelFormatIDs::RGBA8_Str
 ```cpp
 struct RenderResult {
     ImageBuffer buffer;
-    Point2f origin;  // バッファ内での基準点位置
+    Point origin;  // バッファ内での基準点位置（int_fixed8）
 
     // コンストラクタ
     RenderResult();
-    RenderResult(ImageBuffer&& buf, Point2f org);
-    RenderResult(ImageBuffer&& buf, float ox, float oy);
+    RenderResult(ImageBuffer&& buf, Point org);
+    RenderResult(ImageBuffer&& buf, float ox, float oy);  // マイグレーション用
 
     // ムーブのみ（コピー禁止）
     RenderResult(RenderResult&&) = default;
@@ -217,7 +218,8 @@ view_ops::blendOnto(canvas, offsetX, offsetY,
 
 | ファイル | 役割 |
 |---------|------|
+| `src/fleximg/types.h` | 固定小数点型（int_fixed8, int_fixed16）|
+| `src/fleximg/common.h` | Point, AffineMatrix |
 | `src/fleximg/viewport.h` | ViewPort, view_ops |
 | `src/fleximg/image_buffer.h` | ImageBuffer |
 | `src/fleximg/render_types.h` | RenderResult, RenderRequest |
-| `src/fleximg/common.h` | Point2f |

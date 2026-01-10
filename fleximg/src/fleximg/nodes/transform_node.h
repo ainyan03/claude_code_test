@@ -88,12 +88,14 @@ public:
         // ================================================================
         // 出力要求の4頂点を逆変換し、必要な入力領域のAABBを計算する。
 
-        // 出力要求の4頂点（基準相対座標 = -origin）
+        // 出力要求の4頂点（基準相対座標 = -origin、整数に変換）
+        int32_t ox = from_fixed8(request.origin.x);
+        int32_t oy = from_fixed8(request.origin.y);
         int32_t corners[4][2] = {
-            {static_cast<int32_t>(-request.origin.x), static_cast<int32_t>(-request.origin.y)},
-            {static_cast<int32_t>(request.width - request.origin.x), static_cast<int32_t>(-request.origin.y)},
-            {static_cast<int32_t>(-request.origin.x), static_cast<int32_t>(request.height - request.origin.y)},
-            {static_cast<int32_t>(request.width - request.origin.x), static_cast<int32_t>(request.height - request.origin.y)}
+            {-ox, -oy},
+            {request.width - ox, -oy},
+            {-ox, request.height - oy},
+            {request.width - ox, request.height - oy}
         };
 
         int32_t minX = INT32_MAX, minY = INT32_MAX, maxX = INT32_MIN, maxY = INT32_MIN;
@@ -121,10 +123,10 @@ public:
         int inputHeight = maxY - minY + 3;
 
         RenderRequest inputReq;
-        inputReq.width = inputWidth;
-        inputReq.height = inputHeight;
-        inputReq.origin.x = static_cast<float>(-reqLeft);
-        inputReq.origin.y = static_cast<float>(-reqTop);
+        inputReq.width = static_cast<int16_t>(inputWidth);
+        inputReq.height = static_cast<int16_t>(inputHeight);
+        inputReq.origin.x = to_fixed8(-reqLeft);
+        inputReq.origin.y = to_fixed8(-reqTop);
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         // ピクセル効率計測
