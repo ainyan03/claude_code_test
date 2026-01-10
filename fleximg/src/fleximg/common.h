@@ -12,6 +12,7 @@
 #endif
 
 #include "types.h"
+#include <cmath>
 
 // Version information
 #define FLEXIMG_VERSION_MAJOR 2
@@ -74,6 +75,28 @@ struct AffineMatrix {
     // 回転（ラジアン）
     static AffineMatrix rotate(float radians);
 };
+
+// ========================================================================
+// 行列変換関数
+// ========================================================================
+
+// AffineMatrix の 2x2 部分の逆行列を固定小数点で返す
+// 平行移動成分(tx,ty)は含まない（呼び出し側で別途管理）
+inline Matrix2x2_fixed16 inverseFixed16(const AffineMatrix& m) {
+    float det = m.a * m.d - m.b * m.c;
+    if (std::abs(det) < 1e-10f) {
+        return Matrix2x2_fixed16();  // valid = false
+    }
+
+    float invDet = 1.0f / det;
+    return Matrix2x2_fixed16(
+        static_cast<int_fixed16>(std::lround(m.d * invDet * INT_FIXED16_ONE)),
+        static_cast<int_fixed16>(std::lround(-m.b * invDet * INT_FIXED16_ONE)),
+        static_cast<int_fixed16>(std::lround(-m.c * invDet * INT_FIXED16_ONE)),
+        static_cast<int_fixed16>(std::lround(m.a * invDet * INT_FIXED16_ONE)),
+        true  // valid
+    );
+}
 
 } // namespace FLEXIMG_NAMESPACE
 

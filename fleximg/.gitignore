@@ -11,6 +11,7 @@ src/fleximg/*.o
 # Test binaries
 test/integration_test
 test/viewport_test
+test/calc_valid_range_test
 
 # CLI binary
 cli/imgproc
