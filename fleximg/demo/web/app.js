@@ -11,19 +11,28 @@ let canvasOrigin = { x: 400, y: 300 };  // キャンバス原点（ピクセル�
 let previewScale = 1;  // 表示倍率（1〜5）
 let isResetting = false;  // リセット中フラグ（beforeunloadで保存をスキップ）
 
+// タイル分割設定（Rendererノードで管理、グローバルはフォールバック用）
+let tileWidth = 0;       // 0 = タイル分割なし
+let tileHeight = 0;
+let debugCheckerboard = false;
+
 // ========================================
 // ノードタイプ定義（一元管理）
 // C++側の NodeType enum と同期を維持すること
 // ========================================
 const NODE_TYPES = {
-    source:     { index: 0, name: 'Image',      category: 'structure', showEfficiency: false },
-    transform:  { index: 1, name: 'Affine',     category: 'structure', showEfficiency: true },
-    composite:  { index: 2, name: 'Composite',  category: 'structure', showEfficiency: false },
-    output:     { index: 3, name: 'Output',     category: 'structure', showEfficiency: false },
-    brightness: { index: 4, name: 'Brightness', category: 'filter',    showEfficiency: true },
-    grayscale:  { index: 5, name: 'Grayscale',  category: 'filter',    showEfficiency: true },
-    boxBlur:    { index: 6, name: 'BoxBlur',    category: 'filter',    showEfficiency: true },
-    alpha:      { index: 7, name: 'Alpha',      category: 'filter',    showEfficiency: true },
+    // システム系（パイプライン制御）
+    renderer:   { index: 0, name: 'Renderer',   category: 'system',    showEfficiency: false },
+    source:     { index: 1, name: 'Source',     category: 'system',    showEfficiency: false },
+    sink:       { index: 2, name: 'Sink',       category: 'system',    showEfficiency: false },
+    // 構造系（変換・合成）
+    transform:  { index: 3, name: 'Affine',     category: 'structure', showEfficiency: true },
+    composite:  { index: 4, name: 'Composite',  category: 'structure', showEfficiency: false },
+    // フィルタ系
+    brightness: { index: 5, name: 'Brightness', category: 'filter',    showEfficiency: true },
+    grayscale:  { index: 6, name: 'Grayscale',  category: 'filter',    showEfficiency: true },
+    boxBlur:    { index: 7, name: 'BoxBlur',    category: 'filter',    showEfficiency: true },
+    alpha:      { index: 8, name: 'Alpha',      category: 'filter',    showEfficiency: true },
 };
 
 // ヘルパー関数
@@ -592,6 +601,7 @@ function initializeApp() {
     // NodeGraphEvaluator初期化（WebAssemblyモジュール）
     if (typeof WasmModule !== 'undefined' && WasmModule.NodeGraphEvaluator) {
         graphEvaluator = new WasmModule.NodeGraphEvaluator(canvasWidth, canvasHeight);
+        graphEvaluator.setDstOrigin(canvasOrigin.x, canvasOrigin.y);
         console.log('NodeGraphEvaluator initialized');
     } else {
         console.error('WebAssembly module not loaded!', typeof WasmModule);
@@ -666,27 +676,6 @@ function setupEventListeners() {
     // 画像選択
     document.getElementById('image-input').addEventListener('change', handleImageUpload);
 
-    // 出力設定適用ボタン（サイドバー内）
-    document.getElementById('sidebar-apply-settings').addEventListener('click', applyOutputSettings);
-
-    // キャンバス原点選択（9点グリッド、サイドバー内）
-    // 初期選択は中央（0.5, 0.5）
-    setupOriginGrid('sidebar-origin-grid', { x: 0.5, y: 0.5 }, (normalizedOrigin) => {
-        // 9点ボタン押下時：正規化座標からピクセル座標を計算して入力欄に反映
-        const w = parseInt(document.getElementById('sidebar-canvas-width').value) || 800;
-        const h = parseInt(document.getElementById('sidebar-canvas-height').value) || 600;
-        const pixelX = Math.round(normalizedOrigin.x * w);
-        const pixelY = Math.round(normalizedOrigin.y * h);
-        document.getElementById('sidebar-origin-x').value = pixelX;
-        document.getElementById('sidebar-origin-y').value = pixelY;
-        // サイズと原点を同時に適用（未適用のサイズ変更も反映）
-        applyOutputSettings();
-    });
-
-    // 原点座標入力欄の初期値を設定
-    document.getElementById('sidebar-origin-x').value = canvasOrigin.x;
-    document.getElementById('sidebar-origin-y').value = canvasOrigin.y;
-
     // 表示倍率スライダー
     const scaleSlider = document.getElementById('sidebar-preview-scale');
     const scaleValue = document.getElementById('sidebar-preview-scale-value');
@@ -697,24 +686,6 @@ function setupEventListeners() {
             updateCanvasDisplayScale();
             if (previewScrollManager) previewScrollManager.applyRatio();
         });
-    }
-
-    // タイル分割設定
-    const tilePresetSelect = document.getElementById('sidebar-tile-preset');
-    if (tilePresetSelect) {
-        tilePresetSelect.addEventListener('change', onTileSettingsChange);
-    }
-    const tileWidthInput = document.getElementById('sidebar-tile-width');
-    const tileHeightInput = document.getElementById('sidebar-tile-height');
-    if (tileWidthInput) {
-        tileWidthInput.addEventListener('change', onTileSettingsChange);
-    }
-    if (tileHeightInput) {
-        tileHeightInput.addEventListener('change', onTileSettingsChange);
-    }
-    const debugCheckerbox = document.getElementById('sidebar-debug-checkerboard');
-    if (debugCheckerbox) {
-        debugCheckerbox.addEventListener('change', onTileSettingsChange);
     }
 
     // 状態管理ボタン
@@ -1345,6 +1316,18 @@ function updateCanvasDisplayScale() {
     canvas.style.height = (canvasHeight * previewScale) + 'px';
 }
 
+// キャンバスサイズを変更（グローバル変数とC++側も更新）
+function resizeCanvas(width, height) {
+    canvasWidth = width;
+    canvasHeight = height;
+    canvas.width = width;
+    canvas.height = height;
+    updateCanvasDisplayScale();
+    if (graphEvaluator) {
+        graphEvaluator.setCanvasSize(width, height);
+    }
+}
+
 // タイル分割プリセットからサイズを取得
 function getTileSizeFromPreset(preset) {
     switch (preset) {
@@ -1353,11 +1336,7 @@ function getTileSizeFromPreset(preset) {
         case '16':       return { w: 16, h: 16 };
         case '32':       return { w: 32, h: 32 };
         case '64':       return { w: 64, h: 64 };
-        case 'custom':
-            return {
-                w: parseInt(document.getElementById('sidebar-tile-width').value) || 16,
-                h: parseInt(document.getElementById('sidebar-tile-height').value) || 16
-            };
+        case 'custom':   return { w: tileWidth || 64, h: tileHeight || 64 };
         default:         return { w: 0, h: 0 };
     }
 }
@@ -1366,82 +1345,13 @@ function getTileSizeFromPreset(preset) {
 function applyTileSettings() {
     if (!graphEvaluator) return;
 
-    const preset = document.getElementById('sidebar-tile-preset')?.value || 'none';
-    const size = getTileSizeFromPreset(preset);
-    const debugCheckerboard = document.getElementById('sidebar-debug-checkerboard')?.checked || false;
-
-    console.log('Tile size:', size.w, 'x', size.h, 'debug:', debugCheckerboard);
-    graphEvaluator.setTileSize(size.w, size.h);
+    // グローバル変数から設定を取得
+    graphEvaluator.setTileSize(tileWidth, tileHeight);
     graphEvaluator.setDebugCheckerboard(debugCheckerboard);
 }
 
-// タイル設定変更時のハンドラ
-function onTileSettingsChange() {
-    const preset = document.getElementById('sidebar-tile-preset')?.value || 'none';
-    const customSettings = document.getElementById('sidebar-tile-custom');
-
-    // カスタムサイズ入力欄の表示/非表示
-    if (customSettings) {
-        customSettings.style.display = (preset === 'custom') ? 'block' : 'none';
-    }
-
-    // キャンバスをクリア（市松模様などで以前の画像が残らないように）
-    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-
-    // C++側の出力バッファもクリア
-    if (graphEvaluator) {
-        graphEvaluator.clearImage(outputImageId);
-    }
-
-    // 設定を適用
-    applyTileSettings();
-    updatePreviewFromGraph();
-
-    // 状態を自動保存
-    scheduleAutoSave();
-}
-
-// 出力設定を適用（サイドバーから）
-function applyOutputSettings() {
-    const width = parseInt(document.getElementById('sidebar-canvas-width').value);
-    const height = parseInt(document.getElementById('sidebar-canvas-height').value);
-
-    // NaN チェックを追加（空文字やパース失敗時）
-    if (isNaN(width) || isNaN(height) || width < 100 || width > 2000 || height < 100 || height > 2000) {
-        alert('キャンバスサイズは100〜2000の範囲で指定してください');
-        return;
-    }
-
-    // 原点座標を取得（入力欄から）
-    const originX = parseInt(document.getElementById('sidebar-origin-x').value) || 0;
-    const originY = parseInt(document.getElementById('sidebar-origin-y').value) || 0;
-
-    // 原点をピクセル座標で保存
-    canvasOrigin = {
-        x: Math.max(0, Math.min(originX, width)),
-        y: Math.max(0, Math.min(originY, height))
-    };
-    console.log('Output settings applied:', width, 'x', height, 'origin:', canvasOrigin);
-
-    canvasWidth = width;
-    canvasHeight = height;
-    canvas.width = width;
-    canvas.height = height;
-
-    // 現在の倍率で表示サイズを更新
-    updateCanvasDisplayScale();
-
-    graphEvaluator.setCanvasSize(width, height);
-    graphEvaluator.setDstOrigin(canvasOrigin.x, canvasOrigin.y);
-
-    // タイル分割設定を適用
-    applyTileSettings();
-
-    updatePreviewFromGraph();
-
-    // キャンバスサイズ変更後にスクロール位置を再調整
-    if (previewScrollManager) previewScrollManager.applyRatio();
-}
+// Note: onTileSettingsChange and applyOutputSettings were removed.
+// Settings are now managed via Renderer/Sink node detail panels.
 
 function downloadComposedImage() {
     canvas.toBlob((blob) => {
@@ -1510,15 +1420,47 @@ function renderNodeGraph() {
     // SVGをクリア
     nodeGraphSvg.innerHTML = '';
 
-    // 出力ノードが存在しない場合は追加
-    if (!globalNodes.find(n => n.type === 'output')) {
+    // Renderer ノードが存在しない場合は追加
+    if (!globalNodes.find(n => n.type === 'renderer')) {
         globalNodes.push({
-            id: 'output',
-            type: 'output',
-            title: '出力',
-            imageId: outputImageId,  // 画像ライブラリのID（出力先）
-            posX: 1000,  // 1600幅キャンバスの中央寄り右側
-            posY: 550   // 1200高さキャンバスの中央付近
+            id: 'renderer',
+            type: 'renderer',
+            title: 'Renderer',
+            virtualWidth: canvasWidth,
+            virtualHeight: canvasHeight,
+            originX: canvasOrigin.x,
+            originY: canvasOrigin.y,
+            posX: 850,
+            posY: 550
+        });
+    }
+
+    // Sink ノードが存在しない場合は追加
+    if (!globalNodes.find(n => n.type === 'sink')) {
+        globalNodes.push({
+            id: 'sink',
+            type: 'sink',
+            title: 'Sink',
+            outputWidth: canvasWidth,
+            outputHeight: canvasHeight,
+            outputOriginX: canvasOrigin.x,
+            outputOriginY: canvasOrigin.y,
+            imageId: outputImageId,
+            posX: 1100,
+            posY: 550
+        });
+    }
+
+    // Renderer → Sink の接続を確認（常にチェック）
+    const hasRendererToSink = globalConnections.some(
+        c => c.fromNodeId === 'renderer' && c.toNodeId === 'sink'
+    );
+    if (!hasRendererToSink) {
+        globalConnections.push({
+            fromNodeId: 'renderer',
+            fromPortId: 'out',
+            toNodeId: 'sink',
+            toPortId: 'in'
         });
     }
 
@@ -1627,8 +1569,12 @@ function getNodeHeight(node) {
         return 70; // アフィン: 主要パラメータ1つ
     } else if (node.type === 'filter' && node.independent) {
         return 70; // フィルタ: 主要パラメータ1つ
+    } else if (node.type === 'renderer') {
+        return 80; // Renderer: 仮想スクリーン情報
+    } else if (node.type === 'sink') {
+        return 70; // Sink: 出力サイズ情報
     } else {
-        return 50; // デフォルト（出力ノード等）
+        return 50; // デフォルト
     }
 }
 
@@ -1811,6 +1757,34 @@ function drawGlobalNode(node) {
         label.appendChild(slider);
         label.appendChild(display);
         controls.appendChild(label);
+        nodeBox.appendChild(controls);
+    }
+
+    // Rendererノードの場合、仮想スクリーン情報を表示
+    if (node.type === 'renderer') {
+        const controls = document.createElement('div');
+        controls.className = 'node-box-controls';
+        controls.style.cssText = 'padding: 4px; font-size: 10px; color: #666; line-height: 1.4;';
+
+        const vw = node.virtualWidth ?? canvasWidth;
+        const vh = node.virtualHeight ?? canvasHeight;
+        const ox = node.originX ?? canvasOrigin.x;
+        const oy = node.originY ?? canvasOrigin.y;
+
+        controls.innerHTML = `${vw}×${vh}<br>原点: ${ox.toFixed(0)}, ${oy.toFixed(0)}`;
+        nodeBox.appendChild(controls);
+    }
+
+    // Sinkノードの場合、出力サイズ情報を表示
+    if (node.type === 'sink') {
+        const controls = document.createElement('div');
+        controls.className = 'node-box-controls';
+        controls.style.cssText = 'padding: 4px; font-size: 10px; color: #666; line-height: 1.4;';
+
+        const ow = node.outputWidth ?? canvasWidth;
+        const oh = node.outputHeight ?? canvasHeight;
+
+        controls.innerHTML = `出力: ${ow}×${oh}`;
         nodeBox.appendChild(controls);
     }
 
@@ -2237,8 +2211,14 @@ function getNodePorts(node) {
             ports.outputs.push({ id: 'out', label: '出力', type: 'image' });
             break;
 
-        case 'output':
-            // 出力ノード: 入力のみ
+        case 'renderer':
+            // Rendererノード: 入力1つ、出力1つ
+            ports.inputs.push({ id: 'in', label: '入力', type: 'image' });
+            ports.outputs.push({ id: 'out', label: '出力', type: 'image' });
+            break;
+
+        case 'sink':
+            // Sinkノード: 入力のみ
             ports.inputs.push({ id: 'in', label: '入力', type: 'image' });
             break;
     }
@@ -2435,16 +2415,16 @@ function getFilterDisplayName(filterType) {
 function updatePreviewFromGraph() {
     const perfStart = performance.now();
 
-    const outputNode = globalNodes.find(n => n.type === 'output');
-    if (!outputNode) {
-        // 出力ノードがない場合はキャンバスをクリア
+    const sinkNode = globalNodes.find(n => n.type === 'sink');
+    if (!sinkNode) {
+        // Sinkノードがない場合はキャンバスをクリア
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
         return;
     }
 
-    // 出力ノードへの入力接続を取得
+    // Sinkノードへの入力接続を取得
     const inputConn = globalConnections.find(
-        c => c.toNodeId === outputNode.id && c.toPortId === 'in'
+        c => c.toNodeId === sinkNode.id && c.toPortId === 'in'
     );
 
     if (!inputConn) {
@@ -2660,9 +2640,9 @@ function initDebugDetailsSection() {
                     <span class="debug-metric-value" id="debug-max-alloc">--</span>
                 </div>`;
 
-    // 構造系ノードのメモリ（Output以外）
+    // 構造系ノードのメモリ（Sink以外）
     for (const [key, def] of structureTypes) {
-        if (key === 'output') continue;  // Outputはメモリ確保しない
+        if (key === 'sink') continue;  // Sinkはメモリ確保しない
         memHtml += `
                 <div class="debug-metric-row debug-metric-sub">
                     <span class="debug-metric-label">├ ${def.name}</span>
@@ -2977,6 +2957,10 @@ function buildDetailPanelContent(node) {
         buildCompositeDetailContent(node);
     } else if (node.type === 'affine') {
         buildAffineDetailContent(node);
+    } else if (node.type === 'renderer') {
+        buildRendererDetailContent(node);
+    } else if (node.type === 'sink') {
+        buildSinkDetailContent(node);
     }
 }
 
@@ -3240,11 +3224,367 @@ function buildAffineDetailContent(node) {
     detailPanelContent.appendChild(section);
 }
 
+// Rendererノードの詳細コンテンツ
+function buildRendererDetailContent(node) {
+    // === 仮想スクリーンサイズ ===
+    const sizeSection = document.createElement('div');
+    sizeSection.className = 'node-detail-section';
+
+    const sizeLabel = document.createElement('div');
+    sizeLabel.className = 'node-detail-label';
+    sizeLabel.textContent = '仮想スクリーン';
+    sizeSection.appendChild(sizeLabel);
+
+    // 幅
+    const widthRow = document.createElement('div');
+    widthRow.className = 'node-detail-row';
+    const widthLabel = document.createElement('label');
+    widthLabel.textContent = '幅';
+    const widthInput = document.createElement('input');
+    widthInput.type = 'number';
+    widthInput.min = '100';
+    widthInput.max = '4096';
+    widthInput.value = node.virtualWidth ?? canvasWidth;
+    widthInput.style.width = '80px';
+    widthRow.appendChild(widthLabel);
+    widthRow.appendChild(widthInput);
+    sizeSection.appendChild(widthRow);
+
+    // 高さ
+    const heightRow = document.createElement('div');
+    heightRow.className = 'node-detail-row';
+    const heightLabel = document.createElement('label');
+    heightLabel.textContent = '高さ';
+    const heightInput = document.createElement('input');
+    heightInput.type = 'number';
+    heightInput.min = '100';
+    heightInput.max = '4096';
+    heightInput.value = node.virtualHeight ?? canvasHeight;
+    heightInput.style.width = '80px';
+    heightRow.appendChild(heightLabel);
+    heightRow.appendChild(heightInput);
+    sizeSection.appendChild(heightRow);
+
+    // 原点X
+    const originXRow = document.createElement('div');
+    originXRow.className = 'node-detail-row';
+    const originXLabel = document.createElement('label');
+    originXLabel.textContent = '原点X';
+    const originXInput = document.createElement('input');
+    originXInput.type = 'number';
+    originXInput.value = Math.round(node.originX ?? canvasOrigin.x);
+    originXInput.style.width = '80px';
+    originXRow.appendChild(originXLabel);
+    originXRow.appendChild(originXInput);
+    sizeSection.appendChild(originXRow);
+
+    // 原点Y
+    const originYRow = document.createElement('div');
+    originYRow.className = 'node-detail-row';
+    const originYLabel = document.createElement('label');
+    originYLabel.textContent = '原点Y';
+    const originYInput = document.createElement('input');
+    originYInput.type = 'number';
+    originYInput.value = Math.round(node.originY ?? canvasOrigin.y);
+    originYInput.style.width = '80px';
+    originYRow.appendChild(originYLabel);
+    originYRow.appendChild(originYInput);
+    sizeSection.appendChild(originYRow);
+
+    // 適用ボタン
+    const applyRow = document.createElement('div');
+    applyRow.className = 'node-detail-row';
+    applyRow.style.justifyContent = 'flex-end';
+    const applyBtn = document.createElement('button');
+    applyBtn.className = 'primary-btn';
+    applyBtn.textContent = '適用';
+    applyBtn.style.marginTop = '8px';
+    applyBtn.addEventListener('click', () => {
+        node.virtualWidth = parseInt(widthInput.value);
+        node.virtualHeight = parseInt(heightInput.value);
+        node.originX = parseFloat(originXInput.value);
+        node.originY = parseFloat(originYInput.value);
+
+        // グローバル変数も更新
+        canvasWidth = node.virtualWidth;
+        canvasHeight = node.virtualHeight;
+        canvasOrigin.x = node.originX;
+        canvasOrigin.y = node.originY;
+
+        // Sinkノードも同期
+        const sinkNode = globalNodes.find(n => n.type === 'sink');
+        if (sinkNode) {
+            sinkNode.outputWidth = node.virtualWidth;
+            sinkNode.outputHeight = node.virtualHeight;
+            sinkNode.outputOriginX = node.originX;
+            sinkNode.outputOriginY = node.originY;
+        }
+
+        // キャンバスをリサイズ＆原点を更新
+        resizeCanvas(node.virtualWidth, node.virtualHeight);
+        if (graphEvaluator) {
+            graphEvaluator.setDstOrigin(canvasOrigin.x, canvasOrigin.y);
+        }
+        renderNodeGraph();
+        throttledUpdatePreview();
+    });
+    applyRow.appendChild(applyBtn);
+    sizeSection.appendChild(applyRow);
+
+    detailPanelContent.appendChild(sizeSection);
+
+    // === タイル設定 ===
+    const tileSection = document.createElement('div');
+    tileSection.className = 'node-detail-section';
+
+    const tileLabel = document.createElement('div');
+    tileLabel.className = 'node-detail-label';
+    tileLabel.textContent = 'タイル分割';
+    tileSection.appendChild(tileLabel);
+
+    // プリセット選択
+    const presetRow = document.createElement('div');
+    presetRow.className = 'node-detail-row';
+    const presetLabel = document.createElement('label');
+    presetLabel.textContent = 'モード';
+    const presetSelect = document.createElement('select');
+    presetSelect.style.flex = '1';
+    presetSelect.innerHTML = `
+        <option value="none">なし（一括処理）</option>
+        <option value="scanline">スキャンライン</option>
+        <option value="16">16×16</option>
+        <option value="32">32×32</option>
+        <option value="64">64×64</option>
+        <option value="custom">カスタム</option>
+    `;
+
+    // 現在の設定を反映
+    const currentTileW = node.tileWidth ?? tileWidth;
+    const currentTileH = node.tileHeight ?? tileHeight;
+    if (currentTileW === 0 && currentTileH === 0) {
+        presetSelect.value = 'none';
+    } else if (currentTileH === 1) {
+        presetSelect.value = 'scanline';
+    } else if (currentTileW === 16 && currentTileH === 16) {
+        presetSelect.value = '16';
+    } else if (currentTileW === 32 && currentTileH === 32) {
+        presetSelect.value = '32';
+    } else if (currentTileW === 64 && currentTileH === 64) {
+        presetSelect.value = '64';
+    } else {
+        presetSelect.value = 'custom';
+    }
+
+    presetRow.appendChild(presetLabel);
+    presetRow.appendChild(presetSelect);
+    tileSection.appendChild(presetRow);
+
+    // カスタムサイズ入力
+    const customRow = document.createElement('div');
+    customRow.className = 'node-detail-row';
+    customRow.style.display = presetSelect.value === 'custom' ? 'flex' : 'none';
+
+    const tileWLabel = document.createElement('label');
+    tileWLabel.textContent = '幅';
+    const tileWInput = document.createElement('input');
+    tileWInput.type = 'number';
+    tileWInput.min = '1';
+    tileWInput.max = '512';
+    tileWInput.value = currentTileW || 64;
+    tileWInput.style.width = '60px';
+
+    const tileHLabel = document.createElement('label');
+    tileHLabel.textContent = '高さ';
+    tileHLabel.style.marginLeft = '8px';
+    const tileHInput = document.createElement('input');
+    tileHInput.type = 'number';
+    tileHInput.min = '1';
+    tileHInput.max = '512';
+    tileHInput.value = currentTileH || 64;
+    tileHInput.style.width = '60px';
+
+    customRow.appendChild(tileWLabel);
+    customRow.appendChild(tileWInput);
+    customRow.appendChild(tileHLabel);
+    customRow.appendChild(tileHInput);
+    tileSection.appendChild(customRow);
+
+    // プリセット変更時の処理
+    presetSelect.addEventListener('change', () => {
+        const val = presetSelect.value;
+        customRow.style.display = val === 'custom' ? 'flex' : 'none';
+
+        let tw = 0, th = 0;
+        if (val === 'none') { tw = 0; th = 0; }
+        else if (val === 'scanline') { tw = 0; th = 1; }
+        else if (val === '16') { tw = 16; th = 16; }
+        else if (val === '32') { tw = 32; th = 32; }
+        else if (val === '64') { tw = 64; th = 64; }
+        else if (val === 'custom') { tw = parseInt(tileWInput.value); th = parseInt(tileHInput.value); }
+
+        node.tileWidth = tw;
+        node.tileHeight = th;
+        tileWidth = tw;
+        tileHeight = th;
+        applyTileSettings();
+        throttledUpdatePreview();
+    });
+
+    // カスタム値変更時
+    tileWInput.addEventListener('change', () => {
+        if (presetSelect.value === 'custom') {
+            node.tileWidth = parseInt(tileWInput.value);
+            tileWidth = node.tileWidth;
+            applyTileSettings();
+            throttledUpdatePreview();
+        }
+    });
+    tileHInput.addEventListener('change', () => {
+        if (presetSelect.value === 'custom') {
+            node.tileHeight = parseInt(tileHInput.value);
+            tileHeight = node.tileHeight;
+            applyTileSettings();
+            throttledUpdatePreview();
+        }
+    });
+
+    // デバッグ：交互スキップ
+    const debugRow = document.createElement('div');
+    debugRow.className = 'node-detail-row';
+    const debugLabel = document.createElement('label');
+    debugLabel.className = 'sidebar-checkbox-label';
+    debugLabel.style.fontSize = '11px';
+    const debugCheckbox = document.createElement('input');
+    debugCheckbox.type = 'checkbox';
+    debugCheckbox.checked = node.debugCheckerboard ?? debugCheckerboard;
+    debugCheckbox.addEventListener('change', () => {
+        node.debugCheckerboard = debugCheckbox.checked;
+        debugCheckerboard = node.debugCheckerboard;
+        applyTileSettings();
+        throttledUpdatePreview();
+    });
+    debugLabel.appendChild(debugCheckbox);
+    debugLabel.appendChild(document.createTextNode(' 🐛 交互スキップ'));
+    debugRow.appendChild(debugLabel);
+    tileSection.appendChild(debugRow);
+
+    detailPanelContent.appendChild(tileSection);
+}
+
+// Sinkノードの詳細コンテンツ
+function buildSinkDetailContent(node) {
+    const section = document.createElement('div');
+    section.className = 'node-detail-section';
+
+    const label = document.createElement('div');
+    label.className = 'node-detail-label';
+    label.textContent = '出力設定';
+    section.appendChild(label);
+
+    // 幅
+    const widthRow = document.createElement('div');
+    widthRow.className = 'node-detail-row';
+    const widthLabel = document.createElement('label');
+    widthLabel.textContent = '幅';
+    const widthInput = document.createElement('input');
+    widthInput.type = 'number';
+    widthInput.min = '100';
+    widthInput.max = '4096';
+    widthInput.value = node.outputWidth ?? canvasWidth;
+    widthInput.style.width = '80px';
+    widthRow.appendChild(widthLabel);
+    widthRow.appendChild(widthInput);
+    section.appendChild(widthRow);
+
+    // 高さ
+    const heightRow = document.createElement('div');
+    heightRow.className = 'node-detail-row';
+    const heightLabel = document.createElement('label');
+    heightLabel.textContent = '高さ';
+    const heightInput = document.createElement('input');
+    heightInput.type = 'number';
+    heightInput.min = '100';
+    heightInput.max = '4096';
+    heightInput.value = node.outputHeight ?? canvasHeight;
+    heightInput.style.width = '80px';
+    heightRow.appendChild(heightLabel);
+    heightRow.appendChild(heightInput);
+    section.appendChild(heightRow);
+
+    // 原点X
+    const originXRow = document.createElement('div');
+    originXRow.className = 'node-detail-row';
+    const originXLabel = document.createElement('label');
+    originXLabel.textContent = '原点X';
+    const originXInput = document.createElement('input');
+    originXInput.type = 'number';
+    originXInput.value = Math.round(node.outputOriginX ?? canvasOrigin.x);
+    originXInput.style.width = '80px';
+    originXRow.appendChild(originXLabel);
+    originXRow.appendChild(originXInput);
+    section.appendChild(originXRow);
+
+    // 原点Y
+    const originYRow = document.createElement('div');
+    originYRow.className = 'node-detail-row';
+    const originYLabel = document.createElement('label');
+    originYLabel.textContent = '原点Y';
+    const originYInput = document.createElement('input');
+    originYInput.type = 'number';
+    originYInput.value = Math.round(node.outputOriginY ?? canvasOrigin.y);
+    originYInput.style.width = '80px';
+    originYRow.appendChild(originYLabel);
+    originYRow.appendChild(originYInput);
+    section.appendChild(originYRow);
+
+    // 適用ボタン
+    const applyRow = document.createElement('div');
+    applyRow.className = 'node-detail-row';
+    applyRow.style.justifyContent = 'flex-end';
+    const applyBtn = document.createElement('button');
+    applyBtn.className = 'primary-btn';
+    applyBtn.textContent = '適用';
+    applyBtn.style.marginTop = '8px';
+    applyBtn.addEventListener('click', () => {
+        node.outputWidth = parseInt(widthInput.value);
+        node.outputHeight = parseInt(heightInput.value);
+        node.outputOriginX = parseFloat(originXInput.value);
+        node.outputOriginY = parseFloat(originYInput.value);
+
+        // Rendererノードと同期（将来的には独立設定も可能）
+        const rendererNode = globalNodes.find(n => n.type === 'renderer');
+        if (rendererNode) {
+            rendererNode.virtualWidth = node.outputWidth;
+            rendererNode.virtualHeight = node.outputHeight;
+            rendererNode.originX = node.outputOriginX;
+            rendererNode.originY = node.outputOriginY;
+        }
+
+        // グローバル変数も更新
+        canvasWidth = node.outputWidth;
+        canvasHeight = node.outputHeight;
+        canvasOrigin.x = node.outputOriginX;
+        canvasOrigin.y = node.outputOriginY;
+
+        // キャンバスをリサイズ＆原点を更新
+        resizeCanvas(node.outputWidth, node.outputHeight);
+        if (graphEvaluator) {
+            graphEvaluator.setDstOrigin(canvasOrigin.x, canvasOrigin.y);
+        }
+        renderNodeGraph();
+        throttledUpdatePreview();
+    });
+    applyRow.appendChild(applyBtn);
+    section.appendChild(applyRow);
+
+    detailPanelContent.appendChild(section);
+}
+
 // ノードを削除
 function deleteNode(node) {
-    // outputノードは削除不可
-    if (node.type === 'output') {
-        alert('出力ノードは削除できません');
+    // システムノード（renderer, sink）は削除不可
+    if (node.type === 'renderer' || node.type === 'sink') {
+        alert('システムノードは削除できません');
         return;
     }
 
@@ -3319,11 +3659,11 @@ const STATE_VERSION = 1;
 
 // アプリ状態をオブジェクトとして取得
 function getAppState() {
-    // タイル分割の現在値を取得
-    const tilePreset = document.getElementById('sidebar-tile-preset')?.value || 'none';
-    const tileWidth = parseInt(document.getElementById('sidebar-tile-width')?.value) || 16;
-    const tileHeight = parseInt(document.getElementById('sidebar-tile-height')?.value) || 16;
-    const debugCheckerboard = document.getElementById('sidebar-debug-checkerboard')?.checked || false;
+    // Rendererノードからタイル設定を取得
+    const rendererNode = globalNodes.find(n => n.type === 'renderer');
+    const currentTileWidth = rendererNode?.tileWidth ?? tileWidth;
+    const currentTileHeight = rendererNode?.tileHeight ?? tileHeight;
+    const currentDebugCheckerboard = rendererNode?.debugCheckerboard ?? debugCheckerboard;
 
     // スクロール位置を保存（倍率変更後も比率で復元できるように）
     const scrollRatio = previewScrollManager ? previewScrollManager.getRatio() : { x: 0.5, y: 0.5 };
@@ -3339,10 +3679,9 @@ function getAppState() {
             scrollRatio: scrollRatio
         },
         tile: {
-            preset: tilePreset,
-            width: tileWidth,
-            height: tileHeight,
-            debugCheckerboard: debugCheckerboard
+            width: currentTileWidth,
+            height: currentTileHeight,
+            debugCheckerboard: currentDebugCheckerboard
         },
         images: uploadedImages.map(img => ({
             id: img.id,
@@ -3503,12 +3842,6 @@ async function restoreAppState(state) {
     graphEvaluator.setCanvasSize(canvasWidth, canvasHeight);
     graphEvaluator.setDstOrigin(canvasOrigin.x, canvasOrigin.y);
 
-    // UI入力欄を更新
-    document.getElementById('sidebar-origin-x').value = canvasOrigin.x;
-    document.getElementById('sidebar-origin-y').value = canvasOrigin.y;
-    document.getElementById('sidebar-canvas-width').value = canvasWidth;
-    document.getElementById('sidebar-canvas-height').value = canvasHeight;
-
     // 表示倍率UIを更新
     const scaleSlider = document.getElementById('sidebar-preview-scale');
     const scaleValue = document.getElementById('sidebar-preview-scale-value');
@@ -3524,35 +3857,14 @@ async function restoreAppState(state) {
         previewScrollManager.setRatio(state.canvas.scrollRatio.x, state.canvas.scrollRatio.y);
     }
 
-    // タイル分割設定を復元
+    // タイル分割設定を復元（グローバル変数に直接設定）
     if (state.tile) {
-        const tilePresetSelect = document.getElementById('sidebar-tile-preset');
-        const tileWidthInput = document.getElementById('sidebar-tile-width');
-        const tileHeightInput = document.getElementById('sidebar-tile-height');
-        const customSettings = document.getElementById('sidebar-tile-custom');
-        const debugCheckbox = document.getElementById('sidebar-debug-checkerboard');
-
-        // 旧形式（strategy）との互換性
-        const preset = state.tile.preset || 'none';
-        if (tilePresetSelect) {
-            tilePresetSelect.value = preset;
-        }
-        if (tileWidthInput) {
-            tileWidthInput.value = state.tile.width || 16;
-        }
-        if (tileHeightInput) {
-            tileHeightInput.value = state.tile.height || 16;
-        }
-        if (debugCheckbox) {
-            debugCheckbox.checked = state.tile.debugCheckerboard || false;
-        }
-        // カスタムサイズ入力欄の表示/非表示
-        if (customSettings) {
-            customSettings.style.display = (preset === 'custom') ? 'block' : 'none';
-        }
-        // タイル設定を適用
-        applyTileSettings();
+        tileWidth = state.tile.width || 0;
+        tileHeight = state.tile.height || 0;
+        debugCheckerboard = state.tile.debugCheckerboard || false;
     }
+    // C++側にタイル設定を反映
+    applyTileSettings();
 
     // 次のID値を復元
     nextImageId = state.nextIds.imageId;
@@ -3606,6 +3918,34 @@ async function restoreAppState(state) {
     // ノードとコネクションを復元
     globalNodes = state.nodes;
     globalConnections = state.connections;
+
+    // マイグレーション: 旧 'output' ノードを 'sink' に変換
+    let oldOutputId = null;
+    globalNodes.forEach(node => {
+        if (node.type === 'output') {
+            oldOutputId = node.id;
+            node.type = 'sink';
+            node.id = 'sink';  // IDも統一
+            // 旧形式のパラメータを新形式に変換
+            if (node.width !== undefined) node.outputWidth = node.width;
+            if (node.height !== undefined) node.outputHeight = node.height;
+        }
+    });
+
+    // 旧output宛の接続をRenderer経由に再配線
+    if (oldOutputId) {
+        globalConnections.forEach(conn => {
+            if (conn.toNodeId === oldOutputId) {
+                // 旧output宛 → Renderer宛に変更
+                conn.toNodeId = 'renderer';
+                conn.toPortId = 'in';
+            }
+            if (conn.fromNodeId === oldOutputId) {
+                conn.fromNodeId = 'sink';
+            }
+        });
+    }
+
     renderNodeGraph();
 
     // プレビュー更新

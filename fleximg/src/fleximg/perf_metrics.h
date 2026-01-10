@@ -20,16 +20,19 @@ namespace FLEXIMG_NAMESPACE {
 // ========================================================================
 
 namespace NodeType {
-    constexpr int Source = 0;
-    constexpr int Transform = 1;
-    constexpr int Composite = 2;
-    constexpr int Output = 3;
-    // フィルタ系（個別化）
-    constexpr int Brightness = 4;
-    constexpr int Grayscale = 5;
-    constexpr int BoxBlur = 6;
-    constexpr int Alpha = 7;
-    constexpr int Count = 8;
+    // システム系
+    constexpr int Renderer = 0;   // パイプライン発火点
+    constexpr int Source = 1;     // 画像入力
+    constexpr int Sink = 2;       // 画像出力
+    // 構造系
+    constexpr int Transform = 3;  // アフィン変換
+    constexpr int Composite = 4;  // 合成
+    // フィルタ系
+    constexpr int Brightness = 5;
+    constexpr int Grayscale = 6;
+    constexpr int BoxBlur = 7;
+    constexpr int Alpha = 8;
+    constexpr int Count = 9;
 }
 
 // ========================================================================

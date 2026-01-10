@@ -1,5 +1,41 @@
 # Changelog
 
+## [2.6.0] - 2026-01-10
+
+### 追加
+
+- **WebUI: Renderer/Sink ノードの可視化**
+  - ノードグラフに Renderer と Sink をシステムノードとして表示
+  - 削除不可制約（システムノード保護）
+  - Renderer → Sink の自動接続
+
+- **ノード詳細パネル**
+  - Renderer: 仮想スクリーンサイズ、原点、タイル分割設定
+  - Sink: 出力サイズ、原点設定
+
+### 変更
+
+- **NodeType 再定義**: パフォーマンス計測の粒度向上
+  - 新順序: Renderer(0), Source(1), Sink(2), Transform(3), Composite(4), Brightness(5), Grayscale(6), BoxBlur(7), Alpha(8)
+  - C++ (`perf_metrics.h`) と JavaScript (`NODE_TYPES`) で同期
+
+- **WebUI サイドバー簡略化**
+  - 「出力設定」を削除、設定は Renderer/Sink ノード詳細パネルに移動
+  - 「表示設定」として表示倍率と状態管理のみ残存
+
+- **状態マイグレーション**
+  - 旧 'output' ノード → 'sink' への自動変換
+  - 旧形式の接続を Renderer 経由に自動再配線
+
+### 修正
+
+- bindings.cpp: renderer ノードの入力から upstream を探すように修正
+- 初期化時・詳細パネル適用時に `setDstOrigin()` を呼び出し
+- タイル設定変更時に `applyTileSettings()` を呼び出し
+- 状態復元時にタイル設定を C++ 側に反映
+
+---
+
 ## [2.5.1] - 2026-01-10
 
 ### 追加

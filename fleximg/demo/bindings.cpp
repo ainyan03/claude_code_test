@@ -225,8 +225,8 @@ public:
                 }
             }
 
-            // output用パラメータ
-            if (node.type == "output") {
+            // sink用パラメータ
+            if (node.type == "sink") {
                 if (nodeObj["imageId"].typeOf().as<std::string>() != "undefined") {
                     node.imageId = nodeObj["imageId"].as<int>();
                 }
@@ -267,9 +267,9 @@ public:
     val getPerfMetrics() {
         val result = val::object();
 
-        // ノードタイプ名
+        // ノードタイプ名（NodeType enum順）
         static const char* nodeNames[] = {
-            "source", "transform", "composite", "output",
+            "renderer", "source", "sink", "transform", "composite",
             "brightness", "grayscale", "boxBlur", "alpha"
         };
 
@@ -318,11 +318,11 @@ public:
         result.set("filterTime", filterTimeSum);
         result.set("affineTime", lastPerfMetrics_.nodes[NodeType::Transform].time_us);
         result.set("compositeTime", lastPerfMetrics_.nodes[NodeType::Composite].time_us);
-        result.set("outputTime", lastPerfMetrics_.nodes[NodeType::Output].time_us);
+        result.set("outputTime", lastPerfMetrics_.nodes[NodeType::Renderer].time_us);
         result.set("filterCount", filterCountSum);
         result.set("affineCount", lastPerfMetrics_.nodes[NodeType::Transform].count);
         result.set("compositeCount", lastPerfMetrics_.nodes[NodeType::Composite].count);
-        result.set("outputCount", lastPerfMetrics_.nodes[NodeType::Output].count);
+        result.set("outputCount", lastPerfMetrics_.nodes[NodeType::Renderer].count);
         result.set("totalTime", lastPerfMetrics_.totalTime());
         // グローバルメモリ統計
         result.set("totalAllocBytes", static_cast<double>(lastPerfMetrics_.totalAllocatedBytes));
@@ -379,19 +379,19 @@ private:
             inputConnections[conn.toNodeId].push_back(conn.fromNodeId);
         }
 
-        // outputノードを探す
-        const GraphNode* outputNode = nullptr;
+        // sinkノードを探す
+        const GraphNode* sinkGraphNode = nullptr;
         for (const auto& node : graphNodes_) {
-            if (node.type == "output") {
-                outputNode = &node;
+            if (node.type == "sink") {
+                sinkGraphNode = &node;
                 break;
             }
         }
 
-        if (!outputNode || outputNode->imageId < 0) return;
+        if (!sinkGraphNode || sinkGraphNode->imageId < 0) return;
 
         // 出力先ViewPortを取得
-        auto outputIt = imageViews_.find(outputNode->imageId);
+        auto outputIt = imageViews_.find(sinkGraphNode->imageId);
         if (outputIt == imageViews_.end()) return;
         ViewPort outputView = outputIt->second;
 
@@ -542,12 +542,28 @@ private:
             return nullptr;
         };
 
-        // outputノードの入力を構築
-        auto connIt = inputConnections.find(outputNode->id);
-        if (connIt != inputConnections.end() && !connIt->second.empty()) {
-            Node* upstream = buildNode(connIt->second[0]);
+        // renderer ノードの入力を探す（JSグラフ: upstream → renderer → sink）
+        // rendererはC++で動的生成するため、JSグラフ上の renderer ノードの入力を取得
+        std::string rendererInputId;
+        auto rendererConnIt = inputConnections.find("renderer");
+        if (rendererConnIt != inputConnections.end() && !rendererConnIt->second.empty()) {
+            rendererInputId = rendererConnIt->second[0];
+        } else {
+            // 旧形式: sinkの入力が直接upstreamの場合
+            auto sinkConnIt = inputConnections.find(sinkGraphNode->id);
+            if (sinkConnIt != inputConnections.end() && !sinkConnIt->second.empty()) {
+                const std::string& inputId = sinkConnIt->second[0];
+                // "renderer" ならスキップ（rendererの入力を使用済み）
+                if (inputId != "renderer") {
+                    rendererInputId = inputId;
+                }
+            }
+        }
+
+        if (!rendererInputId.empty()) {
+            Node* upstream = buildNode(rendererInputId);
             if (upstream) {
-                // 新パイプライン: upstream >> rendererNode >> sinkNode
+                // パイプライン: upstream >> rendererNode >> sinkNode
                 upstream->connectTo(*rendererNode);
                 rendererNode->connectTo(*sinkNode);
             }
