@@ -59,7 +59,6 @@ echo "📝 Build info: $BUILD_DATE (commit: $GIT_COMMIT)"
 
 # WebAssemblyにコンパイル
 emcc src/fleximg/viewport.cpp \
-     src/fleximg/renderer.cpp \
      src/fleximg/pixel_format_registry.cpp \
      src/fleximg/operations/blend.cpp \
      src/fleximg/operations/transform.cpp \

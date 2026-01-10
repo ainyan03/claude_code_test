@@ -4,21 +4,23 @@ fleximg の C++ コアライブラリの設計について説明します。
 
 ## 処理パイプライン
 
-ノードグラフは Renderer クラスによって評価されます。
+ノードグラフは RendererNode を発火点として評価されます。
 
 ```
 【処理フロー】
-SinkNode（出力先）
+SourceNode（画像入力）
     │
-    │ Renderer.exec()
+    │ pullProcess()（上流からプル）
     ▼
-タイル分割ループ
-    │ processTile(tx, ty)
+TransformNode / FilterNode
+    │
+    │ pullProcess()
     ▼
-上流ノードを再帰評価
-    │ evaluateUpstream()
+RendererNode（発火点）
+    │
+    │ pushProcess()（下流へプッシュ）
     ▼
-結果を出力先にコピー
+SinkNode（出力先）
 ```
 
 ### タイル分割
@@ -26,7 +28,8 @@ SinkNode（出力先）
 メモリ制約のある環境向けに、キャンバスをタイルに分割して処理できます。
 
 ```cpp
-Renderer renderer(sinkNode);
+RendererNode renderer;
+renderer.setVirtualScreen(640, 480, 320, 240);  // 幅, 高さ, 基準X, 基準Y
 renderer.setTileConfig(TileConfig{64, 64});  // 64x64タイル
 renderer.exec();
 ```
@@ -47,24 +50,25 @@ Node (基底クラス)
 ├── SinkNode        # 出力先を保持
 ├── TransformNode   # アフィン変換
 ├── FilterNode      # フィルタ処理
-└── CompositeNode   # 複数入力の合成
+├── CompositeNode   # 複数入力の合成
+└── RendererNode    # パイプライン実行の発火点
 ```
 
 ### 接続方式
 
-ノード間は Port オブジェクトで接続します。
+ノード間は Port オブジェクトで接続します。`>>` 演算子でチェーン接続も可能です。
 
 ```cpp
 SourceNode source(imageView);
 TransformNode transform;
-SinkNode sink(outputView, canvasWidth, canvasHeight);
+RendererNode renderer;
+SinkNode sink(outputView, canvasWidth / 2, canvasHeight / 2);
 
-// 接続: source → transform → sink
-transform.input(0)->connect(source.output());
-sink.input(0)->connect(transform.output());
+// 接続: source → transform → renderer → sink
+source >> transform >> renderer >> sink;
 
 // 実行
-Renderer renderer(sink);
+renderer.setVirtualScreen(canvasWidth, canvasHeight, canvasWidth / 2, canvasHeight / 2);
 renderer.exec();
 ```
 
@@ -202,13 +206,14 @@ src/fleximg/
 ├── port.h                # Port（ノード接続）
 ├── node.h                # Node 基底クラス
 ├── render_types.h        # RenderRequest, RenderResult 等
-├── renderer.h/cpp        # Renderer（パイプライン実行）
+├── perf_metrics.h        # パフォーマンス計測
 ├── nodes/
 │   ├── source_node.h     # SourceNode
 │   ├── sink_node.h       # SinkNode
 │   ├── transform_node.h  # TransformNode
 │   ├── filter_node.h     # FilterNode
-│   └── composite_node.h  # CompositeNode
+│   ├── composite_node.h  # CompositeNode
+│   └── renderer_node.h   # RendererNode（発火点）
 └── operations/
     ├── transform.h/cpp   # アフィン変換
     ├── filters.h/cpp     # フィルタ処理
@@ -226,7 +231,7 @@ src/fleximg/
 #include "fleximg/nodes/source_node.h"
 #include "fleximg/nodes/sink_node.h"
 #include "fleximg/nodes/transform_node.h"
-#include "fleximg/renderer.h"
+#include "fleximg/nodes/renderer_node.h"
 
 using namespace fleximg;
 
@@ -242,15 +247,15 @@ source.setOrigin(inputView.width / 2.0f, inputView.height / 2.0f);
 TransformNode transform;
 transform.setMatrix(AffineMatrix::rotate(0.5f));  // 約30度回転
 
-SinkNode sink(outputView, 320, 240);
-sink.setOrigin(160, 120);  // キャンバス中央
+RendererNode renderer;
+renderer.setVirtualScreen(320, 240, 160, 120);  // キャンバス中央を基準点に
+
+SinkNode sink(outputView, 160, 120);  // キャンバス中央
 
 // 接続
-transform.input(0)->connect(source.output());
-sink.input(0)->connect(transform.output());
+source >> transform >> renderer >> sink;
 
 // 実行
-Renderer renderer(sink);
 renderer.exec();
 // 結果は outputBuffer に書き込まれる
 ```
@@ -258,8 +263,13 @@ renderer.exec();
 ### タイル分割処理
 
 ```cpp
-Renderer renderer(sink);
+RendererNode renderer;
+renderer.setVirtualScreen(1920, 1080, 960, 540);
 renderer.setTileConfig(TileConfig{64, 64});
-renderer.setDebugCheckerboard(true);  // デバッグ用市松模様
 renderer.exec();
 ```
+
+## 関連ドキュメント
+
+- [DESIGN_RENDERER_NODE.md](DESIGN_RENDERER_NODE.md) - RendererNode 設計詳細
+- [DESIGN_PERF_METRICS.md](DESIGN_PERF_METRICS.md) - パフォーマンス計測

@@ -3,6 +3,12 @@
 
 #include "../node.h"
 #include "../viewport.h"
+#include "../image_buffer.h"
+#include "../perf_metrics.h"
+#include <algorithm>
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+#include <chrono>
+#endif
 
 namespace FLEXIMG_NAMESPACE {
 
@@ -38,6 +44,77 @@ public:
     float originY() const { return originY_; }
 
     const char* name() const override { return "SourceNode"; }
+
+    // ========================================
+    // プル型インターフェース
+    // ========================================
+
+    // SourceNodeは入力がないため、pullProcess()を直接オーバーライド
+    RenderResult pullProcess(const RenderRequest& request) override {
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        auto sourceStart = std::chrono::high_resolution_clock::now();
+#endif
+
+        if (!source_.isValid()) {
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+            auto& m = PerfMetrics::instance().nodes[NodeType::Source];
+            m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::high_resolution_clock::now() - sourceStart).count();
+            m.count++;
+#endif
+            return RenderResult();
+        }
+
+        // ソース画像の基準相対座標範囲
+        float imgLeft = -originX_;
+        float imgTop = -originY_;
+        float imgRight = imgLeft + source_.width;
+        float imgBottom = imgTop + source_.height;
+
+        // 要求範囲の基準相対座標
+        float reqLeft = -request.originX;
+        float reqTop = -request.originY;
+        float reqRight = reqLeft + request.width;
+        float reqBottom = reqTop + request.height;
+
+        // 交差領域
+        float interLeft = std::max(imgLeft, reqLeft);
+        float interTop = std::max(imgTop, reqTop);
+        float interRight = std::min(imgRight, reqRight);
+        float interBottom = std::min(imgBottom, reqBottom);
+
+        if (interLeft >= interRight || interTop >= interBottom) {
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+            auto& m = PerfMetrics::instance().nodes[NodeType::Source];
+            m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::high_resolution_clock::now() - sourceStart).count();
+            m.count++;
+#endif
+            return RenderResult(ImageBuffer(), Point2f(reqLeft, reqTop));
+        }
+
+        // 交差領域をコピー
+        int srcX = static_cast<int>(interLeft - imgLeft);
+        int srcY = static_cast<int>(interTop - imgTop);
+        int interW = static_cast<int>(interRight - interLeft);
+        int interH = static_cast<int>(interBottom - interTop);
+
+        ImageBuffer result(interW, interH, source_.formatID);
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        PerfMetrics::instance().nodes[NodeType::Source].recordAlloc(
+            result.totalBytes(), result.width(), result.height());
+#endif
+        ViewPort resultView = result.view();
+        view_ops::copy(resultView, 0, 0, source_, srcX, srcY, interW, interH);
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        auto& m = PerfMetrics::instance().nodes[NodeType::Source];
+        m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::high_resolution_clock::now() - sourceStart).count();
+        m.count++;
+#endif
+        return RenderResult(std::move(result), Point2f(interLeft, interTop));
+    }
 
 private:
     ViewPort source_;

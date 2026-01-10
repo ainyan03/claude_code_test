@@ -93,14 +93,14 @@ fleximg/
 │   ├── common.h                  # 共通定義
 │   ├── render_types.h            # レンダリング型
 │   ├── viewport.h/cpp            # 画像バッファ
-│   ├── renderer.h/cpp            # パイプライン実行
+│   ├── node.h                    # ノード基底クラス
 │   ├── nodes/                    # ノード定義
-│   │   ├── node.h                # 基底クラス
 │   │   ├── source_node.h         # 画像ソース
 │   │   ├── sink_node.h           # 出力先
 │   │   ├── transform_node.h      # アフィン変換
 │   │   ├── filter_node.h         # フィルタ
-│   │   └── composite_node.h      # 合成
+│   │   ├── composite_node.h      # 合成
+│   │   └── renderer_node.h       # パイプライン実行（発火点）
 │   └── operations/               # 操作実装
 │       ├── transform.h/cpp       # アフィン変換
 │       ├── filters.h/cpp         # フィルタ処理
@@ -124,7 +124,7 @@ fleximg/
 - **Node/Port モデル**: オブジェクト参照による直接接続
 - **ViewPort/ImageBuffer 分離**: メモリ所有と参照の明確な分離
 - **タイルベースレンダリング**: メモリ効率の良いタイル分割処理
-- **Renderer クラス**: パイプライン実行の集中管理
+- **RendererNode**: パイプライン実行の発火点（上流はプル型、下流はプッシュ型）
 
 ### 座標系
 
@@ -143,14 +143,14 @@ C++コアは以下の特徴により組込み環境への移植が容易です�
 
 - **依存関係なし**: 標準C++17のみを使用
 - **ヘッダオンリー設計**: ノード定義はヘッダのみ
-- **シンプルなAPI**: Renderer クラスでパイプラインを実行
+- **シンプルなAPI**: RendererNode でパイプラインを実行
 - **タイル分割処理**: メモリ制約のある環境でも大きな画像を処理可能
 
 ### 移植手順
 
 1. `src/fleximg/`フォルダをプロジェクトにコピー
 2. `#include "fleximg/common.h"` でインクルード
-3. ノードを作成し、Renderer で実行
+3. ノードを作成し、RendererNode で実行
 
 ## 開発
 

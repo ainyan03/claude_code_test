@@ -1,5 +1,33 @@
 # Changelog
 
+## [2.2.0] - 2026-01-10
+
+### 変更
+
+- **RendererNode 導入**: パイプライン実行の発火点をノードとして再設計
+  - Renderer クラスを RendererNode に置き換え
+  - ノードグラフの一部として統合（`src >> renderer >> sink`）
+  - プル/プッシュ型の統一 API（`pullProcess()` / `pushProcess()`）
+
+- **Node API の刷新**
+  - `process()`: 共通処理（派生クラスでオーバーライド）
+  - `pullProcess()` / `pushProcess()`: プル型/プッシュ型インターフェース
+  - `pullPrepare()` / `pushPrepare()`: 準備フェーズの伝播
+  - `pullFinalize()` / `pushFinalize()`: 終了フェーズの伝播
+
+### 削除
+
+- **旧 Renderer クラス**: `renderer.h`, `renderer.cpp` を削除
+- **旧 API**: `evaluate()`, `UpstreamEvaluator`, `RenderContext` を削除
+
+### ファイル変更
+
+- `src/fleximg/nodes/renderer_node.h`: 新規追加
+- `src/fleximg/node.h`: プル/プッシュ API を追加、旧 API を削除
+- `src/fleximg/render_types.h`: `RenderContext` を削除
+
+---
+
 ## [2.1.0] - 2026-01-09
 
 ### 追加
