@@ -1,5 +1,49 @@
 # Changelog
 
+## [2.3.0] - 2026-01-10
+
+### 追加
+
+- **ImageBuffer::toFormat()**: 効率的なピクセルフォーマット変換メソッド
+  - 右辺値参照版（`&&` 修飾）で無駄なコピーを回避
+  - 同じフォーマットならムーブ、異なるなら変換
+
+### 変更
+
+- **FilterNode を種類別ノードクラスに分離**
+  - `FilterNodeBase`: フィルタ共通基底クラス
+  - `BrightnessNode`: 明るさ調整
+  - `GrayscaleNode`: グレースケール変換
+  - `BoxBlurNode`: ボックスブラー
+  - `AlphaNode`: アルファ調整
+
+- **NodeType の個別化**: フィルタ種類別のメトリクス計測が可能に
+  - 旧: Source, Filter, Transform, Composite, Output (5種)
+  - 新: Source, Transform, Composite, Output, Brightness, Grayscale, BoxBlur, Alpha (8種)
+
+- **WebUI デバッグセクションの動的生成**
+  - `NODE_TYPES` 定義による一元管理（将来のノード追加に対応）
+  - `NodeTypeHelper` ヘルパー関数
+  - フィルタ種類別のメトリクス表示に対応
+
+### 削除
+
+- **旧 FilterNode クラス**: `filter_node.h` を削除
+- **FilterType enum**: 種類別ノードに置き換え
+
+### ファイル変更
+
+- `src/fleximg/image_buffer.h`: `toFormat()` メソッド追加
+- `src/fleximg/perf_metrics.h`: NodeType enum 拡張
+- `src/fleximg/nodes/filter_node_base.h`: 新規追加
+- `src/fleximg/nodes/brightness_node.h`: 新規追加
+- `src/fleximg/nodes/grayscale_node.h`: 新規追加
+- `src/fleximg/nodes/box_blur_node.h`: 新規追加
+- `src/fleximg/nodes/alpha_node.h`: 新規追加
+- `src/fleximg/nodes/filter_node.h`: 削除
+
+---
+
 ## [2.2.0] - 2026-01-10
 
 ### 変更
