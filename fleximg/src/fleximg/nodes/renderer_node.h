@@ -213,8 +213,8 @@ private:
         RenderRequest req;
         req.width = virtualWidth_;
         req.height = virtualHeight_;
-        req.originX = originX_;
-        req.originY = originY_;
+        req.origin.x = originX_;
+        req.origin.y = originY_;
         return req;
     }
 
@@ -232,8 +232,8 @@ private:
         RenderRequest req;
         req.width = tileW;
         req.height = tileH;
-        req.originX = originX_ - tileLeft;
-        req.originY = originY_ - tileTop;
+        req.origin.x = originX_ - tileLeft;
+        req.origin.y = originY_ - tileTop;
         return req;
     }
 };

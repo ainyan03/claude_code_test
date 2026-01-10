@@ -66,13 +66,11 @@ protected:
         // マージン分を切り出し（要求範囲のみ抽出）
         int margin = radius_;
         if (margin > 0) {
-            // 要求範囲の左上座標（基準点相対）
-            float reqLeft = -request.originX;
-            float reqTop = -request.originY;
-
             // 入力画像内での切り出し開始位置
-            int startX = static_cast<int>(reqLeft - input.origin.x);
-            int startY = static_cast<int>(reqTop - input.origin.y);
+            // 新座標系: origin はバッファ内基準点位置
+            // startX = input.origin.x - request.origin.x
+            int startX = static_cast<int>(input.origin.x - request.origin.x);
+            int startY = static_cast<int>(input.origin.y - request.origin.y);
 
             if (startX >= 0 && startY >= 0 &&
                 startX + request.width <= blurred.width() &&
@@ -94,7 +92,8 @@ protected:
                 metrics.count++;
 #endif
 
-                return RenderResult(std::move(cropped), Point2f(reqLeft, reqTop));
+                // 要求と同じ基準点位置を返す
+                return RenderResult(std::move(cropped), request.origin);
             }
         }
 

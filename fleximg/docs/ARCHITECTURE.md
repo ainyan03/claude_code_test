@@ -124,21 +124,29 @@ renderer.exec();
 ```cpp
 // 下流からの要求
 struct RenderRequest {
-    int width, height;       // 要求サイズ
-    float originX, originY;  // バッファ内での基準点位置
+    int width, height;  // 要求サイズ
+    Point2f origin;     // バッファ内での基準点位置
 };
 
-// 評価結果の座標
-struct Point2f {
-    float x, y;  // 基準点から見た出力左上の相対座標
+// 評価結果
+struct RenderResult {
+    ImageBuffer buffer;
+    Point2f origin;  // バッファ内での基準点位置
 };
 ```
 
-### 座標の関係
+### 座標の意味
+
+`origin` はバッファ内での基準点のピクセル位置を表します。
 
 ```
-バッファの左上 (0, 0) の基準相対座標 = -originX
-バッファの (originX, originY) の基準相対座標 = (0, 0)
+例: 32x24画像、右下隅を基準点とする場合
+  origin.x = 32  (右端)
+  origin.y = 24  (下端)
+
+例: 100x100画像、中央を基準点とする場合
+  origin.x = 50
+  origin.y = 50
 ```
 
 ## ピクセルフォーマット

@@ -72,8 +72,8 @@ public:
         float imgBottom = imgTop + source_.height;
 
         // 要求範囲の基準相対座標
-        float reqLeft = -request.originX;
-        float reqTop = -request.originY;
+        float reqLeft = -request.origin.x;
+        float reqTop = -request.origin.y;
         float reqRight = reqLeft + request.width;
         float reqBottom = reqTop + request.height;
 
@@ -90,7 +90,8 @@ public:
                 std::chrono::high_resolution_clock::now() - sourceStart).count();
             m.count++;
 #endif
-            return RenderResult(ImageBuffer(), Point2f(reqLeft, reqTop));
+            // バッファ内基準点位置 = -reqLeft, -reqTop = request.origin.x, request.origin.y
+            return RenderResult(ImageBuffer(), request.origin);
         }
 
         // 交差領域をコピー
@@ -113,7 +114,8 @@ public:
             std::chrono::high_resolution_clock::now() - sourceStart).count();
         m.count++;
 #endif
-        return RenderResult(std::move(result), Point2f(interLeft, interTop));
+        // バッファ内基準点位置 = -interLeft, -interTop
+        return RenderResult(std::move(result), Point2f(-interLeft, -interTop));
     }
 
 private:

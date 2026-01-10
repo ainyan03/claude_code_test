@@ -59,10 +59,12 @@ public:
         ViewPort inputView = input.view();
 
         // 基準点一致ルールに基づく配置計算
-        // input.origin: 画像左上の基準点相対座標
+        // input.origin: 入力バッファ内での基準点位置
         // originX_/Y_: 出力バッファ内での基準点位置
-        int dstX = static_cast<int>(input.origin.x + originX_);
-        int dstY = static_cast<int>(input.origin.y + originY_);
+        // 入力画像左上の基準相対座標 = -input.origin
+        // dstX = originX_ + (-input.origin.x) = originX_ - input.origin.x
+        int dstX = static_cast<int>(originX_ - input.origin.x);
+        int dstY = static_cast<int>(originY_ - input.origin.y);
 
         // クリッピング処理
         int srcX = 0, srcY = 0;
