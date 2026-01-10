@@ -255,9 +255,10 @@ public:
     }
 
     // グラフ評価
-    void evaluateGraph() {
+    // 戻り値: 0 = 成功、非0 = エラー（ExecResult値）
+    int evaluateGraph() {
         // グラフからv2ノードを構築して実行
-        buildAndExecute();
+        return buildAndExecute();
     }
 
     void clearImage(int id) {
@@ -366,7 +367,8 @@ private:
     PerfMetrics lastPerfMetrics_;
 
     // グラフを解析してv2ノードを構築・実行
-    void buildAndExecute() {
+    // 戻り値: 0 = 成功、非0 = エラー（ExecResult値）
+    int buildAndExecute() {
         // ノードIDからGraphNodeへのマップ
         std::map<std::string, const GraphNode*> nodeMap;
         for (const auto& node : graphNodes_) {
@@ -394,11 +396,15 @@ private:
             }
         }
 
-        if (!sinkGraphNode || sinkGraphNode->imageId < 0) return;
+        if (!sinkGraphNode || sinkGraphNode->imageId < 0) {
+            return static_cast<int>(ExecResult::Success);  // 描画対象なし
+        }
 
         // 出力先ViewPortを取得
         auto outputIt = imageViews_.find(sinkGraphNode->imageId);
-        if (outputIt == imageViews_.end()) return;
+        if (outputIt == imageViews_.end()) {
+            return static_cast<int>(ExecResult::Success);  // 出力先なし
+        }
         ViewPort outputView = outputIt->second;
 
         // 出力バッファをクリア（以前の描画結果を消去）
@@ -661,10 +667,12 @@ private:
             rendererNode->setTileConfig(effectiveTileW, effectiveTileH);
         }
         rendererNode->setDebugCheckerboard(debugCheckerboard_);
-        rendererNode->exec();
+        ExecResult result = rendererNode->exec();
 
         // パフォーマンスメトリクスを保存
         lastPerfMetrics_ = rendererNode->getPerfMetrics();
+
+        return static_cast<int>(result);
     }
 };
 
