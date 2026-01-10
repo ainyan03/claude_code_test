@@ -21,11 +21,15 @@ namespace FLEXIMG_NAMESPACE {
 
 namespace NodeType {
     constexpr int Source = 0;
-    constexpr int Filter = 1;
-    constexpr int Transform = 2;
-    constexpr int Composite = 3;
-    constexpr int Output = 4;
-    constexpr int Count = 5;
+    constexpr int Transform = 1;
+    constexpr int Composite = 2;
+    constexpr int Output = 3;
+    // フィルタ系（個別化）
+    constexpr int Brightness = 4;
+    constexpr int Grayscale = 5;
+    constexpr int BoxBlur = 6;
+    constexpr int Alpha = 7;
+    constexpr int Count = 8;
 }
 
 // ========================================================================

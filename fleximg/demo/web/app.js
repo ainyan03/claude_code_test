@@ -11,6 +11,45 @@ let canvasOrigin = { x: 400, y: 300 };  // キャンバス原点（ピクセル�
 let previewScale = 1;  // 表示倍率（1〜5）
 let isResetting = false;  // リセット中フラグ（beforeunloadで保存をスキップ）
 
+// ========================================
+// ノードタイプ定義（一元管理）
+// C++側の NodeType enum と同期を維持すること
+// ========================================
+const NODE_TYPES = {
+    source:     { index: 0, name: 'Image',      category: 'structure', showEfficiency: false },
+    transform:  { index: 1, name: 'Affine',     category: 'structure', showEfficiency: true },
+    composite:  { index: 2, name: 'Composite',  category: 'structure', showEfficiency: false },
+    output:     { index: 3, name: 'Output',     category: 'structure', showEfficiency: false },
+    brightness: { index: 4, name: 'Brightness', category: 'filter',    showEfficiency: true },
+    grayscale:  { index: 5, name: 'Grayscale',  category: 'filter',    showEfficiency: true },
+    boxBlur:    { index: 6, name: 'BoxBlur',    category: 'filter',    showEfficiency: true },
+    alpha:      { index: 7, name: 'Alpha',      category: 'filter',    showEfficiency: true },
+};
+
+// ヘルパー関数
+const NodeTypeHelper = {
+    // カテゴリでフィルタ
+    byCategory: (category) =>
+        Object.entries(NODE_TYPES).filter(([_, v]) => v.category === category),
+
+    // インデックスからキーを取得
+    keyByIndex: (index) =>
+        Object.entries(NODE_TYPES).find(([_, v]) => v.index === index)?.[0],
+
+    // インデックスから定義を取得
+    byIndex: (index) =>
+        Object.values(NODE_TYPES).find(v => v.index === index),
+
+    // 全ノードタイプ数
+    count: () => Object.keys(NODE_TYPES).length,
+
+    // 表示名の配列を取得（インデックス順）
+    names: () =>
+        Object.values(NODE_TYPES)
+            .sort((a, b) => a.index - b.index)
+            .map(v => v.name),
+};
+
 // スクロールマネージャーのインスタンス
 let previewScrollManager = null;
 let nodeGraphScrollManager = null;
@@ -559,6 +598,9 @@ function initializeApp() {
         alert('エラー: WebAssemblyモジュールの読み込みに失敗しました。ページを再読み込みしてください。');
         return;
     }
+
+    // デバッグセクションを動的生成
+    initDebugDetailsSection();
 
     // イベントリスナー設定
     setupEventListeners();
@@ -2390,16 +2432,16 @@ function updatePreviewFromGraph() {
         // マイクロ秒→ミリ秒変換ヘルパー
         const usToMs = (us) => (us / 1000).toFixed(2);
 
-        // 詳細ログ出力（新API: nodes配列を使用）
-        const nodeNames = ['Image', 'Filter', 'Affine', 'Composite', 'Output'];
+        // 詳細ログ出力（NODE_TYPESを使用）
         const details = [];
         if (metrics.nodes) {
             for (let i = 0; i < metrics.nodes.length; i++) {
                 const m = metrics.nodes[i];
-                if (m.count > 0) {
-                    let entry = `${nodeNames[i]}: ${usToMs(m.time_us)}ms (x${m.count})`;
-                    // Filter/Affineノードのピクセル効率を表示
-                    if ((i === 1 || i === 2) && m.requestedPixels > 0) {  // NodeType::Filter=1, Affine=2
+                const typeDef = NodeTypeHelper.byIndex(i);
+                if (m.count > 0 && typeDef) {
+                    let entry = `${typeDef.name}: ${usToMs(m.time_us)}ms (x${m.count})`;
+                    // ピクセル効率を表示（showEfficiencyフラグで制御）
+                    if (typeDef.showEfficiency && m.requestedPixels > 0) {
                         const efficiency = ((1.0 - m.wasteRatio) * 100).toFixed(1);
                         entry += ` [eff:${efficiency}%]`;
                     }
@@ -2448,6 +2490,107 @@ function updateDebugStatusBar(totalTime, wasmTime, details) {
     }
 }
 
+// デバッグセクションのHTML生成（NODE_TYPESから動的生成）
+function initDebugDetailsSection() {
+    const container = document.getElementById('debug-details');
+    if (!container) return;
+
+    // 処理時間セクション
+    let timeHtml = `
+        <div class="debug-section">
+            <div class="debug-section-header">処理時間</div>
+            <div class="debug-metrics" id="debug-metrics-time">`;
+
+    // カテゴリ別にグループ化して表示
+    const structureTypes = NodeTypeHelper.byCategory('structure');
+    const filterTypes = NodeTypeHelper.byCategory('filter');
+
+    // 構造系ノード
+    for (const [key, def] of structureTypes) {
+        timeHtml += `
+                <div class="debug-metric-row">
+                    <span class="debug-metric-label">${def.name}</span>
+                    <span class="debug-metric-value" id="debug-${key}-time">--</span>
+                </div>`;
+    }
+
+    // フィルタ系ノード（インデント表示）
+    if (filterTypes.length > 0) {
+        timeHtml += `
+                <div class="debug-metric-row debug-metric-sub">
+                    <span class="debug-metric-label">Filters:</span>
+                    <span class="debug-metric-value"></span>
+                </div>`;
+        for (const [key, def] of filterTypes) {
+            timeHtml += `
+                <div class="debug-metric-row debug-metric-sub">
+                    <span class="debug-metric-label">├ ${def.name}</span>
+                    <span class="debug-metric-value" id="debug-${key}-time">--</span>
+                </div>`;
+        }
+    }
+
+    // 合計
+    timeHtml += `
+                <div class="debug-metric-row debug-metric-total">
+                    <span class="debug-metric-label">合計</span>
+                    <span class="debug-metric-value" id="debug-total-time">--</span>
+                </div>
+            </div>
+        </div>`;
+
+    // メモリセクション
+    let memHtml = `
+        <div class="debug-section">
+            <div class="debug-section-header">メモリ</div>
+            <div class="debug-metrics">
+                <div class="debug-metric-row">
+                    <span class="debug-metric-label">累計確保</span>
+                    <span class="debug-metric-value" id="debug-alloc-bytes">--</span>
+                </div>
+                <div class="debug-metric-row">
+                    <span class="debug-metric-label">ピーク</span>
+                    <span class="debug-metric-value" id="debug-peak-bytes">--</span>
+                </div>
+                <div class="debug-metric-row">
+                    <span class="debug-metric-label">最大単一</span>
+                    <span class="debug-metric-value" id="debug-max-alloc">--</span>
+                </div>`;
+
+    // 構造系ノードのメモリ（Output以外）
+    for (const [key, def] of structureTypes) {
+        if (key === 'output') continue;  // Outputはメモリ確保しない
+        memHtml += `
+                <div class="debug-metric-row debug-metric-sub">
+                    <span class="debug-metric-label">├ ${def.name}</span>
+                    <span class="debug-metric-value" id="debug-${key}-alloc">--</span>
+                </div>
+                <div class="debug-metric-row debug-metric-sub debug-metric-max">
+                    <span class="debug-metric-label">│  └ max</span>
+                    <span class="debug-metric-value" id="debug-${key}-max">--</span>
+                </div>`;
+    }
+
+    // フィルタ系ノードのメモリ
+    for (const [key, def] of filterTypes) {
+        memHtml += `
+                <div class="debug-metric-row debug-metric-sub">
+                    <span class="debug-metric-label">├ ${def.name}</span>
+                    <span class="debug-metric-value" id="debug-${key}-alloc">--</span>
+                </div>
+                <div class="debug-metric-row debug-metric-sub debug-metric-max">
+                    <span class="debug-metric-label">│  └ max</span>
+                    <span class="debug-metric-value" id="debug-${key}-max">--</span>
+                </div>`;
+    }
+
+    memHtml += `
+            </div>
+        </div>`;
+
+    container.innerHTML = timeHtml + memHtml;
+}
+
 // サイドバーのデバッグ詳細セクションを更新
 function updateDebugDetails(metrics) {
     if (!metrics) return;
@@ -2459,23 +2602,44 @@ function updateDebugDetails(metrics) {
         return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
     };
 
-    // ノードタイプ別の処理時間
-    const nodeIds = ['image', 'filter', 'affine', 'composite', 'output'];
+    // ノードタイプ別の処理時間・メモリを更新
     if (metrics.nodes) {
-        for (let i = 0; i < metrics.nodes.length && i < nodeIds.length; i++) {
-            const m = metrics.nodes[i];
-            const el = document.getElementById(`debug-${nodeIds[i]}-time`);
-            if (el) {
+        for (const [key, def] of Object.entries(NODE_TYPES)) {
+            const m = metrics.nodes[def.index];
+            if (!m) continue;
+
+            // 処理時間
+            const timeEl = document.getElementById(`debug-${key}-time`);
+            if (timeEl) {
                 if (m.count > 0) {
                     let text = `${usToMs(m.time_us)}ms (x${m.count})`;
-                    // Filter/Affineノードのピクセル効率を表示
-                    if ((i === 1 || i === 2) && m.requestedPixels > 0) {
+                    if (def.showEfficiency && m.requestedPixels > 0) {
                         const efficiency = ((1.0 - m.wasteRatio) * 100).toFixed(1);
                         text += ` [${efficiency}%]`;
                     }
-                    el.textContent = text;
+                    timeEl.textContent = text;
                 } else {
-                    el.textContent = '--';
+                    timeEl.textContent = '--';
+                }
+            }
+
+            // メモリ確保量
+            const allocEl = document.getElementById(`debug-${key}-alloc`);
+            if (allocEl) {
+                if (m.allocCount > 0) {
+                    allocEl.textContent = `${formatBytes(m.allocatedBytes)} (x${m.allocCount})`;
+                } else {
+                    allocEl.textContent = '--';
+                }
+            }
+
+            // 最大単一確保
+            const maxEl = document.getElementById(`debug-${key}-max`);
+            if (maxEl) {
+                if (m.maxAllocBytes > 0) {
+                    maxEl.textContent = `${formatBytes(m.maxAllocBytes)} (${m.maxAllocWidth}x${m.maxAllocHeight})`;
+                } else {
+                    maxEl.textContent = '--';
                 }
             }
         }
@@ -2506,32 +2670,6 @@ function updateDebugDetails(metrics) {
             maxAllocEl.textContent = `${formatBytes(metrics.maxAllocBytes)} (${metrics.maxAllocWidth}x${metrics.maxAllocHeight})`;
         } else {
             maxAllocEl.textContent = '--';
-        }
-    }
-
-    // ノード別メモリ確保量
-    const allocNodeIds = ['image', 'filter', 'affine', 'composite'];
-    if (metrics.nodes) {
-        for (let i = 0; i < allocNodeIds.length && i < metrics.nodes.length; i++) {
-            const m = metrics.nodes[i];
-            // 累計確保量
-            const el = document.getElementById(`debug-${allocNodeIds[i]}-alloc`);
-            if (el) {
-                if (m.allocCount > 0) {
-                    el.textContent = `${formatBytes(m.allocatedBytes)} (x${m.allocCount})`;
-                } else {
-                    el.textContent = '--';
-                }
-            }
-            // 最大単一確保
-            const maxEl = document.getElementById(`debug-${allocNodeIds[i]}-max`);
-            if (maxEl) {
-                if (m.maxAllocBytes > 0) {
-                    maxEl.textContent = `${formatBytes(m.maxAllocBytes)} (${m.maxAllocWidth}x${m.maxAllocHeight})`;
-                } else {
-                    maxEl.textContent = '--';
-                }
-            }
         }
     }
 }

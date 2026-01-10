@@ -11,7 +11,11 @@
 #include "../src/fleximg/nodes/source_node.h"
 #include "../src/fleximg/nodes/sink_node.h"
 #include "../src/fleximg/nodes/transform_node.h"
-#include "../src/fleximg/nodes/filter_node.h"
+#include "../src/fleximg/nodes/filter_node_base.h"
+#include "../src/fleximg/nodes/brightness_node.h"
+#include "../src/fleximg/nodes/grayscale_node.h"
+#include "../src/fleximg/nodes/box_blur_node.h"
+#include "../src/fleximg/nodes/alpha_node.h"
 #include "../src/fleximg/nodes/composite_node.h"
 #include "../src/fleximg/nodes/renderer_node.h"
 
@@ -265,7 +269,8 @@ public:
 
         // ノードタイプ名
         static const char* nodeNames[] = {
-            "source", "filter", "transform", "composite", "output"
+            "source", "transform", "composite", "output",
+            "brightness", "grayscale", "boxBlur", "alpha"
         };
 
         // nodes配列を構築
@@ -301,11 +306,20 @@ public:
 
         // 後方互換用フラットキー（主要な時間とカウント）
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
-        result.set("filterTime", lastPerfMetrics_.nodes[NodeType::Filter].time_us);
+        // フィルタ4種の合計
+        uint32_t filterTimeSum = lastPerfMetrics_.nodes[NodeType::Brightness].time_us
+                               + lastPerfMetrics_.nodes[NodeType::Grayscale].time_us
+                               + lastPerfMetrics_.nodes[NodeType::BoxBlur].time_us
+                               + lastPerfMetrics_.nodes[NodeType::Alpha].time_us;
+        int filterCountSum = lastPerfMetrics_.nodes[NodeType::Brightness].count
+                           + lastPerfMetrics_.nodes[NodeType::Grayscale].count
+                           + lastPerfMetrics_.nodes[NodeType::BoxBlur].count
+                           + lastPerfMetrics_.nodes[NodeType::Alpha].count;
+        result.set("filterTime", filterTimeSum);
         result.set("affineTime", lastPerfMetrics_.nodes[NodeType::Transform].time_us);
         result.set("compositeTime", lastPerfMetrics_.nodes[NodeType::Composite].time_us);
         result.set("outputTime", lastPerfMetrics_.nodes[NodeType::Output].time_us);
-        result.set("filterCount", lastPerfMetrics_.nodes[NodeType::Filter].count);
+        result.set("filterCount", filterCountSum);
         result.set("affineCount", lastPerfMetrics_.nodes[NodeType::Transform].count);
         result.set("compositeCount", lastPerfMetrics_.nodes[NodeType::Composite].count);
         result.set("outputCount", lastPerfMetrics_.nodes[NodeType::Output].count);
@@ -432,33 +446,42 @@ private:
                 return result;
             }
             else if (gnode.type == "filter" && gnode.independent) {
-                auto filterNode = std::make_unique<FilterNode>();
+                std::unique_ptr<Node> filterNode;
 
                 if (gnode.filterType == "brightness" && !gnode.filterParams.empty()) {
-                    filterNode->setBrightness(gnode.filterParams[0]);
+                    auto node = std::make_unique<BrightnessNode>();
+                    node->setAmount(gnode.filterParams[0]);
+                    filterNode = std::move(node);
                 }
                 else if (gnode.filterType == "grayscale") {
-                    filterNode->setGrayscale();
+                    filterNode = std::make_unique<GrayscaleNode>();
                 }
                 else if ((gnode.filterType == "blur" || gnode.filterType == "boxBlur") && !gnode.filterParams.empty()) {
-                    filterNode->setBoxBlur(static_cast<int>(gnode.filterParams[0]));
+                    auto node = std::make_unique<BoxBlurNode>();
+                    node->setRadius(static_cast<int>(gnode.filterParams[0]));
+                    filterNode = std::move(node);
                 }
                 else if (gnode.filterType == "alpha" && !gnode.filterParams.empty()) {
-                    filterNode->setAlpha(gnode.filterParams[0]);
+                    auto node = std::make_unique<AlphaNode>();
+                    node->setScale(gnode.filterParams[0]);
+                    filterNode = std::move(node);
                 }
 
-                // 入力を接続
-                auto connIt = inputConnections.find(nodeId);
-                if (connIt != inputConnections.end() && !connIt->second.empty()) {
-                    Node* upstream = buildNode(connIt->second[0]);
-                    if (upstream) {
-                        upstream->connectTo(*filterNode);
+                if (filterNode) {
+                    // 入力を接続
+                    auto connIt = inputConnections.find(nodeId);
+                    if (connIt != inputConnections.end() && !connIt->second.empty()) {
+                        Node* upstream = buildNode(connIt->second[0]);
+                        if (upstream) {
+                            upstream->connectTo(*filterNode);
+                        }
                     }
-                }
 
-                Node* result = filterNode.get();
-                v2Nodes[nodeId] = std::move(filterNode);
-                return result;
+                    Node* result = filterNode.get();
+                    v2Nodes[nodeId] = std::move(filterNode);
+                    return result;
+                }
+                return nullptr;
             }
             else if (gnode.type == "affine") {
                 auto transformNode = std::make_unique<TransformNode>();
