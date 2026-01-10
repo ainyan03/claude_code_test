@@ -80,10 +80,10 @@ cd fleximg
 
 ```bash
 cd demo/web
-python3 -m http.server 8000
+python3 -m http.server 8080
 ```
 
-ブラウザで `http://localhost:8000` を開いてください。
+ブラウザで `http://localhost:8080` を開いてください。
 
 ## プロジェクト構造
 
@@ -98,7 +98,11 @@ fleximg/
 │   │   ├── source_node.h         # 画像ソース
 │   │   ├── sink_node.h           # 出力先
 │   │   ├── transform_node.h      # アフィン変換
-│   │   ├── filter_node.h         # フィルタ
+│   │   ├── filter_node_base.h    # フィルタ共通基底
+│   │   ├── brightness_node.h     # 明るさ調整
+│   │   ├── grayscale_node.h      # グレースケール
+│   │   ├── box_blur_node.h       # ぼかし
+│   │   ├── alpha_node.h          # アルファ調整
 │   │   ├── composite_node.h      # 合成
 │   │   └── renderer_node.h       # パイプライン実行（発火点）
 │   └── operations/               # 操作実装

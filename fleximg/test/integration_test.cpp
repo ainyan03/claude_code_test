@@ -10,7 +10,7 @@
 #include "fleximg/nodes/source_node.h"
 #include "fleximg/nodes/sink_node.h"
 #include "fleximg/nodes/transform_node.h"
-#include "fleximg/nodes/filter_node.h"
+#include "fleximg/nodes/grayscale_node.h"
 #include "fleximg/nodes/composite_node.h"
 #include "fleximg/nodes/renderer_node.h"
 
@@ -160,8 +160,7 @@ void testGrayscaleFilter() {
     SourceNode src;
     src.setSource(srcImg.view());
 
-    FilterNode filter;
-    filter.setGrayscale();
+    GrayscaleNode filter;
 
     RendererNode renderer;
     renderer.setVirtualScreen(32, 32, 0, 0);

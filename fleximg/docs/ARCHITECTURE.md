@@ -12,7 +12,7 @@ SourceNode（画像入力）
     │
     │ pullProcess()（上流からプル）
     ▼
-TransformNode / FilterNode
+TransformNode / フィルタノード
     │
     │ pullProcess()
     ▼
@@ -46,12 +46,16 @@ renderer.exec();
 ```
 Node (基底クラス)
 │
-├── SourceNode      # 画像データを提供
-├── SinkNode        # 出力先を保持
-├── TransformNode   # アフィン変換
-├── FilterNode      # フィルタ処理
-├── CompositeNode   # 複数入力の合成
-└── RendererNode    # パイプライン実行の発火点
+├── SourceNode        # 画像データを提供
+├── SinkNode          # 出力先を保持
+├── TransformNode     # アフィン変換
+├── FilterNodeBase    # フィルタ共通基底
+│   ├── BrightnessNode   # 明るさ調整
+│   ├── GrayscaleNode    # グレースケール
+│   ├── BoxBlurNode      # ぼかし
+│   └── AlphaNode        # アルファ調整
+├── CompositeNode     # 複数入力の合成
+└── RendererNode      # パイプライン実行の発火点
 ```
 
 ### 接続方式
@@ -208,12 +212,16 @@ src/fleximg/
 ├── render_types.h        # RenderRequest, RenderResult 等
 ├── perf_metrics.h        # パフォーマンス計測
 ├── nodes/
-│   ├── source_node.h     # SourceNode
-│   ├── sink_node.h       # SinkNode
-│   ├── transform_node.h  # TransformNode
-│   ├── filter_node.h     # FilterNode
-│   ├── composite_node.h  # CompositeNode
-│   └── renderer_node.h   # RendererNode（発火点）
+│   ├── source_node.h       # SourceNode
+│   ├── sink_node.h         # SinkNode
+│   ├── transform_node.h    # TransformNode
+│   ├── filter_node_base.h  # FilterNodeBase（フィルタ共通基底）
+│   ├── brightness_node.h   # BrightnessNode
+│   ├── grayscale_node.h    # GrayscaleNode
+│   ├── box_blur_node.h     # BoxBlurNode
+│   ├── alpha_node.h        # AlphaNode
+│   ├── composite_node.h    # CompositeNode
+│   └── renderer_node.h     # RendererNode（発火点）
 └── operations/
     ├── transform.h/cpp   # アフィン変換
     ├── filters.h/cpp     # フィルタ処理
@@ -272,4 +280,8 @@ renderer.exec();
 ## 関連ドキュメント
 
 - [DESIGN_RENDERER_NODE.md](DESIGN_RENDERER_NODE.md) - RendererNode 設計詳細
+- [DESIGN_FILTER_NODES.md](DESIGN_FILTER_NODES.md) - フィルタノード設計
+- [DESIGN_TYPE_STRUCTURE.md](DESIGN_TYPE_STRUCTURE.md) - 型構造設計
+- [DESIGN_PIXEL_FORMAT.md](DESIGN_PIXEL_FORMAT.md) - ピクセルフォーマット変換
 - [DESIGN_PERF_METRICS.md](DESIGN_PERF_METRICS.md) - パフォーマンス計測
+- [GITHUB_PAGES_SETUP.md](GITHUB_PAGES_SETUP.md) - GitHub Pages セットアップ
