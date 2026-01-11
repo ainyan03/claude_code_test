@@ -100,6 +100,14 @@ constexpr int from_fixed8_floor(int_fixed8 v) {
                     : -(((-v) + INT_FIXED8_ONE - 1) >> INT_FIXED8_SHIFT);
 }
 
+// fixed8 → int (正の無限大方向への切り上げ = ceil)
+constexpr int from_fixed8_ceil(int_fixed8 v) {
+    // 正の値の場合、小数部があれば切り上げ
+    // 負の値の場合、単純な右シフトで0方向に切り捨て = 負方向から見ると切り上げ
+    return (v >= 0) ? ((v + INT_FIXED8_ONE - 1) >> INT_FIXED8_SHIFT)
+                    : -((-v) >> INT_FIXED8_SHIFT);
+}
+
 // ------------------------------------------------------------------------
 // int ↔ fixed16 変換
 // ------------------------------------------------------------------------

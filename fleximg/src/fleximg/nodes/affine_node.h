@@ -170,46 +170,57 @@ protected:
     // ========================================
     //
     // 出力要求の4頂点を逆変換し、必要な入力領域のAABBを計算する。
-    // tx/ty は Q24.8 を使用し、より正確な範囲を算出。
+    // 全ての座標を Q24.8 で計算し、最終的に floor/ceil で整数化。
     //
     virtual RenderRequest computeInputRequest(const RenderRequest& request) {
-        // 出力要求の4頂点（基準相対座標 = -origin、整数に変換）
-        int32_t ox = from_fixed8(request.origin.x);
-        int32_t oy = from_fixed8(request.origin.y);
-        int32_t corners[4][2] = {
-            {-ox, -oy},
-            {request.width - ox, -oy},
-            {-ox, request.height - oy},
-            {request.width - ox, request.height - oy}
+        // 出力要求の4頂点を Q24.8 で計算（小数部保持）
+        int_fixed8 corners_x[4] = {
+            -request.origin.x,
+            to_fixed8(request.width) - request.origin.x,
+            -request.origin.x,
+            to_fixed8(request.width) - request.origin.x
+        };
+        int_fixed8 corners_y[4] = {
+            -request.origin.y,
+            -request.origin.y,
+            to_fixed8(request.height) - request.origin.y,
+            to_fixed8(request.height) - request.origin.y
         };
 
-        // tx/ty を整数部のみ使用（入力要求範囲計算には整数精度で十分）
-        int32_t txInt = from_fixed8(txFixed8_);
-        int32_t tyInt = from_fixed8(tyFixed8_);
-
-        int32_t minX = INT32_MAX, minY = INT32_MAX, maxX = INT32_MIN, maxY = INT32_MIN;
+        // tx/ty を Q24.8 のまま減算（小数部保持）
         for (int i = 0; i < 4; i++) {
-            // 平行移動をキャンセル（整数演算）
-            int32_t rx = corners[i][0] - txInt;
-            int32_t ry = corners[i][1] - tyInt;
-            // 回転/スケール逆変換（固定小数点演算）
-            int64_t sx64 = static_cast<int64_t>(invMatrix_.a) * rx
-                         + static_cast<int64_t>(invMatrix_.b) * ry;
-            int64_t sy64 = static_cast<int64_t>(invMatrix_.c) * rx
-                         + static_cast<int64_t>(invMatrix_.d) * ry;
-            int32_t sx = static_cast<int32_t>(sx64 >> INT_FIXED16_SHIFT);
-            int32_t sy = static_cast<int32_t>(sy64 >> INT_FIXED16_SHIFT);
-            minX = std::min(minX, sx);
-            minY = std::min(minY, sy);
-            maxX = std::max(maxX, sx);
-            maxY = std::max(maxY, sy);
+            corners_x[i] -= txFixed8_;
+            corners_y[i] -= tyFixed8_;
         }
 
-        // マージンを追加（固定小数点の丸め誤差 + tx/ty小数部対策）
-        int reqLeft = minX - 2;
-        int reqTop = minY - 2;
-        int inputWidth = maxX - minX + 5;
-        int inputHeight = maxY - minY + 5;
+        // 逆変換して min/max を計算（Q24.8 精度）
+        // 演算: (Q16.16 * Q24.8) >> 16 = Q24.8
+        int_fixed8 minX_f8 = INT32_MAX, minY_f8 = INT32_MAX;
+        int_fixed8 maxX_f8 = INT32_MIN, maxY_f8 = INT32_MIN;
+        for (int i = 0; i < 4; i++) {
+            int64_t sx64 = static_cast<int64_t>(invMatrix_.a) * corners_x[i]
+                         + static_cast<int64_t>(invMatrix_.b) * corners_y[i];
+            int64_t sy64 = static_cast<int64_t>(invMatrix_.c) * corners_x[i]
+                         + static_cast<int64_t>(invMatrix_.d) * corners_y[i];
+            int_fixed8 sx = static_cast<int_fixed8>(sx64 >> INT_FIXED16_SHIFT);
+            int_fixed8 sy = static_cast<int_fixed8>(sy64 >> INT_FIXED16_SHIFT);
+            minX_f8 = std::min(minX_f8, sx);
+            minY_f8 = std::min(minY_f8, sy);
+            maxX_f8 = std::max(maxX_f8, sx);
+            maxY_f8 = std::max(maxY_f8, sy);
+        }
+
+        // floor/ceil で整数化（正確な境界）
+        int minX = from_fixed8_floor(minX_f8);
+        int minY = from_fixed8_floor(minY_f8);
+        int maxX = from_fixed8_ceil(maxX_f8);
+        int maxY = from_fixed8_ceil(maxY_f8);
+
+        // マージン: +1（DDA 半ピクセルオフセット対策）
+        int reqLeft = minX - 1;
+        int reqTop = minY - 1;
+        int inputWidth = maxX - minX + 3;   // +1(左) + +1(右) + 1(右端包含)
+        int inputHeight = maxY - minY + 3;
 
         RenderRequest inputReq;
         inputReq.width = static_cast<int16_t>(inputWidth);

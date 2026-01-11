@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.12.0] - 2026-01-11
+
+### 追加
+
+- **from_fixed8_ceil() 関数**: 正の無限大方向への切り上げ
+  - `types.h` に追加
+  - `from_fixed8_floor()` と対になる関数
+
+### 変更
+
+- **AffineNode::computeInputRequest() 精度向上**
+  - 全座標を Q24.8 固定小数点で計算（従来は整数）
+  - tx/ty の小数部を保持
+  - floor/ceil で正確な AABB 境界を計算
+  - マージン: +5 → +3 に削減（40%削減）
+  - 将来の入力要求分割（IDEA_AFFINE_REQUEST_SPLITTING）の準備
+
+---
+
 ## [2.11.0] - 2026-01-11
 
 ### 追加
