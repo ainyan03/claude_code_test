@@ -51,8 +51,9 @@ protected:
         ImageBuffer working = std::move(input.buffer).toFormat(PixelFormatIDs::RGBA8_Straight);
         ViewPort workingView = working.view();
 
-        // 出力バッファ作成（入力と同じサイズ）
-        ImageBuffer blurred(working.width(), working.height(), PixelFormatIDs::RGBA8_Straight);
+        // 出力バッファ作成（全ピクセル上書きするため初期化スキップ）
+        ImageBuffer blurred(working.width(), working.height(), PixelFormatIDs::RGBA8_Straight,
+                            InitPolicy::Uninitialized);
         ViewPort blurredView = blurred.view();
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
@@ -76,7 +77,8 @@ protected:
                 startX + request.width <= blurred.width() &&
                 startY + request.height <= blurred.height()) {
 
-                ImageBuffer cropped(request.width, request.height, PixelFormatIDs::RGBA8_Straight);
+                ImageBuffer cropped(request.width, request.height, PixelFormatIDs::RGBA8_Straight,
+                                    InitPolicy::Uninitialized);
                 ViewPort croppedView = cropped.view();
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
                 PerfMetrics::instance().nodes[NodeType::BoxBlur].recordAlloc(
