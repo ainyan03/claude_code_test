@@ -51,55 +51,41 @@ protected:
         ImageBuffer working = convertFormat(std::move(input.buffer),
                                             PixelFormatIDs::RGBA8_Straight,
                                             FormatConversion::PreferReference);
-        ViewPort workingView = working.view();
 
-        // 出力バッファ作成（全ピクセル上書きするため初期化スキップ）
-        ImageBuffer blurred(working.width(), working.height(), PixelFormatIDs::RGBA8_Straight,
+        // inputReq を再計算（FilterNodeBase が上流に要求したサイズ）
+        RenderRequest inputReq = request.expand(radius_);
+
+        // 作業バッファ（inputReq サイズ）
+        ImageBuffer blurred(inputReq.width, inputReq.height, PixelFormatIDs::RGBA8_Straight,
                             InitPolicy::Uninitialized);
-        ViewPort blurredView = blurred.view();
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         PerfMetrics::instance().nodes[NodeType::BoxBlur].recordAlloc(
             blurred.totalBytes(), blurred.width(), blurred.height());
 #endif
 
-        // フィルタ適用
-        filters::boxBlur(blurredView, workingView, radius_);
+        // srcOffset 計算: inputのinputReq座標系での位置
+        int srcOffsetX = from_fixed8(inputReq.origin.x - input.origin.x);
+        int srcOffsetY = from_fixed8(inputReq.origin.y - input.origin.y);
 
-        // マージン分を切り出し（要求範囲のみ抽出）
-        int margin = radius_;
-        if (margin > 0) {
-            // 入力画像内での切り出し開始位置
-            // 新座標系: origin はバッファ内基準点位置
-            // startX = input.origin.x - request.origin.x
-            int startX = static_cast<int>(input.origin.x - request.origin.x);
-            int startY = static_cast<int>(input.origin.y - request.origin.y);
+        // 透明拡張ブラー（入力範囲外は透明として処理）
+        ViewPort blurredView = blurred.view();
+        ViewPort workingView = working.view();
+        filters::boxBlurWithPadding(blurredView, workingView,
+                                    srcOffsetX, srcOffsetY, radius_);
 
-            if (startX >= 0 && startY >= 0 &&
-                startX + request.width <= blurred.width() &&
-                startY + request.height <= blurred.height()) {
-
-                ImageBuffer cropped(request.width, request.height, PixelFormatIDs::RGBA8_Straight,
-                                    InitPolicy::Uninitialized);
-                ViewPort croppedView = cropped.view();
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-                PerfMetrics::instance().nodes[NodeType::BoxBlur].recordAlloc(
-                    cropped.totalBytes(), cropped.width(), cropped.height());
-#endif
-                view_ops::copy(croppedView, 0, 0, blurredView, startX, startY,
-                              request.width, request.height);
+        // request サイズに切り出し（inputReq の中央 radius 分内側）
+        ImageBuffer output(request.width, request.height, PixelFormatIDs::RGBA8_Straight,
+                           InitPolicy::Uninitialized);
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
-                auto& metrics = PerfMetrics::instance().nodes[NodeType::BoxBlur];
-                metrics.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
-                    std::chrono::high_resolution_clock::now() - start).count();
-                metrics.count++;
+        PerfMetrics::instance().nodes[NodeType::BoxBlur].recordAlloc(
+            output.totalBytes(), output.width(), output.height());
 #endif
 
-                // 要求と同じ基準点位置を返す
-                return RenderResult(std::move(cropped), request.origin);
-            }
-        }
+        ViewPort outputView = output.view();
+        view_ops::copy(outputView, 0, 0, blurredView,
+                      radius_, radius_, request.width, request.height);
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         auto& metrics = PerfMetrics::instance().nodes[NodeType::BoxBlur];
@@ -108,7 +94,7 @@ protected:
         metrics.count++;
 #endif
 
-        return RenderResult(std::move(blurred), input.origin);
+        return RenderResult(std::move(output), request.origin);
     }
 
 private:
