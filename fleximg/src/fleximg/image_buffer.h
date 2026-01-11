@@ -24,6 +24,14 @@ enum class InitPolicy : uint8_t {
 };
 
 // ========================================================================
+// FormatConversion - toFormat()の変換モード
+// ========================================================================
+enum class FormatConversion : uint8_t {
+    CopyIfNeeded,    // デフォルト: 参照モードならコピー作成
+    PreferReference  // 編集しない: フォーマット一致なら参照のまま返す
+};
+
+// ========================================================================
 // ImageBuffer - メモリ所有画像（コンポジション、RAII）
 // ========================================================================
 //
@@ -54,6 +62,15 @@ public:
         allocate();
     }
 
+    // 外部ViewPortを参照（メモリ所有しない）
+    // 使用例: ImageBuffer ref(someViewPort);
+    explicit ImageBuffer(ViewPort view)
+        : view_(view)
+        , capacity_(0)
+        , allocator_(nullptr)  // nullなのでデストラクタで解放しない
+        , initPolicy_(InitPolicy::Zero)
+    {}
+
     // デストラクタ
     ~ImageBuffer() {
         deallocate();
@@ -64,11 +81,12 @@ public:
     // ========================================
 
     // コピーコンストラクタ（ディープコピー）
-    // コピー時は初期化スキップ（copyFromで全ピクセル上書きするため）
+    // 参照モードからのコピーでも新しいメモリを確保（所有モードになる）
     ImageBuffer(const ImageBuffer& other)
         : view_(nullptr, other.view_.formatID, 0,
                 other.view_.width, other.view_.height)
-        , capacity_(0), allocator_(other.allocator_)
+        , capacity_(0)
+        , allocator_(other.allocator_ ? other.allocator_ : &DefaultAllocator::getInstance())
         , initPolicy_(InitPolicy::Uninitialized) {
         if (other.isValid()) {
             allocate();
@@ -77,14 +95,14 @@ public:
     }
 
     // コピー代入
-    // コピー時は初期化スキップ（copyFromで全ピクセル上書きするため）
+    // 参照モードからのコピーでも新しいメモリを確保（所有モードになる）
     ImageBuffer& operator=(const ImageBuffer& other) {
         if (this != &other) {
             deallocate();
             view_.formatID = other.view_.formatID;
             view_.width = other.view_.width;
             view_.height = other.view_.height;
-            allocator_ = other.allocator_;
+            allocator_ = other.allocator_ ? other.allocator_ : &DefaultAllocator::getInstance();
             initPolicy_ = InitPolicy::Uninitialized;
             if (other.isValid()) {
                 allocate();
@@ -137,11 +155,19 @@ public:
         return view_ops::subView(view_, x, y, w, h);
     }
 
+    // サブビューを持つ参照モードImageBufferを作成
+    ImageBuffer subBuffer(int x, int y, int w, int h) const {
+        return ImageBuffer(view_ops::subView(view_, x, y, w, h));
+    }
+
     // ========================================
     // アクセサ（ViewPortに委譲）
     // ========================================
 
     bool isValid() const { return view_.isValid(); }
+
+    // メモリを所有しているか（false=参照モード、編集禁止）
+    bool ownsMemory() const { return allocator_ != nullptr; }
 
     int16_t width() const { return view_.width; }
     int16_t height() const { return view_.height; }
@@ -167,13 +193,33 @@ public:
 
     // 右辺値参照版: 同じフォーマットならムーブ、異なるなら変換
     // 使用例: ImageBuffer working = std::move(input.buffer).toFormat(PixelFormatIDs::RGBA8_Straight);
-    ImageBuffer toFormat(PixelFormatID target) && {
+    //
+    // mode:
+    //   CopyIfNeeded    - 参照モードならコピー作成（デフォルト、編集する場合）
+    //   PreferReference - フォーマット一致なら参照のまま返す（読み取り専用の場合）
+    ImageBuffer toFormat(PixelFormatID target,
+                         FormatConversion mode = FormatConversion::CopyIfNeeded) && {
         if (view_.formatID == target) {
-            return std::move(*this);  // ムーブで返す（コピーなし）
+            // フォーマット一致
+            if (mode == FormatConversion::PreferReference) {
+                // 参照希望: そのまま返す（参照モードでも所有モードでも）
+                return std::move(*this);
+            }
+            if (ownsMemory()) {
+                // 所有モード: そのまま返す
+                return std::move(*this);
+            }
+            // 参照モード + CopyIfNeeded: コピー作成
+            ImageBuffer copied(view_.width, view_.height, view_.formatID,
+                               InitPolicy::Uninitialized);
+            if (isValid() && copied.isValid()) {
+                view_ops::copy(copied.view_, 0, 0, view_, 0, 0, view_.width, view_.height);
+            }
+            return copied;
         }
-        // 変換して新しいバッファを返す（全ピクセル上書きするため初期化スキップ）
+        // フォーマット不一致: 常に変換（新バッファ作成）
         ImageBuffer converted(view_.width, view_.height, target,
-                              InitPolicy::Uninitialized, allocator_);
+                              InitPolicy::Uninitialized);
         if (isValid() && converted.isValid()) {
             int pixelCount = view_.width * view_.height;
             PixelFormatRegistry::getInstance().convert(

@@ -108,19 +108,14 @@ public:
             return RenderResult(ImageBuffer(), request.origin);
         }
 
-        // 交差領域をコピー（固定小数点から整数へ変換）
+        // 交差領域のサブビューを参照モードで返す（コピーなし）
         int srcX = from_fixed8(interLeft - imgLeft);
         int srcY = from_fixed8(interTop - imgTop);
         int interW = from_fixed8(interRight - interLeft);
         int interH = from_fixed8(interBottom - interTop);
 
-        ImageBuffer result(interW, interH, source_.formatID, InitPolicy::Uninitialized);
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        PerfMetrics::instance().nodes[NodeType::Source].recordAlloc(
-            result.totalBytes(), result.width(), result.height());
-#endif
-        ViewPort resultView = result.view();
-        view_ops::copy(resultView, 0, 0, source_, srcX, srcY, interW, interH);
+        // サブビューの参照モードImageBufferを作成（メモリ確保なし）
+        ImageBuffer result(view_ops::subView(source_, srcX, srcY, interW, interH));
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         auto& m = PerfMetrics::instance().nodes[NodeType::Source];
