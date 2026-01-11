@@ -41,11 +41,11 @@ const NODE_TYPES = {
 // ========================================
 const PIXEL_FORMATS = [
     { id: 0x0200, name: 'RGBA8888',   bpp: 4, description: 'Standard (default)' },
+    { id: 0x0202, name: 'RGB888',     bpp: 3, description: 'RGB order' },
+    { id: 0x0203, name: 'BGR888',     bpp: 3, description: 'BGR order' },
     { id: 0x0100, name: 'RGB565_LE',  bpp: 2, description: 'Little Endian' },
     { id: 0x0101, name: 'RGB565_BE',  bpp: 2, description: 'Big Endian' },
     { id: 0x0102, name: 'RGB332',     bpp: 1, description: '8-bit color' },
-    { id: 0x0202, name: 'RGB888',     bpp: 3, description: 'RGB order' },
-    { id: 0x0203, name: 'BGR888',     bpp: 3, description: 'BGR order' },
 ];
 
 // デフォルトピクセルフォーマット
