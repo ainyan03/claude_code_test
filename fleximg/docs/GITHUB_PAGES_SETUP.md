@@ -58,7 +58,7 @@ https://[ユーザー名].github.io/[リポジトリ名]/
 ### ビルドプロセス
 
 1. **Emscriptenセットアップ**: 最新版のEmscripten SDKをインストール
-2. **WebAssemblyビルド**: C++コードを `image_transform.wasm` にコンパイル
+2. **WebAssemblyビルド**: C++コードを `fleximg.wasm` にコンパイル
 3. **成果物確認**: WASMファイルが正常に生成されたか検証
 4. **GitHub Pagesデプロイ**: `fleximg/demo/web/` ディレクトリを公開
 
@@ -85,7 +85,7 @@ https://[ユーザー名].github.io/[リポジトリ名]/
 
 1. ブラウザのコンソール（F12）を開いてエラーを確認
 2. CORS エラーが出ていないか確認
-3. WebAssemblyファイル（image_transform.wasm）が正しく読み込まれているか確認
+3. WebAssemblyファイル（fleximg.wasm）が正しく読み込まれているか確認
 4. ブラウザがWebAssemblyに対応しているか確認（Chrome 57+、Firefox 52+、Safari 11+）
 
 ## 更新方法

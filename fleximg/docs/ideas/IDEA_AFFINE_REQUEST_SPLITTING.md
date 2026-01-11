@@ -109,10 +109,10 @@ bool needsSplit(int required, int total, float ratioThreshold, int maxWaste) {
 
 ## 実装方針
 
-### TransformNode でのAABB分割処理
+### AffineNode でのAABB分割処理
 
 ```cpp
-RenderResult TransformNode::pullProcess(const RenderRequest& request) {
+RenderResult AffineNode::pullProcess(const RenderRequest& request) {
     // 1. 分割要否を判定（上流ノードタイプマスクを参照）
     if (!shouldSplit()) {
         return processWithoutSplit(request);

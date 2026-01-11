@@ -1,6 +1,6 @@
 # WebAssembly demo build outputs
-demo/web/image_transform.js
-demo/web/image_transform.wasm
+demo/web/fleximg.js
+demo/web/fleximg.wasm
 demo/web/version.js
 
 # Native build outputs
@@ -12,6 +12,8 @@ src/fleximg/*.o
 test/integration_test
 test/viewport_test
 test/calc_valid_range_test
+test/trapezoid_fit_test
+test/box_blur_test
 
 # CLI binary
 cli/imgproc

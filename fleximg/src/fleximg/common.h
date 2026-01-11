@@ -32,23 +32,12 @@ struct Point {
     Point() = default;
     Point(int_fixed8 x_, int_fixed8 y_) : x(x_), y(y_) {}
 
-    // 移行用コンストラクタ（float引数、最終的に削除予定）
-    Point(float x_, float y_)
-        : x(float_to_fixed8(x_)), y(float_to_fixed8(y_)) {}
-
     Point operator+(const Point& o) const { return {x + o.x, y + o.y}; }
     Point operator-(const Point& o) const { return {x - o.x, y - o.y}; }
     Point operator-() const { return {-x, -y}; }
     Point& operator+=(const Point& o) { x += o.x; y += o.y; return *this; }
     Point& operator-=(const Point& o) { x -= o.x; y -= o.y; return *this; }
-
-    // 移行用アクセサ（float変換、最終的に削除予定）
-    float xf() const { return fixed8_to_float(x); }
-    float yf() const { return fixed8_to_float(y); }
 };
-
-// 後方互換性のためのエイリアス（最終的に削除予定）
-using Point2f = Point;
 
 // ========================================================================
 // AffineMatrix - アフィン変換行列

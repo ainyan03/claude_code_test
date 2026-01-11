@@ -9,7 +9,7 @@ RendererNode はパイプライン実行の発火点となるノードです。�
 ─────────────────            ─────────────────
 SourceNode                    SinkNode
     ↑ pullProcess()              ↓ pushProcess()
-TransformNode        →      RendererNode
+AffineNode           →      RendererNode
     ↑ pullProcess()           (発火点)
 フィルタノード
 ```
@@ -21,15 +21,15 @@ TransformNode        →      RendererNode
 ```cpp
 #include "fleximg/nodes/source_node.h"
 #include "fleximg/nodes/sink_node.h"
-#include "fleximg/nodes/transform_node.h"
+#include "fleximg/nodes/affine_node.h"
 #include "fleximg/nodes/renderer_node.h"
 
 // ノード作成
 SourceNode src(imageView);
-src.setOrigin(imageView.width / 2.0f, imageView.height / 2.0f);
+src.setOrigin(to_fixed8(imageView.width / 2), to_fixed8(imageView.height / 2));
 
-TransformNode transform;
-transform.setMatrix(AffineMatrix::rotate(0.5f));
+AffineNode affine;
+affine.setMatrix(AffineMatrix::rotate(0.5f));
 
 RendererNode renderer;
 renderer.setVirtualScreen(320, 240, 160, 120);  // 幅, 高さ, 基準X, 基準Y
@@ -37,7 +37,7 @@ renderer.setVirtualScreen(320, 240, 160, 120);  // 幅, 高さ, 基準X, 基準Y
 SinkNode sink(outputView, 160, 120);  // 出力先, 基準X, 基準Y
 
 // パイプライン構築
-src >> transform >> renderer >> sink;
+src >> affine >> renderer >> sink;
 
 // 実行
 renderer.exec();
@@ -223,7 +223,7 @@ exec() 呼び出し時:
 |------|------------|-----|
 | 入力端点 | 上流のみ | SourceNode |
 | 出力端点 | 下流のみ | SinkNode |
-| 処理ノード | 中間（上流/下流） | TransformNode, フィルタノード, CompositeNode |
+| 処理ノード | 中間（上流/下流） | AffineNode, フィルタノード, CompositeNode |
 | 発火点 | 中央 | RendererNode |
 
 **注意**: タイル分割時、Renderer下流に配置したBoxBlurフィルタはタイル境界で正しく動作しません。
@@ -266,7 +266,7 @@ protected:
 ```
 SourceNode
     │
-    └─→ TransformNode
+    └─→ AffineNode
           │
           └─→ RendererNode (発火点)
                 │
