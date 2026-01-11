@@ -17,6 +17,7 @@
 #include "../src/fleximg/nodes/box_blur_node.h"
 #include "../src/fleximg/nodes/alpha_node.h"
 #include "../src/fleximg/nodes/composite_node.h"
+#include "../src/fleximg/nodes/distributor_node.h"
 #include "../src/fleximg/nodes/renderer_node.h"
 
 using namespace emscripten;
@@ -95,7 +96,8 @@ struct GraphNode {
     std::vector<float> filterParams;
     bool independent = false;
     struct { double a=1, b=0, c=0, d=1, tx=0, ty=0; } affineMatrix;
-    std::vector<std::string> compositeInputIds;  // compositeノード用
+    std::vector<std::string> compositeInputIds;   // compositeノード用（N入力）
+    std::vector<std::string> distributorOutputIds; // distributorノード用（N出力）
 };
 
 struct GraphConnection {
@@ -280,7 +282,7 @@ public:
                 }
             }
 
-            // composite用パラメータ
+            // composite用パラメータ（N入力・1出力）
             if (node.type == "composite") {
                 if (nodeObj["inputs"].typeOf().as<std::string>() != "undefined") {
                     val inputsArray = nodeObj["inputs"];
@@ -288,6 +290,18 @@ public:
                     for (unsigned int j = 0; j < inputCount; j++) {
                         val inputObj = inputsArray[j];
                         node.compositeInputIds.push_back(inputObj["id"].as<std::string>());
+                    }
+                }
+            }
+
+            // distributor用パラメータ（1入力・N出力、compositeと対称）
+            if (node.type == "distributor") {
+                if (nodeObj["outputs"].typeOf().as<std::string>() != "undefined") {
+                    val outputsArray = nodeObj["outputs"];
+                    unsigned int outputCount = outputsArray["length"].as<unsigned int>();
+                    for (unsigned int j = 0; j < outputCount; j++) {
+                        val outputObj = outputsArray[j];
+                        node.distributorOutputIds.push_back(outputObj["id"].as<std::string>());
                     }
                 }
             }
@@ -356,7 +370,7 @@ public:
 
         // ノードタイプ名（NodeType enum順）
         static const char* nodeNames[] = {
-            "renderer", "source", "sink", "transform", "composite",
+            "renderer", "source", "sink", "distributor", "transform", "composite",
             "brightness", "grayscale", "boxBlur", "alpha"
         };
 
@@ -722,6 +736,30 @@ private:
                 mat.ty = static_cast<float>(gnode.affineMatrix.ty);
                 affineNode->setMatrix(mat);
                 newNode = std::move(affineNode);
+            }
+            else if (gnode.type == "distributor") {
+                // DistributorNode: 1入力・N出力（CompositeNodeと対称）
+                int outputCount = static_cast<int>(gnode.distributorOutputIds.size());
+                if (outputCount < 1) outputCount = 1;
+
+                auto distributorNode = std::make_unique<DistributorNode>(outputCount);
+
+                // 各出力を接続（接続情報から下流を探す）
+                auto outputIt = outputConnections.find(nodeId);
+                if (outputIt != outputConnections.end()) {
+                    int portIndex = 0;
+                    for (const auto& downstreamId : outputIt->second) {
+                        Node* downstream = buildDownstreamChain(downstreamId);
+                        if (downstream && portIndex < outputCount) {
+                            distributorNode->connectTo(*downstream, 0, portIndex);
+                            portIndex++;
+                        }
+                    }
+                }
+
+                Node* result = distributorNode.get();
+                v2Nodes[nodeId] = std::move(distributorNode);
+                return result;
             }
 
             if (!newNode) return nullptr;

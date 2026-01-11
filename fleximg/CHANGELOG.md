@@ -8,12 +8,14 @@
   - CompositeNode（N入力・1出力）と対称的な構造
   - 下流には参照モードImageBuffer（ownsMemory()==false）を渡す
   - 下流ノードが変更を加えたい場合はコピーを作成
+  - WASMバインディング対応（distributor タイプ）
 
 ### 技術詳細
 
 - NodeType に Distributor を追加（インデックス再配置）
 - pushPrepare/pushFinalize: 全下流ノードへ伝播
 - pushProcess: 参照モードで配信、最後の出力にはmoveで渡す
+- bindings.cpp: distributor ノードタイプの解析・構築処理
 
 ---
 
