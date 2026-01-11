@@ -286,6 +286,138 @@ private:
 public:
 
     // ========================================
+    // プッシュ型インターフェース
+    // ========================================
+    //
+    // Renderer下流でアフィン変換を行う場合に使用。
+    // 入力画像を順変換して出力サイズを計算し、下流へ渡す。
+    //
+
+    void pushProcess(RenderResult&& input,
+                     const RenderRequest& request) override {
+        (void)request;  // pushモードでは上流用requestは使わない
+
+        // 循環エラー状態ならスキップ
+        if (pushPrepareState_ != PrepareState::Prepared) {
+            return;
+        }
+
+        if (!input.isValid()) {
+            Node* downstream = downstreamNode(0);
+            if (downstream) {
+                downstream->pushProcess(std::move(input), request);
+            }
+            return;
+        }
+
+        // 特異行列チェック
+        if (!fwdMatrix_.valid) {
+            return;
+        }
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        auto start = std::chrono::high_resolution_clock::now();
+#endif
+
+        // 入力画像情報
+        ViewPort inputView = input.view();
+        const int inW = inputView.width;
+        const int inH = inputView.height;
+
+        // 入力画像の4隅を順変換してAABBを計算
+        // 入力座標は基準点相対（Q24.8）
+        int_fixed8 in_x[4] = {
+            -input.origin.x,
+            to_fixed8(inW) - input.origin.x,
+            -input.origin.x,
+            to_fixed8(inW) - input.origin.x
+        };
+        int_fixed8 in_y[4] = {
+            -input.origin.y,
+            -input.origin.y,
+            to_fixed8(inH) - input.origin.y,
+            to_fixed8(inH) - input.origin.y
+        };
+
+        // 順変換: out = fwd * in + t
+        // 演算: (Q16.16 * Q24.8) >> 16 = Q24.8
+        int_fixed8 minX_f8 = INT32_MAX, minY_f8 = INT32_MAX;
+        int_fixed8 maxX_f8 = INT32_MIN, maxY_f8 = INT32_MIN;
+        for (int i = 0; i < 4; i++) {
+            int64_t ox64 = static_cast<int64_t>(fwdMatrix_.a) * in_x[i]
+                         + static_cast<int64_t>(fwdMatrix_.b) * in_y[i];
+            int64_t oy64 = static_cast<int64_t>(fwdMatrix_.c) * in_x[i]
+                         + static_cast<int64_t>(fwdMatrix_.d) * in_y[i];
+            int_fixed8 ox = static_cast<int_fixed8>(ox64 >> INT_FIXED16_SHIFT) + txFixed8_;
+            int_fixed8 oy = static_cast<int_fixed8>(oy64 >> INT_FIXED16_SHIFT) + tyFixed8_;
+            minX_f8 = std::min(minX_f8, ox);
+            minY_f8 = std::min(minY_f8, oy);
+            maxX_f8 = std::max(maxX_f8, ox);
+            maxY_f8 = std::max(maxY_f8, oy);
+        }
+
+        // floor/ceil で整数化（+マージン）
+        int minX = from_fixed8_floor(minX_f8) - 1;
+        int minY = from_fixed8_floor(minY_f8) - 1;
+        int maxX = from_fixed8_ceil(maxX_f8) + 1;
+        int maxY = from_fixed8_ceil(maxY_f8) + 1;
+
+        int outW = maxX - minX;
+        int outH = maxY - minY;
+
+        if (outW <= 0 || outH <= 0) {
+            return;
+        }
+
+        // 出力バッファを作成
+        ImageBuffer output(static_cast<int16_t>(outW), static_cast<int16_t>(outH),
+                          input.buffer.formatID());
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        PerfMetrics::instance().nodes[NodeType::Affine].recordAlloc(
+            output.totalBytes(), output.width(), output.height());
+#endif
+        ViewPort outputView = output.view();
+
+        // applyAffine 用の origin: バッファ左上の世界座標の負値
+        // applyAffine 内で tx/ty を使うため、ここでは tx/ty を含めない
+        int_fixed8 affineOriginX = -to_fixed8(minX);
+        int_fixed8 affineOriginY = -to_fixed8(minY);
+
+        // アフィン変換を適用
+        applyAffine(outputView, affineOriginX, affineOriginY,
+                    inputView, input.origin.x, input.origin.y);
+
+        // RenderResult 用の origin: バッファ左上の基準点相対座標の負値
+        // minX/minY は順変換後の座標（tx/ty を含む）なので、origin = -minX で tx が正しく反映
+        // SinkNode での配置: dstX = sinkOrigin - (-minX) = sinkOrigin + minX
+        //                        = sinkOrigin + (-srcOrigin + tx) = sinkOrigin - srcOrigin + tx
+        int_fixed8 outOriginX = -to_fixed8(minX);
+        int_fixed8 outOriginY = -to_fixed8(minY);
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        auto& metrics = PerfMetrics::instance().nodes[NodeType::Affine];
+        metrics.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::high_resolution_clock::now() - start).count();
+        metrics.count++;
+#endif
+
+        // 下流用の RenderRequest を作成
+        RenderRequest downstreamReq;
+        downstreamReq.width = static_cast<int16_t>(outW);
+        downstreamReq.height = static_cast<int16_t>(outH);
+        downstreamReq.origin.x = outOriginX;
+        downstreamReq.origin.y = outOriginY;
+
+        // 下流へ渡す
+        Node* downstream = downstreamNode(0);
+        if (downstream) {
+            downstream->pushProcess(
+                RenderResult(std::move(output), Point{outOriginX, outOriginY}),
+                downstreamReq);
+        }
+    }
+
+    // ========================================
     // 変換処理（process() オーバーライド）
     // ========================================
     //

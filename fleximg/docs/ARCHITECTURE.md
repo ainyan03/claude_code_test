@@ -53,7 +53,7 @@ Node (基底クラス)
 │
 ├── SourceNode        # 画像データを提供
 ├── SinkNode          # 出力先を保持
-├── AffineNode        # アフィン変換
+├── AffineNode        # アフィン変換（プル/プッシュ両対応）
 ├── FilterNodeBase    # フィルタ共通基底
 │   ├── BrightnessNode   # 明るさ調整
 │   ├── GrayscaleNode    # グレースケール

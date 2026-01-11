@@ -1,5 +1,7 @@
 # プッシュ型アフィン変換
 
+> **実装済み**: v2.19.0 で `AffineNode::pushProcess()` として実装
+
 ## 概要
 
 JPEG デコーダー等の MCU 単位プッシュ処理に対応するため、AffineNode をプッシュ型でも動作可能にする。
@@ -71,10 +73,10 @@ void pushProcess(RenderResult&& input, const RenderRequest& inputInfo) override 
 ## 実装ステップ
 
 1. [x] AffineNode で prepare() を使用（逆行列の事前計算）
-2. [ ] 順変換用の固定小数点行列を追加
-3. [ ] pushProcess() の基本実装
-4. [ ] Sink でのブレンド合成対応
-5. [ ] JPEG デコーダーとの統合テスト
+2. [x] 順変換用の固定小数点行列を追加 (`fwdMatrix_`)
+3. [x] pushProcess() の基本実装（入力4隅を順変換してAABB計算）
+4. [ ] Sink でのブレンド合成対応（将来課題）
+5. [ ] JPEG デコーダーとの統合テスト（将来課題）
 
 ## 関連
 
