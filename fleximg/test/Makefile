@@ -16,7 +16,7 @@ CORE_SRCS = $(SRC_DIR)/viewport.cpp $(SRC_DIR)/pixel_format_registry.cpp
 OPS_SRCS = $(OPS_DIR)/blend.cpp $(OPS_DIR)/filters.cpp
 
 # テストバイナリ
-TESTS = viewport_test integration_test calc_valid_range_test trapezoid_fit_test box_blur_test
+TESTS = viewport_test integration_test calc_valid_range_test trapezoid_fit_test box_blur_test tile_origin_test
 
 .PHONY: all test clean
 
@@ -54,6 +54,10 @@ trapezoid_fit_test: trapezoid_fit_test.cpp
 
 # box_blur_test: ボックスブラーテスト
 box_blur_test: box_blur_test.cpp $(CORE_SRCS) $(OPS_SRCS)
+	$(CXX) $(CXXFLAGS) -o $@ $^
+
+# tile_origin_test: タイル分割時のorigin端数処理テスト
+tile_origin_test: tile_origin_test.cpp $(CORE_SRCS)
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
 clean:
