@@ -1,12 +1,21 @@
-# アフィン変換の入力要求範囲分割
+# AABB分割（アフィン変換の入力要求範囲最適化）
 
-**ステータス**: 構想段階
+**ステータス**: 実装済み（効果検証中）
 
 **関連**: [IDEA_UPSTREAM_NODE_TYPE_MASK.md](IDEA_UPSTREAM_NODE_TYPE_MASK.md) - 分割要否の判定に使用
 
+## 用語定義
+
+| 用語 | 英語 | 説明 |
+|------|------|------|
+| **AABB分割** | AABB Splitting | 本ドキュメントで提案する最適化手法 |
+| タイル分割 | Tile Splitting | Rendererノードによる出力キャンバスの分割（別概念） |
+
+**命名理由**: 「分割」は汎用的な語なので、アフィン変換特有の概念「AABB」と組み合わせることで、Rendererのタイル分割との混同を防ぐ。また、将来的にX/Y両方向の分割に拡張する可能性を考慮し、「帯状」「ストリップ」等の一方向を示す語は避けた。
+
 ## 概要
 
-アフィン変換ノードが上流に要求する範囲を分割することで、不要ピクセルの取得を削減し、パイプライン処理の効率を向上させる。
+アフィン変換ノードが上流に要求するAABB（Axis-Aligned Bounding Box）を細分化することで、不要ピクセルの取得を削減し、パイプライン処理の効率を向上させる。
 
 ## 問題
 
@@ -22,9 +31,9 @@
 実際に必要なのは約362ピクセル（効率約1%）
 ```
 
-## 解決策
+## 解決策：AABB分割
 
-入力AABBをY方向に分割し、各Y範囲で本当に必要なX範囲のみを要求する。
+入力AABBを細分化し、各部分で本当に必要な範囲のみを要求する。初期実装ではY方向に分割する。
 
 ```
 入力空間での必要領域（斜めの帯）:
@@ -67,7 +76,7 @@ Y=121-180:□□■■■  → X=120-180 のみ要求
 
 **注**: 45度回転の場合、p1.y == p3.y となり、領域2は消滅する。
 
-## 分割基準
+## AABB分割の判定基準
 
 ### 2つの基準を組み合わせる
 
@@ -100,7 +109,7 @@ bool needsSplit(int required, int total, float ratioThreshold, int maxWaste) {
 
 ## 実装方針
 
-### TransformNode での分割処理
+### TransformNode でのAABB分割処理
 
 ```cpp
 RenderResult TransformNode::pullProcess(const RenderRequest& request) {
@@ -131,12 +140,14 @@ RenderResult TransformNode::pullProcess(const RenderRequest& request) {
 
 ## 期待効果
 
-| 回転角度 | 従来の効率 | 分割後の効率 | 改善率 |
-|----------|-----------|-------------|--------|
+| 回転角度 | 従来の効率 | AABB分割後の効率 | 改善率 |
+|----------|-----------|------------------|--------|
 | 45度 | 約1% | 約50% | 50倍 |
 | 30度 | 約10% | 約50% | 5倍 |
 | 10度 | 約30% | 約50% | 1.7倍 |
 | 0度/90度 | 約100% | 分割不要 | - |
+
+**現在のデバッグ表示**: Affineノードの `(aabb:Xx)` で改善倍率を確認可能。値が1.0xを超える場合、AABB分割の効果が期待できる。
 
 ## 懸念事項
 
@@ -146,15 +157,68 @@ RenderResult TransformNode::pullProcess(const RenderRequest& request) {
 
 ## 実装ステップ
 
-1. [ ] shouldSplit() 判定ロジック（上流ノードタイプマスク参照）
-2. [ ] computeSplits() 分割計算
-3. [ ] TransformNode::pullProcess() での分割実行
-4. [ ] mergeResults() 結果合成
-5. [ ] パフォーマンス測定と効果検証
+1. [x] AABB分割効果の見積もり機能（デバッグ表示に `aabb:Xx` として実装済み）
+2. [x] shouldSplitAABB() 判定ロジック（閾値10倍以上で発動）
+3. [x] pullProcessWithAABBSplit() 分割処理（動的分割数、X/Y両方向対応）
+4. [x] 部分変換（既存applyAffine再利用、calcValidRangeで自動範囲制限）
+5. [x] 動的分割戦略（縦横比で分割方向を決定、最小サイズ32px）
+6. [x] 台形フィット（各stripのX/Y範囲を平行四辺形にフィット）
+7. [ ] パフォーマンス測定と効果検証（継続）
+
+## 現在の実装
+
+```cpp
+// AffineNode (affine_node.h)
+static constexpr int MIN_SPLIT_SIZE = 32;         // 分割後の最小ピクセル数
+static constexpr int MAX_SPLIT_COUNT = 8;         // 分割数の上限
+static constexpr float AABB_SPLIT_THRESHOLD = 10.0f;  // 閾値（改善倍率10倍以上で発動）
+
+struct SplitStrategy {
+    bool splitInX;      // true: X方向分割, false: Y方向分割
+    int splitCount;     // 分割数
+};
+```
+
+### 分割戦略
+
+- **分割方向**: AABBの縦横比で決定（長い辺を分割）
+- **分割数**: 分割後のサイズが32ピクセル以上になるよう動的に決定（最大8分割）
+
+## 台形フィット
+
+各stripのX/Y範囲を平行四辺形の実際の幅にフィットさせることで、`requestedPixels` を削減。
+
+### 実装
+
+```cpp
+// Y方向分割時：このY範囲で必要なX範囲を計算
+std::pair<int, int> computeXRangeForYStrip(int yMin, int yMax, const InputRegion& region)
+
+// X方向分割時：このX範囲で必要なY範囲を計算
+std::pair<int, int> computeYRangeForXStrip(int xMin, int xMax, const InputRegion& region)
+```
+
+### 処理フロー
+
+```
+分割前:                    台形フィット後:
+┌─────────────┐           ┌───┐
+│   strip 0   │          ┌┴───┴┐     ← 必要範囲のみ要求
+├─────────────┤    →    ┌┴─────┴┐
+│   strip 1   │        ┌┴───────┴┐
+├─────────────┤       ┌┴─────────┴┐
+│   strip 2   │       └───────────┘
+└─────────────┘
+```
+
+## 残課題
+
+1. **上流ノードタイプマスク**: 分割要否の判定に活用
+2. **三角領域の最適化**: 領域1/3の50%効率を改善可能か検討
 
 ## 関連ファイル
 
 | ファイル | 役割 |
 |---------|------|
-| `src/fleximg/nodes/transform_node.h` | TransformNode 定義 |
-| `src/fleximg/operations/transform.h` | アフィン変換実装 |
+| `src/fleximg/nodes/affine_node.h` | AffineNode（AABB分割実装） |
+| `src/fleximg/common.h` | toFixed16()（順変換行列） |

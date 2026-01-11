@@ -283,7 +283,10 @@ public:
             nodeMetrics.set("count", lastPerfMetrics_.nodes[i].count);
             nodeMetrics.set("requestedPixels", static_cast<double>(lastPerfMetrics_.nodes[i].requestedPixels));
             nodeMetrics.set("usedPixels", static_cast<double>(lastPerfMetrics_.nodes[i].usedPixels));
+            nodeMetrics.set("theoreticalMinPixels", static_cast<double>(lastPerfMetrics_.nodes[i].theoreticalMinPixels));
             nodeMetrics.set("wasteRatio", lastPerfMetrics_.nodes[i].wasteRatio());
+            nodeMetrics.set("pixelEfficiency", lastPerfMetrics_.nodes[i].pixelEfficiency());
+            nodeMetrics.set("splitEfficiencyEstimate", lastPerfMetrics_.nodes[i].splitEfficiencyEstimate());
             nodeMetrics.set("allocatedBytes", static_cast<double>(lastPerfMetrics_.nodes[i].allocatedBytes));
             nodeMetrics.set("allocCount", lastPerfMetrics_.nodes[i].allocCount);
             nodeMetrics.set("maxAllocBytes", static_cast<double>(lastPerfMetrics_.nodes[i].maxAllocBytes));
@@ -294,7 +297,10 @@ public:
             nodeMetrics.set("count", 0);
             nodeMetrics.set("requestedPixels", 0.0);
             nodeMetrics.set("usedPixels", 0.0);
+            nodeMetrics.set("theoreticalMinPixels", 0.0);
             nodeMetrics.set("wasteRatio", 0.0f);
+            nodeMetrics.set("pixelEfficiency", 1.0f);
+            nodeMetrics.set("splitEfficiencyEstimate", 1.0f);
             nodeMetrics.set("allocatedBytes", 0.0);
             nodeMetrics.set("allocCount", 0);
             nodeMetrics.set("maxAllocBytes", 0.0);
