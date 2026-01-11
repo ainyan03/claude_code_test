@@ -699,53 +699,64 @@ protected:
         InputRegion region;
         region.outputPixels = static_cast<int64_t>(request.width) * request.height;
 
+        constexpr int_fixed8 HALF = 1 << (INT_FIXED8_SHIFT - 1);  // 0.5
+
         // 出力要求の4頂点を Q24.8 で計算
-        // corners は台形フィット用なので、ピクセル境界座標を使用
-        int_fixed8 out_x[4] = {
-            -request.origin.x,
-            to_fixed8(request.width) - request.origin.x,
-            -request.origin.x,
-            to_fixed8(request.width) - request.origin.x
-        };
-        int_fixed8 out_y[4] = {
-            -request.origin.y,
-            -request.origin.y,
-            to_fixed8(request.height) - request.origin.y,
-            to_fixed8(request.height) - request.origin.y
-        };
+        // corners: 台形フィット用（ピクセル境界座標）
+        // aabb:    AABB計算用（ピクセル中心座標）
+        // DDA は (dx+0.5, dy+0.5) をサンプリングするため、AABB はピクセル中心で計算
+        int_fixed8 left   = -request.origin.x;
+        int_fixed8 right  = to_fixed8(request.width) - request.origin.x;
+        int_fixed8 top    = -request.origin.y;
+        int_fixed8 bottom = to_fixed8(request.height) - request.origin.y;
+
+        // corners用（境界座標）: [0]=左上, [1]=右上, [2]=左下, [3]=右下
+        int_fixed8 corner_x[4] = { left,  right,  left,  right  };
+        int_fixed8 corner_y[4] = { top,   top,    bottom, bottom };
+
+        // AABB用（ピクセル中心座標）
+        int_fixed8 aabb_x[4] = { left + HALF,  right - HALF,  left + HALF,  right - HALF };
+        int_fixed8 aabb_y[4] = { top + HALF,   top + HALF,    bottom - HALF, bottom - HALF };
 
         // tx/ty を Q24.8 のまま減算（小数部保持）
         for (int i = 0; i < 4; i++) {
-            out_x[i] -= txFixed8_;
-            out_y[i] -= tyFixed8_;
+            corner_x[i] -= txFixed8_;
+            corner_y[i] -= tyFixed8_;
+            aabb_x[i] -= txFixed8_;
+            aabb_y[i] -= tyFixed8_;
         }
 
-        // 逆変換して入力空間の4頂点を計算（Q24.8 精度）
+        // 逆変換して入力空間の座標を計算（Q24.8 精度）
         // 演算: (Q16.16 * Q24.8) >> 16 = Q24.8
         int_fixed8 minX_f8 = INT32_MAX, minY_f8 = INT32_MAX;
         int_fixed8 maxX_f8 = INT32_MIN, maxY_f8 = INT32_MIN;
         for (int i = 0; i < 4; i++) {
-            int64_t sx64 = static_cast<int64_t>(invMatrix_.a) * out_x[i]
-                         + static_cast<int64_t>(invMatrix_.b) * out_y[i];
-            int64_t sy64 = static_cast<int64_t>(invMatrix_.c) * out_x[i]
-                         + static_cast<int64_t>(invMatrix_.d) * out_y[i];
-            region.corners_x[i] = static_cast<int_fixed8>(sx64 >> INT_FIXED16_SHIFT);
-            region.corners_y[i] = static_cast<int_fixed8>(sy64 >> INT_FIXED16_SHIFT);
-            minX_f8 = std::min(minX_f8, region.corners_x[i]);
-            minY_f8 = std::min(minY_f8, region.corners_y[i]);
-            maxX_f8 = std::max(maxX_f8, region.corners_x[i]);
-            maxY_f8 = std::max(maxY_f8, region.corners_y[i]);
+            // corners（台形フィット用）
+            int64_t cx64 = static_cast<int64_t>(invMatrix_.a) * corner_x[i]
+                         + static_cast<int64_t>(invMatrix_.b) * corner_y[i];
+            int64_t cy64 = static_cast<int64_t>(invMatrix_.c) * corner_x[i]
+                         + static_cast<int64_t>(invMatrix_.d) * corner_y[i];
+            region.corners_x[i] = static_cast<int_fixed8>(cx64 >> INT_FIXED16_SHIFT);
+            region.corners_y[i] = static_cast<int_fixed8>(cy64 >> INT_FIXED16_SHIFT);
+
+            // AABB（ピクセル中心座標から計算、数学的に正確）
+            int64_t ax64 = static_cast<int64_t>(invMatrix_.a) * aabb_x[i]
+                         + static_cast<int64_t>(invMatrix_.b) * aabb_y[i];
+            int64_t ay64 = static_cast<int64_t>(invMatrix_.c) * aabb_x[i]
+                         + static_cast<int64_t>(invMatrix_.d) * aabb_y[i];
+            int_fixed8 ax = static_cast<int_fixed8>(ax64 >> INT_FIXED16_SHIFT);
+            int_fixed8 ay = static_cast<int_fixed8>(ay64 >> INT_FIXED16_SHIFT);
+            minX_f8 = std::min(minX_f8, ax);
+            minY_f8 = std::min(minY_f8, ay);
+            maxX_f8 = std::max(maxX_f8, ax);
+            maxY_f8 = std::max(maxY_f8, ay);
         }
 
-        // ピクセル中心補正: DDA は (dx+0.5, dy+0.5) を逆変換してサンプリングする
-        // corners は境界座標なので、実際のサンプリング範囲は 0.5 ピクセル内側
-        // min 側: 実際のサンプリング開始位置 = corner + 0.5 → floor で入力ピクセル
-        // max 側: 実際のサンプリング終了位置 = corner - 0.5 → floor で入力ピクセル
-        constexpr int_fixed8 HALF = 128;  // 0.5 in Q24.8
-        int minX = from_fixed8_floor(minX_f8 + HALF);
-        int minY = from_fixed8_floor(minY_f8 + HALF);
-        int maxX = from_fixed8_floor(maxX_f8 - HALF);
-        int maxY = from_fixed8_floor(maxY_f8 - HALF);
+        // ピクセル中心座標で計算済みなので、補正なしで floor
+        int minX = from_fixed8_floor(minX_f8);
+        int minY = from_fixed8_floor(minY_f8);
+        int maxX = from_fixed8_floor(maxX_f8);
+        int maxY = from_fixed8_floor(maxY_f8);
 
         region.aabbLeft = minX;
         region.aabbTop = minY;
