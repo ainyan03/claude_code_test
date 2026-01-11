@@ -48,19 +48,19 @@ jobs:
           echo ""
           echo "=== Checking for required files ==="
 
-          if [ -f "fleximg/demo/web/image_transform.wasm" ]; then
-            echo "✓ image_transform.wasm found"
-            echo "  Size: $(ls -lh fleximg/demo/web/image_transform.wasm | awk '{print $5}')"
+          if [ -f "fleximg/demo/web/fleximg.wasm" ]; then
+            echo "✓ fleximg.wasm found"
+            echo "  Size: $(ls -lh fleximg/demo/web/fleximg.wasm | awk '{print $5}')"
           else
-            echo "✗ image_transform.wasm NOT FOUND"
+            echo "✗ fleximg.wasm NOT FOUND"
             exit 1
           fi
 
-          if [ -f "fleximg/demo/web/image_transform.js" ]; then
-            echo "✓ image_transform.js found"
-            echo "  Size: $(ls -lh fleximg/demo/web/image_transform.js | awk '{print $5}')"
+          if [ -f "fleximg/demo/web/fleximg.js" ]; then
+            echo "✓ fleximg.js found"
+            echo "  Size: $(ls -lh fleximg/demo/web/fleximg.js | awk '{print $5}')"
           else
-            echo "✗ image_transform.js NOT FOUND"
+            echo "✗ fleximg.js NOT FOUND"
             exit 1
           fi
 
