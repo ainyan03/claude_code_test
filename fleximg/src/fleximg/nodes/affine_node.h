@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
+#include <cstring>
 #include <cmath>
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
 #include <chrono>
@@ -561,38 +562,105 @@ private:
     // - tx/ty を Q24.8 固定小数点で扱う
     // - 平行移動の逆変換計算時に小数部を反映
     //
+
+    // ----------------------------------------
+    // テンプレート版 DDA 転写ループ（最内ループのみ）
+    // ----------------------------------------
+    //
+    // BytesPerPixel: 1ピクセルあたりのバイト数
+    // ピクセル構造を意識せず、データサイズ単位で転写する。
+    //
+    template<size_t BytesPerPixel>
+    static void copyRowDDA(
+        uint8_t* dstRow,
+        const uint8_t* srcData,
+        int32_t srcStride,
+        int32_t srcX_fixed,
+        int32_t srcY_fixed,
+        int32_t fixedInvA,
+        int32_t fixedInvC,
+        int count
+    ) {
+        for (int i = 0; i < count; i++) {
+            uint32_t sx = static_cast<uint32_t>(srcX_fixed) >> INT_FIXED16_SHIFT;
+            uint32_t sy = static_cast<uint32_t>(srcY_fixed) >> INT_FIXED16_SHIFT;
+
+            const uint8_t* srcPixel = srcData + sy * srcStride + sx * BytesPerPixel;
+
+            // データサイズ単位で転写（ピクセル構造を意識しない）
+            if constexpr (BytesPerPixel == 8) {
+                // 32bitマイコンでも予測可能な動作にするため、32bit×2で転写
+                reinterpret_cast<uint32_t*>(dstRow)[0] =
+                    reinterpret_cast<const uint32_t*>(srcPixel)[0];
+                reinterpret_cast<uint32_t*>(dstRow)[1] =
+                    reinterpret_cast<const uint32_t*>(srcPixel)[1];
+            } else if constexpr (BytesPerPixel == 4) {
+                *reinterpret_cast<uint32_t*>(dstRow) =
+                    *reinterpret_cast<const uint32_t*>(srcPixel);
+            } else if constexpr (BytesPerPixel == 2) {
+                *reinterpret_cast<uint16_t*>(dstRow) =
+                    *reinterpret_cast<const uint16_t*>(srcPixel);
+            } else if constexpr (BytesPerPixel == 1) {
+                *dstRow = *srcPixel;
+            } else {
+                std::memcpy(dstRow, srcPixel, BytesPerPixel);
+            }
+
+            dstRow += BytesPerPixel;
+            srcX_fixed += fixedInvA;
+            srcY_fixed += fixedInvC;
+        }
+    }
+
+    // 関数ポインタ型（DDA転写ループ用）
+    using CopyRowFunc = void(*)(
+        uint8_t* dstRow,
+        const uint8_t* srcData,
+        int32_t srcStride,
+        int32_t srcX_fixed,
+        int32_t srcY_fixed,
+        int32_t fixedInvA,
+        int32_t fixedInvC,
+        int count
+    );
+
+    // ----------------------------------------
+    // applyAffine: 事前準備 + DDA ループ
+    // ----------------------------------------
     void applyAffine(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
                      const ViewPort& src, int_fixed8 srcOriginX, int_fixed8 srcOriginY) {
         if (!dst.isValid() || !src.isValid()) return;
         if (!invMatrix_.valid) return;
 
-        int outW = dst.width;
-        int outH = dst.height;
+        const int outW = dst.width;
+        const int outH = dst.height;
+
+        // BytesPerPixel に応じて関数ポインタを選択（ループ外で1回だけ分岐）
+        CopyRowFunc copyRow = nullptr;
+        switch (getBytesPerPixel(src.formatID)) {
+            case 8: copyRow = &copyRowDDA<8>; break;
+            case 4: copyRow = &copyRowDDA<4>; break;
+            case 3: copyRow = &copyRowDDA<3>; break;
+            case 2: copyRow = &copyRowDDA<2>; break;
+            case 1: copyRow = &copyRowDDA<1>; break;
+            default: return;
+        }
 
         // 固定小数点逆行列の回転/スケール成分
-        int32_t fixedInvA = invMatrix_.a;
-        int32_t fixedInvB = invMatrix_.b;
-        int32_t fixedInvC = invMatrix_.c;
-        int32_t fixedInvD = invMatrix_.d;
+        const int32_t fixedInvA = invMatrix_.a;
+        const int32_t fixedInvB = invMatrix_.b;
+        const int32_t fixedInvC = invMatrix_.c;
+        const int32_t fixedInvD = invMatrix_.d;
 
         // 原点座標を整数化（固定小数点から変換）
-        int32_t dstOriginXInt = from_fixed8(dstOriginX);
-        int32_t dstOriginYInt = from_fixed8(dstOriginY);
-        int32_t srcOriginXInt = from_fixed8(srcOriginX);
-        int32_t srcOriginYInt = from_fixed8(srcOriginY);
+        const int32_t dstOriginXInt = from_fixed8(dstOriginX);
+        const int32_t dstOriginYInt = from_fixed8(dstOriginY);
+        const int32_t srcOriginXInt = from_fixed8(srcOriginX);
+        const int32_t srcOriginYInt = from_fixed8(srcOriginY);
 
         // ================================================================
         // 逆変換オフセットの計算（tx/ty 固定小数点版）
         // ================================================================
-        //
-        // 逆変換の数式: srcPos = R^(-1) * dstPos + invT
-        //   invT = -R^(-1) * T = -(invA*tx + invB*ty, invC*tx + invD*ty)
-        //
-        // tx/ty は Q(32-S8).S8、invA 等は Q(32-S16).S16
-        // → 積は Q(64-S8-S16).(S8+S16)、これを Q(32-S16).S16 に変換するため >> S8
-        //
-
-        // 平行移動の逆変換
         int64_t invTx64 = -(static_cast<int64_t>(txFixed8_) * fixedInvA
                           + static_cast<int64_t>(tyFixed8_) * fixedInvB);
         int64_t invTy64 = -(static_cast<int64_t>(txFixed8_) * fixedInvC
@@ -601,103 +669,45 @@ private:
         int32_t invTyFixed = static_cast<int32_t>(invTy64 >> INT_FIXED8_SHIFT);
 
         // DDA用オフセット: 逆変換 + 整数キャンセル + srcOrigin
-        int32_t fixedInvTx = invTxFixed
+        const int32_t fixedInvTx = invTxFixed
                             - (dstOriginXInt * fixedInvA)
                             - (dstOriginYInt * fixedInvB)
                             + (srcOriginXInt << INT_FIXED16_SHIFT);
-        int32_t fixedInvTy = invTyFixed
+        const int32_t fixedInvTy = invTyFixed
                             - (dstOriginXInt * fixedInvC)
                             - (dstOriginYInt * fixedInvD)
                             + (srcOriginYInt << INT_FIXED16_SHIFT);
 
-        // ピクセルスキャン（DDAアルゴリズム）
-        size_t srcBpp = getBytesPerPixel(src.formatID);
-        const int inputStride16 = src.stride / sizeof(uint16_t);
+        // DDA オフセット（ピクセル中心補正）
         const int32_t rowOffsetX = fixedInvB >> 1;
         const int32_t rowOffsetY = fixedInvD >> 1;
         const int32_t dxOffsetX = fixedInvA >> 1;
         const int32_t dxOffsetY = fixedInvC >> 1;
 
-        // 16bit RGBA用
-        if (srcBpp == 8) {
-            for (int dy = 0; dy < outH; dy++) {
-                int32_t rowBaseX = fixedInvB * dy + fixedInvTx + rowOffsetX;
-                int32_t rowBaseY = fixedInvD * dy + fixedInvTy + rowOffsetY;
+        // バイト単位の stride
+        const int32_t srcStride = src.stride;
+        const uint8_t* srcData = static_cast<const uint8_t*>(src.data);
 
-                auto [xStart, xEnd] = transform::calcValidRange(fixedInvA, rowBaseX, src.width, outW);
-                auto [yStart, yEnd] = transform::calcValidRange(fixedInvC, rowBaseY, src.height, outW);
-                int dxStart = std::max({0, xStart, yStart});
-                int dxEnd = std::min({outW - 1, xEnd, yEnd});
+        // Y ループ（関数ポインタ呼び出し、分岐なし）
+        for (int dy = 0; dy < outH; dy++) {
+            int32_t rowBaseX = fixedInvB * dy + fixedInvTx + rowOffsetX;
+            int32_t rowBaseY = fixedInvD * dy + fixedInvTy + rowOffsetY;
 
-                if (dxStart > dxEnd) continue;
+            auto [xStart, xEnd] = transform::calcValidRange(fixedInvA, rowBaseX, src.width, outW);
+            auto [yStart, yEnd] = transform::calcValidRange(fixedInvC, rowBaseY, src.height, outW);
+            int dxStart = std::max({0, xStart, yStart});
+            int dxEnd = std::min({outW - 1, xEnd, yEnd});
 
-                int32_t srcX_fixed = fixedInvA * dxStart + rowBaseX + dxOffsetX;
-                int32_t srcY_fixed = fixedInvC * dxStart + rowBaseY + dxOffsetY;
+            if (dxStart > dxEnd) continue;
 
-                uint16_t* dstRow = static_cast<uint16_t*>(dst.pixelAt(dxStart, dy));
-                const uint16_t* srcData = static_cast<const uint16_t*>(src.data);
+            int32_t srcX_fixed = fixedInvA * dxStart + rowBaseX + dxOffsetX;
+            int32_t srcY_fixed = fixedInvC * dxStart + rowBaseY + dxOffsetY;
+            int count = dxEnd - dxStart + 1;
 
-                for (int dx = dxStart; dx <= dxEnd; dx++) {
-                    uint32_t sx = static_cast<uint32_t>(srcX_fixed) >> INT_FIXED16_SHIFT;
-                    uint32_t sy = static_cast<uint32_t>(srcY_fixed) >> INT_FIXED16_SHIFT;
+            uint8_t* dstRow = static_cast<uint8_t*>(dst.pixelAt(dxStart, dy));
 
-#ifdef FLEXIMG_DEBUG
-                    // calcValidRange が正しければ範囲内のはず
-                    assert(sx < static_cast<uint32_t>(src.width) && "calcValidRange mismatch: sx out of range");
-                    assert(sy < static_cast<uint32_t>(src.height) && "calcValidRange mismatch: sy out of range");
-#endif
-                    const uint16_t* srcPixel = srcData + sy * inputStride16 + sx * 4;
-                    dstRow[0] = srcPixel[0];
-                    dstRow[1] = srcPixel[1];
-                    dstRow[2] = srcPixel[2];
-                    dstRow[3] = srcPixel[3];
-
-                    dstRow += 4;
-                    srcX_fixed += fixedInvA;
-                    srcY_fixed += fixedInvC;
-                }
-            }
-        }
-        // 8bit RGBA用
-        else if (srcBpp == 4) {
-            for (int dy = 0; dy < outH; dy++) {
-                int32_t rowBaseX = fixedInvB * dy + fixedInvTx + rowOffsetX;
-                int32_t rowBaseY = fixedInvD * dy + fixedInvTy + rowOffsetY;
-
-                auto [xStart, xEnd] = transform::calcValidRange(fixedInvA, rowBaseX, src.width, outW);
-                auto [yStart, yEnd] = transform::calcValidRange(fixedInvC, rowBaseY, src.height, outW);
-                int dxStart = std::max({0, xStart, yStart});
-                int dxEnd = std::min({outW - 1, xEnd, yEnd});
-
-                if (dxStart > dxEnd) continue;
-
-                int32_t srcX_fixed = fixedInvA * dxStart + rowBaseX + dxOffsetX;
-                int32_t srcY_fixed = fixedInvC * dxStart + rowBaseY + dxOffsetY;
-
-                uint8_t* dstRow = static_cast<uint8_t*>(dst.pixelAt(dxStart, dy));
-                const uint8_t* srcData = static_cast<const uint8_t*>(src.data);
-                const int stride8 = src.stride;
-
-                for (int dx = dxStart; dx <= dxEnd; dx++) {
-                    uint32_t sx = static_cast<uint32_t>(srcX_fixed) >> INT_FIXED16_SHIFT;
-                    uint32_t sy = static_cast<uint32_t>(srcY_fixed) >> INT_FIXED16_SHIFT;
-
-#ifdef FLEXIMG_DEBUG
-                    // calcValidRange が正しければ範囲内のはず
-                    assert(sx < static_cast<uint32_t>(src.width) && "calcValidRange mismatch: sx out of range");
-                    assert(sy < static_cast<uint32_t>(src.height) && "calcValidRange mismatch: sy out of range");
-#endif
-                    const uint8_t* srcPixel = srcData + sy * stride8 + sx * 4;
-                    dstRow[0] = srcPixel[0];
-                    dstRow[1] = srcPixel[1];
-                    dstRow[2] = srcPixel[2];
-                    dstRow[3] = srcPixel[3];
-
-                    dstRow += 4;
-                    srcX_fixed += fixedInvA;
-                    srcY_fixed += fixedInvC;
-                }
-            }
+            copyRow(dstRow, srcData, srcStride,
+                    srcX_fixed, srcY_fixed, fixedInvA, fixedInvC, count);
         }
     }
 };
