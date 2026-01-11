@@ -8,6 +8,7 @@
 #include "../perf_metrics.h"
 #include <algorithm>
 #include <cassert>
+#include <climits>
 #include <cstdint>
 #include <cstring>
 #include <cmath>
@@ -61,6 +62,25 @@ struct InputRegion {
     float currentEfficiency() const {
         return aabbPixels > 0 ? static_cast<float>(parallelogramPixels) / aabbPixels : 1.0f;
     }
+};
+
+// ========================================================================
+// AffineResult - applyAffine の結果（実際に書き込んだ範囲）
+// ========================================================================
+//
+// DDA ループ内で追跡した有効ピクセル範囲を返す。
+// AABB フィット出力やタイル分割最適化に活用可能。
+//
+
+struct AffineResult {
+    int minX = INT_MAX;
+    int maxX = INT_MIN;
+    int minY = INT_MAX;
+    int maxY = INT_MIN;
+
+    bool isEmpty() const { return minX > maxX || minY > maxY; }
+    int width() const { return isEmpty() ? 0 : maxX - minX + 1; }
+    int height() const { return isEmpty() ? 0 : maxY - minY + 1; }
 };
 
 class AffineNode : public Node {
@@ -210,6 +230,9 @@ private:
         ImageBuffer output;
         ViewPort outputView;
 
+        // 全分割の有効範囲を追跡
+        AffineResult totalResult;
+
         for (int i = 0; i < strategy.splitCount; ++i) {
             RenderRequest subReq;
 
@@ -269,8 +292,16 @@ private:
             }
 
             // 部分変換を実行（出力バッファに直接書き込み）
-            applyAffine(outputView, request.origin.x, request.origin.y,
+            AffineResult subResult = applyAffine(outputView, request.origin.x, request.origin.y,
                         subInput.view(), subInput.origin.x, subInput.origin.y);
+
+            // 全体の有効範囲を更新
+            if (!subResult.isEmpty()) {
+                if (subResult.minX < totalResult.minX) totalResult.minX = subResult.minX;
+                if (subResult.maxX > totalResult.maxX) totalResult.maxX = subResult.maxX;
+                if (subResult.minY < totalResult.minY) totalResult.minY = subResult.minY;
+                if (subResult.maxY > totalResult.maxY) totalResult.maxY = subResult.maxY;
+            }
         }
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
@@ -280,7 +311,36 @@ private:
         metrics.count++;
 #endif
 
-        return RenderResult(std::move(output), request.origin);
+        // 有効範囲が空なら空のバッファを返す（透明扱い）
+        if (totalResult.isEmpty()) {
+            return RenderResult(ImageBuffer(), request.origin);
+        }
+
+        // 有効範囲が全域と同じなら従来通り
+        if (totalResult.minX == 0 && totalResult.minY == 0 &&
+            totalResult.maxX == request.width - 1 && totalResult.maxY == request.height - 1) {
+            return RenderResult(std::move(output), request.origin);
+        }
+
+        // 有効範囲が小さい場合、トリミングして返す
+        ImageBuffer trimmed(totalResult.width(), totalResult.height(), output.formatID());
+        if (trimmed.isValid()) {
+            const int bpp = static_cast<int>(output.bytesPerPixel());
+            const int rowBytes = totalResult.width() * bpp;
+            for (int y = 0; y < totalResult.height(); ++y) {
+                std::memcpy(trimmed.pixelAt(0, y),
+                            output.pixelAt(totalResult.minX, totalResult.minY + y),
+                            rowBytes);
+            }
+        }
+
+        // origin 調整
+        Point newOrigin = {
+            request.origin.x - to_fixed8(totalResult.minX),
+            request.origin.y - to_fixed8(totalResult.minY)
+        };
+
+        return RenderResult(std::move(trimmed), newOrigin);
     }
 
 public:
@@ -452,8 +512,8 @@ public:
         ViewPort inputView = input.view();
 
         // アフィン変換を適用（tx/ty サブピクセル精度版）
-        applyAffine(outputView, request.origin.x, request.origin.y,
-                    inputView, input.origin.x, input.origin.y);
+        AffineResult ar = applyAffine(outputView, request.origin.x, request.origin.y,
+                                      inputView, input.origin.x, input.origin.y);
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         auto& metrics = PerfMetrics::instance().nodes[NodeType::Affine];
@@ -462,7 +522,36 @@ public:
         metrics.count++;
 #endif
 
-        return RenderResult(std::move(output), request.origin);
+        // 有効範囲が空なら空のバッファを返す（透明扱い）
+        if (ar.isEmpty()) {
+            return RenderResult(ImageBuffer(), request.origin);
+        }
+
+        // 有効範囲が全域と同じなら従来通り
+        if (ar.minX == 0 && ar.minY == 0 &&
+            ar.maxX == request.width - 1 && ar.maxY == request.height - 1) {
+            return RenderResult(std::move(output), request.origin);
+        }
+
+        // 有効範囲が小さい場合、トリミングして返す
+        ImageBuffer trimmed(ar.width(), ar.height(), output.formatID());
+        if (trimmed.isValid()) {
+            const int bpp = static_cast<int>(output.bytesPerPixel());
+            const int rowBytes = ar.width() * bpp;
+            for (int y = 0; y < ar.height(); ++y) {
+                std::memcpy(trimmed.pixelAt(0, y),
+                            output.pixelAt(ar.minX, ar.minY + y),
+                            rowBytes);
+            }
+        }
+
+        // origin 調整: 新バッファの (0,0) = 元の (ar.minX, ar.minY)
+        Point newOrigin = {
+            request.origin.x - to_fixed8(ar.minX),
+            request.origin.y - to_fixed8(ar.minY)
+        };
+
+        return RenderResult(std::move(trimmed), newOrigin);
     }
 
 protected:
@@ -774,10 +863,13 @@ private:
     // ----------------------------------------
     // applyAffine: 事前準備 + DDA ループ
     // ----------------------------------------
-    void applyAffine(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
+    // 返り値: 実際に書き込んだピクセル範囲
+    AffineResult applyAffine(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
                      const ViewPort& src, int_fixed8 srcOriginX, int_fixed8 srcOriginY) {
-        if (!dst.isValid() || !src.isValid()) return;
-        if (!invMatrix_.valid) return;
+        AffineResult result;
+
+        if (!dst.isValid() || !src.isValid()) return result;
+        if (!invMatrix_.valid) return result;
 
         const int outW = dst.width;
         const int outH = dst.height;
@@ -790,7 +882,7 @@ private:
             case 3: copyRow = &copyRowDDA<3>; break;
             case 2: copyRow = &copyRowDDA<2>; break;
             case 1: copyRow = &copyRowDDA<1>; break;
-            default: return;
+            default: return result;
         }
 
         // 固定小数点逆行列の回転/スケール成分
@@ -847,6 +939,12 @@ private:
 
             if (dxStart > dxEnd) continue;
 
+            // 有効範囲を追跡
+            if (dxStart < result.minX) result.minX = dxStart;
+            if (dxEnd > result.maxX) result.maxX = dxEnd;
+            if (dy < result.minY) result.minY = dy;
+            if (dy > result.maxY) result.maxY = dy;
+
             int32_t srcX_fixed = fixedInvA * dxStart + rowBaseX + dxOffsetX;
             int32_t srcY_fixed = fixedInvC * dxStart + rowBaseY + dxOffsetY;
             int count = dxEnd - dxStart + 1;
@@ -856,6 +954,8 @@ private:
             copyRow(dstRow, srcData, srcStride,
                     srcX_fixed, srcY_fixed, fixedInvA, fixedInvC, count);
         }
+
+        return result;
     }
 };
 

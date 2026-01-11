@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.25.0] - 2026-01-12
+
+### 追加
+
+- **AffineNode 出力フィット**: 有効ピクセル範囲のみを返すように最適化
+  - process() と pullProcessWithAABBSplit() で AffineResult を使用
+  - 有効範囲が全域より小さい場合、トリミングして返す
+  - 有効ピクセルがない場合は空のバッファを返す（透明扱い）
+  - 非アルファフォーマット（RGB565等）でアフィン変換時の背景黒問題を軽減
+
+### 技術詳細
+
+- AffineResult 構造体: applyAffine() の返り値で実際に書き込んだピクセル範囲を取得
+  - minX, maxX, minY, maxY: DDA ループで追跡した有効範囲
+  - isEmpty(), width(), height(): ヘルパーメソッド
+
+---
+
 ## [2.23.0] - 2026-01-12
 
 ### 修正
