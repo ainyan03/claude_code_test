@@ -65,6 +65,19 @@ public:
     // 直接変換関数を取得（なければnullptr）
     DirectConvertFunc getDirectConversion(PixelFormatID srcFormat, PixelFormatID dstFormat) const;
 
+    // ========================================
+    // フォーマット情報取得
+    // ========================================
+
+    // ピクセルあたりのバイト数を取得
+    size_t getBytesPerPixel(PixelFormatID formatID) const {
+        const PixelFormatDescriptor* desc = getFormat(formatID);
+        if (desc) {
+            return (desc->bitsPerPixel + 7) / 8;
+        }
+        return 4;  // フォールバック
+    }
+
 private:
     PixelFormatRegistry();
     ~PixelFormatRegistry() = default;
@@ -85,6 +98,15 @@ private:
     // 変換用の一時バッファ（標準フォーマット経由の変換に使用）
     mutable std::vector<uint8_t> conversionBuffer_;
 };
+
+// ========================================================================
+// グローバル関数（後方互換）
+// ========================================================================
+
+// ピクセルあたりのバイト数を取得
+inline size_t getBytesPerPixel(PixelFormatID formatID) {
+    return PixelFormatRegistry::getInstance().getBytesPerPixel(formatID);
+}
 
 } // namespace FLEXIMG_NAMESPACE
 

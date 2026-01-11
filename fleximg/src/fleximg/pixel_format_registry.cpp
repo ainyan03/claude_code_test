@@ -115,6 +115,145 @@ static void directConvert_rgba8StraightToRgba16Premul(const void* src, void* dst
 }
 
 // ========================================================================
+// RGB565_LE: 16bit RGB (Little Endian)
+// ========================================================================
+
+static void rgb565le_toStandard(const void* src, uint8_t* dst, int pixelCount) {
+    const uint16_t* s = static_cast<const uint16_t*>(src);
+    for (int i = 0; i < pixelCount; i++) {
+        uint16_t pixel = s[i];
+        uint8_t r5 = (pixel >> 11) & 0x1F;
+        uint8_t g6 = (pixel >> 5) & 0x3F;
+        uint8_t b5 = pixel & 0x1F;
+
+        // ビット拡張（5bit/6bit → 8bit）
+        dst[i*4 + 0] = (r5 << 3) | (r5 >> 2);
+        dst[i*4 + 1] = (g6 << 2) | (g6 >> 4);
+        dst[i*4 + 2] = (b5 << 3) | (b5 >> 2);
+        dst[i*4 + 3] = 255;
+    }
+}
+
+static void rgb565le_fromStandard(const uint8_t* src, void* dst, int pixelCount) {
+    uint16_t* d = static_cast<uint16_t*>(dst);
+    for (int i = 0; i < pixelCount; i++) {
+        uint8_t r = src[i*4 + 0];
+        uint8_t g = src[i*4 + 1];
+        uint8_t b = src[i*4 + 2];
+        d[i] = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
+    }
+}
+
+// ========================================================================
+// RGB565_BE: 16bit RGB (Big Endian)
+// ========================================================================
+
+static void rgb565be_toStandard(const void* src, uint8_t* dst, int pixelCount) {
+    const uint8_t* s = static_cast<const uint8_t*>(src);
+    for (int i = 0; i < pixelCount; i++) {
+        // ビッグエンディアン: 上位バイトが先
+        uint16_t pixel = (static_cast<uint16_t>(s[i*2]) << 8) | s[i*2 + 1];
+        uint8_t r5 = (pixel >> 11) & 0x1F;
+        uint8_t g6 = (pixel >> 5) & 0x3F;
+        uint8_t b5 = pixel & 0x1F;
+
+        dst[i*4 + 0] = (r5 << 3) | (r5 >> 2);
+        dst[i*4 + 1] = (g6 << 2) | (g6 >> 4);
+        dst[i*4 + 2] = (b5 << 3) | (b5 >> 2);
+        dst[i*4 + 3] = 255;
+    }
+}
+
+static void rgb565be_fromStandard(const uint8_t* src, void* dst, int pixelCount) {
+    uint8_t* d = static_cast<uint8_t*>(dst);
+    for (int i = 0; i < pixelCount; i++) {
+        uint8_t r = src[i*4 + 0];
+        uint8_t g = src[i*4 + 1];
+        uint8_t b = src[i*4 + 2];
+        uint16_t pixel = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
+        // ビッグエンディアン: 上位バイトを先に
+        d[i*2] = pixel >> 8;
+        d[i*2 + 1] = pixel & 0xFF;
+    }
+}
+
+// ========================================================================
+// RGB332: 8bit RGB (3-3-2)
+// ========================================================================
+
+static void rgb332_toStandard(const void* src, uint8_t* dst, int pixelCount) {
+    const uint8_t* s = static_cast<const uint8_t*>(src);
+    for (int i = 0; i < pixelCount; i++) {
+        uint8_t pixel = s[i];
+        uint8_t r3 = (pixel >> 5) & 0x07;
+        uint8_t g3 = (pixel >> 2) & 0x07;
+        uint8_t b2 = pixel & 0x03;
+
+        // 乗算＋少量シフト（マイコン最適化）
+        dst[i*4 + 0] = (r3 * 0x49) >> 1;  // 3bit → 8bit
+        dst[i*4 + 1] = (g3 * 0x49) >> 1;  // 3bit → 8bit
+        dst[i*4 + 2] = b2 * 0x55;          // 2bit → 8bit
+        dst[i*4 + 3] = 255;
+    }
+}
+
+static void rgb332_fromStandard(const uint8_t* src, void* dst, int pixelCount) {
+    uint8_t* d = static_cast<uint8_t*>(dst);
+    for (int i = 0; i < pixelCount; i++) {
+        uint8_t r = src[i*4 + 0];
+        uint8_t g = src[i*4 + 1];
+        uint8_t b = src[i*4 + 2];
+        d[i] = (r & 0xE0) | ((g >> 5) << 2) | (b >> 6);
+    }
+}
+
+// ========================================================================
+// RGB888: 24bit RGB (mem[0]=R, mem[1]=G, mem[2]=B)
+// ========================================================================
+
+static void rgb888_toStandard(const void* src, uint8_t* dst, int pixelCount) {
+    const uint8_t* s = static_cast<const uint8_t*>(src);
+    for (int i = 0; i < pixelCount; i++) {
+        dst[i*4 + 0] = s[i*3 + 0];  // R
+        dst[i*4 + 1] = s[i*3 + 1];  // G
+        dst[i*4 + 2] = s[i*3 + 2];  // B
+        dst[i*4 + 3] = 255;          // A
+    }
+}
+
+static void rgb888_fromStandard(const uint8_t* src, void* dst, int pixelCount) {
+    uint8_t* d = static_cast<uint8_t*>(dst);
+    for (int i = 0; i < pixelCount; i++) {
+        d[i*3 + 0] = src[i*4 + 0];  // R
+        d[i*3 + 1] = src[i*4 + 1];  // G
+        d[i*3 + 2] = src[i*4 + 2];  // B
+    }
+}
+
+// ========================================================================
+// BGR888: 24bit BGR (mem[0]=B, mem[1]=G, mem[2]=R)
+// ========================================================================
+
+static void bgr888_toStandard(const void* src, uint8_t* dst, int pixelCount) {
+    const uint8_t* s = static_cast<const uint8_t*>(src);
+    for (int i = 0; i < pixelCount; i++) {
+        dst[i*4 + 0] = s[i*3 + 2];  // R (src の B 位置)
+        dst[i*4 + 1] = s[i*3 + 1];  // G
+        dst[i*4 + 2] = s[i*3 + 0];  // B (src の R 位置)
+        dst[i*4 + 3] = 255;
+    }
+}
+
+static void bgr888_fromStandard(const uint8_t* src, void* dst, int pixelCount) {
+    uint8_t* d = static_cast<uint8_t*>(dst);
+    for (int i = 0; i < pixelCount; i++) {
+        d[i*3 + 0] = src[i*4 + 2];  // B
+        d[i*3 + 1] = src[i*4 + 1];  // G
+        d[i*3 + 2] = src[i*4 + 0];  // R
+    }
+}
+
+// ========================================================================
 // 組み込みフォーマット定義
 // ========================================================================
 
@@ -164,8 +303,118 @@ static PixelFormatDescriptor createRGBA8_Straight() {
     return desc;
 }
 
+static PixelFormatDescriptor createRGB565_LE() {
+    PixelFormatDescriptor desc;
+    desc.id = PixelFormatIDs::RGB565_LE;
+    desc.name = "RGB565_LE";
+    desc.bitsPerPixel = 16;
+    desc.pixelsPerUnit = 1;
+    desc.bytesPerUnit = 2;
+    desc.channels[0] = ChannelDescriptor(5, 11);  // R
+    desc.channels[1] = ChannelDescriptor(6, 5);   // G
+    desc.channels[2] = ChannelDescriptor(5, 0);   // B
+    desc.hasAlpha = false;
+    desc.isPremultiplied = false;
+    desc.isIndexed = false;
+    desc.maxPaletteSize = 0;
+    desc.bitOrder = BitOrder::MSBFirst;
+    desc.byteOrder = ByteOrder::LittleEndian;
+    desc.toStandard = rgb565le_toStandard;
+    desc.fromStandard = rgb565le_fromStandard;
+    return desc;
+}
+
+static PixelFormatDescriptor createRGB565_BE() {
+    PixelFormatDescriptor desc;
+    desc.id = PixelFormatIDs::RGB565_BE;
+    desc.name = "RGB565_BE";
+    desc.bitsPerPixel = 16;
+    desc.pixelsPerUnit = 1;
+    desc.bytesPerUnit = 2;
+    desc.channels[0] = ChannelDescriptor(5, 11);  // R
+    desc.channels[1] = ChannelDescriptor(6, 5);   // G
+    desc.channels[2] = ChannelDescriptor(5, 0);   // B
+    desc.hasAlpha = false;
+    desc.isPremultiplied = false;
+    desc.isIndexed = false;
+    desc.maxPaletteSize = 0;
+    desc.bitOrder = BitOrder::MSBFirst;
+    desc.byteOrder = ByteOrder::BigEndian;
+    desc.toStandard = rgb565be_toStandard;
+    desc.fromStandard = rgb565be_fromStandard;
+    return desc;
+}
+
+static PixelFormatDescriptor createRGB332() {
+    PixelFormatDescriptor desc;
+    desc.id = PixelFormatIDs::RGB332;
+    desc.name = "RGB332";
+    desc.bitsPerPixel = 8;
+    desc.pixelsPerUnit = 1;
+    desc.bytesPerUnit = 1;
+    desc.channels[0] = ChannelDescriptor(3, 5);   // R
+    desc.channels[1] = ChannelDescriptor(3, 2);   // G
+    desc.channels[2] = ChannelDescriptor(2, 0);   // B
+    desc.hasAlpha = false;
+    desc.isPremultiplied = false;
+    desc.isIndexed = false;
+    desc.maxPaletteSize = 0;
+    desc.bitOrder = BitOrder::MSBFirst;
+    desc.byteOrder = ByteOrder::Native;
+    desc.toStandard = rgb332_toStandard;
+    desc.fromStandard = rgb332_fromStandard;
+    return desc;
+}
+
+static PixelFormatDescriptor createRGB888() {
+    PixelFormatDescriptor desc;
+    desc.id = PixelFormatIDs::RGB888;
+    desc.name = "RGB888";
+    desc.bitsPerPixel = 24;
+    desc.pixelsPerUnit = 1;
+    desc.bytesPerUnit = 3;
+    desc.channels[0] = ChannelDescriptor(8, 16);  // R
+    desc.channels[1] = ChannelDescriptor(8, 8);   // G
+    desc.channels[2] = ChannelDescriptor(8, 0);   // B
+    desc.hasAlpha = false;
+    desc.isPremultiplied = false;
+    desc.isIndexed = false;
+    desc.maxPaletteSize = 0;
+    desc.bitOrder = BitOrder::MSBFirst;
+    desc.byteOrder = ByteOrder::Native;
+    desc.toStandard = rgb888_toStandard;
+    desc.fromStandard = rgb888_fromStandard;
+    return desc;
+}
+
+static PixelFormatDescriptor createBGR888() {
+    PixelFormatDescriptor desc;
+    desc.id = PixelFormatIDs::BGR888;
+    desc.name = "BGR888";
+    desc.bitsPerPixel = 24;
+    desc.pixelsPerUnit = 1;
+    desc.bytesPerUnit = 3;
+    desc.channels[0] = ChannelDescriptor(8, 0);   // R (at offset 2)
+    desc.channels[1] = ChannelDescriptor(8, 8);   // G (at offset 1)
+    desc.channels[2] = ChannelDescriptor(8, 16);  // B (at offset 0)
+    desc.hasAlpha = false;
+    desc.isPremultiplied = false;
+    desc.isIndexed = false;
+    desc.maxPaletteSize = 0;
+    desc.bitOrder = BitOrder::MSBFirst;
+    desc.byteOrder = ByteOrder::Native;
+    desc.toStandard = bgr888_toStandard;
+    desc.fromStandard = bgr888_fromStandard;
+    return desc;
+}
+
 static const PixelFormatDescriptor RGBA16_Premultiplied = createRGBA16_Premultiplied();
 static const PixelFormatDescriptor RGBA8_Straight = createRGBA8_Straight();
+static const PixelFormatDescriptor RGB565_LE = createRGB565_LE();
+static const PixelFormatDescriptor RGB565_BE = createRGB565_BE();
+static const PixelFormatDescriptor RGB332 = createRGB332();
+static const PixelFormatDescriptor RGB888 = createRGB888();
+static const PixelFormatDescriptor BGR888 = createBGR888();
 
 } // namespace BuiltinFormats
 
@@ -179,6 +428,11 @@ PixelFormatRegistry::PixelFormatRegistry()
     // 組み込みフォーマットを登録
     formats_[PixelFormatIDs::RGBA16_Premultiplied] = BuiltinFormats::RGBA16_Premultiplied;
     formats_[PixelFormatIDs::RGBA8_Straight] = BuiltinFormats::RGBA8_Straight;
+    formats_[PixelFormatIDs::RGB565_LE] = BuiltinFormats::RGB565_LE;
+    formats_[PixelFormatIDs::RGB565_BE] = BuiltinFormats::RGB565_BE;
+    formats_[PixelFormatIDs::RGB332] = BuiltinFormats::RGB332;
+    formats_[PixelFormatIDs::RGB888] = BuiltinFormats::RGB888;
+    formats_[PixelFormatIDs::BGR888] = BuiltinFormats::BGR888;
 
     // 頻出パターンの直接変換を登録
     registerDirectConversion(
