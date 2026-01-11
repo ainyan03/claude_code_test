@@ -103,10 +103,13 @@ public:
         }
 
         // 交差領域のサブビューを参照モードで返す（コピーなし）
-        int srcX = from_fixed8(interLeft - imgLeft);
-        int srcY = from_fixed8(interTop - imgTop);
-        int interW = from_fixed8(interRight - interLeft);
-        int interH = from_fixed8(interBottom - interTop);
+        // 開始位置は floor、終端位置は ceil で計算（タイル境界でのピクセル欠落を防ぐ）
+        int srcX = from_fixed8_floor(interLeft - imgLeft);
+        int srcY = from_fixed8_floor(interTop - imgTop);
+        int srcEndX = from_fixed8_ceil(interRight - imgLeft);
+        int srcEndY = from_fixed8_ceil(interBottom - imgTop);
+        int interW = srcEndX - srcX;
+        int interH = srcEndY - srcY;
 
         // サブビューの参照モードImageBufferを作成（メモリ確保なし）
         ImageBuffer result(view_ops::subView(source_, srcX, srcY, interW, interH));
