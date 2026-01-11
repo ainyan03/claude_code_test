@@ -5,6 +5,8 @@
 #include "common.h"
 #include "port.h"
 #include "render_types.h"
+#include "image_buffer.h"
+#include "perf_metrics.h"
 
 namespace FLEXIMG_NAMESPACE {
 
@@ -244,6 +246,13 @@ public:
     virtual const char* name() const { return "Node"; }
 
     // ========================================
+    // メトリクス用ノードタイプ
+    // ========================================
+
+    // 派生クラスでオーバーライドしてNodeType::Xxxを返す
+    virtual int nodeTypeForMetrics() const { return 0; }
+
+    // ========================================
     // ノードアクセス
     // ========================================
 
@@ -270,6 +279,27 @@ protected:
     // 循環参照検出用状態
     PrepareState pullPrepareState_ = PrepareState::Idle;
     PrepareState pushPrepareState_ = PrepareState::Idle;
+
+    // ========================================
+    // ヘルパーメソッド
+    // ========================================
+
+    // フォーマット変換ヘルパー（メトリクス記録付き）
+    // 参照モードから所有モードに変わった場合、ノード別統計に記録
+    ImageBuffer convertFormat(ImageBuffer&& buffer, PixelFormatID target,
+                              FormatConversion mode = FormatConversion::CopyIfNeeded) {
+        bool wasOwning = buffer.ownsMemory();
+        ImageBuffer result = std::move(buffer).toFormat(target, mode);
+
+        // 参照→所有モードへの変換時にメトリクス記録
+        if (!wasOwning && result.ownsMemory()) {
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+            PerfMetrics::instance().nodes[nodeTypeForMetrics()].recordAlloc(
+                result.totalBytes(), result.width(), result.height());
+#endif
+        }
+        return result;
+    }
 
     // 派生クラス用：ポート初期化
     void initPorts(int inputCount, int outputCount) {

@@ -48,22 +48,12 @@ protected:
         auto start = std::chrono::high_resolution_clock::now();
 #endif
 
-        // 入力をRGBA8_Straightに変換（同じフォーマットならムーブ）
-        ImageBuffer working = std::move(input.buffer).toFormat(PixelFormatIDs::RGBA8_Straight);
+        // 入力をRGBA8_Straightに変換（メトリクス記録付き）
+        ImageBuffer working = convertFormat(std::move(input.buffer), PixelFormatIDs::RGBA8_Straight);
         ViewPort workingView = working.view();
 
-        // 出力バッファ作成（全ピクセル上書きするため初期化スキップ）
-        ImageBuffer output(working.width(), working.height(), PixelFormatIDs::RGBA8_Straight,
-                           InitPolicy::Uninitialized);
-        ViewPort outputView = output.view();
-
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        PerfMetrics::instance().nodes[NodeType::Alpha].recordAlloc(
-            output.totalBytes(), output.width(), output.height());
-#endif
-
-        // フィルタ適用
-        filters::alpha(outputView, workingView, scale_);
+        // インプレース編集（dst==src）
+        filters::alpha(workingView, workingView, scale_);
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         auto& metrics = PerfMetrics::instance().nodes[NodeType::Alpha];
@@ -72,7 +62,7 @@ protected:
         metrics.count++;
 #endif
 
-        return RenderResult(std::move(output), input.origin);
+        return RenderResult(std::move(working), input.origin);
     }
 
 private:

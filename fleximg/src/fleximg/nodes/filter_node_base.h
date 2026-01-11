@@ -78,7 +78,7 @@ protected:
     virtual int computeInputMargin() const { return 0; }
 
     /// メトリクス用ノードタイプ（派生クラスで実装）
-    virtual int nodeTypeForMetrics() const = 0;
+    int nodeTypeForMetrics() const override = 0;
 
     // ========================================
     // process() は派生クラスでオーバーライド

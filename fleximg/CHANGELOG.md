@@ -1,5 +1,42 @@
 # Changelog
 
+## [2.16.0] - 2026-01-11
+
+### 追加
+
+- **ImageBuffer 参照モード**: メモリを所有しない軽量な参照
+  - `explicit ImageBuffer(ViewPort view)`: 外部ViewPortを参照するコンストラクタ
+  - `ownsMemory()`: メモリ所有の有無を判定
+  - `subBuffer(x, y, w, h)`: サブビューを持つ参照モードImageBufferを作成
+
+- **FormatConversion enum**: toFormat()の変換モード
+  - `CopyIfNeeded`: 参照モードならコピー作成（デフォルト、編集用）
+  - `PreferReference`: フォーマット一致なら参照のまま返す（読み取り専用用）
+
+- **Node::convertFormat()**: フォーマット変換ヘルパー（メトリクス記録付き）
+  - 参照→所有モード変換時にノード別統計へ自動記録
+  - 各ノードのprocess()がすっきり、#ifdef分岐を集約
+
+- **Node::nodeTypeForMetrics()**: メトリクス用ノードタイプ（仮想メソッド）
+
+### 変更
+
+- **toFormat()**: FormatConversion引数を追加
+  - 参照モード + CopyIfNeeded: コピー作成して所有モードに
+  - 参照モード + PreferReference: 参照のまま返す
+
+- **コピーコンストラクタ/代入**: 参照モードからもディープコピー（所有モードになる）
+
+- **SourceNode**: サブビューの参照モードで返すように変更
+  - データコピーを削減（下流で編集が必要になるまで遅延）
+
+- **フィルタノードのインプレース編集対応**:
+  - BrightnessNode, GrayscaleNode, AlphaNode: `convertFormat()` + インプレース編集
+  - BoxBlurNode: `convertFormat(..., PreferReference)` で読み取り専用参照
+  - 上流でコピー作成、下流は追加確保なしでインプレース編集
+
+---
+
 ## [2.15.0] - 2026-01-11
 
 ### 追加

@@ -47,8 +47,10 @@ protected:
         auto start = std::chrono::high_resolution_clock::now();
 #endif
 
-        // 入力をRGBA8_Straightに変換（同じフォーマットならムーブ）
-        ImageBuffer working = std::move(input.buffer).toFormat(PixelFormatIDs::RGBA8_Straight);
+        // 入力をRGBA8_Straightに変換（読み取り専用なので参照優先）
+        ImageBuffer working = convertFormat(std::move(input.buffer),
+                                            PixelFormatIDs::RGBA8_Straight,
+                                            FormatConversion::PreferReference);
         ViewPort workingView = working.view();
 
         // 出力バッファ作成（全ピクセル上書きするため初期化スキップ）
