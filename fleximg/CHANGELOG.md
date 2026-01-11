@@ -1,5 +1,32 @@
 # Changelog
 
+## [2.21.0] - 2026-01-11
+
+### 追加
+
+- **多ピクセルフォーマット対応 Phase 1-3**: 組み込み向けフォーマットの基盤整備
+  - RGB565_LE/BE: 16bit RGB（リトル/ビッグエンディアン）
+  - RGB332: 8bit RGB（3-3-2）
+  - RGB888/BGR888: 24bit RGB（メモリレイアウト順）
+  - `storeImageWithFormat()`: バインディング層でのフォーマット変換API
+  - WebUI: 画像ノード詳細パネルにフォーマット選択UI追加
+
+### 変更
+
+- `getBytesPerPixel()` を `pixel_format_registry.h` に移動
+  - PixelFormatDescriptor を参照する実装に変更
+  - 全フォーマットに対応（旧実装はRGBA8/RGBA16のみ）
+
+### 技術的詳細
+
+- ビット拡張パターン（除算なし、マイコン最適化）
+  - 2bit→8bit: `v * 0x55`
+  - 3bit→8bit: `(v * 0x49) >> 1`
+  - 5bit→8bit: `(v << 3) | (v >> 2)`
+  - 6bit→8bit: `(v << 2) | (v >> 4)`
+
+---
+
 ## [2.20.0] - 2026-01-11
 
 ### 改善

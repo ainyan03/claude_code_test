@@ -122,17 +122,41 @@ public:
         debugCheckerboard_ = enabled;
     }
 
-    // 画像を登録（データをコピー）
+    // 画像を登録（データをコピー、フォーマット指定なし = RGBA8）
     void storeImage(int id, const val& imageData, int width, int height) {
-        unsigned int length = imageData["length"].as<unsigned int>();
-        std::vector<uint8_t> tempData(length);
+        storeImageWithFormat(id, imageData, width, height,
+                             static_cast<int>(PixelFormatIDs::RGBA8_Straight));
+    }
 
+    // 画像を登録（フォーマット指定あり）
+    void storeImageWithFormat(int id, const val& imageData, int width, int height, int formatId) {
+        PixelFormatID targetFormat = static_cast<PixelFormatID>(formatId);
+
+        // JS から RGBA8 データを受け取り
+        unsigned int length = imageData["length"].as<unsigned int>();
+        std::vector<uint8_t> rgba8Data(length);
         for (unsigned int i = 0; i < length; i++) {
-            tempData[i] = imageData[i].as<uint8_t>();
+            rgba8Data[i] = imageData[i].as<uint8_t>();
         }
 
-        imageViews_[id] = imageStore_.store(id, tempData.data(), width, height,
-                                            PixelFormatIDs::RGBA8_Straight);
+        // フォーマット変換（バインディング層の責務）
+        if (targetFormat == PixelFormatIDs::RGBA8_Straight) {
+            // 変換不要
+            imageViews_[id] = imageStore_.store(id, rgba8Data.data(), width, height, targetFormat);
+        } else {
+            // PixelFormatRegistry を使用して変換
+            auto& registry = PixelFormatRegistry::getInstance();
+            size_t targetBpp = registry.getBytesPerPixel(targetFormat);
+            std::vector<uint8_t> converted(width * height * targetBpp);
+
+            registry.convert(
+                rgba8Data.data(), PixelFormatIDs::RGBA8_Straight,
+                converted.data(), targetFormat,
+                width * height
+            );
+
+            imageViews_[id] = imageStore_.store(id, converted.data(), width, height, targetFormat);
+        }
     }
 
     // 画像バッファを確保
@@ -694,6 +718,7 @@ EMSCRIPTEN_BINDINGS(image_transform) {
         .function("setTileSize", &NodeGraphEvaluatorWrapper::setTileSize)
         .function("setDebugCheckerboard", &NodeGraphEvaluatorWrapper::setDebugCheckerboard)
         .function("storeImage", &NodeGraphEvaluatorWrapper::storeImage)
+        .function("storeImageWithFormat", &NodeGraphEvaluatorWrapper::storeImageWithFormat)
         .function("allocateImage", &NodeGraphEvaluatorWrapper::allocateImage)
         .function("getImage", &NodeGraphEvaluatorWrapper::getImage)
         .function("setNodes", &NodeGraphEvaluatorWrapper::setNodes)

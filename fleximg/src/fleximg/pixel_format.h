@@ -28,6 +28,8 @@ namespace PixelFormatIDs {
     // 8bit RGBA系（0x0200～0x02FF）
     constexpr PixelFormatID RGBA8_Straight        = 0x0200;
     constexpr PixelFormatID RGBA8_Premultiplied   = 0x0201;
+    constexpr PixelFormatID RGB888                = 0x0202;  // mem[0]=R, mem[1]=G, mem[2]=B
+    constexpr PixelFormatID BGR888                = 0x0203;  // mem[0]=B, mem[1]=G, mem[2]=R
 
     // グレースケール系（0x0300～0x03FF）
     constexpr PixelFormatID Grayscale8            = 0x0300;
@@ -141,22 +143,8 @@ struct PixelFormatDescriptor {
           toStandard(nullptr) {}
 };
 
-// ========================================================================
-// ピクセルフォーマット情報取得（簡易版）
-// ========================================================================
-
-inline size_t getBytesPerPixel(PixelFormatID formatID) {
-    switch (formatID) {
-        case PixelFormatIDs::RGBA16_Straight:
-        case PixelFormatIDs::RGBA16_Premultiplied:
-            return 8;  // 16bit x 4 = 64bit = 8bytes
-        case PixelFormatIDs::RGBA8_Straight:
-        case PixelFormatIDs::RGBA8_Premultiplied:
-            return 4;  // 8bit x 4 = 32bit = 4bytes
-        default:
-            return 4;
-    }
-}
+// getBytesPerPixel() は pixel_format_registry.h で定義
+// PixelFormatDescriptor を参照する実装に変更
 
 } // namespace FLEXIMG_NAMESPACE
 

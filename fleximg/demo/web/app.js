@@ -35,6 +35,22 @@ const NODE_TYPES = {
     alpha:      { index: 8, name: 'Alpha',      category: 'filter',    showEfficiency: true },
 };
 
+// ========================================
+// ピクセルフォーマット定義
+// C++側の PixelFormatIDs と同期を維持すること
+// ========================================
+const PIXEL_FORMATS = [
+    { id: 0x0200, name: 'RGBA8888',   bpp: 4, description: 'Standard (default)' },
+    { id: 0x0202, name: 'RGB888',     bpp: 3, description: 'RGB order' },
+    { id: 0x0203, name: 'BGR888',     bpp: 3, description: 'BGR order' },
+    { id: 0x0100, name: 'RGB565_LE',  bpp: 2, description: 'Little Endian' },
+    { id: 0x0101, name: 'RGB565_BE',  bpp: 2, description: 'Big Endian' },
+    { id: 0x0102, name: 'RGB332',     bpp: 1, description: '8-bit color' },
+];
+
+// デフォルトピクセルフォーマット
+const DEFAULT_PIXEL_FORMAT = 0x0200;  // RGBA8888
+
 // ヘルパー関数
 const NodeTypeHelper = {
     // カテゴリでフィルタ
@@ -3019,6 +3035,58 @@ function buildImageDetailContent(node) {
 
     section.appendChild(originGrid);
     detailPanelContent.appendChild(section);
+
+    // ピクセルフォーマット選択セクション
+    const formatSection = document.createElement('div');
+    formatSection.className = 'node-detail-section';
+
+    const formatLabel = document.createElement('div');
+    formatLabel.className = 'node-detail-label';
+    formatLabel.textContent = 'ピクセルフォーマット';
+    formatSection.appendChild(formatLabel);
+
+    const formatSelect = document.createElement('select');
+    formatSelect.className = 'node-detail-select';
+    formatSelect.style.cssText = 'width: 100%; padding: 4px; margin-top: 4px;';
+
+    const currentFormat = node.pixelFormat ?? DEFAULT_PIXEL_FORMAT;
+    PIXEL_FORMATS.forEach(fmt => {
+        const option = document.createElement('option');
+        option.value = fmt.id;
+        option.textContent = `${fmt.name} (${fmt.bpp}B)`;
+        option.title = fmt.description;
+        if (currentFormat === fmt.id) option.selected = true;
+        formatSelect.appendChild(option);
+    });
+
+    formatSelect.addEventListener('change', () => {
+        const newFormat = parseInt(formatSelect.value);
+        onPixelFormatChange(node, newFormat);
+    });
+
+    formatSection.appendChild(formatSelect);
+    detailPanelContent.appendChild(formatSection);
+}
+
+// ピクセルフォーマット変更時の処理
+function onPixelFormatChange(node, formatId) {
+    if (node.type !== 'image') return;
+
+    node.pixelFormat = formatId;
+
+    // 画像を再登録（バインディング層で変換）
+    const image = uploadedImages.find(img => img.id === node.imageId);
+    if (image && image.imageData) {
+        graphEvaluator.storeImageWithFormat(
+            node.imageId,
+            image.imageData.data,
+            image.imageData.width,
+            image.imageData.height,
+            formatId
+        );
+    }
+
+    throttledUpdatePreview();
 }
 
 // フィルタノードの詳細コンテンツ
@@ -3960,6 +4028,23 @@ async function restoreAppState(state) {
             }
         });
     }
+
+    // 画像ノードのピクセルフォーマットを適用
+    // (画像はデフォルトのRGBA8で登録済みなので、異なるフォーマットの場合は再登録)
+    globalNodes.forEach(node => {
+        if (node.type === 'image' && node.pixelFormat && node.pixelFormat !== DEFAULT_PIXEL_FORMAT) {
+            const image = uploadedImages.find(img => img.id === node.imageId);
+            if (image && image.imageData) {
+                graphEvaluator.storeImageWithFormat(
+                    node.imageId,
+                    image.imageData.data,
+                    image.imageData.width,
+                    image.imageData.height,
+                    node.pixelFormat
+                );
+            }
+        }
+    });
 
     renderNodeGraph();
 
