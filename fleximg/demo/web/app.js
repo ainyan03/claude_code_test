@@ -2532,6 +2532,11 @@ function updatePreviewFromGraph() {
                     if (typeDef.showEfficiency && m.requestedPixels > 0) {
                         const efficiency = ((1.0 - m.wasteRatio) * 100).toFixed(1);
                         entry += ` [eff:${efficiency}%]`;
+                        // Affine ノードのみAABB分割効果の推定値を表示（改善倍率）
+                        if (typeDef.index === NODE_TYPES.affine.index && m.splitEfficiencyEstimate > 0) {
+                            const improvementFactor = (1.0 / m.splitEfficiencyEstimate).toFixed(1);
+                            entry += ` (aabb:${improvementFactor}x)`;
+                        }
                     }
                     details.push(entry);
                 }
@@ -2704,6 +2709,11 @@ function updateDebugDetails(metrics) {
                     if (def.showEfficiency && m.requestedPixels > 0) {
                         const efficiency = ((1.0 - m.wasteRatio) * 100).toFixed(1);
                         text += ` [${efficiency}%]`;
+                        // Affine ノードのみAABB分割効果の推定値を表示（改善倍率）
+                        if (key === 'affine' && m.splitEfficiencyEstimate > 0) {
+                            const improvementFactor = (1.0 / m.splitEfficiencyEstimate).toFixed(1);
+                            text += ` (aabb:${improvementFactor}x)`;
+                        }
                     }
                     timeEl.textContent = text;
                 } else {

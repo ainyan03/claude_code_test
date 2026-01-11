@@ -34,6 +34,34 @@ namespace FLEXIMG_NAMESPACE {
 //   src >> affine >> sink;
 //
 
+// ========================================================================
+// InputRegion - 入力要求領域の情報
+// ========================================================================
+//
+// computeInputRequest() の結果を詳細に保持。
+// 分割効率の見積もりに使用。
+//
+
+struct InputRegion {
+    // 4頂点座標（入力空間、Q24.8）
+    // corners[0]: 左上, corners[1]: 右上, corners[2]: 左下, corners[3]: 右下
+    int_fixed8 corners_x[4];
+    int_fixed8 corners_y[4];
+
+    // AABB（入力空間、整数）
+    int aabbLeft, aabbTop, aabbRight, aabbBottom;
+
+    // 面積情報
+    int64_t aabbPixels;          // AABB のピクセル数
+    int64_t parallelogramPixels; // 平行四辺形の面積（理論最小値）
+    int64_t outputPixels;        // 出力タイルのピクセル数
+
+    // 効率（0.0〜1.0）
+    float currentEfficiency() const {
+        return aabbPixels > 0 ? static_cast<float>(parallelogramPixels) / aabbPixels : 1.0f;
+    }
+};
+
 class AffineNode : public Node {
 public:
     AffineNode() {
@@ -84,6 +112,9 @@ public:
         // 逆行列を事前計算（2x2部分のみ、tx/tyは別途管理）
         invMatrix_ = inverseFixed16(matrix_);
 
+        // 順変換行列を事前計算（AABB分割・プッシュモード用）
+        fwdMatrix_ = toFixed16(matrix_);
+
         // tx/ty を Q24.8 固定小数点で保持（サブピクセル精度）
         txFixed8_ = float_to_fixed8(matrix_.tx);
         tyFixed8_ = float_to_fixed8(matrix_.ty);
@@ -107,14 +138,42 @@ public:
             return RenderResult();
         }
 
-        // 入力要求を計算
-        RenderRequest inputReq = computeInputRequest(request);
+        // 入力領域を計算（4頂点座標、AABB、面積情報を含む）
+        InputRegion region = computeInputRegion(request);
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         // ピクセル効率計測
         auto& metrics = PerfMetrics::instance().nodes[NodeType::Affine];
-        metrics.requestedPixels += static_cast<uint64_t>(inputReq.width) * inputReq.height;
-        metrics.usedPixels += static_cast<uint64_t>(request.width) * request.height;
+        metrics.usedPixels += region.outputPixels;
+        // 分割時の理論最小値（平行四辺形面積 × 2、三角形領域の効率50%を考慮）
+        metrics.theoreticalMinPixels += region.parallelogramPixels * 2;
+#endif
+
+        // AABB分割判定
+        if (shouldSplitAABB(region)) {
+            return pullProcessWithAABBSplit(request, region, upstream);
+        }
+
+        // 通常処理（分割なし）
+        return pullProcessNoSplit(request, region, upstream);
+    }
+
+private:
+    // ========================================
+    // 通常処理（分割なし）
+    // ========================================
+    RenderResult pullProcessNoSplit(const RenderRequest& request,
+                                    const InputRegion& region,
+                                    Node* upstream) {
+        // RenderRequest を構築
+        RenderRequest inputReq;
+        inputReq.width = static_cast<int16_t>(region.aabbRight - region.aabbLeft + 1);
+        inputReq.height = static_cast<int16_t>(region.aabbBottom - region.aabbTop + 1);
+        inputReq.origin.x = to_fixed8(-region.aabbLeft);
+        inputReq.origin.y = to_fixed8(-region.aabbTop);
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        PerfMetrics::instance().nodes[NodeType::Affine].requestedPixels += region.aabbPixels;
 #endif
 
         // 上流を評価
@@ -126,6 +185,104 @@ public:
         // process() に委譲
         return process(std::move(input), request);
     }
+
+    // ========================================
+    // AABB分割処理
+    // ========================================
+    RenderResult pullProcessWithAABBSplit(const RenderRequest& request,
+                                          const InputRegion& region,
+                                          Node* upstream) {
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        auto start = std::chrono::high_resolution_clock::now();
+#endif
+
+        // 分割戦略を計算
+        SplitStrategy strategy = computeSplitStrategy(region);
+
+        // 分割サイズを計算（分割方向の寸法に基づく）
+        int splitDim = strategy.splitInX
+            ? (region.aabbRight - region.aabbLeft + 1)
+            : (region.aabbBottom - region.aabbTop + 1);
+        int splitSize = (splitDim + strategy.splitCount - 1) / strategy.splitCount;
+
+        // 出力バッファ（最初の有効な入力でフォーマットを決定）
+        ImageBuffer output;
+        ViewPort outputView;
+
+        for (int i = 0; i < strategy.splitCount; ++i) {
+            RenderRequest subReq;
+
+            if (strategy.splitInX) {
+                // X方向分割
+                int splitLeft = region.aabbLeft + i * splitSize;
+                int splitRight = std::min(splitLeft + splitSize - 1, region.aabbRight);
+                if (splitLeft > splitRight) break;
+
+                // 台形フィット: このX範囲で必要なY範囲を計算
+                auto [yFitMin, yFitMax] = computeYRangeForXStrip(splitLeft, splitRight, region);
+                // AABB範囲にクランプ
+                yFitMin = std::max(yFitMin, region.aabbTop);
+                yFitMax = std::min(yFitMax, region.aabbBottom);
+                if (yFitMin > yFitMax) continue;
+
+                subReq.width = static_cast<int16_t>(splitRight - splitLeft + 1);
+                subReq.height = static_cast<int16_t>(yFitMax - yFitMin + 1);
+                subReq.origin.x = to_fixed8(-splitLeft);
+                subReq.origin.y = to_fixed8(-yFitMin);
+            } else {
+                // Y方向分割
+                int splitTop = region.aabbTop + i * splitSize;
+                int splitBottom = std::min(splitTop + splitSize - 1, region.aabbBottom);
+                if (splitTop > splitBottom) break;
+
+                // 台形フィット: このY範囲で必要なX範囲を計算
+                auto [xFitMin, xFitMax] = computeXRangeForYStrip(splitTop, splitBottom, region);
+                // AABB範囲にクランプ
+                xFitMin = std::max(xFitMin, region.aabbLeft);
+                xFitMax = std::min(xFitMax, region.aabbRight);
+                if (xFitMin > xFitMax) continue;
+
+                subReq.width = static_cast<int16_t>(xFitMax - xFitMin + 1);
+                subReq.height = static_cast<int16_t>(splitBottom - splitTop + 1);
+                subReq.origin.x = to_fixed8(-xFitMin);
+                subReq.origin.y = to_fixed8(-splitTop);
+            }
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+            int64_t splitPixels = static_cast<int64_t>(subReq.width) * subReq.height;
+            PerfMetrics::instance().nodes[NodeType::Affine].requestedPixels += splitPixels;
+#endif
+
+            // 上流から取得
+            RenderResult subInput = upstream->pullProcess(subReq);
+            if (!subInput.isValid()) continue;
+
+            // 出力バッファを遅延初期化（入力フォーマットに合わせる）
+            if (!output.isValid()) {
+                output = ImageBuffer(request.width, request.height, subInput.buffer.formatID());
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+                PerfMetrics::instance().nodes[NodeType::Affine].recordAlloc(
+                    output.totalBytes(), output.width(), output.height());
+#endif
+                outputView = output.view();
+            }
+
+            // 部分変換を実行（出力バッファに直接書き込み）
+            applyAffine(outputView, request.origin.x, request.origin.y,
+                        subInput.view(), subInput.origin.x, subInput.origin.y);
+        }
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        auto& metrics = PerfMetrics::instance().nodes[NodeType::Affine];
+        metrics.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::high_resolution_clock::now() - start).count();
+        metrics.count++;
+#endif
+
+        return RenderResult(std::move(output), request.origin);
+    }
+
+public:
 
     // ========================================
     // 変換処理（process() オーバーライド）
@@ -166,63 +323,233 @@ public:
 
 protected:
     // ========================================
-    // 入力要求計算
+    // AABB分割パラメータ
+    // ========================================
+    static constexpr int MIN_SPLIT_SIZE = 16;         // 分割後の最小ピクセル数
+    static constexpr int MAX_SPLIT_COUNT = 8;         // 分割数の上限
+    static constexpr float AABB_SPLIT_THRESHOLD = 10.0f;  // 閾値（改善倍率）
+
+    // ========================================
+    // 分割戦略
+    // ========================================
+    struct SplitStrategy {
+        bool splitInX;      // true: X方向分割, false: Y方向分割
+        int splitCount;     // 分割数
+    };
+
+    // ========================================
+    // AABB分割判定
     // ========================================
     //
-    // 出力要求の4頂点を逆変換し、必要な入力領域のAABBを計算する。
-    // tx/ty は Q24.8 を使用し、より正確な範囲を算出。
+    // 改善倍率が閾値以上なら分割を実行する。
+    // 改善倍率 = aabbPixels / (parallelogramPixels * 2)
     //
-    virtual RenderRequest computeInputRequest(const RenderRequest& request) {
-        // 出力要求の4頂点（基準相対座標 = -origin、整数に変換）
-        int32_t ox = from_fixed8(request.origin.x);
-        int32_t oy = from_fixed8(request.origin.y);
-        int32_t corners[4][2] = {
-            {-ox, -oy},
-            {request.width - ox, -oy},
-            {-ox, request.height - oy},
-            {request.width - ox, request.height - oy}
-        };
+    bool shouldSplitAABB(const InputRegion& region) const {
+        if (region.parallelogramPixels == 0) return false;
+        float improvementFactor = static_cast<float>(region.aabbPixels)
+                                / (region.parallelogramPixels * 2);
+        return improvementFactor >= AABB_SPLIT_THRESHOLD;
+    }
 
-        // tx/ty を整数部のみ使用（入力要求範囲計算には整数精度で十分）
-        int32_t txInt = from_fixed8(txFixed8_);
-        int32_t tyInt = from_fixed8(tyFixed8_);
+    // ========================================
+    // 分割戦略の計算
+    // ========================================
+    //
+    // 縦横比で分割方向を決定し、最小サイズに基づき分割数を計算。
+    //
+    SplitStrategy computeSplitStrategy(const InputRegion& region) const {
+        int width = region.aabbRight - region.aabbLeft + 1;
+        int height = region.aabbBottom - region.aabbTop + 1;
 
-        int32_t minX = INT32_MAX, minY = INT32_MAX, maxX = INT32_MIN, maxY = INT32_MIN;
-        for (int i = 0; i < 4; i++) {
-            // 平行移動をキャンセル（整数演算）
-            int32_t rx = corners[i][0] - txInt;
-            int32_t ry = corners[i][1] - tyInt;
-            // 回転/スケール逆変換（固定小数点演算）
-            int64_t sx64 = static_cast<int64_t>(invMatrix_.a) * rx
-                         + static_cast<int64_t>(invMatrix_.b) * ry;
-            int64_t sy64 = static_cast<int64_t>(invMatrix_.c) * rx
-                         + static_cast<int64_t>(invMatrix_.d) * ry;
-            int32_t sx = static_cast<int32_t>(sx64 >> INT_FIXED16_SHIFT);
-            int32_t sy = static_cast<int32_t>(sy64 >> INT_FIXED16_SHIFT);
-            minX = std::min(minX, sx);
-            minY = std::min(minY, sy);
-            maxX = std::max(maxX, sx);
-            maxY = std::max(maxY, sy);
+        // 縦横比で分割方向を決定（長い辺を分割）
+        bool splitInX = (width > height);
+        int dim = splitInX ? width : height;
+
+        // 分割数を計算（最小サイズ以上を確保）
+        int count = dim / MIN_SPLIT_SIZE;
+        if (count < 1) count = 1;
+        if (count > MAX_SPLIT_COUNT) count = MAX_SPLIT_COUNT;
+
+        return {splitInX, count};
+    }
+
+    // ========================================
+    // 範囲計算の統一関数（台形フィット用）
+    // ========================================
+    //
+    // 平行四辺形の4頂点から、指定した primary 軸の範囲に対応する
+    // secondary 軸の最小・最大値を求める。
+    //
+    // primary: 問い合わせ軸（Y範囲→X範囲 なら Y座標）
+    // secondary: 結果軸（Y範囲→X範囲 なら X座標）
+    //
+    static std::pair<int, int> computeSecondaryRangeForPrimaryStrip(
+        int primaryMin, int primaryMax,
+        const int_fixed8* primaryCoords,    // 4要素
+        const int_fixed8* secondaryCoords   // 4要素
+    ) {
+        // Q24.8 から整数に変換
+        int p[4], s[4];
+        for (int i = 0; i < 4; ++i) {
+            p[i] = from_fixed8(primaryCoords[i]);
+            s[i] = from_fixed8(secondaryCoords[i]);
         }
 
-        // マージンを追加（固定小数点の丸め誤差 + tx/ty小数部対策）
-        int reqLeft = minX - 2;
-        int reqTop = minY - 2;
-        int inputWidth = maxX - minX + 5;
-        int inputHeight = maxY - minY + 5;
+        // 4辺: (0,1), (0,2), (1,3), (2,3)
+        static constexpr int edges[4][2] = {{0,1}, {0,2}, {1,3}, {2,3}};
+
+        int sMin = INT32_MAX;
+        int sMax = INT32_MIN;
+
+        // 各辺との交点を計算
+        for (int e = 0; e < 4; ++e) {
+            int i0 = edges[e][0];
+            int i1 = edges[e][1];
+            int p0 = p[i0], p1 = p[i1];
+            int s0 = s[i0], s1 = s[i1];
+
+            // 辺が primary 範囲と交差するか確認
+            int edgePMin = std::min(p0, p1);
+            int edgePMax = std::max(p0, p1);
+            if (edgePMax < primaryMin || edgePMin > primaryMax) continue;
+
+            // primary 範囲の両端での交点 secondary 座標を計算
+            for (int pv : {primaryMin, primaryMax}) {
+                if (pv < edgePMin || pv > edgePMax) continue;
+                if (p0 == p1) {
+                    // primary 座標が同じ辺の場合
+                    sMin = std::min({sMin, s0, s1});
+                    sMax = std::max({sMax, s0, s1});
+                } else {
+                    // 線形補間で交点 secondary 座標を計算
+                    int sv = s0 + (s1 - s0) * (pv - p0) / (p1 - p0);
+                    sMin = std::min(sMin, sv);
+                    sMax = std::max(sMax, sv);
+                }
+            }
+        }
+
+        // primary 範囲内にある頂点も考慮
+        for (int i = 0; i < 4; ++i) {
+            if (p[i] >= primaryMin && p[i] <= primaryMax) {
+                sMin = std::min(sMin, s[i]);
+                sMax = std::max(sMax, s[i]);
+            }
+        }
+
+        // マージン追加（境界の丸め誤差対策）
+        return {sMin - 1, sMax + 1};
+    }
+
+    // Y範囲に対応するX範囲を計算
+    std::pair<int, int> computeXRangeForYStrip(int yMin, int yMax,
+                                                const InputRegion& region) const {
+        return computeSecondaryRangeForPrimaryStrip(
+            yMin, yMax, region.corners_y, region.corners_x);
+    }
+
+    // X範囲に対応するY範囲を計算
+    std::pair<int, int> computeYRangeForXStrip(int xMin, int xMax,
+                                                const InputRegion& region) const {
+        return computeSecondaryRangeForPrimaryStrip(
+            xMin, xMax, region.corners_x, region.corners_y);
+    }
+
+    // ========================================
+    // 入力領域計算（詳細版）
+    // ========================================
+    //
+    // 出力要求の4頂点を逆変換し、入力領域の詳細情報を計算する。
+    // 分割効率の見積もりにも使用。
+    //
+    InputRegion computeInputRegion(const RenderRequest& request) {
+        InputRegion region;
+        region.outputPixels = static_cast<int64_t>(request.width) * request.height;
+
+        // 出力要求の4頂点を Q24.8 で計算（小数部保持）
+        int_fixed8 out_x[4] = {
+            -request.origin.x,
+            to_fixed8(request.width) - request.origin.x,
+            -request.origin.x,
+            to_fixed8(request.width) - request.origin.x
+        };
+        int_fixed8 out_y[4] = {
+            -request.origin.y,
+            -request.origin.y,
+            to_fixed8(request.height) - request.origin.y,
+            to_fixed8(request.height) - request.origin.y
+        };
+
+        // tx/ty を Q24.8 のまま減算（小数部保持）
+        for (int i = 0; i < 4; i++) {
+            out_x[i] -= txFixed8_;
+            out_y[i] -= tyFixed8_;
+        }
+
+        // 逆変換して入力空間の4頂点を計算（Q24.8 精度）
+        // 演算: (Q16.16 * Q24.8) >> 16 = Q24.8
+        int_fixed8 minX_f8 = INT32_MAX, minY_f8 = INT32_MAX;
+        int_fixed8 maxX_f8 = INT32_MIN, maxY_f8 = INT32_MIN;
+        for (int i = 0; i < 4; i++) {
+            int64_t sx64 = static_cast<int64_t>(invMatrix_.a) * out_x[i]
+                         + static_cast<int64_t>(invMatrix_.b) * out_y[i];
+            int64_t sy64 = static_cast<int64_t>(invMatrix_.c) * out_x[i]
+                         + static_cast<int64_t>(invMatrix_.d) * out_y[i];
+            region.corners_x[i] = static_cast<int_fixed8>(sx64 >> INT_FIXED16_SHIFT);
+            region.corners_y[i] = static_cast<int_fixed8>(sy64 >> INT_FIXED16_SHIFT);
+            minX_f8 = std::min(minX_f8, region.corners_x[i]);
+            minY_f8 = std::min(minY_f8, region.corners_y[i]);
+            maxX_f8 = std::max(maxX_f8, region.corners_x[i]);
+            maxY_f8 = std::max(maxY_f8, region.corners_y[i]);
+        }
+
+        // floor/ceil で整数化（正確な境界）
+        int minX = from_fixed8_floor(minX_f8);
+        int minY = from_fixed8_floor(minY_f8);
+        int maxX = from_fixed8_ceil(maxX_f8);
+        int maxY = from_fixed8_ceil(maxY_f8);
+
+        // マージン: +1（DDA 半ピクセルオフセット対策）
+        region.aabbLeft = minX - 1;
+        region.aabbTop = minY - 1;
+        region.aabbRight = maxX + 1;
+        region.aabbBottom = maxY + 1;
+        region.aabbPixels = static_cast<int64_t>(region.aabbRight - region.aabbLeft + 1)
+                          * (region.aabbBottom - region.aabbTop + 1);
+
+        // 平行四辺形の面積を外積で計算
+        // corners: [0]=左上, [1]=右上, [2]=左下, [3]=右下
+        // 面積 = |cross(p1-p0, p2-p0)|
+        // Q24.8 * Q24.8 = Q48.16、>> 16 で整数に
+        int64_t dx1 = region.corners_x[1] - region.corners_x[0];  // 右上 - 左上
+        int64_t dy1 = region.corners_y[1] - region.corners_y[0];
+        int64_t dx2 = region.corners_x[2] - region.corners_x[0];  // 左下 - 左上
+        int64_t dy2 = region.corners_y[2] - region.corners_y[0];
+        int64_t cross = dx1 * dy2 - dy1 * dx2;
+        region.parallelogramPixels = std::abs(cross) >> INT_FIXED8_SHIFT >> INT_FIXED8_SHIFT;
+
+        return region;
+    }
+
+    // ========================================
+    // 入力要求計算（RenderRequest を返す版）
+    // ========================================
+    virtual RenderRequest computeInputRequest(const RenderRequest& request) {
+        InputRegion region = computeInputRegion(request);
 
         RenderRequest inputReq;
-        inputReq.width = static_cast<int16_t>(inputWidth);
-        inputReq.height = static_cast<int16_t>(inputHeight);
-        inputReq.origin.x = to_fixed8(-reqLeft);
-        inputReq.origin.y = to_fixed8(-reqTop);
+        inputReq.width = static_cast<int16_t>(region.aabbRight - region.aabbLeft + 1);
+        inputReq.height = static_cast<int16_t>(region.aabbBottom - region.aabbTop + 1);
+        inputReq.origin.x = to_fixed8(-region.aabbLeft);
+        inputReq.origin.y = to_fixed8(-region.aabbTop);
 
         return inputReq;
     }
 
 private:
     AffineMatrix matrix_;  // 恒等行列がデフォルト
-    Matrix2x2_fixed16 invMatrix_;  // prepare() で計算（2x2逆行列）
+    Matrix2x2_fixed16 invMatrix_;  // prepare() で計算（2x2逆行列、プル用）
+    Matrix2x2_fixed16 fwdMatrix_;  // prepare() で計算（2x2順行列、AABB分割・プッシュ用）
     int_fixed8 txFixed8_ = 0;  // tx を Q24.8 で保持
     int_fixed8 tyFixed8_ = 0;  // ty を Q24.8 で保持
 

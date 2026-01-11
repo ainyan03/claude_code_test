@@ -47,6 +47,7 @@ struct NodeMetrics {
     int count = 0;                // 呼び出し回数
     uint64_t requestedPixels = 0; // 上流に要求したピクセル数
     uint64_t usedPixels = 0;      // 実際に使用したピクセル数
+    uint64_t theoreticalMinPixels = 0; // 理論最小ピクセル数（分割時の推定値）
     uint64_t allocatedBytes = 0;  // このノードが確保したバイト数
     int allocCount = 0;           // 確保回数
     uint64_t maxAllocBytes = 0;   // 一回の最大確保バイト数
@@ -57,10 +58,23 @@ struct NodeMetrics {
         *this = NodeMetrics{};
     }
 
+    // 現在のピクセル効率（0.0〜1.0）: usedPixels / requestedPixels
+    float pixelEfficiency() const {
+        if (requestedPixels == 0) return 1.0f;
+        return static_cast<float>(usedPixels) / static_cast<float>(requestedPixels);
+    }
+
     // 不要ピクセル率（0.0〜1.0）
     float wasteRatio() const {
         if (requestedPixels == 0) return 0;
         return 1.0f - static_cast<float>(usedPixels) / static_cast<float>(requestedPixels);
+    }
+
+    // 分割時の推定効率（0.0〜1.0）: theoreticalMinPixels / requestedPixels
+    // 分割により理論上達成可能な効率（通常 ~50%）
+    float splitEfficiencyEstimate() const {
+        if (requestedPixels == 0) return 1.0f;
+        return static_cast<float>(theoreticalMinPixels) / static_cast<float>(requestedPixels);
     }
 
     // メモリ確保を記録

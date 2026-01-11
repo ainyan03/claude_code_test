@@ -80,7 +80,19 @@ struct AffineMatrix {
 // 行列変換関数
 // ========================================================================
 
-// AffineMatrix の 2x2 部分の逆行列を固定小数点で返す
+// AffineMatrix の 2x2 部分を固定小数点で返す（順変換用）
+// 平行移動成分(tx,ty)は含まない（呼び出し側で別途管理）
+inline Matrix2x2_fixed16 toFixed16(const AffineMatrix& m) {
+    return Matrix2x2_fixed16(
+        static_cast<int_fixed16>(std::lround(m.a * INT_FIXED16_ONE)),
+        static_cast<int_fixed16>(std::lround(m.b * INT_FIXED16_ONE)),
+        static_cast<int_fixed16>(std::lround(m.c * INT_FIXED16_ONE)),
+        static_cast<int_fixed16>(std::lround(m.d * INT_FIXED16_ONE)),
+        true  // valid
+    );
+}
+
+// AffineMatrix の 2x2 部分の逆行列を固定小数点で返す（逆変換用）
 // 平行移動成分(tx,ty)は含まない（呼び出し側で別途管理）
 inline Matrix2x2_fixed16 inverseFixed16(const AffineMatrix& m) {
     float det = m.a * m.d - m.b * m.c;

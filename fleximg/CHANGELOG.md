@@ -1,5 +1,47 @@
 # Changelog
 
+## [2.13.0] - 2026-01-11
+
+### 追加
+
+- **AABB分割 台形フィット**: アフィン変換の入力要求を大幅に削減
+  - `computeXRangeForYStrip()`: Y範囲に対応する最小X範囲を計算
+  - `computeYRangeForXStrip()`: X範囲に対応する最小Y範囲を計算
+  - 各stripを平行四辺形の実際の幅にフィット
+  - 45度回転時のピクセル効率が約1% → 約50%に改善
+
+### 変更
+
+- **pullProcessWithAABBSplit()**: 台形フィットを適用
+  - Y方向分割時: 各stripのX範囲を平行四辺形にフィット
+  - X方向分割時: 各stripのY範囲を平行四辺形にフィット
+  - AABB範囲にクランプして安全性を確保
+
+### ドキュメント
+
+- **IDEA_AFFINE_REQUEST_SPLITTING.md**: ステータスを「実装済み（効果検証中）」に更新
+
+---
+
+## [2.12.0] - 2026-01-11
+
+### 追加
+
+- **from_fixed8_ceil() 関数**: 正の無限大方向への切り上げ
+  - `types.h` に追加
+  - `from_fixed8_floor()` と対になる関数
+
+### 変更
+
+- **AffineNode::computeInputRequest() 精度向上**
+  - 全座標を Q24.8 固定小数点で計算（従来は整数）
+  - tx/ty の小数部を保持
+  - floor/ceil で正確な AABB 境界を計算
+  - マージン: +5 → +3 に削減（40%削減）
+  - 将来の入力要求分割（IDEA_AFFINE_REQUEST_SPLITTING）の準備
+
+---
+
 ## [2.11.0] - 2026-01-11
 
 ### 追加
