@@ -41,12 +41,6 @@ public:
     void setTarget(const ViewPort& vp) { target_ = vp; }
     void setOrigin(int_fixed8 x, int_fixed8 y) { originX_ = x; originY_ = y; }
 
-    // 移行用セッター（float引数、最終的に削除予定）
-    void setOriginf(float x, float y) {
-        originX_ = float_to_fixed8(x);
-        originY_ = float_to_fixed8(y);
-    }
-
     // アクセサ
     const ViewPort& target() const { return target_; }
     ViewPort& target() { return target_; }

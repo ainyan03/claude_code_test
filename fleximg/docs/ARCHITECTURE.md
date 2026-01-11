@@ -12,7 +12,7 @@ SourceNode（画像入力）
     │
     │ pullProcess()（上流からプル）
     ▼
-TransformNode / フィルタノード
+AffineNode / フィルタノード
     │
     │ pullProcess()
     ▼
@@ -53,7 +53,7 @@ Node (基底クラス)
 │
 ├── SourceNode        # 画像データを提供
 ├── SinkNode          # 出力先を保持
-├── TransformNode     # アフィン変換
+├── AffineNode        # アフィン変換
 ├── FilterNodeBase    # フィルタ共通基底
 │   ├── BrightnessNode   # 明るさ調整
 │   ├── GrayscaleNode    # グレースケール
@@ -69,12 +69,12 @@ Node (基底クラス)
 
 ```cpp
 SourceNode source(imageView);
-TransformNode transform;
+AffineNode affine;
 RendererNode renderer;
 SinkNode sink(outputView, canvasWidth / 2, canvasHeight / 2);
 
-// 接続: source → transform → renderer → sink
-source >> transform >> renderer >> sink;
+// 接続: source → affine → renderer → sink
+source >> affine >> renderer >> sink;
 
 // 実行
 renderer.setVirtualScreen(canvasWidth, canvasHeight, canvasWidth / 2, canvasHeight / 2);
@@ -232,7 +232,7 @@ src/fleximg/
 ├── nodes/
 │   ├── source_node.h       # SourceNode
 │   ├── sink_node.h         # SinkNode
-│   ├── transform_node.h    # TransformNode
+│   ├── affine_node.h       # AffineNode
 │   ├── filter_node_base.h  # FilterNodeBase（フィルタ共通基底）
 │   ├── brightness_node.h   # BrightnessNode
 │   ├── grayscale_node.h    # GrayscaleNode
@@ -256,7 +256,7 @@ src/fleximg/
 #include "fleximg/image_buffer.h"
 #include "fleximg/nodes/source_node.h"
 #include "fleximg/nodes/sink_node.h"
-#include "fleximg/nodes/transform_node.h"
+#include "fleximg/nodes/affine_node.h"
 #include "fleximg/nodes/renderer_node.h"
 
 using namespace fleximg;
@@ -268,10 +268,10 @@ ViewPort outputView = outputBuffer.view();
 
 // ノード作成
 SourceNode source(inputView);
-source.setOriginf(inputView.width / 2.0f, inputView.height / 2.0f);  // float引数版
+source.setOrigin(to_fixed8(inputView.width / 2), to_fixed8(inputView.height / 2));
 
-TransformNode transform;
-transform.setMatrix(AffineMatrix::rotate(0.5f));  // 約30度回転
+AffineNode affine;
+affine.setMatrix(AffineMatrix::rotate(0.5f));  // 約30度回転
 
 RendererNode renderer;
 renderer.setVirtualScreen(320, 240, 160, 120);  // キャンバス中央を基準点に
@@ -279,7 +279,7 @@ renderer.setVirtualScreen(320, 240, 160, 120);  // キャンバス中央を基�
 SinkNode sink(outputView, 160, 120);  // キャンバス中央
 
 // 接続
-source >> transform >> renderer >> sink;
+source >> affine >> renderer >> sink;
 
 // 実行
 renderer.exec();

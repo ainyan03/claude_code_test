@@ -1,5 +1,33 @@
 # Changelog
 
+## [2.18.0] - 2026-01-11
+
+### 削除
+
+- **マイグレーションAPI**: 固定小数点移行用の一時APIを削除
+  - `SourceNode::setOriginf()`
+  - `SinkNode::setOriginf()`
+  - `RendererNode::setVirtualScreenf()`
+  - `Point(float, float)` コンストラクタ
+  - `Point::xf()`, `Point::yf()` アクセサ
+  - `Point2f` エイリアス
+
+- **TransformNode**: 非推奨クラスを削除（`transform_node.h`）
+  - 代替: `AffineNode`（`affine_node.h`）
+
+### 変更
+
+- **bindings.cpp**: `float_to_fixed8()` を使用して型変換
+  - JS境界でのfloat→固定小数点変換をbindings側で実施
+
+### ドキュメント
+
+- **README.md**: ドキュメントガイドセクション追加、テスト実行方法追加
+- **docs/README.md**: 設計ドキュメントの入り口を新規作成
+- **ARCHITECTURE.md, DESIGN_RENDERER_NODE.md**: TransformNode → AffineNode に更新
+
+---
+
 ## [2.17.0] - 2026-01-11
 
 ### 追加

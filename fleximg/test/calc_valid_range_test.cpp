@@ -4,10 +4,15 @@
 #include <iostream>
 #include <cstdint>
 #include <utility>
+#include "fleximg/common.h"
 #include "fleximg/operations/transform.h"
 
 using namespace fleximg;
 using namespace fleximg::transform;
+
+// テスト用定数（INT_FIXED16_SHIFT を使用）
+constexpr int FIXED_POINT_BITS = INT_FIXED16_SHIFT;
+constexpr int32_t FIXED_POINT_SCALE = 1 << INT_FIXED16_SHIFT;
 
 int testsPassed = 0;
 int testsFailed = 0;

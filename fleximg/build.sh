@@ -61,11 +61,10 @@ echo "📝 Build info: $BUILD_DATE (commit: $GIT_COMMIT)"
 emcc src/fleximg/viewport.cpp \
      src/fleximg/pixel_format_registry.cpp \
      src/fleximg/operations/blend.cpp \
-     src/fleximg/operations/transform.cpp \
      src/fleximg/operations/filters.cpp \
      demo/bindings.cpp \
     -I src \
-    -o demo/web/image_transform.js \
+    -o demo/web/fleximg.js \
     -std=c++17 \
     -O3 \
     $DEBUG_FLAGS \
@@ -80,8 +79,8 @@ emcc src/fleximg/viewport.cpp \
 echo "✅ Build complete!"
 echo ""
 echo "📦 Generated files:"
-echo "  - demo/web/image_transform.js"
-echo "  - demo/web/image_transform.wasm"
+echo "  - demo/web/fleximg.js"
+echo "  - demo/web/fleximg.wasm"
 echo ""
 echo "🚀 To run the demo:"
 echo "  cd demo/web"

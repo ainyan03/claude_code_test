@@ -24,11 +24,11 @@ namespace FLEXIMG_NAMESPACE {
 //
 // 使用例:
 //   SourceNode src;
-//   TransformNode transform;
+//   AffineNode affine;
 //   RendererNode renderer;
 //   SinkNode sink(output, 960, 540);
 //
-//   src >> transform >> renderer >> sink;
+//   src >> affine >> renderer >> sink;
 //
 //   renderer.setVirtualScreen(1920, 1080, 960, 540);
 //   renderer.setTileConfig({64, 64});
@@ -57,11 +57,6 @@ public:
         setVirtualScreen(width, height,
                          to_fixed8(width / 2),
                          to_fixed8(height / 2));
-    }
-
-    // マイグレーション用float版（将来削除予定）
-    void setVirtualScreenf(int width, int height, float originX, float originY) {
-        setVirtualScreen(width, height, float_to_fixed8(originX), float_to_fixed8(originY));
     }
 
     // タイル設定

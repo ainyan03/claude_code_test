@@ -39,6 +39,15 @@ PC・スマートフォン両方から直接アクセス可能です。C++で実
   - タイル分割モード（矩形・スキャンライン）
   - チェッカーボードスキップ（タイル境界可視化）
 
+## ドキュメント
+
+| 目的 | ドキュメント |
+|------|-------------|
+| すぐに試したい | [docs/QUICKSTART.md](docs/QUICKSTART.md) |
+| アーキテクチャを理解したい | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| 組込み環境に移植したい | 本ファイルの「組込み環境への移植」セクション |
+| 設計詳細を知りたい | [docs/README.md](docs/README.md) |
+
 ## 必要要件
 
 ### 開発環境
@@ -73,8 +82,8 @@ cd fleximg
 ```
 
 ビルドが成功すると、`demo/web/`ディレクトリに以下のファイルが生成されます：
-- `image_transform.js`
-- `image_transform.wasm`
+- `fleximg.js`
+- `fleximg.wasm`
 
 ### 3. アプリケーションの起動
 
@@ -97,7 +106,7 @@ fleximg/
 │   ├── nodes/                    # ノード定義
 │   │   ├── source_node.h         # 画像ソース
 │   │   ├── sink_node.h           # 出力先
-│   │   ├── transform_node.h      # アフィン変換
+│   │   ├── affine_node.h         # アフィン変換
 │   │   ├── filter_node_base.h    # フィルタ共通基底
 │   │   ├── brightness_node.h     # 明るさ調整
 │   │   ├── grayscale_node.h      # グレースケール
@@ -106,7 +115,7 @@ fleximg/
 │   │   ├── composite_node.h      # 合成
 │   │   └── renderer_node.h       # パイプライン実行（発火点）
 │   └── operations/               # 操作実装
-│       ├── transform.h/cpp       # アフィン変換
+│       ├── transform.h           # DDA範囲計算
 │       ├── filters.h/cpp         # フィルタ処理
 │       └── blend.h/cpp           # ブレンド処理
 ├── demo/                         # デモアプリケーション
@@ -114,8 +123,8 @@ fleximg/
 │   └── web/                      # Webフロントエンド
 │       ├── index.html            # メインHTML
 │       ├── app.js                # JavaScript制御
-│       ├── image_transform.js    # WebAssemblyラッパー
-│       └── image_transform.wasm  # WebAssemblyバイナリ
+│       ├── fleximg.js            # WebAssemblyラッパー
+│       └── fleximg.wasm          # WebAssemblyバイナリ
 ├── test/                         # ユニットテスト
 ├── docs/                         # ドキュメント
 │   ├── ARCHITECTURE.md           # アーキテクチャ概要
@@ -184,6 +193,24 @@ C++コアは以下の特徴により組込み環境への移植が容易です�
 ```
 
 `--debug` オプションで性能計測が有効になります。
+
+### ネイティブテスト
+
+C++コアのユニットテストを実行できます。
+
+```bash
+cd test
+make test    # 全テストをビルド・実行
+make clean   # ビルド成果物を削除
+```
+
+個別のテストを実行する場合：
+
+```bash
+cd test
+make viewport_test && ./viewport_test
+make box_blur_test && ./box_blur_test
+```
 
 ## 注意事項
 

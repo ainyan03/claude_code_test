@@ -97,7 +97,7 @@ cd demo/web
 python3 -m http.server 8080
 ```
 
-ビルドが成功すると、`demo/web/`ディレクトリに `image_transform.wasm` と `image_transform.js` が生成されます。
+ビルドが成功すると、`demo/web/`ディレクトリに `fleximg.wasm` と `fleximg.js` が生成されます。
 
 ## トラブルシューティング
 
@@ -105,7 +105,7 @@ python3 -m http.server 8080
 
 - ブラウザのコンソール（F12）でエラーを確認
 - ブラウザをリロード（Ctrl+R / Cmd+R）
-- WebAssemblyファイル（image_transform.wasm）が正しく読み込まれているか確認
+- WebAssemblyファイル（fleximg.wasm）が正しく読み込まれているか確認
 
 ### スマホからアクセスできない
 

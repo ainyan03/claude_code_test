@@ -26,7 +26,7 @@ namespace NodeTypeMask {
     constexpr uint32_t NONE         = 0;
     constexpr uint32_t IMAGE        = 1 << 0;  // SourceNode（画像切り出し）
     constexpr uint32_t LIGHT_FILTER = 1 << 1;  // Brightness, Grayscale, Alpha
-    constexpr uint32_t TRANSFORM    = 1 << 2;  // TransformNode（アフィン変換）
+    constexpr uint32_t TRANSFORM    = 1 << 2;  // AffineNode（アフィン変換）
     constexpr uint32_t HEAVY_FILTER = 1 << 3;  // BoxBlur 等
     constexpr uint32_t COMPOSITE    = 1 << 4;  // CompositeNode
 }
@@ -41,7 +41,7 @@ namespace NodeTypeMask {
 | GrayscaleNode | Grayscale | LIGHT_FILTER |
 | AlphaNode | Alpha | LIGHT_FILTER |
 | BoxBlurNode | BoxBlur | HEAVY_FILTER |
-| TransformNode | Transform | TRANSFORM |
+| AffineNode | Affine | TRANSFORM |
 | CompositeNode | Composite | COMPOSITE |
 
 ## 伝播の仕組み
@@ -90,7 +90,7 @@ public:
     }
 };
 
-class TransformNode : public Node {
+class AffineNode : public Node {
 public:
     uint32_t getOwnMask() const override {
         return NodeTypeMask::TRANSFORM;
@@ -103,7 +103,7 @@ public:
 ### アフィン変換での分割判定
 
 ```cpp
-bool TransformNode::shouldSplit() const {
+bool AffineNode::shouldSplit() const {
     // 上流が IMAGE のみなら分割不要
     if (upstreamMask_ == 0) return false;
 
@@ -138,7 +138,7 @@ TileConfig Node::selectTileConfig() const {
 2. [ ] Node 基底クラスに upstreamMask_ と getOwnMask() を追加
 3. [ ] pullPrepare() でマスク伝播を実装
 4. [ ] 各派生クラスで getOwnMask() をオーバーライド
-5. [ ] TransformNode::shouldSplit() で活用
+5. [ ] AffineNode::shouldSplit() で活用
 
 ## 設計上の考慮点
 
