@@ -22,17 +22,18 @@ let debugCheckerboard = false;
 // ========================================
 const NODE_TYPES = {
     // システム系（パイプライン制御）
-    renderer:   { index: 0, name: 'Renderer',   category: 'system',    showEfficiency: false },
-    source:     { index: 1, name: 'Source',     category: 'system',    showEfficiency: false },
-    sink:       { index: 2, name: 'Sink',       category: 'system',    showEfficiency: false },
+    renderer:    { index: 0, name: 'Renderer',    category: 'system',    showEfficiency: false },
+    source:      { index: 1, name: 'Source',      category: 'system',    showEfficiency: false },
+    sink:        { index: 2, name: 'Sink',        category: 'system',    showEfficiency: false },
+    distributor: { index: 3, name: 'Distributor', category: 'system',    showEfficiency: false },
     // 構造系（変換・合成）
-    affine:     { index: 3, name: 'Affine',     category: 'structure', showEfficiency: true },
-    composite:  { index: 4, name: 'Composite',  category: 'structure', showEfficiency: false },
+    affine:      { index: 4, name: 'Affine',      category: 'structure', showEfficiency: true },
+    composite:   { index: 5, name: 'Composite',   category: 'structure', showEfficiency: false },
     // フィルタ系
-    brightness: { index: 5, name: 'Brightness', category: 'filter',    showEfficiency: true },
-    grayscale:  { index: 6, name: 'Grayscale',  category: 'filter',    showEfficiency: true },
-    boxBlur:    { index: 7, name: 'BoxBlur',    category: 'filter',    showEfficiency: true },
-    alpha:      { index: 8, name: 'Alpha',      category: 'filter',    showEfficiency: true },
+    brightness:  { index: 6, name: 'Brightness',  category: 'filter',    showEfficiency: true },
+    grayscale:   { index: 7, name: 'Grayscale',   category: 'filter',    showEfficiency: true },
+    boxBlur:     { index: 8, name: 'BoxBlur',     category: 'filter',    showEfficiency: true },
+    alpha:       { index: 9, name: 'Alpha',       category: 'filter',    showEfficiency: true },
 };
 
 // ========================================
@@ -215,6 +216,7 @@ let globalNodes = [];  // すべてのノード（画像、フィルタ、合成
 let globalConnections = [];  // ノード間の接続
 let nextGlobalNodeId = 1;
 let nextCompositeId = 1;
+let nextDistributorId = 1;
 let nextIndependentFilterId = 1;
 let nextImageNodeId = 1;
 let nodeGraphSvg = null;
@@ -835,7 +837,10 @@ function buildNodeAddMenu(menu) {
     // カテゴリごとにグループ化
     const categories = {
         transform: [{ id: 'affine', name: 'アフィン変換', icon: '🔄' }],
-        composite: [{ id: 'composite', name: '合成', icon: '📑' }]
+        composite: [
+            { id: 'composite', name: '合成', icon: '📑' },
+            { id: 'distributor', name: '分配', icon: '📤' }
+        ]
     };
 
     // FILTER_DEFINITIONSからフィルタを追加
@@ -891,6 +896,8 @@ function handleNodeAdd(nodeType) {
         addAffineNode();
     } else if (nodeType === 'composite') {
         addCompositeNode();
+    } else if (nodeType === 'distributor') {
+        addDistributorNode();
     } else if (FILTER_DEFINITIONS[nodeType]) {
         addIndependentFilterNode(nodeType);
     }
@@ -1580,6 +1587,12 @@ function getNodeHeight(node) {
         const minPortSpacing = 15;
         const minHeight = 60;
         return Math.max(minHeight, (inputCount + 1) * minPortSpacing);
+    } else if (node.type === 'distributor') {
+        // 分配ノード: 出力数に応じて可変高さ
+        const outputCount = node.outputs ? node.outputs.length : 2;
+        const minPortSpacing = 15;
+        const minHeight = 60;
+        return Math.max(minHeight, (outputCount + 1) * minPortSpacing);
     } else if (node.type === 'affine') {
         return 70; // アフィン: 主要パラメータ1つ
     } else if (node.type === 'filter' && node.independent) {
@@ -2232,6 +2245,20 @@ function getNodePorts(node) {
             ports.outputs.push({ id: 'out', label: '出力', type: 'image' });
             break;
 
+        case 'distributor':
+            // 分配ノード: 入力1つ、動的な出力数
+            ports.inputs.push({ id: 'in', label: '入力', type: 'image' });
+            if (node.outputs && node.outputs.length > 0) {
+                node.outputs.forEach((output, index) => {
+                    ports.outputs.push({
+                        id: output.id,
+                        label: `出力${index + 1}`,
+                        type: 'image'
+                    });
+                });
+            }
+            break;
+
         case 'affine':
             // アフィン変換ノード: 入力1つ、出力1つ
             ports.inputs.push({ id: 'in', label: '入力', type: 'image' });
@@ -2384,6 +2411,52 @@ function addCompositeInput(node) {
     const newIndex = node.inputs.length + 1;
     node.inputs.push({
         id: `in${newIndex}`
+    });
+
+    // ノードグラフを再描画
+    renderNodeGraph();
+    scheduleAutoSave();
+}
+
+// 分配ノードを追加
+function addDistributorNode() {
+    // 表示範囲の中央に固定配置 + ランダムオフセット
+    const center = getVisibleNodeGraphCenter();
+    const nodeWidth = 160;
+    const nodeHeight = 90;
+    const posX = center.x - nodeWidth / 2 + randomOffset();
+    const posY = center.y - nodeHeight / 2 + randomOffset();
+
+    // 既存ノードを押し出す
+    pushExistingNodes(posX, posY, nodeWidth, nodeHeight);
+
+    const distributorNode = {
+        id: `distributor-${nextDistributorId++}`,
+        type: 'distributor',
+        title: '分配',
+        posX: posX,
+        posY: posY,
+        // 動的な出力配列（デフォルトで2つの出力）
+        outputs: [
+            { id: 'out1' },
+            { id: 'out2' }
+        ]
+    };
+
+    globalNodes.push(distributorNode);
+    renderNodeGraph();
+    scheduleAutoSave();
+}
+
+// 分配ノードに出力を追加
+function addDistributorOutput(node) {
+    if (!node.outputs) {
+        node.outputs = [];
+    }
+
+    const newIndex = node.outputs.length + 1;
+    node.outputs.push({
+        id: `out${newIndex}`
     });
 
     // ノードグラフを再描画
@@ -2906,6 +2979,16 @@ function showContextMenu(x, y, node) {
         addInputMenu.style.display = 'none';
     }
 
+    // 分配ノードの場合のみ「出力を追加」を表示
+    const addOutputMenu = document.getElementById('add-output-menu');
+    if (addOutputMenu) {
+        if (node.type === 'distributor') {
+            addOutputMenu.style.display = 'block';
+        } else {
+            addOutputMenu.style.display = 'none';
+        }
+    }
+
     contextMenu.style.left = x + 'px';
     contextMenu.style.top = y + 'px';
     contextMenu.style.display = 'block';
@@ -2939,6 +3022,17 @@ document.getElementById('add-input-menu').addEventListener('click', () => {
         hideContextMenu();
     }
 });
+
+// 出力追加メニューアイテムのクリック
+const addOutputMenuEl = document.getElementById('add-output-menu');
+if (addOutputMenuEl) {
+    addOutputMenuEl.addEventListener('click', () => {
+        if (contextMenuTargetNode && contextMenuTargetNode.type === 'distributor') {
+            addDistributorOutput(contextMenuTargetNode);
+            hideContextMenu();
+        }
+    });
+}
 
 // 詳細メニューアイテムのクリック
 document.getElementById('detail-node-menu').addEventListener('click', () => {
@@ -3049,6 +3143,8 @@ function buildDetailPanelContent(node) {
         buildFilterDetailContent(node);
     } else if (node.type === 'composite') {
         buildCompositeDetailContent(node);
+    } else if (node.type === 'distributor') {
+        buildDistributorDetailContent(node);
     } else if (node.type === 'affine') {
         buildAffineDetailContent(node);
     } else if (node.type === 'renderer') {
@@ -3227,6 +3323,36 @@ function buildCompositeDetailContent(node) {
     const hint = document.createElement('div');
     hint.style.cssText = 'margin-top: 12px; font-size: 11px; color: #888;';
     hint.textContent = '💡 アルファ調整はAlphaフィルタノードを使用してください';
+    section.appendChild(hint);
+
+    detailPanelContent.appendChild(section);
+}
+
+// 分配ノードの詳細コンテンツ
+function buildDistributorDetailContent(node) {
+    const section = document.createElement('div');
+    section.className = 'node-detail-section';
+
+    const label = document.createElement('div');
+    label.className = 'node-detail-label';
+    label.textContent = `出力数: ${node.outputs ? node.outputs.length : 0}`;
+    section.appendChild(label);
+
+    // 出力追加ボタン
+    const addBtn = document.createElement('button');
+    addBtn.textContent = '+ 出力を追加';
+    addBtn.style.cssText = 'width: 100%; margin-top: 8px; padding: 6px; font-size: 12px;';
+    addBtn.addEventListener('click', () => {
+        addDistributorOutput(node);
+        detailPanelContent.innerHTML = '';
+        buildDistributorDetailContent(node);
+    });
+    section.appendChild(addBtn);
+
+    // ヒントテキスト
+    const hint = document.createElement('div');
+    hint.style.cssText = 'margin-top: 12px; font-size: 11px; color: #888;';
+    hint.textContent = '💡 1つの入力を複数の出力に分配します';
     section.appendChild(hint);
 
     detailPanelContent.appendChild(section);
@@ -3870,6 +3996,7 @@ function getAppState() {
             imageId: nextImageId,
             globalNodeId: nextGlobalNodeId,
             compositeId: nextCompositeId,
+            distributorId: nextDistributorId,
             independentFilterId: nextIndependentFilterId,
             imageNodeId: nextImageNodeId
         }
@@ -4044,6 +4171,7 @@ async function restoreAppState(state) {
     nextImageId = state.nextIds.imageId;
     nextGlobalNodeId = state.nextIds.globalNodeId;
     nextCompositeId = state.nextIds.compositeId;
+    nextDistributorId = state.nextIds.distributorId || 1;
     nextIndependentFilterId = state.nextIds.independentFilterId;
     nextImageNodeId = state.nextIds.imageNodeId;
 
