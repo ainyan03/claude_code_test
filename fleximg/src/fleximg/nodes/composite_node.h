@@ -152,6 +152,19 @@ public:
             // 空入力はスキップ
             if (!inputResult.isValid()) continue;
 
+            // フォーマット変換: blend関数が対応していないフォーマットは変換
+            // 対応フォーマット: RGBA8_Straight, RGBA16_Premultiplied
+            PixelFormatID inputFmt = inputResult.view().formatID;
+            if (inputFmt != PixelFormatIDs::RGBA8_Straight &&
+                inputFmt != PixelFormatIDs::RGBA16_Premultiplied) {
+                // RGBA16_Premultiplied に変換（合成キャンバスと同じフォーマット）
+                Point savedOrigin = inputResult.origin;
+                inputResult = RenderResult(
+                    std::move(inputResult.buffer).toFormat(PixelFormatIDs::RGBA16_Premultiplied),
+                    savedOrigin
+                );
+            }
+
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
             auto compStart = std::chrono::high_resolution_clock::now();
 #endif
