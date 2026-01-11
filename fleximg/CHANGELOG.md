@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.27.0] - 2026-01-12
+
+### 追加
+
+- **DistributorNode**: 1入力・N出力の分配ノードを新設
+  - CompositeNode（N入力・1出力）と対称的な構造
+  - 下流には参照モードImageBuffer（ownsMemory()==false）を渡す
+  - 下流ノードが変更を加えたい場合はコピーを作成
+
+### 技術詳細
+
+- NodeType に Distributor を追加（インデックス再配置）
+- pushPrepare/pushFinalize: 全下流ノードへ伝播
+- pushProcess: 参照モードで配信、最後の出力にはmoveで渡す
+
+---
+
 ## [2.26.0] - 2026-01-12
 
 ### 修正
