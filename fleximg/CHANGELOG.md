@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.22.0] - 2026-01-11
+
+### 追加
+
+- **Sinkノード機能拡張**: 出力フォーマット選択・サムネイル・複数Sink対応準備
+  - `SinkOutput` 構造体: Sink別出力バッファ管理
+  - `setSinkFormat(sinkId, formatId)`: Sink別出力フォーマット設定API
+  - `getSinkPreview(sinkId)`: Sink別プレビュー取得API（RGBA8888変換）
+  - WebUI: Sinkノード詳細パネルにフォーマット選択UI追加
+  - WebUI: Sinkノード内に出力サムネイル表示を追加
+  - 指定フォーマットで内部バッファに保存、Canvas表示用に自動変換
+
+---
+
 ## [2.21.0] - 2026-01-11
 
 ### 追加

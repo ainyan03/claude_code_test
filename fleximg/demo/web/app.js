@@ -1587,7 +1587,7 @@ function getNodeHeight(node) {
     } else if (node.type === 'renderer') {
         return 80; // Renderer: 仮想スクリーン情報
     } else if (node.type === 'sink') {
-        return 70; // Sink: 出力サイズ情報
+        return 110; // Sink: サムネイル + 出力情報
     } else {
         return 50; // デフォルト
     }
@@ -1790,17 +1790,29 @@ function drawGlobalNode(node) {
         nodeBox.appendChild(controls);
     }
 
-    // Sinkノードの場合、出力サイズ情報を表示
+    // Sinkノードの場合、サムネイルと出力サイズ情報を表示
     if (node.type === 'sink') {
-        const controls = document.createElement('div');
-        controls.className = 'node-box-controls';
-        controls.style.cssText = 'padding: 4px; font-size: 10px; color: #666; line-height: 1.4;';
+        const contentRow = document.createElement('div');
+        contentRow.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 4px;';
 
+        // サムネイル用Canvas
+        const thumbnailCanvas = document.createElement('canvas');
+        thumbnailCanvas.id = `sink-thumbnail-${node.id}`;
+        thumbnailCanvas.width = 60;
+        thumbnailCanvas.height = 45;
+        thumbnailCanvas.style.cssText = 'border: 1px solid #444; background: #222; border-radius: 3px;';
+        contentRow.appendChild(thumbnailCanvas);
+
+        // 出力情報
+        const infoDiv = document.createElement('div');
+        infoDiv.style.cssText = 'font-size: 10px; color: #666; line-height: 1.4;';
         const ow = node.outputWidth ?? canvasWidth;
         const oh = node.outputHeight ?? canvasHeight;
+        const formatName = PIXEL_FORMATS.find(f => f.id === (node.outputFormat ?? DEFAULT_PIXEL_FORMAT))?.name ?? 'RGBA8';
+        infoDiv.innerHTML = `${ow}×${oh}<br>${formatName}`;
+        contentRow.appendChild(infoDiv);
 
-        controls.innerHTML = `出力: ${ow}×${oh}`;
-        nodeBox.appendChild(controls);
+        nodeBox.appendChild(contentRow);
     }
 
     foreignObject.appendChild(nodeBox);
@@ -2582,8 +2594,59 @@ function updatePreviewFromGraph() {
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     }
 
+    // Sinkノードのサムネイルを更新
+    updateSinkThumbnails();
+
     // 状態を自動保存
     scheduleAutoSave();
+}
+
+// Sinkノードのサムネイルを更新
+function updateSinkThumbnails() {
+    if (!graphEvaluator) return;
+
+    globalNodes.filter(n => n.type === 'sink').forEach(sinkNode => {
+        const thumbnailCanvas = document.getElementById(`sink-thumbnail-${sinkNode.id}`);
+        if (!thumbnailCanvas) return;
+
+        // C++側からプレビューデータを取得
+        const preview = graphEvaluator.getSinkPreview(sinkNode.id);
+        if (!preview || !preview.data || preview.width === 0 || preview.height === 0) {
+            // プレビューがない場合はクリア
+            const thumbCtx = thumbnailCanvas.getContext('2d');
+            thumbCtx.clearRect(0, 0, thumbnailCanvas.width, thumbnailCanvas.height);
+            return;
+        }
+
+        // ImageDataを作成
+        const imageData = new ImageData(
+            new Uint8ClampedArray(preview.data),
+            preview.width,
+            preview.height
+        );
+
+        // 一時Canvasで描画
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = preview.width;
+        tempCanvas.height = preview.height;
+        tempCanvas.getContext('2d').putImageData(imageData, 0, 0);
+
+        // サムネイルに縮小描画
+        const thumbCtx = thumbnailCanvas.getContext('2d');
+        thumbCtx.clearRect(0, 0, thumbnailCanvas.width, thumbnailCanvas.height);
+
+        // アスペクト比を維持して中央に描画
+        const scale = Math.min(
+            thumbnailCanvas.width / preview.width,
+            thumbnailCanvas.height / preview.height
+        );
+        const w = preview.width * scale;
+        const h = preview.height * scale;
+        const x = (thumbnailCanvas.width - w) / 2;
+        const y = (thumbnailCanvas.height - h) / 2;
+
+        thumbCtx.drawImage(tempCanvas, x, y, w, h);
+    });
 }
 
 // デバッグステータスバーを更新
@@ -3620,6 +3683,28 @@ function buildSinkDetailContent(node) {
     originYRow.appendChild(originYInput);
     section.appendChild(originYRow);
 
+    // ピクセルフォーマット選択
+    const formatRow = document.createElement('div');
+    formatRow.className = 'node-detail-row';
+    const formatLabel = document.createElement('label');
+    formatLabel.textContent = 'フォーマット';
+    const formatSelect = document.createElement('select');
+    formatSelect.style.width = '120px';
+
+    const currentFormat = node.outputFormat ?? DEFAULT_PIXEL_FORMAT;
+    PIXEL_FORMATS.forEach(fmt => {
+        const option = document.createElement('option');
+        option.value = fmt.id;
+        option.textContent = `${fmt.name} (${fmt.bpp}B)`;
+        option.title = fmt.description;
+        if (currentFormat === fmt.id) option.selected = true;
+        formatSelect.appendChild(option);
+    });
+
+    formatRow.appendChild(formatLabel);
+    formatRow.appendChild(formatSelect);
+    section.appendChild(formatRow);
+
     // 適用ボタン
     const applyRow = document.createElement('div');
     applyRow.className = 'node-detail-row';
@@ -3633,6 +3718,12 @@ function buildSinkDetailContent(node) {
         node.outputHeight = parseInt(heightInput.value);
         node.outputOriginX = parseFloat(originXInput.value);
         node.outputOriginY = parseFloat(originYInput.value);
+        node.outputFormat = parseInt(formatSelect.value);
+
+        // Sink出力フォーマットをC++側に設定
+        if (graphEvaluator) {
+            graphEvaluator.setSinkFormat(node.id, node.outputFormat);
+        }
 
         // Rendererノードと同期（将来的には独立設定も可能）
         const rendererNode = globalNodes.find(n => n.type === 'renderer');
@@ -4043,6 +4134,10 @@ async function restoreAppState(state) {
                     node.pixelFormat
                 );
             }
+        }
+        // Sinkノードの出力フォーマットを適用
+        if (node.type === 'sink' && node.outputFormat && node.outputFormat !== DEFAULT_PIXEL_FORMAT) {
+            graphEvaluator.setSinkFormat(node.id, node.outputFormat);
         }
     });
 

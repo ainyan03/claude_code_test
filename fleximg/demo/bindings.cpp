@@ -23,6 +23,17 @@ using namespace emscripten;
 using namespace FLEXIMG_NAMESPACE;
 
 // ========================================================================
+// SinkOutput - Sink別出力管理（複数Sink対応）
+// ========================================================================
+
+struct SinkOutput {
+    std::vector<uint8_t> buffer;
+    PixelFormatID format = PixelFormatIDs::RGBA8_Straight;
+    int width = 0;
+    int height = 0;
+};
+
+// ========================================================================
 // ImageStore - 入出力画像データの永続化管理
 // ========================================================================
 
@@ -120,6 +131,57 @@ public:
 
     void setDebugCheckerboard(bool enabled) {
         debugCheckerboard_ = enabled;
+    }
+
+    // Sink別出力フォーマットを設定
+    void setSinkFormat(const std::string& sinkId, int formatId) {
+        sinkFormats_[sinkId] = static_cast<PixelFormatID>(formatId);
+    }
+
+    // Sink別プレビュー取得（RGBA8888に変換して返す）
+    val getSinkPreview(const std::string& sinkId) {
+        auto it = sinkOutputs_.find(sinkId);
+        if (it == sinkOutputs_.end()) {
+            return val::null();
+        }
+
+        const auto& sinkOut = it->second;
+        if (sinkOut.width == 0 || sinkOut.height == 0 || sinkOut.buffer.empty()) {
+            return val::null();
+        }
+
+        // 結果オブジェクトを作成
+        val result = val::object();
+        result.set("width", sinkOut.width);
+        result.set("height", sinkOut.height);
+        result.set("format", static_cast<int>(sinkOut.format));
+
+        size_t pixelCount = sinkOut.width * sinkOut.height;
+        size_t rgba8Size = pixelCount * 4;
+
+        // RGBA8888 に変換（または同一フォーマットならコピー）
+        if (sinkOut.format == PixelFormatIDs::RGBA8_Straight) {
+            // そのまま返す
+            val data = val::global("Uint8ClampedArray").new_(
+                typed_memory_view(sinkOut.buffer.size(), sinkOut.buffer.data())
+            );
+            result.set("data", data);
+        } else {
+            // フォーマット変換
+            std::vector<uint8_t> rgba8Data(rgba8Size);
+            auto& registry = PixelFormatRegistry::getInstance();
+            registry.convert(
+                sinkOut.buffer.data(), sinkOut.format,
+                rgba8Data.data(), PixelFormatIDs::RGBA8_Straight,
+                pixelCount
+            );
+            val data = val::global("Uint8ClampedArray").new_(
+                typed_memory_view(rgba8Data.size(), rgba8Data.data())
+            );
+            result.set("data", data);
+        }
+
+        return result;
     }
 
     // 画像を登録（データをコピー、フォーマット指定なし = RGBA8）
@@ -396,6 +458,10 @@ private:
     std::vector<GraphConnection> graphConnections_;
     PerfMetrics lastPerfMetrics_;
 
+    // Sink別出力管理（複数Sink対応）
+    std::map<std::string, SinkOutput> sinkOutputs_;
+    std::map<std::string, PixelFormatID> sinkFormats_;
+
     // グラフを解析してv2ノードを構築・実行
     // 戻り値: 0 = 成功、非0 = エラー（ExecResult値）
     int buildAndExecute() {
@@ -430,7 +496,7 @@ private:
             return static_cast<int>(ExecResult::Success);  // 描画対象なし
         }
 
-        // 出力先ViewPortを取得
+        // 出力先ViewPortを取得（JS側表示用）
         auto outputIt = imageViews_.find(sinkGraphNode->imageId);
         if (outputIt == imageViews_.end()) {
             return static_cast<int>(ExecResult::Success);  // 出力先なし
@@ -439,6 +505,26 @@ private:
 
         // 出力バッファをクリア（以前の描画結果を消去）
         view_ops::clear(outputView, 0, 0, outputView.width, outputView.height);
+
+        // Sink別出力バッファを準備（指定フォーマット or デフォルト RGBA8）
+        std::string sinkId = sinkGraphNode->id;
+        auto formatIt = sinkFormats_.find(sinkId);
+        PixelFormatID sinkFormat = (formatIt != sinkFormats_.end())
+            ? formatIt->second
+            : PixelFormatIDs::RGBA8_Straight;
+
+        auto& sinkOut = sinkOutputs_[sinkId];
+        sinkOut.format = sinkFormat;
+        sinkOut.width = canvasWidth_;
+        sinkOut.height = canvasHeight_;
+        size_t sinkBpp = getBytesPerPixel(sinkFormat);
+        size_t sinkBufferSize = canvasWidth_ * canvasHeight_ * sinkBpp;
+        sinkOut.buffer.resize(sinkBufferSize);
+        std::fill(sinkOut.buffer.begin(), sinkOut.buffer.end(), 0);
+
+        // SinkNode用のViewPortを作成
+        ViewPort sinkTargetView(sinkOut.buffer.data(), sinkFormat,
+                                canvasWidth_ * sinkBpp, canvasWidth_, canvasHeight_);
 
         // v2ノードを一時的に保持するコンテナ
         std::map<std::string, std::unique_ptr<Node>> v2Nodes;
@@ -450,9 +536,9 @@ private:
                                         float_to_fixed8(static_cast<float>(dstOriginX_)),
                                         float_to_fixed8(static_cast<float>(dstOriginY_)));
 
-        // SinkNodeを作成
+        // SinkNodeを作成（指定フォーマットのバッファに出力）
         auto sinkNode = std::make_unique<SinkNode>();
-        sinkNode->setTarget(outputView);
+        sinkNode->setTarget(sinkTargetView);
         sinkNode->setOrigin(float_to_fixed8(static_cast<float>(dstOriginX_)),
                             float_to_fixed8(static_cast<float>(dstOriginY_)));
 
@@ -702,6 +788,22 @@ private:
         // パフォーマンスメトリクスを保存
         lastPerfMetrics_ = rendererNode->getPerfMetrics();
 
+        // sinkOutputs_ から outputView（JS表示用）に RGBA8 でコピー
+        if (sinkFormat == PixelFormatIDs::RGBA8_Straight) {
+            // 同一フォーマットなら直接コピー
+            view_ops::copy(outputView, 0, 0, sinkTargetView, 0, 0,
+                          canvasWidth_, canvasHeight_);
+        } else {
+            // フォーマット変換してコピー
+            size_t pixelCount = canvasWidth_ * canvasHeight_;
+            auto& registry = PixelFormatRegistry::getInstance();
+            registry.convert(
+                sinkOut.buffer.data(), sinkFormat,
+                static_cast<uint8_t*>(outputView.data), PixelFormatIDs::RGBA8_Straight,
+                pixelCount
+            );
+        }
+
         return static_cast<int>(result);
     }
 };
@@ -725,5 +827,7 @@ EMSCRIPTEN_BINDINGS(image_transform) {
         .function("setConnections", &NodeGraphEvaluatorWrapper::setConnections)
         .function("evaluateGraph", &NodeGraphEvaluatorWrapper::evaluateGraph)
         .function("clearImage", &NodeGraphEvaluatorWrapper::clearImage)
-        .function("getPerfMetrics", &NodeGraphEvaluatorWrapper::getPerfMetrics);
+        .function("getPerfMetrics", &NodeGraphEvaluatorWrapper::getPerfMetrics)
+        .function("setSinkFormat", &NodeGraphEvaluatorWrapper::setSinkFormat)
+        .function("getSinkPreview", &NodeGraphEvaluatorWrapper::getSinkPreview);
 }
