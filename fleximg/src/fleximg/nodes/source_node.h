@@ -114,7 +114,7 @@ public:
         int interW = from_fixed8(interRight - interLeft);
         int interH = from_fixed8(interBottom - interTop);
 
-        ImageBuffer result(interW, interH, source_.formatID);
+        ImageBuffer result(interW, interH, source_.formatID, InitPolicy::Uninitialized);
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         PerfMetrics::instance().nodes[NodeType::Source].recordAlloc(
             result.totalBytes(), result.width(), result.height());

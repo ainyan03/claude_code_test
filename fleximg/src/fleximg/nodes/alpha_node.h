@@ -52,8 +52,9 @@ protected:
         ImageBuffer working = std::move(input.buffer).toFormat(PixelFormatIDs::RGBA8_Straight);
         ViewPort workingView = working.view();
 
-        // 出力バッファ作成
-        ImageBuffer output(working.width(), working.height(), PixelFormatIDs::RGBA8_Straight);
+        // 出力バッファ作成（全ピクセル上書きするため初期化スキップ）
+        ImageBuffer output(working.width(), working.height(), PixelFormatIDs::RGBA8_Straight,
+                           InitPolicy::Uninitialized);
         ViewPort outputView = output.view();
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS

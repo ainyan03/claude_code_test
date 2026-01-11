@@ -1,5 +1,30 @@
 # Changelog
 
+## [2.15.0] - 2026-01-11
+
+### 追加
+
+- **InitPolicy**: ImageBuffer初期化ポリシー
+  - `Zero`: ゼロクリア（デフォルト、既存動作維持）
+  - `Uninitialized`: 初期化スキップ（全ピクセル上書き時に使用）
+  - `DebugPattern`: デバッグ用パターン値（0xCD, 0xCE, ...）で埋める
+
+### 変更
+
+- **ImageBuffer コンストラクタ**: InitPolicy パラメータを追加
+  - `ImageBuffer(w, h, fmt, InitPolicy::Uninitialized)` で初期化スキップ
+  - コピーコンストラクタ/代入: Uninitialized を使用（copyFromで上書き）
+  - toFormat(): Uninitialized を使用（変換で全ピクセル上書き）
+
+- **各ノードで InitPolicy::Uninitialized を適用**:
+  - SourceNode: view_ops::copyで全領域コピー
+  - BrightnessNode: filters::brightnessで全ピクセル上書き
+  - GrayscaleNode: filters::grayscaleで全ピクセル上書き
+  - AlphaNode: filters::alphaで全ピクセル上書き
+  - BoxBlurNode: filters::boxBlur + croppedバッファ
+
+---
+
 ## [2.14.0] - 2026-01-11
 
 ### 変更
