@@ -286,6 +286,17 @@ private:
 public:
 
     // ========================================
+    // テスト用アクセサ
+    // ========================================
+    const Matrix2x2_fixed16& getInvMatrix() const { return invMatrix_; }
+    const Matrix2x2_fixed16& getFwdMatrix() const { return fwdMatrix_; }
+    int_fixed8 getTxFixed8() const { return txFixed8_; }
+    int_fixed8 getTyFixed8() const { return tyFixed8_; }
+    InputRegion testComputeInputRegion(const RenderRequest& request) {
+        return computeInputRegion(request);
+    }
+
+    // ========================================
     // プッシュ型インターフェース
     // ========================================
     //
@@ -599,7 +610,8 @@ protected:
         InputRegion region;
         region.outputPixels = static_cast<int64_t>(request.width) * request.height;
 
-        // 出力要求の4頂点を Q24.8 で計算（小数部保持）
+        // 出力要求の4頂点を Q24.8 で計算
+        // corners は台形フィット用なので、ピクセル境界座標を使用
         int_fixed8 out_x[4] = {
             -request.origin.x,
             to_fixed8(request.width) - request.origin.x,
@@ -636,17 +648,20 @@ protected:
             maxY_f8 = std::max(maxY_f8, region.corners_y[i]);
         }
 
-        // floor/ceil で整数化（正確な境界）
-        int minX = from_fixed8_floor(minX_f8);
-        int minY = from_fixed8_floor(minY_f8);
-        int maxX = from_fixed8_ceil(maxX_f8);
-        int maxY = from_fixed8_ceil(maxY_f8);
+        // ピクセル中心補正: DDA は (dx+0.5, dy+0.5) を逆変換してサンプリングする
+        // corners は境界座標なので、実際のサンプリング範囲は 0.5 ピクセル内側
+        // min 側: 実際のサンプリング開始位置 = corner + 0.5 → floor で入力ピクセル
+        // max 側: 実際のサンプリング終了位置 = corner - 0.5 → floor で入力ピクセル
+        constexpr int_fixed8 HALF = 128;  // 0.5 in Q24.8
+        int minX = from_fixed8_floor(minX_f8 + HALF);
+        int minY = from_fixed8_floor(minY_f8 + HALF);
+        int maxX = from_fixed8_floor(maxX_f8 - HALF);
+        int maxY = from_fixed8_floor(maxY_f8 - HALF);
 
-        // マージン: +1（DDA 半ピクセルオフセット対策）
-        region.aabbLeft = minX - 1;
-        region.aabbTop = minY - 1;
-        region.aabbRight = maxX + 1;
-        region.aabbBottom = maxY + 1;
+        region.aabbLeft = minX;
+        region.aabbTop = minY;
+        region.aabbRight = maxX;
+        region.aabbBottom = maxY;
         region.aabbPixels = static_cast<int64_t>(region.aabbRight - region.aabbLeft + 1)
                           * (region.aabbBottom - region.aabbTop + 1);
 
