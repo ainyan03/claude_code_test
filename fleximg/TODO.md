@@ -16,13 +16,26 @@
 | 機能 | 概要 | バージョン |
 |------|------|-----------|
 | プッシュ型アフィン変換 | Renderer下流でのアフィン変換 | v2.19.0 |
+| 固定小数点型基盤 | int_fixed8/int_fixed16、Point構造体、座標計算 | v2.5.0 |
+| マイグレーションAPI削除 | Point2f, setOriginf() 等の削除 | v2.18.0 |
 
 ## 実装予定
 
-（なし）
+| 機能 | 概要 | 備考 |
+|------|------|------|
+| AffineMatrix固定小数点化 | a,b,c,d,tx,tyをint_fixed16に | 組み込み移植時 |
+| フィルタパラメータ固定小数点化 | brightness/alphaのパラメータ | 組み込み移植時 |
 
 ## 既知の問題
 
-- アフィン変換で拡大方向の変換をすると画像に隙間ができることがある（要AABBマージン再検証）
 - アルファなしフォーマット（RGB332, RGB565, RGB888等）でアフィン変換すると、画像外エリアが不透明黒になる
   → 対策案は [IDEA_AFFINE_ALPHA_HANDLING.md](docs/ideas/IDEA_AFFINE_ALPHA_HANDLING.md) を参照
+
+## メンテナンス性改善
+
+詳細は [MAINTAINABILITY_ISSUES.md](../.work/reports/MAINTAINABILITY_ISSUES.md) を参照。
+
+| 優先度 | 項目 | 重度 |
+|--------|------|------|
+| 1 | マジックナンバー定数化 | 中 |
+| 2 | ヘッダ責務分離 | 中 |

@@ -199,6 +199,7 @@ private:
 
         // 上流を評価
         RenderResult input = upstream->pullProcess(inputReq);
+        // プル型: 無効入力には空Resultを返却
         if (!input.isValid()) {
             return RenderResult(ImageBuffer(), request.origin);
         }
