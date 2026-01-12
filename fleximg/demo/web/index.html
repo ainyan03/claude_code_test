@@ -22,14 +22,17 @@
     <!-- 左袖メニュー -->
     <aside id="sidebar" class="sidebar">
         <div class="sidebar-content">
-            <!-- 画像ライブラリ（アコーディオン） -->
-            <div class="sidebar-accordion-item active" data-accordion="images">
+            <!-- コンテンツライブラリ（アコーディオン） -->
+            <div class="sidebar-accordion-item active" data-accordion="content">
                 <button class="sidebar-accordion-header">
                     <span class="sidebar-accordion-icon">▼</span>
-                    <span>📸 画像ライブラリ</span>
+                    <span>📁 コンテンツライブラリ</span>
                 </button>
                 <div class="sidebar-accordion-content">
-                    <button id="sidebar-add-image-btn" class="primary-btn sidebar-add-btn">📁 画像を追加</button>
+                    <div class="content-library-actions">
+                        <button id="sidebar-add-image-btn" class="primary-btn sidebar-add-btn">📁 画像を追加</button>
+                        <button id="sidebar-add-output-btn" class="primary-btn sidebar-add-btn">📤 出力を追加</button>
+                    </div>
                     <div id="sidebar-images-library" class="sidebar-images-library"></div>
                 </div>
             </div>

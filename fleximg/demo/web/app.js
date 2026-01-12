@@ -760,6 +760,14 @@ function setupEventListeners() {
         document.getElementById('image-input').click();
     });
 
+    // 出力追加ボタン（サイドバー内）
+    const addOutputBtn = document.getElementById('sidebar-add-output-btn');
+    if (addOutputBtn) {
+        addOutputBtn.addEventListener('click', () => {
+            showAddOutputDialog();
+        });
+    }
+
     // 画像選択
     document.getElementById('image-input').addEventListener('change', handleImageUpload);
 
@@ -1141,6 +1149,34 @@ function autoConnectToRenderer(sinkNode) {
             toPortId: 'in'
         });
     }
+}
+
+// 出力追加ダイアログを表示
+function showAddOutputDialog() {
+    const width = prompt('出力幅 (px):', '320');
+    if (!width) return;
+
+    const height = prompt('出力高さ (px):', '240');
+    if (!height) return;
+
+    const w = parseInt(width, 10);
+    const h = parseInt(height, 10);
+    if (isNaN(w) || isNaN(h) || w <= 0 || h <= 0) {
+        alert('有効なサイズを入力してください');
+        return;
+    }
+
+    const outputCount = contentLibrary.filter(c => c.type === 'output').length;
+    const content = addOutputContent(
+        `LCD #${outputCount + 1}`,
+        w,
+        h
+    );
+
+    // 対応するSinkノードも自動生成
+    addSinkNodeFromLibrary(content.id);
+
+    scheduleAutoSave();
 }
 
 // デバッグ用テストパターン画像を生成
