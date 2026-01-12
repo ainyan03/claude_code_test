@@ -689,6 +689,7 @@ async function tryRestoreState() {
 // デフォルト状態を初期化
 function initDefaultState() {
     // コンテンツライブラリ: デフォルト出力バッファを2つ用意
+    // cppImageId: 1, 2 は出力バッファ用、3以降は入力画像用
     contentLibrary = [
         {
             id: 'out-1',
@@ -696,6 +697,7 @@ function initDefaultState() {
             name: 'LCD 320x240',
             width: 320,
             height: 240,
+            cppImageId: 1,
             imageData: null
         },
         {
@@ -704,21 +706,23 @@ function initDefaultState() {
             name: 'LCD 960x540',
             width: 960,
             height: 540,
+            cppImageId: 2,
             imageData: null
         }
     ];
     nextContentId = 3;
-    nextCppImageId = 1;
+    nextCppImageId = 3;  // 1,2は出力バッファ用
     focusedContentId = 'out-1';  // 最初の出力にフォーカス
 
     // ノード: Rendererのみ（Sinkノードはなし）
+    // ノードグラフ中央（viewBox: 1600x1200）にRendererを配置
     globalNodes = [
         {
             id: 'renderer',
             type: 'renderer',
             title: 'Renderer',
-            posX: 100,
-            posY: 200,
+            posX: 700,
+            posY: 550,
             virtualWidth: 1920,
             virtualHeight: 1080,
             originX: 960,
@@ -1050,6 +1054,7 @@ function addOutputContent(name, width, height) {
         name: name,
         width: width,
         height: height,
+        cppImageId: nextCppImageId++,  // C++側の出力バッファID
         imageData: null
     };
     contentLibrary.push(content);
@@ -1092,6 +1097,7 @@ function updateFocusedPreview() {
 
 // コンテンツの画像をキャンバスに表示
 function displayContentImage(content) {
+    console.log('displayContentImage: content.id=', content?.id, 'imageData=', content?.imageData ? 'exists' : 'null', 'data length=', content?.imageData?.data?.length);
     if (!content || !content.imageData) return;
 
     // キャンバスサイズを調整
@@ -1106,6 +1112,11 @@ function displayContentImage(content) {
         content.width,
         content.height
     );
+    // 最初の数ピクセルのRGBA値を確認
+    console.log('displayContentImage: first pixels RGBA:',
+        imageData.data[0], imageData.data[1], imageData.data[2], imageData.data[3],
+        '|', imageData.data[4], imageData.data[5], imageData.data[6], imageData.data[7]);
+    console.log('displayContentImage: drawing', content.width, 'x', content.height, 'canvas:', canvas.width, 'x', canvas.height);
     ctx.putImageData(imageData, 0, 0);
     updateCanvasDisplayScale();
 }
@@ -1832,7 +1843,7 @@ function renderNodeGraph() {
     // SVGをクリア
     nodeGraphSvg.innerHTML = '';
 
-    // Renderer ノードが存在しない場合は追加
+    // Renderer ノードが存在しない場合は追加（ノードグラフ中央に配置）
     if (!globalNodes.find(n => n.type === 'renderer')) {
         globalNodes.push({
             id: 'renderer',
@@ -1842,7 +1853,7 @@ function renderNodeGraph() {
             virtualHeight: canvasHeight,
             originX: canvasOrigin.x,
             originY: canvasOrigin.y,
-            posX: 850,
+            posX: 700,
             posY: 550
         });
     }
@@ -2177,11 +2188,12 @@ function drawGlobalNode(node) {
         thumbnailCanvas.style.cssText = 'border: 1px solid #444; background: #222; border-radius: 3px;';
         contentRow.appendChild(thumbnailCanvas);
 
-        // 出力情報
+        // 出力情報（contentLibraryから取得）
         const infoDiv = document.createElement('div');
         infoDiv.style.cssText = 'font-size: 10px; color: #666; line-height: 1.4;';
-        const ow = node.outputWidth ?? canvasWidth;
-        const oh = node.outputHeight ?? canvasHeight;
+        const sinkContent = contentLibrary.find(c => c.id === node.contentId);
+        const ow = sinkContent?.width ?? 0;
+        const oh = sinkContent?.height ?? 0;
         const formatName = PIXEL_FORMATS.find(f => f.id === (node.outputFormat ?? DEFAULT_PIXEL_FORMAT))?.name ?? 'RGBA8';
         infoDiv.innerHTML = `${ow}×${oh}<br>${formatName}`;
         contentRow.appendChild(infoDiv);
@@ -2876,23 +2888,42 @@ function getFilterDisplayName(filterType) {
 function updatePreviewFromGraph() {
     const perfStart = performance.now();
 
-    const sinkNode = globalNodes.find(n => n.type === 'sink');
+    // フォーカス中のコンテンツを取得
+    const focusedContent = contentLibrary.find(c => c.id === focusedContentId);
+
+    // レンダリング対象のSinkノードを決定
+    // 1. フォーカスが出力バッファの場合、そのcontentIdを持つSinkを探す
+    // 2. そうでなければ、接続のある最初のSinkを使う
+    let sinkNode = null;
+    if (focusedContent && focusedContent.type === 'output') {
+        sinkNode = globalNodes.find(n => n.type === 'sink' && n.contentId === focusedContentId);
+    }
     if (!sinkNode) {
-        // Sinkノードがない場合はキャンバスをクリア
-        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+        // フォールバック: 接続のある最初のSink
+        sinkNode = globalNodes.find(n => {
+            if (n.type !== 'sink') return false;
+            return globalConnections.some(c => c.toNodeId === n.id && c.toPortId === 'in');
+        });
+    }
+
+    if (!sinkNode) {
+        // Sinkノードがない、または接続がない場合はフォーカス中のコンテンツを表示
+        updateFocusedPreview();
         return;
     }
 
-    // Sinkノードへの入力接続を取得
-    const inputConn = globalConnections.find(
-        c => c.toNodeId === sinkNode.id && c.toPortId === 'in'
-    );
-
-    if (!inputConn) {
-        // 接続がない場合はキャンバスをクリア
-        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+    // Sinkノードに関連付けられた出力コンテンツを取得
+    const sinkContent = contentLibrary.find(c => c.id === sinkNode.contentId);
+    if (!sinkContent) {
+        console.warn('Sink node has no associated content:', sinkNode.contentId);
+        updateFocusedPreview();
         return;
     }
+
+    // 出力バッファのサイズとIDを使用
+    const outputWidth = sinkContent.width;
+    const outputHeight = sinkContent.height;
+    const outputImageId = sinkContent.cppImageId;
 
     // C++側にノードグラフ構造を渡す（1回のWASM呼び出しで完結）
     const evalStart = performance.now();
@@ -2929,6 +2960,18 @@ function updatePreviewFromGraph() {
                 matrix: matrix
             };
         }
+        // Sinkノード: contentLibraryからサイズを取得
+        if (node.type === 'sink') {
+            const content = contentLibrary.find(c => c.id === node.contentId);
+            if (content) {
+                return {
+                    ...node,
+                    outputWidth: content.width,
+                    outputHeight: content.height,
+                    imageId: content.cppImageId  // 出力先の画像ID
+                };
+            }
+        }
         // フィルタノード: paramをfilterParams配列に変換
         if (node.type === 'filter' && node.independent) {
             const filterDef = FILTER_DEFINITIONS[node.filterType];
@@ -2946,8 +2989,8 @@ function updatePreviewFromGraph() {
     graphEvaluator.setNodes(nodesForCpp);
     graphEvaluator.setConnections(globalConnections);
 
-    // 出力バッファを確保
-    graphEvaluator.allocateImage(outputImageId, canvasWidth, canvasHeight);
+    // 出力バッファを確保（出力コンテンツのサイズを使用）
+    graphEvaluator.allocateImage(outputImageId, outputWidth, outputHeight);
 
     // C++側でノードグラフ全体を評価（出力はimageLibraryに書き込まれる）
     // 戻り値: 0 = 成功、1 = 循環参照検出
@@ -2963,16 +3006,16 @@ function updatePreviewFromGraph() {
 
     const evalTime = performance.now() - evalStart;
 
-    if (resultData) {
+    console.log('updatePreviewFromGraph: outputImageId=', outputImageId, 'resultData length=', resultData ? resultData.length : 'null', 'expected=', outputWidth * outputHeight * 4);
+
+    if (resultData && resultData.length > 0) {
         // Sinkノードに紐づく出力バッファに結果を保存
-        const sinkContent = contentLibrary.find(c => c.id === sinkNode.contentId);
-        if (sinkContent) {
-            sinkContent.imageData = {
-                data: new Uint8ClampedArray(resultData),
-                width: canvasWidth,
-                height: canvasHeight
-            };
-        }
+        sinkContent.imageData = {
+            data: new Uint8ClampedArray(resultData),
+            width: outputWidth,
+            height: outputHeight
+        };
+        console.log('updatePreviewFromGraph: saved to sinkContent.imageData, focusedContentId=', focusedContentId, 'sinkContent.id=', sinkContent.id);
 
         // フォーカス中のコンテンツをプレビュー表示
         const drawStart = performance.now();
@@ -3948,14 +3991,8 @@ function buildRendererDetailContent(node) {
         canvasOrigin.x = node.originX;
         canvasOrigin.y = node.originY;
 
-        // Sinkノードも同期
-        const sinkNode = globalNodes.find(n => n.type === 'sink');
-        if (sinkNode) {
-            sinkNode.outputWidth = node.virtualWidth;
-            sinkNode.outputHeight = node.virtualHeight;
-            sinkNode.outputOriginX = node.originX;
-            sinkNode.outputOriginY = node.originY;
-        }
+        // Note: SinkノードのサイズはcontentLibraryから取得するため、ここでは同期しない
+        // 各Sinkは独自のcontentIdで出力バッファを参照する
 
         // キャンバスをリサイズ＆原点を更新
         resizeCanvas(node.virtualWidth, node.virtualHeight);
@@ -4118,35 +4155,22 @@ function buildSinkDetailContent(node) {
     label.textContent = '出力設定';
     section.appendChild(label);
 
-    // 幅
-    const widthRow = document.createElement('div');
-    widthRow.className = 'node-detail-row';
-    const widthLabel = document.createElement('label');
-    widthLabel.textContent = '幅';
-    const widthInput = document.createElement('input');
-    widthInput.type = 'number';
-    widthInput.min = '100';
-    widthInput.max = '4096';
-    widthInput.value = node.outputWidth ?? canvasWidth;
-    widthInput.style.width = '80px';
-    widthRow.appendChild(widthLabel);
-    widthRow.appendChild(widthInput);
-    section.appendChild(widthRow);
+    // 出力バッファ情報（contentLibraryから取得、読み取り専用）
+    const content = contentLibrary.find(c => c.id === node.contentId);
+    const outputWidth = content?.width ?? 0;
+    const outputHeight = content?.height ?? 0;
 
-    // 高さ
-    const heightRow = document.createElement('div');
-    heightRow.className = 'node-detail-row';
-    const heightLabel = document.createElement('label');
-    heightLabel.textContent = '高さ';
-    const heightInput = document.createElement('input');
-    heightInput.type = 'number';
-    heightInput.min = '100';
-    heightInput.max = '4096';
-    heightInput.value = node.outputHeight ?? canvasHeight;
-    heightInput.style.width = '80px';
-    heightRow.appendChild(heightLabel);
-    heightRow.appendChild(heightInput);
-    section.appendChild(heightRow);
+    // サイズ表示（読み取り専用）
+    const sizeRow = document.createElement('div');
+    sizeRow.className = 'node-detail-row';
+    const sizeLabel = document.createElement('label');
+    sizeLabel.textContent = 'サイズ';
+    const sizeValue = document.createElement('span');
+    sizeValue.textContent = `${outputWidth} x ${outputHeight}`;
+    sizeValue.style.color = '#888';
+    sizeRow.appendChild(sizeLabel);
+    sizeRow.appendChild(sizeValue);
+    section.appendChild(sizeRow);
 
     // 原点X
     const originXRow = document.createElement('div');
@@ -4155,7 +4179,7 @@ function buildSinkDetailContent(node) {
     originXLabel.textContent = '原点X';
     const originXInput = document.createElement('input');
     originXInput.type = 'number';
-    originXInput.value = Math.round(node.outputOriginX ?? canvasOrigin.x);
+    originXInput.value = Math.round(node.originX ?? 0);
     originXInput.style.width = '80px';
     originXRow.appendChild(originXLabel);
     originXRow.appendChild(originXInput);
@@ -4168,7 +4192,7 @@ function buildSinkDetailContent(node) {
     originYLabel.textContent = '原点Y';
     const originYInput = document.createElement('input');
     originYInput.type = 'number';
-    originYInput.value = Math.round(node.outputOriginY ?? canvasOrigin.y);
+    originYInput.value = Math.round(node.originY ?? 0);
     originYInput.style.width = '80px';
     originYRow.appendChild(originYLabel);
     originYRow.appendChild(originYInput);
@@ -4205,10 +4229,8 @@ function buildSinkDetailContent(node) {
     applyBtn.textContent = '適用';
     applyBtn.style.marginTop = '8px';
     applyBtn.addEventListener('click', () => {
-        node.outputWidth = parseInt(widthInput.value);
-        node.outputHeight = parseInt(heightInput.value);
-        node.outputOriginX = parseFloat(originXInput.value);
-        node.outputOriginY = parseFloat(originYInput.value);
+        node.originX = parseFloat(originXInput.value);
+        node.originY = parseFloat(originYInput.value);
         node.outputFormat = parseInt(formatSelect.value);
 
         // Sink出力フォーマットをC++側に設定
@@ -4216,28 +4238,9 @@ function buildSinkDetailContent(node) {
             graphEvaluator.setSinkFormat(node.id, node.outputFormat);
         }
 
-        // Rendererノードと同期（将来的には独立設定も可能）
-        const rendererNode = globalNodes.find(n => n.type === 'renderer');
-        if (rendererNode) {
-            rendererNode.virtualWidth = node.outputWidth;
-            rendererNode.virtualHeight = node.outputHeight;
-            rendererNode.originX = node.outputOriginX;
-            rendererNode.originY = node.outputOriginY;
-        }
-
-        // グローバル変数も更新
-        canvasWidth = node.outputWidth;
-        canvasHeight = node.outputHeight;
-        canvasOrigin.x = node.outputOriginX;
-        canvasOrigin.y = node.outputOriginY;
-
-        // キャンバスをリサイズ＆原点を更新
-        resizeCanvas(node.outputWidth, node.outputHeight);
-        if (graphEvaluator) {
-            graphEvaluator.setDstOrigin(canvasOrigin.x, canvasOrigin.y);
-        }
         renderNodeGraph();
         throttledUpdatePreview();
+        scheduleAutoSave();
     });
     applyRow.appendChild(applyBtn);
     section.appendChild(applyRow);

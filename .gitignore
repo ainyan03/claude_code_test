@@ -5,3 +5,5 @@ CLAUDE.local.md
 .work/
 .DS_Store
 fleximg/test/tile_origin_test
+fleximg/test/affine_push_pull_test
+fleximg/test/affine_margin_test
