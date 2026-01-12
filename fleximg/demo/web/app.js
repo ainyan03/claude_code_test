@@ -15,14 +15,6 @@ const CONTENT_TYPES = {
     output: { icon: '📤', label: '出力', buttonLabel: '+Sink' }
 };
 
-// 互換性レイヤー（段階的に削除予定）
-function getUploadedImages() {
-    return contentLibrary.filter(c => c.type === 'image');
-}
-function getOutputContents() {
-    return contentLibrary.filter(c => c.type === 'output');
-}
-
 let canvasWidth = 800;
 let canvasHeight = 600;
 let canvasOrigin = { x: 400, y: 300 };  // キャンバス原点（ピクセル座標）
@@ -1622,10 +1614,6 @@ function renderContentLibrary() {
     });
 }
 
-// 互換性用エイリアス
-function renderImageLibrary() {
-    renderContentLibrary();
-}
 
 // サムネイル用のData URLを作成
 function createThumbnailDataURL(imageData) {
@@ -1789,8 +1777,6 @@ function applyTileSettings() {
     graphEvaluator.setDebugCheckerboard(debugCheckerboard);
 }
 
-// Note: onTileSettingsChange and applyOutputSettings were removed.
-// Settings are now managed via Renderer/Sink node detail panels.
 
 function downloadComposedImage() {
     canvas.toBlob((blob) => {
@@ -3069,18 +3055,6 @@ function updatePreviewFromGraph() {
                     details.push(entry);
                 }
             }
-        } else {
-            // 後方互換（旧API）
-            if (metrics.filterCount > 0) {
-                details.push(`Filter: ${usToMs(metrics.filterTime)}ms (x${metrics.filterCount})`);
-            }
-            if (metrics.affineCount > 0) {
-                details.push(`Affine: ${usToMs(metrics.affineTime)}ms (x${metrics.affineCount})`);
-            }
-            if (metrics.compositeCount > 0) {
-                details.push(`Composite: ${usToMs(metrics.compositeTime)}ms (x${metrics.compositeCount})`);
-            }
-            details.push(`Output: ${usToMs(metrics.outputTime)}ms`);
         }
 
         console.log(`[Perf] Total: ${totalTime.toFixed(1)}ms | WASM: ${evalTime.toFixed(1)}ms (${details.join(', ')}) | Draw: ${drawTime.toFixed(1)}ms`);
@@ -4010,7 +3984,7 @@ function buildRendererDetailContent(node) {
         canvasOrigin.x = node.originX;
         canvasOrigin.y = node.originY;
 
-        // Note: SinkノードのサイズはcontentLibraryから取得するため、ここでは同期しない
+        // SinkノードのサイズはcontentLibraryから取得するため、ここでは同期しない
         // 各Sinkは独自のcontentIdで出力バッファを参照する
 
         // キャンバスをリサイズ＆原点を更新

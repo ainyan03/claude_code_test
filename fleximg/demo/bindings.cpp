@@ -104,10 +104,52 @@ struct GraphNode {
 
 struct GraphConnection {
     std::string fromNodeId;
-    std::string fromPort;
+    std::string fromPortId;
     std::string toNodeId;
-    std::string toPort;
+    std::string toPortId;
 };
+
+// ========================================================================
+// ノード構築ヘルパー関数
+// ========================================================================
+
+// フィルタノードを生成（上流・下流共通）
+std::unique_ptr<Node> createFilterNode(const GraphNode& gnode) {
+    if (gnode.filterType == "brightness" && !gnode.filterParams.empty()) {
+        auto node = std::make_unique<BrightnessNode>();
+        node->setAmount(gnode.filterParams[0]);
+        return node;
+    }
+    else if (gnode.filterType == "grayscale") {
+        return std::make_unique<GrayscaleNode>();
+    }
+    else if ((gnode.filterType == "blur" || gnode.filterType == "boxBlur")
+             && !gnode.filterParams.empty()) {
+        auto node = std::make_unique<BoxBlurNode>();
+        node->setRadius(static_cast<int>(gnode.filterParams[0]));
+        return node;
+    }
+    else if (gnode.filterType == "alpha" && !gnode.filterParams.empty()) {
+        auto node = std::make_unique<AlphaNode>();
+        node->setScale(gnode.filterParams[0]);
+        return node;
+    }
+    return nullptr;
+}
+
+// アフィンノードを生成（上流・下流共通）
+std::unique_ptr<AffineNode> createAffineNode(const GraphNode& gnode) {
+    auto affineNode = std::make_unique<AffineNode>();
+    AffineMatrix mat;
+    mat.a = static_cast<float>(gnode.affineMatrix.a);
+    mat.b = static_cast<float>(gnode.affineMatrix.b);
+    mat.c = static_cast<float>(gnode.affineMatrix.c);
+    mat.d = static_cast<float>(gnode.affineMatrix.d);
+    mat.tx = static_cast<float>(gnode.affineMatrix.tx);
+    mat.ty = static_cast<float>(gnode.affineMatrix.ty);
+    affineNode->setMatrix(mat);
+    return affineNode;
+}
 
 // ========================================================================
 // NodeGraphEvaluatorWrapper - 既存API互換ラッパー
@@ -135,11 +177,6 @@ public:
 
     void setDebugCheckerboard(bool enabled) {
         debugCheckerboard_ = enabled;
-    }
-
-    // レンダリング対象のSink IDを設定
-    void setTargetSink(const std::string& sinkId) {
-        targetSinkId_ = sinkId;
     }
 
     // Sink別出力フォーマットを設定
@@ -366,9 +403,9 @@ public:
             GraphConnection conn;
 
             conn.fromNodeId = connObj["fromNodeId"].as<std::string>();
-            conn.fromPort = connObj["fromPortId"].as<std::string>();
+            conn.fromPortId = connObj["fromPortId"].as<std::string>();
             conn.toNodeId = connObj["toNodeId"].as<std::string>();
-            conn.toPort = connObj["toPortId"].as<std::string>();
+            conn.toPortId = connObj["toPortId"].as<std::string>();
 
             graphConnections_.push_back(conn);
         }
@@ -379,10 +416,6 @@ public:
     int evaluateGraph() {
         // グラフからv2ノードを構築して実行
         return buildAndExecute();
-    }
-
-    void clearImage(int id) {
-        imageStore_.zeroFill(id);
     }
 
     val getPerfMetrics() {
@@ -495,7 +528,6 @@ private:
     // Sink別出力管理（複数Sink対応）
     std::map<std::string, SinkOutput> sinkOutputs_;
     std::map<std::string, PixelFormatID> sinkFormats_;
-    std::string targetSinkId_;  // レンダリング対象のSink ID
 
     // グラフを解析してv2ノードを構築・実行
     // 戻り値: 0 = 成功、非0 = エラー（ExecResult値）
@@ -635,27 +667,7 @@ private:
                 return result;
             }
             else if (gnode.type == "filter" && gnode.independent) {
-                std::unique_ptr<Node> filterNode;
-
-                if (gnode.filterType == "brightness" && !gnode.filterParams.empty()) {
-                    auto node = std::make_unique<BrightnessNode>();
-                    node->setAmount(gnode.filterParams[0]);
-                    filterNode = std::move(node);
-                }
-                else if (gnode.filterType == "grayscale") {
-                    filterNode = std::make_unique<GrayscaleNode>();
-                }
-                else if ((gnode.filterType == "blur" || gnode.filterType == "boxBlur") && !gnode.filterParams.empty()) {
-                    auto node = std::make_unique<BoxBlurNode>();
-                    node->setRadius(static_cast<int>(gnode.filterParams[0]));
-                    filterNode = std::move(node);
-                }
-                else if (gnode.filterType == "alpha" && !gnode.filterParams.empty()) {
-                    auto node = std::make_unique<AlphaNode>();
-                    node->setScale(gnode.filterParams[0]);
-                    filterNode = std::move(node);
-                }
-
+                auto filterNode = createFilterNode(gnode);
                 if (filterNode) {
                     // 入力を接続
                     auto connIt = inputConnections.find(nodeId);
@@ -673,16 +685,7 @@ private:
                 return nullptr;
             }
             else if (gnode.type == "affine") {
-                auto affineNode = std::make_unique<AffineNode>();
-
-                AffineMatrix mat;
-                mat.a = static_cast<float>(gnode.affineMatrix.a);
-                mat.b = static_cast<float>(gnode.affineMatrix.b);
-                mat.c = static_cast<float>(gnode.affineMatrix.c);
-                mat.d = static_cast<float>(gnode.affineMatrix.d);
-                mat.tx = static_cast<float>(gnode.affineMatrix.tx);
-                mat.ty = static_cast<float>(gnode.affineMatrix.ty);
-                affineNode->setMatrix(mat);
+                auto affineNode = createAffineNode(gnode);
 
                 // 入力を接続
                 auto connIt = inputConnections.find(nodeId);
@@ -754,36 +757,10 @@ private:
             std::unique_ptr<Node> newNode;
 
             if (gnode.type == "filter" && gnode.independent) {
-                if (gnode.filterType == "brightness" && !gnode.filterParams.empty()) {
-                    auto node = std::make_unique<BrightnessNode>();
-                    node->setAmount(gnode.filterParams[0]);
-                    newNode = std::move(node);
-                }
-                else if (gnode.filterType == "grayscale") {
-                    newNode = std::make_unique<GrayscaleNode>();
-                }
-                else if ((gnode.filterType == "blur" || gnode.filterType == "boxBlur") && !gnode.filterParams.empty()) {
-                    auto node = std::make_unique<BoxBlurNode>();
-                    node->setRadius(static_cast<int>(gnode.filterParams[0]));
-                    newNode = std::move(node);
-                }
-                else if (gnode.filterType == "alpha" && !gnode.filterParams.empty()) {
-                    auto node = std::make_unique<AlphaNode>();
-                    node->setScale(gnode.filterParams[0]);
-                    newNode = std::move(node);
-                }
+                newNode = createFilterNode(gnode);
             }
             else if (gnode.type == "affine") {
-                auto affineNode = std::make_unique<AffineNode>();
-                AffineMatrix mat;
-                mat.a = static_cast<float>(gnode.affineMatrix.a);
-                mat.b = static_cast<float>(gnode.affineMatrix.b);
-                mat.c = static_cast<float>(gnode.affineMatrix.c);
-                mat.d = static_cast<float>(gnode.affineMatrix.d);
-                mat.tx = static_cast<float>(gnode.affineMatrix.tx);
-                mat.ty = static_cast<float>(gnode.affineMatrix.ty);
-                affineNode->setMatrix(mat);
-                newNode = std::move(affineNode);
+                newNode = createAffineNode(gnode);
             }
             else if (gnode.type == "distributor") {
                 // DistributorNode: 1入力・N出力（CompositeNodeと対称）
@@ -922,9 +899,7 @@ EMSCRIPTEN_BINDINGS(image_transform) {
         .function("setNodes", &NodeGraphEvaluatorWrapper::setNodes)
         .function("setConnections", &NodeGraphEvaluatorWrapper::setConnections)
         .function("evaluateGraph", &NodeGraphEvaluatorWrapper::evaluateGraph)
-        .function("clearImage", &NodeGraphEvaluatorWrapper::clearImage)
         .function("getPerfMetrics", &NodeGraphEvaluatorWrapper::getPerfMetrics)
-        .function("setTargetSink", &NodeGraphEvaluatorWrapper::setTargetSink)
         .function("setSinkFormat", &NodeGraphEvaluatorWrapper::setSinkFormat)
         .function("getSinkPreview", &NodeGraphEvaluatorWrapper::getSinkPreview);
 }
