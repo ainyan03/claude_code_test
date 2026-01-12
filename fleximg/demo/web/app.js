@@ -681,8 +681,7 @@ async function tryRestoreState() {
 
     // 状態が復元できなかった場合はデフォルト初期化
     console.log('No saved state found, initializing with defaults');
-    initDefaultState();
-    generateTestPatterns();
+    initDefaultState();  // generateTestPatterns()を内部で呼び出し
     updatePreviewFromGraph();
     console.log('App initialized successfully');
 }
@@ -735,6 +734,9 @@ function initDefaultState() {
     // UI更新
     renderContentLibrary();
     renderNodeGraph();
+
+    // 初期テストパターン画像を生成
+    generateTestPatterns();
 }
 
 function displayVersionInfo() {
