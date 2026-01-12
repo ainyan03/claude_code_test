@@ -736,7 +736,9 @@ function initDefaultState() {
     renderNodeGraph();
 
     // 初期テストパターン画像を生成
+    console.log('initDefaultState: calling generateTestPatterns...');
     generateTestPatterns();
+    console.log('initDefaultState: contentLibrary after generateTestPatterns:', contentLibrary.length, 'items');
 }
 
 function displayVersionInfo() {
@@ -1842,34 +1844,6 @@ function renderNodeGraph() {
             originY: canvasOrigin.y,
             posX: 850,
             posY: 550
-        });
-    }
-
-    // Sink ノードが存在しない場合は追加
-    if (!globalNodes.find(n => n.type === 'sink')) {
-        globalNodes.push({
-            id: 'sink',
-            type: 'sink',
-            title: 'Sink',
-            outputWidth: canvasWidth,
-            outputHeight: canvasHeight,
-            outputOriginX: canvasOrigin.x,
-            outputOriginY: canvasOrigin.y,
-            imageId: outputImageId,
-            posX: 1100,
-            posY: 550
-        });
-    }
-
-    // Sink への入力がない場合のみ Renderer → Sink のデフォルト接続を作成
-    // （Renderer下流にフィルタを配置した場合は自動接続しない）
-    const sinkHasInput = globalConnections.some(c => c.toNodeId === 'sink');
-    if (!sinkHasInput) {
-        globalConnections.push({
-            fromNodeId: 'renderer',
-            fromPortId: 'out',
-            toNodeId: 'sink',
-            toPortId: 'in'
         });
     }
 
