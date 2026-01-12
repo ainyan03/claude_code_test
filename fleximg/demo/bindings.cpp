@@ -421,12 +421,6 @@ public:
     val getPerfMetrics() {
         val result = val::object();
 
-        // ノードタイプ名（NodeType enum順）
-        static const char* nodeNames[] = {
-            "renderer", "source", "sink", "distributor", "transform", "composite",
-            "brightness", "grayscale", "boxBlur", "alpha"
-        };
-
         // nodes配列を構築
         val nodes = val::array();
         for (int i = 0; i < NodeType::Count; i++) {

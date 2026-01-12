@@ -66,6 +66,7 @@ emcc src/fleximg/viewport.cpp \
     -I src \
     -o demo/web/fleximg.js \
     -std=c++17 \
+    -Wall -Wextra -Wpedantic \
     -O3 \
     $DEBUG_FLAGS \
     -s WASM=1 \
