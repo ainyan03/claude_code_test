@@ -1,72 +1,65 @@
-# fleximg Test Suite Makefile
+# fleximg Test Suite Makefile (doctest)
 #
 # Usage:
-#   make           全テストをビルド
-#   make test      全テストをビルドして実行
-#   make clean     ビルド成果物を削除
-#   make <name>    特定のテストをビルド (例: make viewport_test)
+#   make                 全テストをビルド
+#   make test            全テストをビルドして実行
+#   make all_tests       統合テストバイナリをビルド
+#   make <name>_test     個別テストをビルド (例: make viewport_test)
+#   make clean           ビルド成果物を削除
+#
+# 統合バイナリの便利なオプション:
+#   ./all_tests --list-test-cases     テストケース一覧
+#   ./all_tests --test-case="*viewport*"  特定テストのみ実行
+#   ./all_tests -s                    成功テストも表示
 
 CXX = g++
-CXXFLAGS = -std=c++17 -Wall -Wextra -I../src
+CXXFLAGS = -std=c++17 -Wall -Wextra -I../src -I../third_party/doctest
+
+# ソースディレクトリ
 SRC_DIR = ../src/fleximg
 OPS_DIR = ../src/fleximg/operations
 
-# ソースファイル
+# ライブラリソース
 CORE_SRCS = $(SRC_DIR)/viewport.cpp $(SRC_DIR)/pixel_format_registry.cpp
 OPS_SRCS = $(OPS_DIR)/blend.cpp $(OPS_DIR)/filters.cpp
+ALL_LIB_SRCS = $(CORE_SRCS) $(OPS_SRCS)
 
-# テストバイナリ
-TESTS = viewport_test integration_test calc_valid_range_test trapezoid_fit_test box_blur_test tile_origin_test affine_push_pull_test affine_margin_test
+# テストソース（test_main.cpp以外）
+TEST_SRCS = $(filter-out test_main.cpp, $(wildcard *_test.cpp))
+TEST_BINS = $(TEST_SRCS:.cpp=)
 
-.PHONY: all test clean
+.PHONY: all test clean list
 
-all: $(TESTS)
+# デフォルト: 全テストバイナリをビルド
+all: $(TEST_BINS) all_tests
 
-test: $(TESTS)
+# 全テスト実行
+test: all
 	@echo "========================================="
 	@echo "Running all tests..."
 	@echo "========================================="
-	@for t in $(TESTS); do \
-		echo ""; \
-		echo "--- Running $$t ---"; \
-		./$$t || exit 1; \
-	done
+	@./all_tests
 	@echo ""
 	@echo "========================================="
-	@echo "All tests passed!"
+	@echo "All tests completed!"
 	@echo "========================================="
 
-# viewport_test: ViewPort/ImageBuffer 単体テスト
-viewport_test: viewport_test.cpp $(CORE_SRCS)
+# 統合テストバイナリ
+all_tests: test_main.cpp $(TEST_SRCS) $(ALL_LIB_SRCS)
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
-# integration_test: パイプライン統合テスト
-integration_test: integration_test.cpp $(CORE_SRCS) $(OPS_SRCS)
+# 個別テストバイナリのパターンルール
+%_test: %_test.cpp test_main.cpp $(ALL_LIB_SRCS)
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
-# calc_valid_range_test: DDA範囲計算テスト（ヘッダーのみ）
-calc_valid_range_test: calc_valid_range_test.cpp
-	$(CXX) $(CXXFLAGS) -o $@ $<
+# テスト一覧表示
+list:
+	@echo "Available tests:"
+	@for t in $(TEST_BINS); do echo "  $$t"; done
+	@echo ""
+	@echo "Run 'make <name>' to build individual test"
+	@echo "Run 'make test' to build and run all tests"
 
-# trapezoid_fit_test: AABB分割台形フィットテスト（独立）
-trapezoid_fit_test: trapezoid_fit_test.cpp
-	$(CXX) $(CXXFLAGS) -o $@ $<
-
-# box_blur_test: ボックスブラーテスト
-box_blur_test: box_blur_test.cpp $(CORE_SRCS) $(OPS_SRCS)
-	$(CXX) $(CXXFLAGS) -o $@ $^
-
-# tile_origin_test: タイル分割時のorigin端数処理テスト
-tile_origin_test: tile_origin_test.cpp $(CORE_SRCS)
-	$(CXX) $(CXXFLAGS) -o $@ $^
-
-# affine_push_pull_test: アフィン変換のプル/プッシュモード整合性テスト
-affine_push_pull_test: affine_push_pull_test.cpp $(CORE_SRCS)
-	$(CXX) $(CXXFLAGS) -o $@ $^
-
-# affine_margin_test: computeInputRegionマージン検証テスト
-affine_margin_test: affine_margin_test.cpp $(CORE_SRCS)
-	$(CXX) $(CXXFLAGS) -o $@ $^
-
+# クリーンアップ
 clean:
-	rm -f $(TESTS)
+	rm -f $(TEST_BINS) all_tests *.o
