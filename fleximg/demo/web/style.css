@@ -1176,6 +1176,100 @@ button {
 
 .sidebar-images-library .image-item {
     flex-shrink: 0;
+    cursor: pointer;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+/* 画像アイテムのフォーカス状態（サイドバー内） */
+.sidebar-images-library .image-item.focused {
+    border-color: #4CAF50;
+    box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.3);
+}
+
+/* コンテンツライブラリ */
+.content-library-actions {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.content-library-actions .sidebar-add-btn {
+    flex: 1;
+    font-size: 11px;
+    padding: 6px 8px;
+}
+
+/* 出力アイテム */
+.content-item.output-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    margin-bottom: 8px;
+    background: #2a2a2a;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.content-item.output-item:hover {
+    background: #3a3a3a;
+}
+
+.content-item.output-item.focused {
+    background: rgba(76, 175, 80, 0.3);
+    border-left: 3px solid #4CAF50;
+}
+
+.content-item .content-icon {
+    font-size: 16px;
+}
+
+.content-item .content-name {
+    flex: 1;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.content-item .content-size {
+    font-size: 10px;
+    color: #888;
+}
+
+.content-item .content-add-node-btn {
+    font-size: 10px;
+    padding: 2px 6px;
+    background: #4a4a4a;
+    border: none;
+    border-radius: 3px;
+    color: #fff;
+    cursor: pointer;
+}
+
+.content-item .content-add-node-btn:hover {
+    background: #5a5a5a;
+}
+
+.content-item .content-add-node-btn:disabled {
+    background: #3a3a3a;
+    color: #888;
+    cursor: default;
+}
+
+.content-item .content-delete-btn {
+    font-size: 12px;
+    padding: 2px 4px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    opacity: 0.5;
+    transition: opacity 0.2s;
+}
+
+.content-item .content-delete-btn:hover {
+    opacity: 1;
 }
 
 /* 出力設定 */

@@ -1,5 +1,62 @@
 # Changelog
 
+## [2.28.0] - 2026-01-12
+
+### 追加
+
+- **複数Sink同時レンダリング**: 1回のrender passで全Sinkノードを更新
+  - DistributorNode経由で複数Sinkに分岐する構成をサポート
+  - C++: 全Sinkを収集し、各SinkNodeにバッファを作成
+  - JS: 全Sinkの出力バッファを確保してからevaluateGraph()
+
+### 変更
+
+- **Sinkノード作成時の原点**: コンテンツの中央 (width/2, height/2) をデフォルトに
+
+### 修正
+
+- **初期化時のRenderer設定同期**: ページ読み込み直後から正しく表示
+  - `restoreAppState()`: Rendererノードの設定をC++側に同期
+  - `initDefaultState()`: 同様の同期処理を追加
+  - 仮想スクリーンサイズ、原点、タイル設定を全て反映
+
+### 技術詳細
+
+- bindings.cpp: `buildAndExecute()` で全Sinkを収集・処理
+- bindings.cpp: `sinkNodeMap` でSinkノードをID管理
+- app.js: `updatePreviewFromGraph()` で全Sink結果をcontentLibraryに保存
+- `setTargetSink()` APIは残存（将来の単一Sink最適化用）
+
+---
+
+## [2.27.0] - 2026-01-12
+
+### 追加
+
+- **DistributorNode**: 1入力・N出力の分配ノードを新設
+  - CompositeNode（N入力・1出力）と対称的な構造
+  - 下流には参照モードImageBuffer（ownsMemory()==false）を渡す
+  - 下流ノードが変更を加えたい場合はコピーを作成
+  - WASMバインディング対応（distributor タイプ）
+  - WebUI対応: ノード追加メニュー、詳細パネル、コンテキストメニュー
+
+### WebUI機能
+
+- ノード追加メニュー: 「合成」カテゴリに「分配」ノードを追加
+- 詳細パネル: 出力数表示と「+ 出力を追加」ボタン
+- コンテキストメニュー: 分配ノードで「➕ 出力を追加」を表示
+- 動的出力ポート: CompositeNodeの入力ポートと対称的な構造
+- 状態保存/復元: nextDistributorIdの永続化
+
+### 技術詳細
+
+- NodeType に Distributor を追加（インデックス再配置）
+- pushPrepare/pushFinalize: 全下流ノードへ伝播
+- pushProcess: 参照モードで配信、最後の出力にはmoveで渡す
+- bindings.cpp: distributor ノードタイプの解析・構築処理
+
+---
+
 ## [2.26.0] - 2026-01-12
 
 ### 修正

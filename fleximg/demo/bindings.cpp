@@ -17,6 +17,7 @@
 #include "../src/fleximg/nodes/box_blur_node.h"
 #include "../src/fleximg/nodes/alpha_node.h"
 #include "../src/fleximg/nodes/composite_node.h"
+#include "../src/fleximg/nodes/distributor_node.h"
 #include "../src/fleximg/nodes/renderer_node.h"
 
 using namespace emscripten;
@@ -91,11 +92,14 @@ struct GraphNode {
     int imageId = -1;
     double srcOriginX = 0;
     double srcOriginY = 0;
+    int outputWidth = 0;    // sinkノード用: 出力バッファ幅
+    int outputHeight = 0;   // sinkノード用: 出力バッファ高さ
     std::string filterType;
     std::vector<float> filterParams;
     bool independent = false;
     struct { double a=1, b=0, c=0, d=1, tx=0, ty=0; } affineMatrix;
-    std::vector<std::string> compositeInputIds;  // compositeノード用
+    std::vector<std::string> compositeInputIds;   // compositeノード用（N入力）
+    std::vector<std::string> distributorOutputIds; // distributorノード用（N出力）
 };
 
 struct GraphConnection {
@@ -131,6 +135,11 @@ public:
 
     void setDebugCheckerboard(bool enabled) {
         debugCheckerboard_ = enabled;
+    }
+
+    // レンダリング対象のSink IDを設定
+    void setTargetSink(const std::string& sinkId) {
+        targetSinkId_ = sinkId;
     }
 
     // Sink別出力フォーマットを設定
@@ -280,7 +289,7 @@ public:
                 }
             }
 
-            // composite用パラメータ
+            // composite用パラメータ（N入力・1出力）
             if (node.type == "composite") {
                 if (nodeObj["inputs"].typeOf().as<std::string>() != "undefined") {
                     val inputsArray = nodeObj["inputs"];
@@ -288,6 +297,18 @@ public:
                     for (unsigned int j = 0; j < inputCount; j++) {
                         val inputObj = inputsArray[j];
                         node.compositeInputIds.push_back(inputObj["id"].as<std::string>());
+                    }
+                }
+            }
+
+            // distributor用パラメータ（1入力・N出力、compositeと対称）
+            if (node.type == "distributor") {
+                if (nodeObj["outputs"].typeOf().as<std::string>() != "undefined") {
+                    val outputsArray = nodeObj["outputs"];
+                    unsigned int outputCount = outputsArray["length"].as<unsigned int>();
+                    for (unsigned int j = 0; j < outputCount; j++) {
+                        val outputObj = outputsArray[j];
+                        node.distributorOutputIds.push_back(outputObj["id"].as<std::string>());
                     }
                 }
             }
@@ -315,6 +336,19 @@ public:
             if (node.type == "sink") {
                 if (nodeObj["imageId"].typeOf().as<std::string>() != "undefined") {
                     node.imageId = nodeObj["imageId"].as<int>();
+                }
+                if (nodeObj["outputWidth"].typeOf().as<std::string>() != "undefined") {
+                    node.outputWidth = nodeObj["outputWidth"].as<int>();
+                }
+                if (nodeObj["outputHeight"].typeOf().as<std::string>() != "undefined") {
+                    node.outputHeight = nodeObj["outputHeight"].as<int>();
+                }
+                // Sink固有の基準点（仮想スクリーン上の切り出し位置）
+                if (nodeObj["originX"].typeOf().as<std::string>() != "undefined") {
+                    node.srcOriginX = nodeObj["originX"].as<double>();
+                }
+                if (nodeObj["originY"].typeOf().as<std::string>() != "undefined") {
+                    node.srcOriginY = nodeObj["originY"].as<double>();
                 }
             }
 
@@ -356,7 +390,7 @@ public:
 
         // ノードタイプ名（NodeType enum順）
         static const char* nodeNames[] = {
-            "renderer", "source", "sink", "transform", "composite",
+            "renderer", "source", "sink", "distributor", "transform", "composite",
             "brightness", "grayscale", "boxBlur", "alpha"
         };
 
@@ -461,6 +495,7 @@ private:
     // Sink別出力管理（複数Sink対応）
     std::map<std::string, SinkOutput> sinkOutputs_;
     std::map<std::string, PixelFormatID> sinkFormats_;
+    std::string targetSinkId_;  // レンダリング対象のSink ID
 
     // グラフを解析してv2ノードを構築・実行
     // 戻り値: 0 = 成功、非0 = エラー（ExecResult値）
@@ -483,48 +518,80 @@ private:
             outputConnections[conn.fromNodeId].push_back(conn.toNodeId);
         }
 
-        // sinkノードを探す
-        const GraphNode* sinkGraphNode = nullptr;
+        // 全てのSinkノードを収集（複数Sink対応）
+        std::vector<const GraphNode*> sinkGraphNodes;
         for (const auto& node : graphNodes_) {
-            if (node.type == "sink") {
-                sinkGraphNode = &node;
-                break;
+            if (node.type == "sink" && node.imageId >= 0) {
+                sinkGraphNodes.push_back(&node);
             }
         }
 
-        if (!sinkGraphNode || sinkGraphNode->imageId < 0) {
+        if (sinkGraphNodes.empty()) {
             return static_cast<int>(ExecResult::Success);  // 描画対象なし
         }
 
-        // 出力先ViewPortを取得（JS側表示用）
-        auto outputIt = imageViews_.find(sinkGraphNode->imageId);
-        if (outputIt == imageViews_.end()) {
-            return static_cast<int>(ExecResult::Success);  // 出力先なし
+        // 各Sinkに対応するSinkNode + 出力バッファを準備
+        struct SinkInfo {
+            const GraphNode* graphNode;
+            std::unique_ptr<SinkNode> node;
+            ViewPort targetView;
+            ViewPort outputView;  // JS側表示用
+            PixelFormatID format;
+            int width, height;
+        };
+        std::vector<SinkInfo> sinkInfos;
+        std::map<std::string, SinkNode*> sinkNodeMap;  // ID -> SinkNode*
+
+        for (const GraphNode* gnode : sinkGraphNodes) {
+            SinkInfo info;
+            info.graphNode = gnode;
+
+            // 出力先ViewPortを取得（JS側表示用）
+            auto outputIt = imageViews_.find(gnode->imageId);
+            if (outputIt == imageViews_.end()) {
+                continue;  // 出力先が確保されていないSinkはスキップ
+            }
+            info.outputView = outputIt->second;
+
+            // 出力バッファをクリア
+            view_ops::clear(info.outputView, 0, 0, info.outputView.width, info.outputView.height);
+
+            // Sink別出力バッファを準備
+            auto formatIt = sinkFormats_.find(gnode->id);
+            info.format = (formatIt != sinkFormats_.end())
+                ? formatIt->second
+                : PixelFormatIDs::RGBA8_Straight;
+
+            // Sinkノード固有のサイズと基準点を使用
+            info.width = (gnode->outputWidth > 0) ? gnode->outputWidth : canvasWidth_;
+            info.height = (gnode->outputHeight > 0) ? gnode->outputHeight : canvasHeight_;
+
+            auto& sinkOut = sinkOutputs_[gnode->id];
+            sinkOut.format = info.format;
+            sinkOut.width = info.width;
+            sinkOut.height = info.height;
+            size_t sinkBpp = getBytesPerPixel(info.format);
+            size_t sinkBufferSize = info.width * info.height * sinkBpp;
+            sinkOut.buffer.resize(sinkBufferSize);
+            std::fill(sinkOut.buffer.begin(), sinkOut.buffer.end(), 0);
+
+            // SinkNode用のViewPortを作成
+            info.targetView = ViewPort(sinkOut.buffer.data(), info.format,
+                                       info.width * sinkBpp, info.width, info.height);
+
+            // SinkNodeを作成
+            info.node = std::make_unique<SinkNode>();
+            info.node->setTarget(info.targetView);
+            info.node->setOrigin(float_to_fixed8(static_cast<float>(gnode->srcOriginX)),
+                                 float_to_fixed8(static_cast<float>(gnode->srcOriginY)));
+
+            sinkNodeMap[gnode->id] = info.node.get();
+            sinkInfos.push_back(std::move(info));
         }
-        ViewPort outputView = outputIt->second;
 
-        // 出力バッファをクリア（以前の描画結果を消去）
-        view_ops::clear(outputView, 0, 0, outputView.width, outputView.height);
-
-        // Sink別出力バッファを準備（指定フォーマット or デフォルト RGBA8）
-        std::string sinkId = sinkGraphNode->id;
-        auto formatIt = sinkFormats_.find(sinkId);
-        PixelFormatID sinkFormat = (formatIt != sinkFormats_.end())
-            ? formatIt->second
-            : PixelFormatIDs::RGBA8_Straight;
-
-        auto& sinkOut = sinkOutputs_[sinkId];
-        sinkOut.format = sinkFormat;
-        sinkOut.width = canvasWidth_;
-        sinkOut.height = canvasHeight_;
-        size_t sinkBpp = getBytesPerPixel(sinkFormat);
-        size_t sinkBufferSize = canvasWidth_ * canvasHeight_ * sinkBpp;
-        sinkOut.buffer.resize(sinkBufferSize);
-        std::fill(sinkOut.buffer.begin(), sinkOut.buffer.end(), 0);
-
-        // SinkNode用のViewPortを作成
-        ViewPort sinkTargetView(sinkOut.buffer.data(), sinkFormat,
-                                canvasWidth_ * sinkBpp, canvasWidth_, canvasHeight_);
+        if (sinkInfos.empty()) {
+            return static_cast<int>(ExecResult::Success);  // 有効なSinkなし
+        }
 
         // v2ノードを一時的に保持するコンテナ
         std::map<std::string, std::unique_ptr<Node>> v2Nodes;
@@ -535,12 +602,6 @@ private:
         rendererNode->setVirtualScreen(canvasWidth_, canvasHeight_,
                                         float_to_fixed8(static_cast<float>(dstOriginX_)),
                                         float_to_fixed8(static_cast<float>(dstOriginY_)));
-
-        // SinkNodeを作成（指定フォーマットのバッファに出力）
-        auto sinkNode = std::make_unique<SinkNode>();
-        sinkNode->setTarget(sinkTargetView);
-        sinkNode->setOrigin(float_to_fixed8(static_cast<float>(dstOriginX_)),
-                            float_to_fixed8(static_cast<float>(dstOriginY_)));
 
         // 再帰的にノードを構築
         std::function<Node*(const std::string&)> buildNode;
@@ -673,9 +734,10 @@ private:
         // Renderer下流のチェーンを再帰的に構築する関数
         std::function<Node*(const std::string&)> buildDownstreamChain;
         buildDownstreamChain = [&](const std::string& nodeId) -> Node* {
-            // sinkノードならそれを返す
-            if (nodeId == "sink" || nodeId == sinkGraphNode->id) {
-                return sinkNode.get();
+            // sinkノードならsinkNodeMapから取得して返す
+            auto sinkIt = sinkNodeMap.find(nodeId);
+            if (sinkIt != sinkNodeMap.end()) {
+                return sinkIt->second;
             }
 
             auto nodeIt = nodeMap.find(nodeId);
@@ -723,6 +785,30 @@ private:
                 affineNode->setMatrix(mat);
                 newNode = std::move(affineNode);
             }
+            else if (gnode.type == "distributor") {
+                // DistributorNode: 1入力・N出力（CompositeNodeと対称）
+                int outputCount = static_cast<int>(gnode.distributorOutputIds.size());
+                if (outputCount < 1) outputCount = 1;
+
+                auto distributorNode = std::make_unique<DistributorNode>(outputCount);
+
+                // 各出力を接続（接続情報から下流を探す）
+                auto outputIt = outputConnections.find(nodeId);
+                if (outputIt != outputConnections.end()) {
+                    int portIndex = 0;
+                    for (const auto& downstreamId : outputIt->second) {
+                        Node* downstream = buildDownstreamChain(downstreamId);
+                        if (downstream && portIndex < outputCount) {
+                            distributorNode->connectTo(*downstream, 0, portIndex);
+                            portIndex++;
+                        }
+                    }
+                }
+
+                Node* result = distributorNode.get();
+                v2Nodes[nodeId] = std::move(distributorNode);
+                return result;
+            }
 
             if (!newNode) return nullptr;
 
@@ -746,12 +832,14 @@ private:
         if (rendererConnIt != inputConnections.end() && !rendererConnIt->second.empty()) {
             rendererInputId = rendererConnIt->second[0];
         } else {
-            // 旧形式: sinkの入力が直接upstreamの場合
-            auto sinkConnIt = inputConnections.find(sinkGraphNode->id);
-            if (sinkConnIt != inputConnections.end() && !sinkConnIt->second.empty()) {
-                const std::string& inputId = sinkConnIt->second[0];
-                if (inputId != "renderer") {
-                    rendererInputId = inputId;
+            // 旧形式: sinkの入力が直接upstreamの場合（最初のSinkを使用）
+            if (!sinkGraphNodes.empty()) {
+                auto sinkConnIt = inputConnections.find(sinkGraphNodes[0]->id);
+                if (sinkConnIt != inputConnections.end() && !sinkConnIt->second.empty()) {
+                    const std::string& inputId = sinkConnIt->second[0];
+                    if (inputId != "renderer") {
+                        rendererInputId = inputId;
+                    }
                 }
             }
         }
@@ -764,13 +852,18 @@ private:
                 // Renderer下流のチェーンを構築
                 auto rendererOutputIt = outputConnections.find("renderer");
                 if (rendererOutputIt != outputConnections.end() && !rendererOutputIt->second.empty()) {
-                    Node* downstream = buildDownstreamChain(rendererOutputIt->second[0]);
-                    if (downstream) {
-                        rendererNode->connectTo(*downstream);
+                    // 全ての下流を接続（distributor経由で複数Sinkに分岐する可能性）
+                    for (const auto& downstreamId : rendererOutputIt->second) {
+                        Node* downstream = buildDownstreamChain(downstreamId);
+                        if (downstream) {
+                            rendererNode->connectTo(*downstream);
+                        }
                     }
                 } else {
-                    // フォールバック: 直接Sinkに接続
-                    rendererNode->connectTo(*sinkNode);
+                    // フォールバック: 最初のSinkに直接接続
+                    if (!sinkInfos.empty()) {
+                        rendererNode->connectTo(*sinkInfos[0].node);
+                    }
                 }
             }
         }
@@ -788,20 +881,23 @@ private:
         // パフォーマンスメトリクスを保存
         lastPerfMetrics_ = rendererNode->getPerfMetrics();
 
-        // sinkOutputs_ から outputView（JS表示用）に RGBA8 でコピー
-        if (sinkFormat == PixelFormatIDs::RGBA8_Straight) {
-            // 同一フォーマットなら直接コピー
-            view_ops::copy(outputView, 0, 0, sinkTargetView, 0, 0,
-                          canvasWidth_, canvasHeight_);
-        } else {
-            // フォーマット変換してコピー
-            size_t pixelCount = canvasWidth_ * canvasHeight_;
-            auto& registry = PixelFormatRegistry::getInstance();
-            registry.convert(
-                sinkOut.buffer.data(), sinkFormat,
-                static_cast<uint8_t*>(outputView.data), PixelFormatIDs::RGBA8_Straight,
-                pixelCount
-            );
+        // 全てのSink出力をJS表示用バッファにコピー
+        for (auto& info : sinkInfos) {
+            const auto& sinkOut = sinkOutputs_[info.graphNode->id];
+            if (info.format == PixelFormatIDs::RGBA8_Straight) {
+                // 同一フォーマットなら直接コピー
+                view_ops::copy(info.outputView, 0, 0, info.targetView, 0, 0,
+                              info.width, info.height);
+            } else {
+                // フォーマット変換してコピー
+                size_t pixelCount = info.width * info.height;
+                auto& registry = PixelFormatRegistry::getInstance();
+                registry.convert(
+                    sinkOut.buffer.data(), info.format,
+                    static_cast<uint8_t*>(info.outputView.data), PixelFormatIDs::RGBA8_Straight,
+                    pixelCount
+                );
+            }
         }
 
         return static_cast<int>(result);
@@ -828,6 +924,7 @@ EMSCRIPTEN_BINDINGS(image_transform) {
         .function("evaluateGraph", &NodeGraphEvaluatorWrapper::evaluateGraph)
         .function("clearImage", &NodeGraphEvaluatorWrapper::clearImage)
         .function("getPerfMetrics", &NodeGraphEvaluatorWrapper::getPerfMetrics)
+        .function("setTargetSink", &NodeGraphEvaluatorWrapper::setTargetSink)
         .function("setSinkFormat", &NodeGraphEvaluatorWrapper::setSinkFormat)
         .function("getSinkPreview", &NodeGraphEvaluatorWrapper::getSinkPreview);
 }

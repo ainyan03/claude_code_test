@@ -3,12 +3,8 @@
 ## ブランチ運用規則
 
 ### 命名規則
-- 作業用ブランチは `claude/` で始める名前を使用する
-- 形式: `claude/<機能名>-<セッションID>` または `claude/<修正内容>`
-- 例:
-  - `claude/fix-odd-width-image-distortion`
-  - `claude/feature-blur-filter-abc123`
-  - `claude/refactor-viewport-stride`
+- 作業用ブランチは `claude/fleximg` で始める名前を使用する
+- 形式: `claude/fleximg-<セッションID>` 
 
 ### ワークフロー
 1. mainブランチから新しい作業用ブランチを作成

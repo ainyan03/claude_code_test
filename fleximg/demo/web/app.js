@@ -2,9 +2,27 @@
 let graphEvaluator;  // ノードグラフ評価エンジン（C++側）
 let canvas;
 let ctx;
-let uploadedImages = [];  // 画像ライブラリ
-let nextImageId = 1;
-let outputImageId = 0;  // 出力バッファ用ID（画像ライブラリと共通管理）
+
+// コンテンツライブラリ（入力画像・出力バッファ統合管理）
+let contentLibrary = [];
+let nextContentId = 1;
+let nextCppImageId = 1;  // C++側に渡す数値ID
+let focusedContentId = null;
+
+// コンテンツタイプ定義
+const CONTENT_TYPES = {
+    image: { icon: '🖼️', label: '画像', buttonLabel: '+Source' },
+    output: { icon: '📤', label: '出力', buttonLabel: '+Sink' }
+};
+
+// 互換性レイヤー（段階的に削除予定）
+function getUploadedImages() {
+    return contentLibrary.filter(c => c.type === 'image');
+}
+function getOutputContents() {
+    return contentLibrary.filter(c => c.type === 'output');
+}
+
 let canvasWidth = 800;
 let canvasHeight = 600;
 let canvasOrigin = { x: 400, y: 300 };  // キャンバス原点（ピクセル座標）
@@ -22,17 +40,18 @@ let debugCheckerboard = false;
 // ========================================
 const NODE_TYPES = {
     // システム系（パイプライン制御）
-    renderer:   { index: 0, name: 'Renderer',   category: 'system',    showEfficiency: false },
-    source:     { index: 1, name: 'Source',     category: 'system',    showEfficiency: false },
-    sink:       { index: 2, name: 'Sink',       category: 'system',    showEfficiency: false },
+    renderer:    { index: 0, name: 'Renderer',    category: 'system',    showEfficiency: false },
+    source:      { index: 1, name: 'Source',      category: 'system',    showEfficiency: false },
+    sink:        { index: 2, name: 'Sink',        category: 'system',    showEfficiency: false },
+    distributor: { index: 3, name: 'Distributor', category: 'system',    showEfficiency: false },
     // 構造系（変換・合成）
-    affine:     { index: 3, name: 'Affine',     category: 'structure', showEfficiency: true },
-    composite:  { index: 4, name: 'Composite',  category: 'structure', showEfficiency: false },
+    affine:      { index: 4, name: 'Affine',      category: 'structure', showEfficiency: true },
+    composite:   { index: 5, name: 'Composite',   category: 'structure', showEfficiency: false },
     // フィルタ系
-    brightness: { index: 5, name: 'Brightness', category: 'filter',    showEfficiency: true },
-    grayscale:  { index: 6, name: 'Grayscale',  category: 'filter',    showEfficiency: true },
-    boxBlur:    { index: 7, name: 'BoxBlur',    category: 'filter',    showEfficiency: true },
-    alpha:      { index: 8, name: 'Alpha',      category: 'filter',    showEfficiency: true },
+    brightness:  { index: 6, name: 'Brightness',  category: 'filter',    showEfficiency: true },
+    grayscale:   { index: 7, name: 'Grayscale',   category: 'filter',    showEfficiency: true },
+    boxBlur:     { index: 8, name: 'BoxBlur',     category: 'filter',    showEfficiency: true },
+    alpha:       { index: 9, name: 'Alpha',       category: 'filter',    showEfficiency: true },
 };
 
 // ========================================
@@ -215,6 +234,7 @@ let globalNodes = [];  // すべてのノード（画像、フィルタ、合成
 let globalConnections = [];  // ノード間の接続
 let nextGlobalNodeId = 1;
 let nextCompositeId = 1;
+let nextDistributorId = 1;
 let nextIndependentFilterId = 1;
 let nextImageNodeId = 1;
 let nodeGraphSvg = null;
@@ -661,9 +681,84 @@ async function tryRestoreState() {
 
     // 状態が復元できなかった場合はデフォルト初期化
     console.log('No saved state found, initializing with defaults');
-    generateTestPatterns();
+    initDefaultState();  // generateTestPatterns()を内部で呼び出し
     updatePreviewFromGraph();
     console.log('App initialized successfully');
+}
+
+// デフォルト状態を初期化
+function initDefaultState() {
+    // コンテンツライブラリ: デフォルト出力バッファを2つ用意
+    // cppImageId: 1, 2 は出力バッファ用、3以降は入力画像用
+    contentLibrary = [
+        {
+            id: 'out-1',
+            type: 'output',
+            name: 'LCD 320x240',
+            width: 320,
+            height: 240,
+            cppImageId: 1,
+            imageData: null
+        },
+        {
+            id: 'out-2',
+            type: 'output',
+            name: 'LCD 960x540',
+            width: 960,
+            height: 540,
+            cppImageId: 2,
+            imageData: null
+        }
+    ];
+    nextContentId = 3;
+    nextCppImageId = 3;  // 1,2は出力バッファ用
+    focusedContentId = 'out-1';  // 最初の出力にフォーカス
+
+    // ノード: Rendererのみ（Sinkノードはなし）
+    // ノードグラフ中央（viewBox: 1600x1200）にRendererを配置
+    globalNodes = [
+        {
+            id: 'renderer',
+            type: 'renderer',
+            title: 'Renderer',
+            posX: 700,
+            posY: 550,
+            virtualWidth: 1920,
+            virtualHeight: 1080,
+            originX: 960,
+            originY: 540,
+            tileWidth: 256,
+            tileHeight: 256
+        }
+    ];
+
+    // 接続: なし（Sinkがないため）
+    globalConnections = [];
+
+    // RendererノードのパラメータをC++側に同期
+    const rendererNode = globalNodes[0];
+    canvasWidth = rendererNode.virtualWidth;
+    canvasHeight = rendererNode.virtualHeight;
+    canvasOrigin.x = rendererNode.originX;
+    canvasOrigin.y = rendererNode.originY;
+    tileWidth = rendererNode.tileWidth;
+    tileHeight = rendererNode.tileHeight;
+
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+    graphEvaluator.setCanvasSize(canvasWidth, canvasHeight);
+    graphEvaluator.setDstOrigin(canvasOrigin.x, canvasOrigin.y);
+    graphEvaluator.setTileSize(tileWidth, tileHeight);
+    updateCanvasDisplayScale();
+
+    // UI更新
+    renderContentLibrary();
+    renderNodeGraph();
+
+    // 初期テストパターン画像を生成
+    console.log('initDefaultState: calling generateTestPatterns...');
+    generateTestPatterns();
+    console.log('initDefaultState: contentLibrary after generateTestPatterns:', contentLibrary.length, 'items');
 }
 
 function displayVersionInfo() {
@@ -688,6 +783,14 @@ function setupEventListeners() {
     document.getElementById('sidebar-add-image-btn').addEventListener('click', () => {
         document.getElementById('image-input').click();
     });
+
+    // 出力追加ボタン（サイドバー内）
+    const addOutputBtn = document.getElementById('sidebar-add-output-btn');
+    if (addOutputBtn) {
+        addOutputBtn.addEventListener('click', () => {
+            showAddOutputDialog();
+        });
+    }
 
     // 画像選択
     document.getElementById('image-input').addEventListener('change', handleImageUpload);
@@ -835,7 +938,10 @@ function buildNodeAddMenu(menu) {
     // カテゴリごとにグループ化
     const categories = {
         transform: [{ id: 'affine', name: 'アフィン変換', icon: '🔄' }],
-        composite: [{ id: 'composite', name: '合成', icon: '📑' }]
+        composite: [
+            { id: 'composite', name: '合成', icon: '📑' },
+            { id: 'distributor', name: '分配', icon: '📤' }
+        ]
     };
 
     // FILTER_DEFINITIONSからフィルタを追加
@@ -891,6 +997,8 @@ function handleNodeAdd(nodeType) {
         addAffineNode();
     } else if (nodeType === 'composite') {
         addCompositeNode();
+    } else if (nodeType === 'distributor') {
+        addDistributorNode();
     } else if (FILTER_DEFINITIONS[nodeType]) {
         addIndependentFilterNode(nodeType);
     }
@@ -921,23 +1029,258 @@ async function handleImageUpload(event) {
 
 // 画像ライブラリに画像を追加
 function addImageToLibrary(imageData) {
-    const imageId = nextImageId++;
+    const content = addImageContent(
+        imageData.name || `Image ${nextContentId}`,
+        imageData.width,
+        imageData.height,
+        imageData
+    );
 
-    const image = {
-        id: imageId,
-        name: imageData.name || `Image ${imageId}`,
-        imageData: imageData,
-        width: imageData.width,
-        height: imageData.height
-    };
-
-    uploadedImages.push(image);
-
-    // C++側の入力ライブラリに登録
-    graphEvaluator.storeImage(imageId, imageData.data, imageData.width, imageData.height);
+    // C++側の入力ライブラリに登録（数値IDを使用）
+    graphEvaluator.storeImage(content.cppImageId, imageData.data, imageData.width, imageData.height);
 
     // UIを更新
-    renderImageLibrary();
+    renderContentLibrary();
+}
+
+// ========================================
+// コンテンツライブラリ管理
+// ========================================
+
+// 画像コンテンツを追加
+function addImageContent(name, width, height, imageData) {
+    const content = {
+        id: `img-${nextContentId++}`,
+        type: 'image',
+        name: name,
+        width: width,
+        height: height,
+        imageData: imageData,
+        cppImageId: nextCppImageId++  // C++側に渡す数値ID
+    };
+    contentLibrary.push(content);
+    return content;
+}
+
+// 出力バッファコンテンツを追加
+function addOutputContent(name, width, height) {
+    const content = {
+        id: `out-${nextContentId++}`,
+        type: 'output',
+        name: name,
+        width: width,
+        height: height,
+        cppImageId: nextCppImageId++,  // C++側の出力バッファID
+        imageData: null
+    };
+    contentLibrary.push(content);
+    setFocusedContent(content.id);
+    return content;
+}
+
+// フォーカス管理
+function setFocusedContent(contentId) {
+    focusedContentId = contentId;
+    renderContentLibrary();
+    updateFocusedPreview();
+}
+
+function getFocusedContent() {
+    return contentLibrary.find(c => c.id === focusedContentId);
+}
+
+// フォーカス中のコンテンツをプレビュー表示
+function updateFocusedPreview() {
+    const focused = getFocusedContent();
+    if (!focused) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        return;
+    }
+
+    if (focused.type === 'image') {
+        // 入力画像をそのまま表示
+        displayContentImage(focused);
+    } else if (focused.type === 'output') {
+        // 出力バッファを表示（レンダリング結果）
+        if (focused.imageData) {
+            displayContentImage(focused);
+        } else {
+            // まだレンダリングされていない場合はクリア
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+    }
+}
+
+// コンテンツの画像をキャンバスに表示
+function displayContentImage(content) {
+    console.log('displayContentImage: content.id=', content?.id, 'imageData=', content?.imageData ? 'exists' : 'null', 'data length=', content?.imageData?.data?.length);
+    if (!content || !content.imageData) return;
+
+    // キャンバスサイズを調整
+    canvas.width = content.width;
+    canvas.height = content.height;
+    canvasWidth = content.width;
+    canvasHeight = content.height;
+
+    // ImageDataを作成して描画
+    const imageData = new ImageData(
+        new Uint8ClampedArray(content.imageData.data),
+        content.width,
+        content.height
+    );
+    // 最初の数ピクセルのRGBA値を確認
+    console.log('displayContentImage: first pixels RGBA:',
+        imageData.data[0], imageData.data[1], imageData.data[2], imageData.data[3],
+        '|', imageData.data[4], imageData.data[5], imageData.data[6], imageData.data[7]);
+    console.log('displayContentImage: drawing', content.width, 'x', content.height, 'canvas:', canvas.width, 'x', canvas.height);
+    ctx.putImageData(imageData, 0, 0);
+    updateCanvasDisplayScale();
+}
+
+// フォーカス更新（削除後）
+function updateFocusAfterDelete(deletedContentId) {
+    if (focusedContentId === deletedContentId) {
+        const remaining = contentLibrary.find(c => c.type === 'output');
+        focusedContentId = remaining ? remaining.id : null;
+    }
+}
+
+// 出力バッファを削除（コンテンツライブラリから）
+function deleteOutputContent(contentId) {
+    const content = contentLibrary.find(c => c.id === contentId);
+    if (!content || content.type !== 'output') return;
+
+    // 確認ダイアログ
+    const sinkNode = getSinkForContent(contentId);
+    let message = `「${content.name}」を削除しますか？`;
+    if (sinkNode) {
+        message += '\n対応するSinkノードも削除されます。';
+    }
+    if (!confirm(message)) return;
+
+    // 対応するSinkノードも削除
+    if (sinkNode) {
+        globalNodes = globalNodes.filter(n => n.id !== sinkNode.id);
+        globalConnections = globalConnections.filter(
+            c => c.fromNodeId !== sinkNode.id && c.toNodeId !== sinkNode.id
+        );
+    }
+
+    // コンテンツライブラリから削除
+    contentLibrary = contentLibrary.filter(c => c.id !== contentId);
+    updateFocusAfterDelete(contentId);
+
+    renderNodeGraph();
+    renderContentLibrary();
+    updateFocusedPreview();
+    scheduleAutoSave();
+}
+
+// ヘルパー関数
+function getSinkForContent(contentId) {
+    return globalNodes.find(n => n.type === 'sink' && n.contentId === contentId);
+}
+
+function getImageNodesForContent(contentId) {
+    return globalNodes.filter(n => n.type === 'image' && n.contentId === contentId);
+}
+
+// コンテンツからコンテンツを取得（画像/出力）
+function getContentById(contentId) {
+    return contentLibrary.find(c => c.id === contentId);
+}
+
+// 出力バッファからSinkノードを追加
+function addSinkNodeFromLibrary(contentId) {
+    const content = contentLibrary.find(c => c.id === contentId);
+    if (!content || content.type !== 'output') return;
+
+    // 既にこのcontentに紐付くSinkがあればスキップ
+    const existingSink = getSinkForContent(contentId);
+    if (existingSink) {
+        console.log('Sink already exists for this output');
+        return;
+    }
+
+    // 表示範囲の中央付近に配置 + ランダムオフセット
+    const center = getVisibleNodeGraphCenter();
+    const nodeWidth = 140;
+    const nodeHeight = 70;
+    const posX = center.x + 200 + randomOffset();  // 右寄り
+    const posY = center.y - nodeHeight / 2 + randomOffset();
+
+    // 既存ノードを押し出す
+    pushExistingNodes(posX, posY, nodeWidth, nodeHeight);
+
+    const sinkNode = {
+        id: `sink-${Date.now()}`,
+        type: 'sink',
+        title: content.name,
+        contentId: contentId,
+        posX: posX,
+        posY: posY,
+        originX: Math.round(content.width / 2),   // 仮想スクリーン上の基準座標（中央）
+        originY: Math.round(content.height / 2),
+        outputFormat: 0x0200  // RGBA8888
+    };
+
+    globalNodes.push(sinkNode);
+
+    // Renderer下流が未接続なら自動接続
+    autoConnectToRenderer(sinkNode);
+
+    renderNodeGraph();
+    setFocusedContent(contentId);
+    scheduleAutoSave();
+}
+
+// Renderer下流が未接続なら自動接続
+function autoConnectToRenderer(sinkNode) {
+    const rendererNode = globalNodes.find(n => n.type === 'renderer');
+    if (!rendererNode) return;
+
+    // Rendererの出力ポートから出ている接続があるか確認
+    const hasDownstreamConnection = globalConnections.some(
+        c => c.fromNodeId === rendererNode.id && c.fromPortId === 'out'
+    );
+
+    if (!hasDownstreamConnection) {
+        // 自動接続: Renderer.out → Sink.in
+        globalConnections.push({
+            fromNodeId: rendererNode.id,
+            fromPortId: 'out',
+            toNodeId: sinkNode.id,
+            toPortId: 'in'
+        });
+    }
+}
+
+// 出力追加ダイアログを表示
+function showAddOutputDialog() {
+    const width = prompt('出力幅 (px):', '320');
+    if (!width) return;
+
+    const height = prompt('出力高さ (px):', '240');
+    if (!height) return;
+
+    const w = parseInt(width, 10);
+    const h = parseInt(height, 10);
+    if (isNaN(w) || isNaN(h) || w <= 0 || h <= 0) {
+        alert('有効なサイズを入力してください');
+        return;
+    }
+
+    const outputCount = contentLibrary.filter(c => c.type === 'output').length;
+    const content = addOutputContent(
+        `LCD #${outputCount + 1}`,
+        w,
+        h
+    );
+
+    // 対応するSinkノードも自動生成
+    addSinkNodeFromLibrary(content.id);
+
+    scheduleAutoSave();
 }
 
 // デバッグ用テストパターン画像を生成
@@ -1182,34 +1525,106 @@ function generateTestPatterns() {
     console.log(`Generated ${patterns.length} test patterns`);
 }
 
-// 画像ライブラリUIを描画
-function renderImageLibrary() {
+// コンテンツライブラリUIを描画
+function renderContentLibrary() {
     const libraryContainer = document.getElementById('sidebar-images-library');
+    if (!libraryContainer) return;
     libraryContainer.innerHTML = '';
 
     const template = document.getElementById('image-item-template');
-    uploadedImages.forEach(image => {
-        const item = template.content.cloneNode(true);
 
-        // サムネイル設定
-        const thumbnail = item.querySelector('.image-thumbnail img');
-        thumbnail.src = createThumbnailDataURL(image.imageData);
+    contentLibrary.forEach(content => {
+        if (content.type === 'image') {
+            // 画像コンテンツ（従来の画像ライブラリと同じ表示）
+            const item = template.content.cloneNode(true);
+            const itemDiv = item.querySelector('.image-item');
 
-        // 画像名設定
-        item.querySelector('.image-name').textContent = image.name;
+            // フォーカス状態を反映
+            if (content.id === focusedContentId) {
+                itemDiv.classList.add('focused');
+            }
 
-        // ノード追加ボタン
-        item.querySelector('.add-image-node-btn').addEventListener('click', () => {
-            addImageNodeFromLibrary(image.id);
-        });
+            // サムネイル設定
+            const thumbnail = item.querySelector('.image-thumbnail img');
+            thumbnail.src = createThumbnailDataURL(content.imageData);
 
-        // 削除ボタン
-        item.querySelector('.delete-image-btn').addEventListener('click', () => {
-            deleteImageFromLibrary(image.id);
-        });
+            // 画像名設定
+            item.querySelector('.image-name').textContent = content.name;
 
-        libraryContainer.appendChild(item);
+            // フォーカス切り替え（アイテムクリック）
+            itemDiv.addEventListener('click', (e) => {
+                // ボタンクリック時は除外
+                if (!e.target.closest('.add-image-node-btn') &&
+                    !e.target.closest('.delete-image-btn')) {
+                    setFocusedContent(content.id);
+                }
+            });
+
+            // ノード追加ボタン
+            item.querySelector('.add-image-node-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                addImageNodeFromLibrary(content.id);
+            });
+
+            // 削除ボタン
+            item.querySelector('.delete-image-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                deleteImageFromLibrary(content.id);
+            });
+
+            libraryContainer.appendChild(item);
+        } else if (content.type === 'output') {
+            // 出力バッファコンテンツ
+            const outputItem = document.createElement('div');
+            outputItem.className = 'content-item output-item';
+            if (content.id === focusedContentId) {
+                outputItem.classList.add('focused');
+            }
+
+            // 既にSinkノードが存在するか確認
+            const existingSink = getSinkForContent(content.id);
+            const addBtnLabel = existingSink ? '✓ Sink' : CONTENT_TYPES.output.buttonLabel;
+            const addBtnDisabled = existingSink ? 'disabled' : '';
+
+            outputItem.innerHTML = `
+                <span class="content-icon">${CONTENT_TYPES.output.icon}</span>
+                <span class="content-name">${content.name}</span>
+                <span class="content-size">${content.width}x${content.height}</span>
+                <button class="content-add-node-btn" ${addBtnDisabled}>${addBtnLabel}</button>
+                <button class="content-delete-btn" title="削除">🗑️</button>
+            `;
+
+            // フォーカス切り替え
+            outputItem.addEventListener('click', (e) => {
+                if (!e.target.classList.contains('content-add-node-btn') &&
+                    !e.target.classList.contains('content-delete-btn')) {
+                    setFocusedContent(content.id);
+                }
+            });
+
+            // +Sink ボタン
+            const addBtn = outputItem.querySelector('.content-add-node-btn');
+            if (!existingSink) {
+                addBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    addSinkNodeFromLibrary(content.id);
+                });
+            }
+
+            // 削除ボタン
+            outputItem.querySelector('.content-delete-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                deleteOutputContent(content.id);
+            });
+
+            libraryContainer.appendChild(outputItem);
+        }
     });
+}
+
+// 互換性用エイリアス
+function renderImageLibrary() {
+    renderContentLibrary();
 }
 
 // サムネイル用のData URLを作成
@@ -1223,9 +1638,9 @@ function createThumbnailDataURL(imageData) {
 }
 
 // 画像ライブラリから画像ノードを追加
-function addImageNodeFromLibrary(imageId) {
-    const image = uploadedImages.find(img => img.id === imageId);
-    if (!image) return;
+function addImageNodeFromLibrary(contentId) {
+    const content = contentLibrary.find(c => c.id === contentId);
+    if (!content || content.type !== 'image') return;
 
     // 表示範囲の中央付近に固定配置（画像ノードは左寄り）+ ランダムオフセット
     const center = getVisibleNodeGraphCenter();
@@ -1240,8 +1655,8 @@ function addImageNodeFromLibrary(imageId) {
     const imageNode = {
         id: `image-node-${nextImageNodeId++}`,
         type: 'image',
-        imageId: imageId,
-        title: image.name,
+        contentId: contentId,  // contentLibraryのID
+        title: content.name,
         posX: posX,
         posY: posY,
         // 元画像の原点（正規化座標 0.0〜1.0）
@@ -1255,21 +1670,29 @@ function addImageNodeFromLibrary(imageId) {
 }
 
 // 画像ライブラリから画像を削除
-function deleteImageFromLibrary(imageId) {
+function deleteImageFromLibrary(contentId) {
+    const content = contentLibrary.find(c => c.id === contentId);
+    if (!content || content.type !== 'image') return;
+
     // この画像を使用しているノードがあるか確認
-    const usingNodes = globalNodes.filter(n => n.type === 'image' && n.imageId === imageId);
+    const usingNodes = getImageNodesForContent(contentId);
     if (usingNodes.length > 0) {
         if (!confirm(`この画像は${usingNodes.length}個のノードで使用されています。削除してもよろしいですか？`)) {
             return;
         }
         // ノードも削除
-        globalNodes = globalNodes.filter(n => !(n.type === 'image' && n.imageId === imageId));
+        globalNodes = globalNodes.filter(n => !(n.type === 'image' && n.contentId === contentId));
+        // 接続も削除
+        const nodeIds = usingNodes.map(n => n.id);
+        globalConnections = globalConnections.filter(
+            c => !nodeIds.includes(c.fromNodeId) && !nodeIds.includes(c.toNodeId)
+        );
     }
 
     // 画像を削除
-    uploadedImages = uploadedImages.filter(img => img.id !== imageId);
+    contentLibrary = contentLibrary.filter(c => c.id !== contentId);
 
-    renderImageLibrary();
+    renderContentLibrary();
     renderNodeGraph();
     scheduleAutoSave();
 }
@@ -1436,7 +1859,7 @@ function renderNodeGraph() {
     // SVGをクリア
     nodeGraphSvg.innerHTML = '';
 
-    // Renderer ノードが存在しない場合は追加
+    // Renderer ノードが存在しない場合は追加（ノードグラフ中央に配置）
     if (!globalNodes.find(n => n.type === 'renderer')) {
         globalNodes.push({
             id: 'renderer',
@@ -1446,36 +1869,8 @@ function renderNodeGraph() {
             virtualHeight: canvasHeight,
             originX: canvasOrigin.x,
             originY: canvasOrigin.y,
-            posX: 850,
+            posX: 700,
             posY: 550
-        });
-    }
-
-    // Sink ノードが存在しない場合は追加
-    if (!globalNodes.find(n => n.type === 'sink')) {
-        globalNodes.push({
-            id: 'sink',
-            type: 'sink',
-            title: 'Sink',
-            outputWidth: canvasWidth,
-            outputHeight: canvasHeight,
-            outputOriginX: canvasOrigin.x,
-            outputOriginY: canvasOrigin.y,
-            imageId: outputImageId,
-            posX: 1100,
-            posY: 550
-        });
-    }
-
-    // Sink への入力がない場合のみ Renderer → Sink のデフォルト接続を作成
-    // （Renderer下流にフィルタを配置した場合は自動接続しない）
-    const sinkHasInput = globalConnections.some(c => c.toNodeId === 'sink');
-    if (!sinkHasInput) {
-        globalConnections.push({
-            fromNodeId: 'renderer',
-            fromPortId: 'out',
-            toNodeId: 'sink',
-            toPortId: 'in'
         });
     }
 
@@ -1580,6 +1975,12 @@ function getNodeHeight(node) {
         const minPortSpacing = 15;
         const minHeight = 60;
         return Math.max(minHeight, (inputCount + 1) * minPortSpacing);
+    } else if (node.type === 'distributor') {
+        // 分配ノード: 出力数に応じて可変高さ
+        const outputCount = node.outputs ? node.outputs.length : 2;
+        const minPortSpacing = 15;
+        const minHeight = 60;
+        return Math.max(minHeight, (outputCount + 1) * minPortSpacing);
     } else if (node.type === 'affine') {
         return 70; // アフィン: 主要パラメータ1つ
     } else if (node.type === 'filter' && node.independent) {
@@ -1653,15 +2054,15 @@ function drawGlobalNode(node) {
     nodeBox.appendChild(header);
 
     // 画像ノードの場合、サムネイルのみ表示（コンパクト）
-    if (node.type === 'image' && node.imageId !== undefined) {
-        const image = uploadedImages.find(img => img.id === node.imageId);
-        if (image && image.imageData) {
+    if (node.type === 'image' && node.contentId !== undefined) {
+        const content = contentLibrary.find(c => c.id === node.contentId);
+        if (content && content.imageData) {
             const contentRow = document.createElement('div');
             contentRow.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 4px;';
 
             // サムネイル
             const img = document.createElement('img');
-            img.src = createThumbnailDataURL(image.imageData);
+            img.src = createThumbnailDataURL(content.imageData);
             img.style.cssText = 'width: 40px; height: 30px; object-fit: cover; border-radius: 3px;';
             contentRow.appendChild(img);
 
@@ -1803,11 +2204,12 @@ function drawGlobalNode(node) {
         thumbnailCanvas.style.cssText = 'border: 1px solid #444; background: #222; border-radius: 3px;';
         contentRow.appendChild(thumbnailCanvas);
 
-        // 出力情報
+        // 出力情報（contentLibraryから取得）
         const infoDiv = document.createElement('div');
         infoDiv.style.cssText = 'font-size: 10px; color: #666; line-height: 1.4;';
-        const ow = node.outputWidth ?? canvasWidth;
-        const oh = node.outputHeight ?? canvasHeight;
+        const sinkContent = contentLibrary.find(c => c.id === node.contentId);
+        const ow = sinkContent?.width ?? 0;
+        const oh = sinkContent?.height ?? 0;
         const formatName = PIXEL_FORMATS.find(f => f.id === (node.outputFormat ?? DEFAULT_PIXEL_FORMAT))?.name ?? 'RGBA8';
         infoDiv.innerHTML = `${ow}×${oh}<br>${formatName}`;
         contentRow.appendChild(infoDiv);
@@ -2232,6 +2634,20 @@ function getNodePorts(node) {
             ports.outputs.push({ id: 'out', label: '出力', type: 'image' });
             break;
 
+        case 'distributor':
+            // 分配ノード: 入力1つ、動的な出力数
+            ports.inputs.push({ id: 'in', label: '入力', type: 'image' });
+            if (node.outputs && node.outputs.length > 0) {
+                node.outputs.forEach((output, index) => {
+                    ports.outputs.push({
+                        id: output.id,
+                        label: `出力${index + 1}`,
+                        type: 'image'
+                    });
+                });
+            }
+            break;
+
         case 'affine':
             // アフィン変換ノード: 入力1つ、出力1つ
             ports.inputs.push({ id: 'in', label: '入力', type: 'image' });
@@ -2391,6 +2807,52 @@ function addCompositeInput(node) {
     scheduleAutoSave();
 }
 
+// 分配ノードを追加
+function addDistributorNode() {
+    // 表示範囲の中央に固定配置 + ランダムオフセット
+    const center = getVisibleNodeGraphCenter();
+    const nodeWidth = 160;
+    const nodeHeight = 90;
+    const posX = center.x - nodeWidth / 2 + randomOffset();
+    const posY = center.y - nodeHeight / 2 + randomOffset();
+
+    // 既存ノードを押し出す
+    pushExistingNodes(posX, posY, nodeWidth, nodeHeight);
+
+    const distributorNode = {
+        id: `distributor-${nextDistributorId++}`,
+        type: 'distributor',
+        title: '分配',
+        posX: posX,
+        posY: posY,
+        // 動的な出力配列（デフォルトで2つの出力）
+        outputs: [
+            { id: 'out1' },
+            { id: 'out2' }
+        ]
+    };
+
+    globalNodes.push(distributorNode);
+    renderNodeGraph();
+    scheduleAutoSave();
+}
+
+// 分配ノードに出力を追加
+function addDistributorOutput(node) {
+    if (!node.outputs) {
+        node.outputs = [];
+    }
+
+    const newIndex = node.outputs.length + 1;
+    node.outputs.push({
+        id: `out${newIndex}`
+    });
+
+    // ノードグラフを再描画
+    renderNodeGraph();
+    scheduleAutoSave();
+}
+
 // 独立フィルタノードを追加（レイヤーに属さない）
 function addIndependentFilterNode(filterType) {
     const filterDef = FILTER_DEFINITIONS[filterType];
@@ -2442,22 +2904,32 @@ function getFilterDisplayName(filterType) {
 function updatePreviewFromGraph() {
     const perfStart = performance.now();
 
-    const sinkNode = globalNodes.find(n => n.type === 'sink');
-    if (!sinkNode) {
-        // Sinkノードがない場合はキャンバスをクリア
-        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+    // フォーカス中のコンテンツを取得
+    const focusedContent = contentLibrary.find(c => c.id === focusedContentId);
+
+    // 全てのSinkノードを収集（複数Sink対応）
+    const allSinkNodes = globalNodes.filter(n => {
+        if (n.type !== 'sink') return false;
+        // contentIdが設定されているSinkのみ対象
+        const content = contentLibrary.find(c => c.id === n.contentId);
+        return content && content.type === 'output';
+    });
+
+    if (allSinkNodes.length === 0) {
+        // Sinkノードがない場合はフォーカス中のコンテンツを表示
+        updateFocusedPreview();
         return;
     }
 
-    // Sinkノードへの入力接続を取得
-    const inputConn = globalConnections.find(
-        c => c.toNodeId === sinkNode.id && c.toPortId === 'in'
-    );
-
-    if (!inputConn) {
-        // 接続がない場合はキャンバスをクリア
-        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-        return;
+    // プレビュー表示用のSinkを決定
+    // 1. フォーカスが出力バッファの場合、そのcontentIdを持つSinkを探す
+    // 2. そうでなければ、最初のSinkを使う
+    let displaySinkNode = null;
+    if (focusedContent && focusedContent.type === 'output') {
+        displaySinkNode = allSinkNodes.find(n => n.contentId === focusedContentId);
+    }
+    if (!displaySinkNode) {
+        displaySinkNode = allSinkNodes[0];
     }
 
     // C++側にノードグラフ構造を渡す（1回のWASM呼び出しで完結）
@@ -2465,17 +2937,18 @@ function updatePreviewFromGraph() {
 
     // ノードデータをC++に渡す形式に変換
     const nodesForCpp = globalNodes.map(node => {
-        // 画像ノード: 正規化originをピクセル座標に変換
+        // 画像ノード: 正規化originをピクセル座標に変換、contentIdをcppImageIdに変換
         if (node.type === 'image') {
-            const image = uploadedImages.find(img => img.id === node.imageId);
-            if (image) {
+            const content = contentLibrary.find(c => c.id === node.contentId);
+            if (content) {
                 const ox = node.originX ?? 0.5;
                 const oy = node.originY ?? 0.5;
                 return {
                     ...node,
+                    imageId: content.cppImageId,  // C++側に渡す数値ID
                     // ピクセル座標に変換してC++に渡す
-                    originX: ox * image.width,
-                    originY: oy * image.height
+                    originX: ox * content.width,
+                    originY: oy * content.height
                 };
             }
         }
@@ -2494,6 +2967,18 @@ function updatePreviewFromGraph() {
                 matrix: matrix
             };
         }
+        // Sinkノード: contentLibraryからサイズを取得
+        if (node.type === 'sink') {
+            const content = contentLibrary.find(c => c.id === node.contentId);
+            if (content) {
+                return {
+                    ...node,
+                    outputWidth: content.width,
+                    outputHeight: content.height,
+                    imageId: content.cppImageId  // 出力先の画像ID
+                };
+            }
+        }
         // フィルタノード: paramをfilterParams配列に変換
         if (node.type === 'filter' && node.independent) {
             const filterDef = FILTER_DEFINITIONS[node.filterType];
@@ -2511,10 +2996,15 @@ function updatePreviewFromGraph() {
     graphEvaluator.setNodes(nodesForCpp);
     graphEvaluator.setConnections(globalConnections);
 
-    // 出力バッファを確保
-    graphEvaluator.allocateImage(outputImageId, canvasWidth, canvasHeight);
+    // 全てのSinkの出力バッファを確保（複数Sink対応）
+    for (const sinkNode of allSinkNodes) {
+        const sinkContent = contentLibrary.find(c => c.id === sinkNode.contentId);
+        if (sinkContent) {
+            graphEvaluator.allocateImage(sinkContent.cppImageId, sinkContent.width, sinkContent.height);
+        }
+    }
 
-    // C++側でノードグラフ全体を評価（出力はimageLibraryに書き込まれる）
+    // C++側でノードグラフ全体を評価（全Sinkに出力される）
     // 戻り値: 0 = 成功、1 = 循環参照検出
     const execResult = graphEvaluator.evaluateGraph();
     if (execResult === 1) {
@@ -2523,22 +3013,32 @@ function updatePreviewFromGraph() {
         return;
     }
 
-    // 出力データを取得
-    const resultData = graphEvaluator.getImage(outputImageId);
-
     const evalTime = performance.now() - evalStart;
 
-    if (resultData) {
-        // キャンバスに描画
-        const drawStart = performance.now();
-        const imageData = new ImageData(
-            resultData,
-            canvasWidth,
-            canvasHeight
-        );
+    // 全てのSinkの結果をcontentLibraryに保存
+    let hasValidResult = false;
+    for (const sinkNode of allSinkNodes) {
+        const sinkContent = contentLibrary.find(c => c.id === sinkNode.contentId);
+        if (!sinkContent) continue;
 
-        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-        ctx.putImageData(imageData, 0, 0);
+        const resultData = graphEvaluator.getImage(sinkContent.cppImageId);
+        if (resultData && resultData.length > 0) {
+            sinkContent.imageData = {
+                data: new Uint8ClampedArray(resultData),
+                width: sinkContent.width,
+                height: sinkContent.height
+            };
+            hasValidResult = true;
+        }
+    }
+
+    console.log('updatePreviewFromGraph: processed', allSinkNodes.length, 'Sink nodes, hasValidResult=', hasValidResult);
+
+    if (hasValidResult) {
+
+        // フォーカス中のコンテンツをプレビュー表示
+        const drawStart = performance.now();
+        updateFocusedPreview();
         const drawTime = performance.now() - drawStart;
 
         // C++側の詳細計測結果を取得（時間はマイクロ秒）
@@ -2906,6 +3406,16 @@ function showContextMenu(x, y, node) {
         addInputMenu.style.display = 'none';
     }
 
+    // 分配ノードの場合のみ「出力を追加」を表示
+    const addOutputMenu = document.getElementById('add-output-menu');
+    if (addOutputMenu) {
+        if (node.type === 'distributor') {
+            addOutputMenu.style.display = 'block';
+        } else {
+            addOutputMenu.style.display = 'none';
+        }
+    }
+
     contextMenu.style.left = x + 'px';
     contextMenu.style.top = y + 'px';
     contextMenu.style.display = 'block';
@@ -2939,6 +3449,17 @@ document.getElementById('add-input-menu').addEventListener('click', () => {
         hideContextMenu();
     }
 });
+
+// 出力追加メニューアイテムのクリック
+const addOutputMenuEl = document.getElementById('add-output-menu');
+if (addOutputMenuEl) {
+    addOutputMenuEl.addEventListener('click', () => {
+        if (contextMenuTargetNode && contextMenuTargetNode.type === 'distributor') {
+            addDistributorOutput(contextMenuTargetNode);
+            hideContextMenu();
+        }
+    });
+}
 
 // 詳細メニューアイテムのクリック
 document.getElementById('detail-node-menu').addEventListener('click', () => {
@@ -3049,6 +3570,8 @@ function buildDetailPanelContent(node) {
         buildFilterDetailContent(node);
     } else if (node.type === 'composite') {
         buildCompositeDetailContent(node);
+    } else if (node.type === 'distributor') {
+        buildDistributorDetailContent(node);
     } else if (node.type === 'affine') {
         buildAffineDetailContent(node);
     } else if (node.type === 'renderer') {
@@ -3138,13 +3661,13 @@ function onPixelFormatChange(node, formatId) {
     node.pixelFormat = formatId;
 
     // 画像を再登録（バインディング層で変換）
-    const image = uploadedImages.find(img => img.id === node.imageId);
-    if (image && image.imageData) {
+    const content = contentLibrary.find(c => c.id === node.contentId);
+    if (content && content.imageData) {
         graphEvaluator.storeImageWithFormat(
-            node.imageId,
-            image.imageData.data,
-            image.imageData.width,
-            image.imageData.height,
+            content.cppImageId,
+            content.imageData.data,
+            content.imageData.width,
+            content.imageData.height,
             formatId
         );
     }
@@ -3227,6 +3750,36 @@ function buildCompositeDetailContent(node) {
     const hint = document.createElement('div');
     hint.style.cssText = 'margin-top: 12px; font-size: 11px; color: #888;';
     hint.textContent = '💡 アルファ調整はAlphaフィルタノードを使用してください';
+    section.appendChild(hint);
+
+    detailPanelContent.appendChild(section);
+}
+
+// 分配ノードの詳細コンテンツ
+function buildDistributorDetailContent(node) {
+    const section = document.createElement('div');
+    section.className = 'node-detail-section';
+
+    const label = document.createElement('div');
+    label.className = 'node-detail-label';
+    label.textContent = `出力数: ${node.outputs ? node.outputs.length : 0}`;
+    section.appendChild(label);
+
+    // 出力追加ボタン
+    const addBtn = document.createElement('button');
+    addBtn.textContent = '+ 出力を追加';
+    addBtn.style.cssText = 'width: 100%; margin-top: 8px; padding: 6px; font-size: 12px;';
+    addBtn.addEventListener('click', () => {
+        addDistributorOutput(node);
+        detailPanelContent.innerHTML = '';
+        buildDistributorDetailContent(node);
+    });
+    section.appendChild(addBtn);
+
+    // ヒントテキスト
+    const hint = document.createElement('div');
+    hint.style.cssText = 'margin-top: 12px; font-size: 11px; color: #888;';
+    hint.textContent = '💡 1つの入力を複数の出力に分配します';
     section.appendChild(hint);
 
     detailPanelContent.appendChild(section);
@@ -3457,14 +4010,8 @@ function buildRendererDetailContent(node) {
         canvasOrigin.x = node.originX;
         canvasOrigin.y = node.originY;
 
-        // Sinkノードも同期
-        const sinkNode = globalNodes.find(n => n.type === 'sink');
-        if (sinkNode) {
-            sinkNode.outputWidth = node.virtualWidth;
-            sinkNode.outputHeight = node.virtualHeight;
-            sinkNode.outputOriginX = node.originX;
-            sinkNode.outputOriginY = node.originY;
-        }
+        // Note: SinkノードのサイズはcontentLibraryから取得するため、ここでは同期しない
+        // 各Sinkは独自のcontentIdで出力バッファを参照する
 
         // キャンバスをリサイズ＆原点を更新
         resizeCanvas(node.virtualWidth, node.virtualHeight);
@@ -3627,35 +4174,22 @@ function buildSinkDetailContent(node) {
     label.textContent = '出力設定';
     section.appendChild(label);
 
-    // 幅
-    const widthRow = document.createElement('div');
-    widthRow.className = 'node-detail-row';
-    const widthLabel = document.createElement('label');
-    widthLabel.textContent = '幅';
-    const widthInput = document.createElement('input');
-    widthInput.type = 'number';
-    widthInput.min = '100';
-    widthInput.max = '4096';
-    widthInput.value = node.outputWidth ?? canvasWidth;
-    widthInput.style.width = '80px';
-    widthRow.appendChild(widthLabel);
-    widthRow.appendChild(widthInput);
-    section.appendChild(widthRow);
+    // 出力バッファ情報（contentLibraryから取得、読み取り専用）
+    const content = contentLibrary.find(c => c.id === node.contentId);
+    const outputWidth = content?.width ?? 0;
+    const outputHeight = content?.height ?? 0;
 
-    // 高さ
-    const heightRow = document.createElement('div');
-    heightRow.className = 'node-detail-row';
-    const heightLabel = document.createElement('label');
-    heightLabel.textContent = '高さ';
-    const heightInput = document.createElement('input');
-    heightInput.type = 'number';
-    heightInput.min = '100';
-    heightInput.max = '4096';
-    heightInput.value = node.outputHeight ?? canvasHeight;
-    heightInput.style.width = '80px';
-    heightRow.appendChild(heightLabel);
-    heightRow.appendChild(heightInput);
-    section.appendChild(heightRow);
+    // サイズ表示（読み取り専用）
+    const sizeRow = document.createElement('div');
+    sizeRow.className = 'node-detail-row';
+    const sizeLabel = document.createElement('label');
+    sizeLabel.textContent = 'サイズ';
+    const sizeValue = document.createElement('span');
+    sizeValue.textContent = `${outputWidth} x ${outputHeight}`;
+    sizeValue.style.color = '#888';
+    sizeRow.appendChild(sizeLabel);
+    sizeRow.appendChild(sizeValue);
+    section.appendChild(sizeRow);
 
     // 原点X
     const originXRow = document.createElement('div');
@@ -3664,7 +4198,7 @@ function buildSinkDetailContent(node) {
     originXLabel.textContent = '原点X';
     const originXInput = document.createElement('input');
     originXInput.type = 'number';
-    originXInput.value = Math.round(node.outputOriginX ?? canvasOrigin.x);
+    originXInput.value = Math.round(node.originX ?? 0);
     originXInput.style.width = '80px';
     originXRow.appendChild(originXLabel);
     originXRow.appendChild(originXInput);
@@ -3677,7 +4211,7 @@ function buildSinkDetailContent(node) {
     originYLabel.textContent = '原点Y';
     const originYInput = document.createElement('input');
     originYInput.type = 'number';
-    originYInput.value = Math.round(node.outputOriginY ?? canvasOrigin.y);
+    originYInput.value = Math.round(node.originY ?? 0);
     originYInput.style.width = '80px';
     originYRow.appendChild(originYLabel);
     originYRow.appendChild(originYInput);
@@ -3714,10 +4248,8 @@ function buildSinkDetailContent(node) {
     applyBtn.textContent = '適用';
     applyBtn.style.marginTop = '8px';
     applyBtn.addEventListener('click', () => {
-        node.outputWidth = parseInt(widthInput.value);
-        node.outputHeight = parseInt(heightInput.value);
-        node.outputOriginX = parseFloat(originXInput.value);
-        node.outputOriginY = parseFloat(originYInput.value);
+        node.originX = parseFloat(originXInput.value);
+        node.originY = parseFloat(originYInput.value);
         node.outputFormat = parseInt(formatSelect.value);
 
         // Sink出力フォーマットをC++側に設定
@@ -3725,28 +4257,9 @@ function buildSinkDetailContent(node) {
             graphEvaluator.setSinkFormat(node.id, node.outputFormat);
         }
 
-        // Rendererノードと同期（将来的には独立設定も可能）
-        const rendererNode = globalNodes.find(n => n.type === 'renderer');
-        if (rendererNode) {
-            rendererNode.virtualWidth = node.outputWidth;
-            rendererNode.virtualHeight = node.outputHeight;
-            rendererNode.originX = node.outputOriginX;
-            rendererNode.originY = node.outputOriginY;
-        }
-
-        // グローバル変数も更新
-        canvasWidth = node.outputWidth;
-        canvasHeight = node.outputHeight;
-        canvasOrigin.x = node.outputOriginX;
-        canvasOrigin.y = node.outputOriginY;
-
-        // キャンバスをリサイズ＆原点を更新
-        resizeCanvas(node.outputWidth, node.outputHeight);
-        if (graphEvaluator) {
-            graphEvaluator.setDstOrigin(canvasOrigin.x, canvasOrigin.y);
-        }
         renderNodeGraph();
         throttledUpdatePreview();
+        scheduleAutoSave();
     });
     applyRow.appendChild(applyBtn);
     section.appendChild(applyRow);
@@ -3756,15 +4269,30 @@ function buildSinkDetailContent(node) {
 
 // ノードを削除
 function deleteNode(node) {
-    // システムノード（renderer, sink）は削除不可
-    if (node.type === 'renderer' || node.type === 'sink') {
-        alert('システムノードは削除できません');
+    // Rendererは削除不可
+    if (node.type === 'renderer') {
+        alert('Rendererノードは削除できません');
         return;
     }
 
-    // 確認ダイアログ
-    if (!confirm(`ノード「${node.title}」を削除しますか？`)) {
-        return;
+    // Sinkノード: 確認ダイアログ + 出力バッファ連動削除
+    if (node.type === 'sink') {
+        const content = contentLibrary.find(c => c.id === node.contentId);
+        if (content) {
+            const confirmed = confirm(
+                `「${content.name}」はコンテンツライブラリからも削除されます。\n削除してよろしいですか？`
+            );
+            if (!confirmed) return;
+
+            // コンテンツライブラリから削除
+            contentLibrary = contentLibrary.filter(c => c.id !== content.id);
+            updateFocusAfterDelete(content.id);
+        }
+    } else {
+        // その他のノード: 通常の確認ダイアログ
+        if (!confirm(`ノード「${node.title}」を削除しますか？`)) {
+            return;
+        }
     }
 
     // ノードを削除
@@ -3780,7 +4308,9 @@ function deleteNode(node) {
 
     // グラフを再描画
     renderNodeGraph();
+    renderContentLibrary();
     throttledUpdatePreview();
+    scheduleAutoSave();
 }
 
 // 原点選択グリッドのセットアップ
@@ -3829,7 +4359,7 @@ function setupOriginGrid(gridId, initialOrigin, onChange) {
 // ========================================
 
 const STATE_STORAGE_KEY = 'imageTransformPreviewState';
-const STATE_VERSION = 1;
+const STATE_VERSION = 2;  // コンテンツライブラリ対応
 
 // アプリ状態をオブジェクトとして取得
 function getAppState() {
@@ -3857,19 +4387,28 @@ function getAppState() {
             height: currentTileHeight,
             debugCheckerboard: currentDebugCheckerboard
         },
-        images: uploadedImages.map(img => ({
-            id: img.id,
-            name: img.name,
-            width: img.width,
-            height: img.height,
-            dataURL: imageDataToDataURL(img.imageData)
+        // コンテンツライブラリ（画像・出力バッファ統合）
+        contentLibrary: contentLibrary.map(content => ({
+            id: content.id,
+            type: content.type,
+            name: content.name,
+            width: content.width,
+            height: content.height,
+            cppImageId: content.cppImageId,
+            // 画像コンテンツのみimageDataを保存（出力バッファは再生成）
+            dataURL: content.type === 'image' && content.imageData
+                ? imageDataToDataURL(content.imageData)
+                : null
         })),
+        focusedContentId: focusedContentId,
         nodes: globalNodes.map(node => ({...node})),
         connections: globalConnections.map(conn => ({...conn})),
         nextIds: {
-            imageId: nextImageId,
+            contentId: nextContentId,
+            cppImageId: nextCppImageId,
             globalNodeId: nextGlobalNodeId,
             compositeId: nextCompositeId,
+            distributorId: nextDistributorId,
             independentFilterId: nextIndependentFilterId,
             imageNodeId: nextImageNodeId
         }
@@ -4041,96 +4580,117 @@ async function restoreAppState(state) {
     applyTileSettings();
 
     // 次のID値を復元
-    nextImageId = state.nextIds.imageId;
+    nextContentId = state.nextIds.contentId || 1;
+    nextCppImageId = state.nextIds.cppImageId || 1;
     nextGlobalNodeId = state.nextIds.globalNodeId;
     nextCompositeId = state.nextIds.compositeId;
+    nextDistributorId = state.nextIds.distributorId || 1;
     nextIndependentFilterId = state.nextIds.independentFilterId;
     nextImageNodeId = state.nextIds.imageNodeId;
 
-    // 画像ライブラリを復元
+    // コンテンツライブラリを復元
     // URLパラメータからの復元時は画像データがないため、LocalStorageから補完を試みる
     const localState = loadStateFromLocalStorage();
-    const localImages = localState ? localState.images : [];
+    const localContents = localState ? localState.contentLibrary : [];
 
-    uploadedImages = [];
+    contentLibrary = [];
     let missingImages = [];
-    for (const imgState of state.images) {
-        let dataURL = imgState.dataURL;
+    for (const contentState of state.contentLibrary) {
+        const content = {
+            id: contentState.id,
+            type: contentState.type,
+            name: contentState.name,
+            width: contentState.width,
+            height: contentState.height,
+            cppImageId: contentState.cppImageId,
+            imageData: null
+        };
 
-        // 画像データがない場合、LocalStorageから同じIDの画像を探す
-        if (!dataURL) {
-            const localImg = localImages.find(li => li.id === imgState.id);
-            if (localImg && localImg.dataURL) {
-                dataURL = localImg.dataURL;
-                console.log(`Image ${imgState.id} (${imgState.name}) loaded from LocalStorage`);
+        // 画像コンテンツのみ画像データを復元
+        if (contentState.type === 'image') {
+            let dataURL = contentState.dataURL;
+
+            // 画像データがない場合、LocalStorageから同じIDのコンテンツを探す
+            if (!dataURL) {
+                const localContent = localContents.find(lc => lc.id === contentState.id);
+                if (localContent && localContent.dataURL) {
+                    dataURL = localContent.dataURL;
+                    console.log(`Image content ${contentState.id} (${contentState.name}) loaded from LocalStorage`);
+                }
+            }
+
+            if (dataURL) {
+                content.imageData = await dataURLToImageData(dataURL, contentState.width, contentState.height);
+                // C++側に画像を登録（cppImageIdを使用）
+                graphEvaluator.storeImage(
+                    content.cppImageId,
+                    content.imageData.data,
+                    content.width,
+                    content.height
+                );
+            } else {
+                // 画像データが見つからない場合は警告
+                missingImages.push(contentState.name);
+                console.warn(`Image content ${contentState.id} (${contentState.name}) not found in LocalStorage`);
             }
         }
+        // 出力バッファはimageDataはnull（レンダリング時に生成）
 
-        if (dataURL) {
-            const imageData = await dataURLToImageData(dataURL, imgState.width, imgState.height);
-            const image = {
-                id: imgState.id,
-                name: imgState.name,
-                imageData: imageData,
-                width: imgState.width,
-                height: imgState.height
-            };
-            uploadedImages.push(image);
-            graphEvaluator.storeImage(imgState.id, imageData.data, imgState.width, imgState.height);
-        } else {
-            // 画像データが見つからない場合は警告
-            missingImages.push(imgState.name);
-            console.warn(`Image ${imgState.id} (${imgState.name}) not found in LocalStorage`);
-        }
+        contentLibrary.push(content);
     }
 
     if (missingImages.length > 0) {
         console.warn(`Missing images: ${missingImages.join(', ')}`);
     }
-    renderImageLibrary();
+
+    // フォーカス状態を復元
+    focusedContentId = state.focusedContentId;
+    renderContentLibrary();
 
     // ノードとコネクションを復元
     globalNodes = state.nodes;
     globalConnections = state.connections;
 
-    // マイグレーション: 旧 'output' ノードを 'sink' に変換
-    let oldOutputId = null;
-    globalNodes.forEach(node => {
-        if (node.type === 'output') {
-            oldOutputId = node.id;
-            node.type = 'sink';
-            node.id = 'sink';  // IDも統一
-            // 旧形式のパラメータを新形式に変換
-            if (node.width !== undefined) node.outputWidth = node.width;
-            if (node.height !== undefined) node.outputHeight = node.height;
+    // Rendererノードの設定をC++側に同期
+    const rendererNode = globalNodes.find(n => n.type === 'renderer');
+    if (rendererNode) {
+        // Rendererノードの値をグローバル変数と同期
+        if (rendererNode.virtualWidth !== undefined) {
+            canvasWidth = rendererNode.virtualWidth;
+            canvasHeight = rendererNode.virtualHeight;
+            canvas.width = canvasWidth;
+            canvas.height = canvasHeight;
+            graphEvaluator.setCanvasSize(canvasWidth, canvasHeight);
         }
-    });
-
-    // 旧output宛の接続をRenderer経由に再配線
-    if (oldOutputId) {
-        globalConnections.forEach(conn => {
-            if (conn.toNodeId === oldOutputId) {
-                // 旧output宛 → Renderer宛に変更
-                conn.toNodeId = 'renderer';
-                conn.toPortId = 'in';
-            }
-            if (conn.fromNodeId === oldOutputId) {
-                conn.fromNodeId = 'sink';
-            }
-        });
+        if (rendererNode.originX !== undefined) {
+            canvasOrigin.x = rendererNode.originX;
+            canvasOrigin.y = rendererNode.originY;
+            graphEvaluator.setDstOrigin(canvasOrigin.x, canvasOrigin.y);
+        }
+        // タイル設定も同期
+        if (rendererNode.tileWidth !== undefined) {
+            tileWidth = rendererNode.tileWidth;
+            tileHeight = rendererNode.tileHeight;
+            graphEvaluator.setTileSize(tileWidth, tileHeight);
+        }
+        if (rendererNode.debugCheckerboard !== undefined) {
+            debugCheckerboard = rendererNode.debugCheckerboard;
+            graphEvaluator.setDebugCheckerboard(debugCheckerboard);
+        }
+        updateCanvasDisplayScale();
     }
 
     // 画像ノードのピクセルフォーマットを適用
     // (画像はデフォルトのRGBA8で登録済みなので、異なるフォーマットの場合は再登録)
     globalNodes.forEach(node => {
         if (node.type === 'image' && node.pixelFormat && node.pixelFormat !== DEFAULT_PIXEL_FORMAT) {
-            const image = uploadedImages.find(img => img.id === node.imageId);
-            if (image && image.imageData) {
+            const content = contentLibrary.find(c => c.id === node.contentId);
+            if (content && content.imageData) {
                 graphEvaluator.storeImageWithFormat(
-                    node.imageId,
-                    image.imageData.data,
-                    image.imageData.width,
-                    image.imageData.height,
+                    content.cppImageId,
+                    content.imageData.data,
+                    content.imageData.width,
+                    content.imageData.height,
                     node.pixelFormat
                 );
             }
