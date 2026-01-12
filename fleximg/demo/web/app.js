@@ -1057,11 +1057,53 @@ function addOutputContent(name, width, height) {
 function setFocusedContent(contentId) {
     focusedContentId = contentId;
     renderContentLibrary();
-    updatePreview();
+    updateFocusedPreview();
 }
 
 function getFocusedContent() {
     return contentLibrary.find(c => c.id === focusedContentId);
+}
+
+// フォーカス中のコンテンツをプレビュー表示
+function updateFocusedPreview() {
+    const focused = getFocusedContent();
+    if (!focused) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        return;
+    }
+
+    if (focused.type === 'image') {
+        // 入力画像をそのまま表示
+        displayContentImage(focused);
+    } else if (focused.type === 'output') {
+        // 出力バッファを表示（レンダリング結果）
+        if (focused.imageData) {
+            displayContentImage(focused);
+        } else {
+            // まだレンダリングされていない場合はクリア
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+    }
+}
+
+// コンテンツの画像をキャンバスに表示
+function displayContentImage(content) {
+    if (!content || !content.imageData) return;
+
+    // キャンバスサイズを調整
+    canvas.width = content.width;
+    canvas.height = content.height;
+    canvasWidth = content.width;
+    canvasHeight = content.height;
+
+    // ImageDataを作成して描画
+    const imageData = new ImageData(
+        new Uint8ClampedArray(content.imageData.data),
+        content.width,
+        content.height
+    );
+    ctx.putImageData(imageData, 0, 0);
+    updateCanvasDisplayScale();
 }
 
 // フォーカス更新（削除後）
@@ -2882,16 +2924,19 @@ function updatePreviewFromGraph() {
     const evalTime = performance.now() - evalStart;
 
     if (resultData) {
-        // キャンバスに描画
-        const drawStart = performance.now();
-        const imageData = new ImageData(
-            resultData,
-            canvasWidth,
-            canvasHeight
-        );
+        // Sinkノードに紐づく出力バッファに結果を保存
+        const sinkContent = contentLibrary.find(c => c.id === sinkNode.contentId);
+        if (sinkContent) {
+            sinkContent.imageData = {
+                data: new Uint8ClampedArray(resultData),
+                width: canvasWidth,
+                height: canvasHeight
+            };
+        }
 
-        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-        ctx.putImageData(imageData, 0, 0);
+        // フォーカス中のコンテンツをプレビュー表示
+        const drawStart = performance.now();
+        updateFocusedPreview();
         const drawTime = performance.now() - drawStart;
 
         // C++側の詳細計測結果を取得（時間はマイクロ秒）
