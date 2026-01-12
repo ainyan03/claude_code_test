@@ -86,7 +86,8 @@ struct ChannelDescriptor {
     uint16_t mask;      // ビットマスク
 
     ChannelDescriptor(uint8_t b = 0, uint8_t s = 0)
-        : bits(b), shift(s), mask(b > 0 ? ((1u << b) - 1) << s : 0) {}
+        : bits(b), shift(s)
+        , mask(b > 0 ? static_cast<uint16_t>(((1u << b) - 1) << s) : 0) {}
 };
 
 // ========================================================================

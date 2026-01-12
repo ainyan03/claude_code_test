@@ -118,24 +118,7 @@ ImageBuffer working = std::move(input.buffer).toFormat(PixelFormatIDs::RGBA8_Str
 ## NodeType とメトリクス
 
 各フィルタは独立した `NodeType` を持ち、個別に計測されます。
-
-```cpp
-namespace NodeType {
-    // システム系
-    constexpr int Renderer = 0;   // パイプライン発火点
-    constexpr int Source = 1;     // 画像入力
-    constexpr int Sink = 2;       // 画像出力
-    // 構造系
-    constexpr int Transform = 3;  // アフィン変換
-    constexpr int Composite = 4;  // 合成
-    // フィルタ系
-    constexpr int Brightness = 5;
-    constexpr int Grayscale = 6;
-    constexpr int BoxBlur = 7;
-    constexpr int Alpha = 8;
-    constexpr int Count = 9;
-}
-```
+定義は `src/fleximg/perf_metrics.h` を参照。
 
 WebUI側では `NODE_TYPES` 定義で一元管理されています。
 

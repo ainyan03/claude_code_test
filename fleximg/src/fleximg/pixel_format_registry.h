@@ -69,11 +69,11 @@ public:
     // フォーマット情報取得
     // ========================================
 
-    // ピクセルあたりのバイト数を取得
-    size_t getBytesPerPixel(PixelFormatID formatID) const {
+    // ピクセルあたりのバイト数を取得（最大8: 64bit RGBA）
+    int_fast8_t getBytesPerPixel(PixelFormatID formatID) const {
         const PixelFormatDescriptor* desc = getFormat(formatID);
         if (desc) {
-            return (desc->bitsPerPixel + 7) / 8;
+            return static_cast<int_fast8_t>((desc->bitsPerPixel + 7) / 8);
         }
         return 4;  // フォールバック
     }
@@ -103,8 +103,8 @@ private:
 // グローバル関数（後方互換）
 // ========================================================================
 
-// ピクセルあたりのバイト数を取得
-inline size_t getBytesPerPixel(PixelFormatID formatID) {
+// ピクセルあたりのバイト数を取得（最大8: 64bit RGBA）
+inline int_fast8_t getBytesPerPixel(PixelFormatID formatID) {
     return PixelFormatRegistry::getInstance().getBytesPerPixel(formatID);
 }
 

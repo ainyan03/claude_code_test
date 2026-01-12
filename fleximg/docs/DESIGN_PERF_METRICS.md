@@ -10,23 +10,7 @@
 
 ### NodeType
 
-```cpp
-namespace NodeType {
-    // システム系
-    constexpr int Renderer = 0;   // パイプライン発火点
-    constexpr int Source = 1;     // 画像入力
-    constexpr int Sink = 2;       // 画像出力
-    // 構造系
-    constexpr int Transform = 3;  // アフィン変換
-    constexpr int Composite = 4;  // 合成
-    // フィルタ系
-    constexpr int Brightness = 5;
-    constexpr int Grayscale = 6;
-    constexpr int BoxBlur = 7;
-    constexpr int Alpha = 8;
-    constexpr int Count = 9;
-}
-```
+ノードタイプの定義は `src/fleximg/perf_metrics.h` を参照。
 
 ### NodeMetrics
 
@@ -95,7 +79,7 @@ ImageBuffer::deallocate() {
 | Renderer | パイプライン全体の実行時間 |
 | Source | `pullProcess()` 全体（画像データコピー含む） |
 | Sink | 出力バッファへの書き込み |
-| Transform | アフィン変換処理のみ（上流評価除外） |
+| Affine | アフィン変換処理のみ（上流評価除外） |
 | Composite | ブレンド処理のみ（上流評価除外） |
 | Brightness | 明るさ調整処理 |
 | Grayscale | グレースケール変換処理 |
@@ -104,7 +88,7 @@ ImageBuffer::deallocate() {
 
 ### ピクセル効率計測
 
-Transform/フィルタノードで入力要求サイズと出力サイズを比較：
+Affine/フィルタノードで入力要求サイズと出力サイズを比較：
 
 - `requestedPixels`: 上流に要求したピクセル数（AABBサイズ）
 - `usedPixels`: 出力要求サイズ（`request.width * request.height`）
@@ -129,7 +113,7 @@ ImageBuffer のコンストラクタ/デストラクタで自動的に記録：
 | ノード | 計測対象 |
 |--------|----------|
 | Source | 交差領域コピー用バッファ |
-| Transform | 出力バッファ |
+| Affine | 出力バッファ |
 | Composite | キャンバスバッファ |
 | Brightness | 作業バッファ、出力バッファ |
 | Grayscale | 作業バッファ、出力バッファ |
@@ -150,7 +134,7 @@ RendererNode renderer;
 renderer.exec();
 
 const PerfMetrics& metrics = PerfMetrics::instance();
-std::cout << "Transform time: " << metrics.nodes[NodeType::Transform].time_us << "us\n";
+std::cout << "Affine time: " << metrics.nodes[NodeType::Affine].time_us << "us\n";
 std::cout << "Brightness time: " << metrics.nodes[NodeType::Brightness].time_us << "us\n";
 std::cout << "Total time: " << metrics.totalTime() << "us\n";
 ```

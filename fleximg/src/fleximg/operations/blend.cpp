@@ -31,7 +31,7 @@ void first(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
 
     // フォーマットが同じならmemcpy
     if (src.formatID == dst.formatID) {
-        size_t bpp = getBytesPerPixel(src.formatID);
+        auto bpp = getBytesPerPixel(src.formatID);
         for (int y = 0; y < copyHeight; y++) {
             const void* srcRow = src.pixelAt(srcStartX, srcStartY + y);
             void* dstRow = dst.pixelAt(dstStartX, dstStartY + y);

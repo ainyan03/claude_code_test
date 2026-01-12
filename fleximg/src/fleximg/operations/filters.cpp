@@ -91,7 +91,8 @@ void boxBlur(ViewPort& dst, const ViewPort& src, int radius) {
 
             int xStart = std::max(0, x - radius);
             int xEnd = std::min(width - 1, x + radius);
-            int count = xEnd - xStart + 1;
+            // 画像幅以下のカウント値（int16_t範囲で十分）
+            auto count = static_cast<uint_fast16_t>(xEnd - xStart + 1);
 
             for (int nx = xStart; nx <= xEnd; nx++) {
                 int pixelOffset = nx * 4;
@@ -102,10 +103,10 @@ void boxBlur(ViewPort& dst, const ViewPort& src, int radius) {
             }
 
             int outOffset = x * 4;
-            dstRow[outOffset]     = sumR / count;
-            dstRow[outOffset + 1] = sumG / count;
-            dstRow[outOffset + 2] = sumB / count;
-            dstRow[outOffset + 3] = sumA / count;
+            dstRow[outOffset]     = static_cast<uint8_t>(sumR / count);
+            dstRow[outOffset + 1] = static_cast<uint8_t>(sumG / count);
+            dstRow[outOffset + 2] = static_cast<uint8_t>(sumB / count);
+            dstRow[outOffset + 3] = static_cast<uint8_t>(sumA / count);
         }
     }
 
@@ -115,7 +116,8 @@ void boxBlur(ViewPort& dst, const ViewPort& src, int radius) {
 
         int yStart = std::max(0, y - radius);
         int yEnd = std::min(height - 1, y + radius);
-        int count = yEnd - yStart + 1;
+        // 画像高さ以下のカウント値（int16_t範囲で十分）
+        auto count = static_cast<uint_fast16_t>(yEnd - yStart + 1);
 
         for (int x = 0; x < width; x++) {
             uint32_t sumR = 0, sumG = 0, sumB = 0, sumA = 0;
@@ -129,10 +131,10 @@ void boxBlur(ViewPort& dst, const ViewPort& src, int radius) {
                 sumA += tmpRow[pixelOffset + 3];
             }
 
-            dstRow[pixelOffset]     = sumR / count;
-            dstRow[pixelOffset + 1] = sumG / count;
-            dstRow[pixelOffset + 2] = sumB / count;
-            dstRow[pixelOffset + 3] = sumA / count;
+            dstRow[pixelOffset]     = static_cast<uint8_t>(sumR / count);
+            dstRow[pixelOffset + 1] = static_cast<uint8_t>(sumG / count);
+            dstRow[pixelOffset + 2] = static_cast<uint8_t>(sumB / count);
+            dstRow[pixelOffset + 3] = static_cast<uint8_t>(sumA / count);
         }
     }
 }
@@ -174,7 +176,8 @@ void boxBlurWithPadding(ViewPort& dst, const ViewPort& src,
     int dstH = dst.height;
     int srcW = src.isValid() ? src.width : 0;
     int srcH = src.isValid() ? src.height : 0;
-    int count = 2 * radius + 1;
+    // カーネルサイズ（radius*2+1、int16_t範囲で十分）
+    auto count = static_cast<uint_fast16_t>(2 * radius + 1);
 
     // 中間バッファ（水平ブラー結果）- dst と同サイズ
     ImageBuffer temp(dstW, dstH, dst.formatID);

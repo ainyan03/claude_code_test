@@ -29,12 +29,14 @@ struct ViewPort {
     // デフォルトコンストラクタ
     ViewPort() = default;
 
-    // 直接初期化
-    ViewPort(void* d, PixelFormatID fmt, int32_t str, int16_t w, int16_t h)
-        : data(d), formatID(fmt), stride(str), width(w), height(h) {}
+    // 直接初期化（引数は最速型、メンバ格納時にキャスト）
+    ViewPort(void* d, PixelFormatID fmt, int32_t str, int_fast16_t w, int_fast16_t h)
+        : data(d), formatID(fmt), stride(str)
+        , width(static_cast<int16_t>(w))
+        , height(static_cast<int16_t>(h)) {}
 
     // 簡易初期化（strideを自動計算）
-    ViewPort(void* d, int w, int h, PixelFormatID fmt = PixelFormatIDs::RGBA8_Straight)
+    ViewPort(void* d, int_fast16_t w, int_fast16_t h, PixelFormatID fmt = PixelFormatIDs::RGBA8_Straight)
         : data(d), formatID(fmt)
         , stride(static_cast<int32_t>(w * getBytesPerPixel(fmt)))
         , width(static_cast<int16_t>(w))
@@ -55,10 +57,10 @@ struct ViewPort {
     }
 
     // バイト情報
-    size_t bytesPerPixel() const { return getBytesPerPixel(formatID); }
+    int_fast8_t bytesPerPixel() const { return getBytesPerPixel(formatID); }
     uint32_t rowBytes() const {
         return stride > 0 ? static_cast<uint32_t>(stride)
-                          : static_cast<uint32_t>(width) * bytesPerPixel();
+                          : static_cast<uint32_t>(width) * static_cast<uint32_t>(bytesPerPixel());
     }
 };
 
@@ -68,9 +70,10 @@ struct ViewPort {
 
 namespace view_ops {
 
-// サブビュー作成
-inline ViewPort subView(const ViewPort& v, int x, int y, int w, int h) {
-    size_t bpp = v.bytesPerPixel();
+// サブビュー作成（引数は最速型、32bitマイコンでのビット切り詰め回避）
+inline ViewPort subView(const ViewPort& v, int_fast16_t x, int_fast16_t y,
+                        int_fast16_t w, int_fast16_t h) {
+    auto bpp = v.bytesPerPixel();
     void* subData = static_cast<uint8_t*>(v.data) + y * v.stride + x * bpp;
     return ViewPort(subData, v.formatID, v.stride, w, h);
 }

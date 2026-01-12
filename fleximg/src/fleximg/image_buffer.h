@@ -181,7 +181,7 @@ public:
     void* pixelAt(int x, int y) { return view_.pixelAt(x, y); }
     const void* pixelAt(int x, int y) const { return view_.pixelAt(x, y); }
 
-    size_t bytesPerPixel() const { return view_.bytesPerPixel(); }
+    int_fast8_t bytesPerPixel() const { return view_.bytesPerPixel(); }
     uint32_t totalBytes() const {
         // strideが負の場合は絶対値を使用
         int32_t absStride = stride() >= 0 ? stride() : -stride();
@@ -242,7 +242,7 @@ private:
     InitPolicy initPolicy_;
 
     void allocate() {
-        size_t bpp = getBytesPerPixel(view_.formatID);
+        auto bpp = getBytesPerPixel(view_.formatID);
         view_.stride = static_cast<int32_t>(view_.width * bpp);
         capacity_ = static_cast<size_t>(view_.stride) * view_.height;
         if (capacity_ > 0 && allocator_) {
