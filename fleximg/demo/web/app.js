@@ -735,6 +735,22 @@ function initDefaultState() {
     // 接続: なし（Sinkがないため）
     globalConnections = [];
 
+    // RendererノードのパラメータをC++側に同期
+    const rendererNode = globalNodes[0];
+    canvasWidth = rendererNode.virtualWidth;
+    canvasHeight = rendererNode.virtualHeight;
+    canvasOrigin.x = rendererNode.originX;
+    canvasOrigin.y = rendererNode.originY;
+    tileWidth = rendererNode.tileWidth;
+    tileHeight = rendererNode.tileHeight;
+
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+    graphEvaluator.setCanvasSize(canvasWidth, canvasHeight);
+    graphEvaluator.setDstOrigin(canvasOrigin.x, canvasOrigin.y);
+    graphEvaluator.setTileSize(tileWidth, tileHeight);
+    updateCanvasDisplayScale();
+
     // UI更新
     renderContentLibrary();
     renderNodeGraph();
@@ -1203,8 +1219,8 @@ function addSinkNodeFromLibrary(contentId) {
         contentId: contentId,
         posX: posX,
         posY: posY,
-        originX: 0,           // 仮想スクリーン上の基準座標
-        originY: 0,
+        originX: Math.round(content.width / 2),   // 仮想スクリーン上の基準座標（中央）
+        originY: Math.round(content.height / 2),
         outputFormat: 0x0200  // RGBA8888
     };
 
@@ -2891,39 +2907,30 @@ function updatePreviewFromGraph() {
     // フォーカス中のコンテンツを取得
     const focusedContent = contentLibrary.find(c => c.id === focusedContentId);
 
-    // レンダリング対象のSinkノードを決定
+    // 全てのSinkノードを収集（複数Sink対応）
+    const allSinkNodes = globalNodes.filter(n => {
+        if (n.type !== 'sink') return false;
+        // contentIdが設定されているSinkのみ対象
+        const content = contentLibrary.find(c => c.id === n.contentId);
+        return content && content.type === 'output';
+    });
+
+    if (allSinkNodes.length === 0) {
+        // Sinkノードがない場合はフォーカス中のコンテンツを表示
+        updateFocusedPreview();
+        return;
+    }
+
+    // プレビュー表示用のSinkを決定
     // 1. フォーカスが出力バッファの場合、そのcontentIdを持つSinkを探す
-    // 2. そうでなければ、接続のある最初のSinkを使う
-    let sinkNode = null;
+    // 2. そうでなければ、最初のSinkを使う
+    let displaySinkNode = null;
     if (focusedContent && focusedContent.type === 'output') {
-        sinkNode = globalNodes.find(n => n.type === 'sink' && n.contentId === focusedContentId);
+        displaySinkNode = allSinkNodes.find(n => n.contentId === focusedContentId);
     }
-    if (!sinkNode) {
-        // フォールバック: 接続のある最初のSink
-        sinkNode = globalNodes.find(n => {
-            if (n.type !== 'sink') return false;
-            return globalConnections.some(c => c.toNodeId === n.id && c.toPortId === 'in');
-        });
+    if (!displaySinkNode) {
+        displaySinkNode = allSinkNodes[0];
     }
-
-    if (!sinkNode) {
-        // Sinkノードがない、または接続がない場合はフォーカス中のコンテンツを表示
-        updateFocusedPreview();
-        return;
-    }
-
-    // Sinkノードに関連付けられた出力コンテンツを取得
-    const sinkContent = contentLibrary.find(c => c.id === sinkNode.contentId);
-    if (!sinkContent) {
-        console.warn('Sink node has no associated content:', sinkNode.contentId);
-        updateFocusedPreview();
-        return;
-    }
-
-    // 出力バッファのサイズとIDを使用
-    const outputWidth = sinkContent.width;
-    const outputHeight = sinkContent.height;
-    const outputImageId = sinkContent.cppImageId;
 
     // C++側にノードグラフ構造を渡す（1回のWASM呼び出しで完結）
     const evalStart = performance.now();
@@ -2989,10 +2996,15 @@ function updatePreviewFromGraph() {
     graphEvaluator.setNodes(nodesForCpp);
     graphEvaluator.setConnections(globalConnections);
 
-    // 出力バッファを確保（出力コンテンツのサイズを使用）
-    graphEvaluator.allocateImage(outputImageId, outputWidth, outputHeight);
+    // 全てのSinkの出力バッファを確保（複数Sink対応）
+    for (const sinkNode of allSinkNodes) {
+        const sinkContent = contentLibrary.find(c => c.id === sinkNode.contentId);
+        if (sinkContent) {
+            graphEvaluator.allocateImage(sinkContent.cppImageId, sinkContent.width, sinkContent.height);
+        }
+    }
 
-    // C++側でノードグラフ全体を評価（出力はimageLibraryに書き込まれる）
+    // C++側でノードグラフ全体を評価（全Sinkに出力される）
     // 戻り値: 0 = 成功、1 = 循環参照検出
     const execResult = graphEvaluator.evaluateGraph();
     if (execResult === 1) {
@@ -3001,21 +3013,28 @@ function updatePreviewFromGraph() {
         return;
     }
 
-    // 出力データを取得
-    const resultData = graphEvaluator.getImage(outputImageId);
-
     const evalTime = performance.now() - evalStart;
 
-    console.log('updatePreviewFromGraph: outputImageId=', outputImageId, 'resultData length=', resultData ? resultData.length : 'null', 'expected=', outputWidth * outputHeight * 4);
+    // 全てのSinkの結果をcontentLibraryに保存
+    let hasValidResult = false;
+    for (const sinkNode of allSinkNodes) {
+        const sinkContent = contentLibrary.find(c => c.id === sinkNode.contentId);
+        if (!sinkContent) continue;
 
-    if (resultData && resultData.length > 0) {
-        // Sinkノードに紐づく出力バッファに結果を保存
-        sinkContent.imageData = {
-            data: new Uint8ClampedArray(resultData),
-            width: outputWidth,
-            height: outputHeight
-        };
-        console.log('updatePreviewFromGraph: saved to sinkContent.imageData, focusedContentId=', focusedContentId, 'sinkContent.id=', sinkContent.id);
+        const resultData = graphEvaluator.getImage(sinkContent.cppImageId);
+        if (resultData && resultData.length > 0) {
+            sinkContent.imageData = {
+                data: new Uint8ClampedArray(resultData),
+                width: sinkContent.width,
+                height: sinkContent.height
+            };
+            hasValidResult = true;
+        }
+    }
+
+    console.log('updatePreviewFromGraph: processed', allSinkNodes.length, 'Sink nodes, hasValidResult=', hasValidResult);
+
+    if (hasValidResult) {
 
         // フォーカス中のコンテンツをプレビュー表示
         const drawStart = performance.now();
@@ -4631,6 +4650,35 @@ async function restoreAppState(state) {
     // ノードとコネクションを復元
     globalNodes = state.nodes;
     globalConnections = state.connections;
+
+    // Rendererノードの設定をC++側に同期
+    const rendererNode = globalNodes.find(n => n.type === 'renderer');
+    if (rendererNode) {
+        // Rendererノードの値をグローバル変数と同期
+        if (rendererNode.virtualWidth !== undefined) {
+            canvasWidth = rendererNode.virtualWidth;
+            canvasHeight = rendererNode.virtualHeight;
+            canvas.width = canvasWidth;
+            canvas.height = canvasHeight;
+            graphEvaluator.setCanvasSize(canvasWidth, canvasHeight);
+        }
+        if (rendererNode.originX !== undefined) {
+            canvasOrigin.x = rendererNode.originX;
+            canvasOrigin.y = rendererNode.originY;
+            graphEvaluator.setDstOrigin(canvasOrigin.x, canvasOrigin.y);
+        }
+        // タイル設定も同期
+        if (rendererNode.tileWidth !== undefined) {
+            tileWidth = rendererNode.tileWidth;
+            tileHeight = rendererNode.tileHeight;
+            graphEvaluator.setTileSize(tileWidth, tileHeight);
+        }
+        if (rendererNode.debugCheckerboard !== undefined) {
+            debugCheckerboard = rendererNode.debugCheckerboard;
+            graphEvaluator.setDebugCheckerboard(debugCheckerboard);
+        }
+        updateCanvasDisplayScale();
+    }
 
     // 画像ノードのピクセルフォーマットを適用
     // (画像はデフォルトのRGBA8で登録済みなので、異なるフォーマットの場合は再登録)

@@ -1,5 +1,34 @@
 # Changelog
 
+## [2.28.0] - 2026-01-12
+
+### 追加
+
+- **複数Sink同時レンダリング**: 1回のrender passで全Sinkノードを更新
+  - DistributorNode経由で複数Sinkに分岐する構成をサポート
+  - C++: 全Sinkを収集し、各SinkNodeにバッファを作成
+  - JS: 全Sinkの出力バッファを確保してからevaluateGraph()
+
+### 変更
+
+- **Sinkノード作成時の原点**: コンテンツの中央 (width/2, height/2) をデフォルトに
+
+### 修正
+
+- **初期化時のRenderer設定同期**: ページ読み込み直後から正しく表示
+  - `restoreAppState()`: Rendererノードの設定をC++側に同期
+  - `initDefaultState()`: 同様の同期処理を追加
+  - 仮想スクリーンサイズ、原点、タイル設定を全て反映
+
+### 技術詳細
+
+- bindings.cpp: `buildAndExecute()` で全Sinkを収集・処理
+- bindings.cpp: `sinkNodeMap` でSinkノードをID管理
+- app.js: `updatePreviewFromGraph()` で全Sink結果をcontentLibraryに保存
+- `setTargetSink()` APIは残存（将来の単一Sink最適化用）
+
+---
+
 ## [2.27.0] - 2026-01-12
 
 ### 追加
