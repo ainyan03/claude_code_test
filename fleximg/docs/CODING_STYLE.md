@@ -21,11 +21,43 @@ fleximg は組み込み環境への移植を見据えて設計されています
 |------|--------|------|
 | ピクセルデータ | `uint8_t`, `uint16_t` | メモリレイアウトが固定される |
 | 構造体メンバ（座標等） | `int16_t`, `int32_t` | サイズが明確、メモリ効率重視 |
+| 関数引数（座標等） | `int_fast16_t`, `int_fast32_t` | 32bitマイコンでのビット切り詰め回避 |
 | ローカル変数（演算用） | `int_fast16_t`, `int_fast32_t` | 演算速度優先の場面で使用 |
 | ループカウンタ | `int`, `size_t` | 単純なループはそのまま |
 | 固定小数点 | `int32_t` | `int_fixed8`, `int_fixed16` として定義済み |
 | 配列サイズ/インデックス | `size_t` | 標準ライブラリとの互換性 |
 | バッファサイズ | `size_t` | `memcpy` 等の引数に適合 |
+
+### 最速型 (`int_fast*_t`) の使用
+
+`int_fast8_t`, `int_fast16_t` 等の最速型を使用する際は、必要に応じてサイズ選択の根拠をコメントで説明する。
+
+```cpp
+// 良い例：根拠が明確
+// 画像幅以下のカウント値（int16_t範囲で十分）
+auto count = static_cast<uint_fast16_t>(xEnd - xStart + 1);
+
+// bpp は最大8（64bit RGBA）
+int_fast8_t getBytesPerPixel(PixelFormatID id);
+
+// 悪い例：なぜこの型か不明
+int_fast32_t value = someCalculation();  // 根拠なし
+```
+
+**ローカル変数での `auto` 活用**: キャスト時に `auto` で受けると型情報が保持され、意図が明確になる。
+
+**関数引数での最速型**: 座標や寸法を関数引数で受ける場合は `int_fast16_t` 等を使用する。
+ESP32等の32bitマイコンでは16bit型の引数受け渡しでビット切り詰め命令が追加されるため、
+最速型を使用することでパフォーマンスが向上する。構造体メンバへの格納時にキャストする。
+
+```cpp
+// 関数引数は最速型、メンバ格納時にキャスト
+ViewPort(void* d, PixelFormatID fmt, int32_t str,
+         int_fast16_t w, int_fast16_t h)
+    : data(d), formatID(fmt), stride(str)
+    , width(static_cast<int16_t>(w))
+    , height(static_cast<int16_t>(h)) {}
+```
 
 ### 固定小数点型
 

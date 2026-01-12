@@ -42,16 +42,16 @@ class ImageStore {
 public:
     // 外部データをコピーして保存（入力画像用）
     ViewPort store(int id, const uint8_t* data, int w, int h, PixelFormatID fmt) {
-        size_t bpp = getBytesPerPixel(fmt);
-        size_t size = w * h * bpp;
+        auto bpp = getBytesPerPixel(fmt);
+        auto size = static_cast<size_t>(w * h * bpp);
         storage_[id].assign(data, data + size);
         return ViewPort(storage_[id].data(), fmt, w * bpp, w, h);
     }
 
     // バッファを確保（出力用）
     ViewPort allocate(int id, int w, int h, PixelFormatID fmt) {
-        size_t bpp = getBytesPerPixel(fmt);
-        size_t size = w * h * bpp;
+        auto bpp = getBytesPerPixel(fmt);
+        auto size = static_cast<size_t>(w * h * bpp);
         storage_[id].resize(size, 0);
         return ViewPort(storage_[id].data(), fmt, w * bpp, w, h);
     }
@@ -254,8 +254,8 @@ public:
         } else {
             // PixelFormatRegistry を使用して変換
             auto& registry = PixelFormatRegistry::getInstance();
-            size_t targetBpp = registry.getBytesPerPixel(targetFormat);
-            std::vector<uint8_t> converted(width * height * targetBpp);
+            auto targetBpp = registry.getBytesPerPixel(targetFormat);
+            std::vector<uint8_t> converted(static_cast<size_t>(width * height * targetBpp));
 
             registry.convert(
                 rgba8Data.data(), PixelFormatIDs::RGBA8_Straight,
@@ -596,8 +596,8 @@ private:
             sinkOut.format = info.format;
             sinkOut.width = info.width;
             sinkOut.height = info.height;
-            size_t sinkBpp = getBytesPerPixel(info.format);
-            size_t sinkBufferSize = info.width * info.height * sinkBpp;
+            auto sinkBpp = getBytesPerPixel(info.format);
+            auto sinkBufferSize = static_cast<size_t>(info.width * info.height * sinkBpp);
             sinkOut.buffer.resize(sinkBufferSize);
             std::fill(sinkOut.buffer.begin(), sinkOut.buffer.end(), 0);
 
