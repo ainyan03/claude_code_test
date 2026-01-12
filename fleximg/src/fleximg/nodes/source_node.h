@@ -34,14 +34,6 @@ public:
         initPorts(0, 1);
     }
 
-    // 移行用コンストラクタ（float引数、最終的に削除予定）
-    SourceNode(const ViewPort& vp, float originX, float originY)
-        : source_(vp)
-        , originX_(float_to_fixed8(originX))
-        , originY_(float_to_fixed8(originY)) {
-        initPorts(0, 1);
-    }
-
     // ソース設定
     void setSource(const ViewPort& vp) { source_ = vp; }
     void setOrigin(int_fixed8 x, int_fixed8 y) { originX_ = x; originY_ = y; }

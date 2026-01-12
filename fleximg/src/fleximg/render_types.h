@@ -51,6 +51,7 @@ struct RenderRequest {
     bool isEmpty() const { return width <= 0 || height <= 0; }
 
     // マージン分拡大（フィルタ用）
+    // 左右上下に適用されるため width/height は margin*2 増加
     RenderRequest expand(int margin) const {
         int_fixed8 marginFixed = to_fixed8(margin);
         return {
@@ -73,10 +74,6 @@ struct RenderResult {
 
     RenderResult(ImageBuffer&& buf, Point org)
         : buffer(std::move(buf)), origin(org) {}
-
-    // 移行用コンストラクタ（float引数、最終的に削除予定）
-    RenderResult(ImageBuffer&& buf, float ox, float oy)
-        : buffer(std::move(buf)), origin(ox, oy) {}
 
     // ムーブのみ
     RenderResult(const RenderResult&) = delete;

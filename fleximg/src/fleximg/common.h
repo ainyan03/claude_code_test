@@ -22,24 +22,6 @@
 namespace FLEXIMG_NAMESPACE {
 
 // ========================================================================
-// Point - 2D座標構造体（固定小数点 Q24.8）
-// ========================================================================
-
-struct Point {
-    int_fixed8 x = 0;
-    int_fixed8 y = 0;
-
-    Point() = default;
-    Point(int_fixed8 x_, int_fixed8 y_) : x(x_), y(y_) {}
-
-    Point operator+(const Point& o) const { return {x + o.x, y + o.y}; }
-    Point operator-(const Point& o) const { return {x - o.x, y - o.y}; }
-    Point operator-() const { return {-x, -y}; }
-    Point& operator+=(const Point& o) { x += o.x; y += o.y; return *this; }
-    Point& operator-=(const Point& o) { x -= o.x; y -= o.y; return *this; }
-};
-
-// ========================================================================
 // AffineMatrix - アフィン変換行列
 // ========================================================================
 

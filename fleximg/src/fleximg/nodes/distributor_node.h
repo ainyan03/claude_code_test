@@ -127,6 +127,7 @@ public:
             return;
         }
 
+        // プッシュ型単一入力: 無効なら処理終了
         if (!input.isValid()) {
             return;
         }

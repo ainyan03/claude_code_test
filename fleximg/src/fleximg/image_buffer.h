@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstring>
 #include <algorithm>
+#include <cassert>
 #include "common.h"
 #include "pixel_format.h"
 #include "viewport.h"
@@ -246,6 +247,7 @@ private:
         capacity_ = static_cast<size_t>(view_.stride) * view_.height;
         if (capacity_ > 0 && allocator_) {
             view_.data = allocator_->allocate(capacity_);
+            assert(view_.data != nullptr && "Memory allocation failed");
             if (view_.data) {
                 switch (initPolicy_) {
                     case InitPolicy::Zero:

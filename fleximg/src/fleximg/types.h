@@ -71,6 +71,25 @@ using Matrix2x2_fixed16 = Matrix2x2<int_fixed16>;
 
 
 // ========================================================================
+// Point - 2D座標構造体（固定小数点 Q24.8）
+// ========================================================================
+
+struct Point {
+    int_fixed8 x = 0;
+    int_fixed8 y = 0;
+
+    Point() = default;
+    Point(int_fixed8 x_, int_fixed8 y_) : x(x_), y(y_) {}
+
+    Point operator+(const Point& o) const { return {x + o.x, y + o.y}; }
+    Point operator-(const Point& o) const { return {x - o.x, y - o.y}; }
+    Point operator-() const { return {-x, -y}; }
+    Point& operator+=(const Point& o) { x += o.x; y += o.y; return *this; }
+    Point& operator-=(const Point& o) { x -= o.x; y -= o.y; return *this; }
+};
+
+
+// ========================================================================
 // 変換関数
 // ========================================================================
 
@@ -128,7 +147,7 @@ constexpr int from_fixed16_round(int_fixed16 v) {
 }
 
 // ------------------------------------------------------------------------
-// float ↔ fixed 変換（移行期間用、最終的に削除予定）
+// float ↔ fixed8 変換
 // ------------------------------------------------------------------------
 
 // float → fixed8
@@ -139,16 +158,6 @@ constexpr int_fixed8 float_to_fixed8(float v) {
 // fixed8 → float
 constexpr float fixed8_to_float(int_fixed8 v) {
     return static_cast<float>(v) / INT_FIXED8_ONE;
-}
-
-// float → fixed16
-constexpr int_fixed16 float_to_fixed16(float v) {
-    return static_cast<int_fixed16>(v * INT_FIXED16_ONE);
-}
-
-// fixed16 → float
-constexpr float fixed16_to_float(int_fixed16 v) {
-    return static_cast<float>(v) / INT_FIXED16_ONE;
 }
 
 
