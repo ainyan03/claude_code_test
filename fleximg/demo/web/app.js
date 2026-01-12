@@ -1114,6 +1114,37 @@ function updateFocusAfterDelete(deletedContentId) {
     }
 }
 
+// 出力バッファを削除（コンテンツライブラリから）
+function deleteOutputContent(contentId) {
+    const content = contentLibrary.find(c => c.id === contentId);
+    if (!content || content.type !== 'output') return;
+
+    // 確認ダイアログ
+    const sinkNode = getSinkForContent(contentId);
+    let message = `「${content.name}」を削除しますか？`;
+    if (sinkNode) {
+        message += '\n対応するSinkノードも削除されます。';
+    }
+    if (!confirm(message)) return;
+
+    // 対応するSinkノードも削除
+    if (sinkNode) {
+        globalNodes = globalNodes.filter(n => n.id !== sinkNode.id);
+        globalConnections = globalConnections.filter(
+            c => c.fromNodeId !== sinkNode.id && c.toNodeId !== sinkNode.id
+        );
+    }
+
+    // コンテンツライブラリから削除
+    contentLibrary = contentLibrary.filter(c => c.id !== contentId);
+    updateFocusAfterDelete(contentId);
+
+    renderNodeGraph();
+    renderContentLibrary();
+    updateFocusedPreview();
+    scheduleAutoSave();
+}
+
 // ヘルパー関数
 function getSinkForContent(contentId) {
     return globalNodes.find(n => n.type === 'sink' && n.contentId === contentId);
@@ -1496,30 +1527,47 @@ function renderContentLibrary() {
 
             libraryContainer.appendChild(item);
         } else if (content.type === 'output') {
-            // 出力バッファコンテンツ（Phase 2で詳細実装）
+            // 出力バッファコンテンツ
             const outputItem = document.createElement('div');
             outputItem.className = 'content-item output-item';
             if (content.id === focusedContentId) {
                 outputItem.classList.add('focused');
             }
+
+            // 既にSinkノードが存在するか確認
+            const existingSink = getSinkForContent(content.id);
+            const addBtnLabel = existingSink ? '✓ Sink' : CONTENT_TYPES.output.buttonLabel;
+            const addBtnDisabled = existingSink ? 'disabled' : '';
+
             outputItem.innerHTML = `
                 <span class="content-icon">${CONTENT_TYPES.output.icon}</span>
                 <span class="content-name">${content.name}</span>
                 <span class="content-size">${content.width}x${content.height}</span>
-                <button class="content-add-node-btn">${CONTENT_TYPES.output.buttonLabel}</button>
+                <button class="content-add-node-btn" ${addBtnDisabled}>${addBtnLabel}</button>
+                <button class="content-delete-btn" title="削除">🗑️</button>
             `;
 
             // フォーカス切り替え
             outputItem.addEventListener('click', (e) => {
-                if (!e.target.classList.contains('content-add-node-btn')) {
+                if (!e.target.classList.contains('content-add-node-btn') &&
+                    !e.target.classList.contains('content-delete-btn')) {
                     setFocusedContent(content.id);
                 }
             });
 
             // +Sink ボタン
-            outputItem.querySelector('.content-add-node-btn').addEventListener('click', (e) => {
+            const addBtn = outputItem.querySelector('.content-add-node-btn');
+            if (!existingSink) {
+                addBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    addSinkNodeFromLibrary(content.id);
+                });
+            }
+
+            // 削除ボタン
+            outputItem.querySelector('.content-delete-btn').addEventListener('click', (e) => {
                 e.stopPropagation();
-                addSinkNodeFromLibrary(content.id);
+                deleteOutputContent(content.id);
             });
 
             libraryContainer.appendChild(outputItem);
@@ -4207,15 +4255,30 @@ function buildSinkDetailContent(node) {
 
 // ノードを削除
 function deleteNode(node) {
-    // システムノード（renderer, sink）は削除不可
-    if (node.type === 'renderer' || node.type === 'sink') {
-        alert('システムノードは削除できません');
+    // Rendererは削除不可
+    if (node.type === 'renderer') {
+        alert('Rendererノードは削除できません');
         return;
     }
 
-    // 確認ダイアログ
-    if (!confirm(`ノード「${node.title}」を削除しますか？`)) {
-        return;
+    // Sinkノード: 確認ダイアログ + 出力バッファ連動削除
+    if (node.type === 'sink') {
+        const content = contentLibrary.find(c => c.id === node.contentId);
+        if (content) {
+            const confirmed = confirm(
+                `「${content.name}」はコンテンツライブラリからも削除されます。\n削除してよろしいですか？`
+            );
+            if (!confirmed) return;
+
+            // コンテンツライブラリから削除
+            contentLibrary = contentLibrary.filter(c => c.id !== content.id);
+            updateFocusAfterDelete(content.id);
+        }
+    } else {
+        // その他のノード: 通常の確認ダイアログ
+        if (!confirm(`ノード「${node.title}」を削除しますか？`)) {
+            return;
+        }
     }
 
     // ノードを削除
@@ -4231,7 +4294,9 @@ function deleteNode(node) {
 
     // グラフを再描画
     renderNodeGraph();
+    renderContentLibrary();
     throttledUpdatePreview();
+    scheduleAutoSave();
 }
 
 // 原点選択グリッドのセットアップ

@@ -1244,6 +1244,26 @@ button {
     background: #5a5a5a;
 }
 
+.content-item .content-add-node-btn:disabled {
+    background: #3a3a3a;
+    color: #888;
+    cursor: default;
+}
+
+.content-item .content-delete-btn {
+    font-size: 12px;
+    padding: 2px 4px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    opacity: 0.5;
+    transition: opacity 0.2s;
+}
+
+.content-item .content-delete-btn:hover {
+    opacity: 1;
+}
+
 /* 出力設定 */
 .sidebar-settings {
     display: flex;
