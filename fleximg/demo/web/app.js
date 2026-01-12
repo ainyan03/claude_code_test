@@ -2,9 +2,27 @@
 let graphEvaluator;  // ノードグラフ評価エンジン（C++側）
 let canvas;
 let ctx;
-let uploadedImages = [];  // 画像ライブラリ
-let nextImageId = 1;
-let outputImageId = 0;  // 出力バッファ用ID（画像ライブラリと共通管理）
+
+// コンテンツライブラリ（入力画像・出力バッファ統合管理）
+let contentLibrary = [];
+let nextContentId = 1;
+let nextCppImageId = 1;  // C++側に渡す数値ID
+let focusedContentId = null;
+
+// コンテンツタイプ定義
+const CONTENT_TYPES = {
+    image: { icon: '🖼️', label: '画像', buttonLabel: '+Source' },
+    output: { icon: '📤', label: '出力', buttonLabel: '+Sink' }
+};
+
+// 互換性レイヤー（段階的に削除予定）
+function getUploadedImages() {
+    return contentLibrary.filter(c => c.type === 'image');
+}
+function getOutputContents() {
+    return contentLibrary.filter(c => c.type === 'output');
+}
+
 let canvasWidth = 800;
 let canvasHeight = 600;
 let canvasOrigin = { x: 400, y: 300 };  // キャンバス原点（ピクセル座標）
@@ -663,9 +681,60 @@ async function tryRestoreState() {
 
     // 状態が復元できなかった場合はデフォルト初期化
     console.log('No saved state found, initializing with defaults');
+    initDefaultState();
     generateTestPatterns();
     updatePreviewFromGraph();
     console.log('App initialized successfully');
+}
+
+// デフォルト状態を初期化
+function initDefaultState() {
+    // コンテンツライブラリ: デフォルト出力バッファを2つ用意
+    contentLibrary = [
+        {
+            id: 'out-1',
+            type: 'output',
+            name: 'LCD 320x240',
+            width: 320,
+            height: 240,
+            imageData: null
+        },
+        {
+            id: 'out-2',
+            type: 'output',
+            name: 'LCD 960x540',
+            width: 960,
+            height: 540,
+            imageData: null
+        }
+    ];
+    nextContentId = 3;
+    nextCppImageId = 1;
+    focusedContentId = 'out-1';  // 最初の出力にフォーカス
+
+    // ノード: Rendererのみ（Sinkノードはなし）
+    globalNodes = [
+        {
+            id: 'renderer',
+            type: 'renderer',
+            title: 'Renderer',
+            posX: 100,
+            posY: 200,
+            virtualWidth: 1920,
+            virtualHeight: 1080,
+            originX: 960,
+            originY: 540,
+            tileWidth: 256,
+            tileHeight: 256
+        }
+    ];
+
+    // 接続: なし（Sinkがないため）
+    globalConnections = [];
+
+    // UI更新
+    renderContentLibrary();
+    renderNodeGraph();
 }
 
 function displayVersionInfo() {
@@ -928,23 +997,150 @@ async function handleImageUpload(event) {
 
 // 画像ライブラリに画像を追加
 function addImageToLibrary(imageData) {
-    const imageId = nextImageId++;
+    const content = addImageContent(
+        imageData.name || `Image ${nextContentId}`,
+        imageData.width,
+        imageData.height,
+        imageData
+    );
 
-    const image = {
-        id: imageId,
-        name: imageData.name || `Image ${imageId}`,
-        imageData: imageData,
-        width: imageData.width,
-        height: imageData.height
-    };
-
-    uploadedImages.push(image);
-
-    // C++側の入力ライブラリに登録
-    graphEvaluator.storeImage(imageId, imageData.data, imageData.width, imageData.height);
+    // C++側の入力ライブラリに登録（数値IDを使用）
+    graphEvaluator.storeImage(content.cppImageId, imageData.data, imageData.width, imageData.height);
 
     // UIを更新
-    renderImageLibrary();
+    renderContentLibrary();
+}
+
+// ========================================
+// コンテンツライブラリ管理
+// ========================================
+
+// 画像コンテンツを追加
+function addImageContent(name, width, height, imageData) {
+    const content = {
+        id: `img-${nextContentId++}`,
+        type: 'image',
+        name: name,
+        width: width,
+        height: height,
+        imageData: imageData,
+        cppImageId: nextCppImageId++  // C++側に渡す数値ID
+    };
+    contentLibrary.push(content);
+    return content;
+}
+
+// 出力バッファコンテンツを追加
+function addOutputContent(name, width, height) {
+    const content = {
+        id: `out-${nextContentId++}`,
+        type: 'output',
+        name: name,
+        width: width,
+        height: height,
+        imageData: null
+    };
+    contentLibrary.push(content);
+    setFocusedContent(content.id);
+    return content;
+}
+
+// フォーカス管理
+function setFocusedContent(contentId) {
+    focusedContentId = contentId;
+    renderContentLibrary();
+    updatePreview();
+}
+
+function getFocusedContent() {
+    return contentLibrary.find(c => c.id === focusedContentId);
+}
+
+// フォーカス更新（削除後）
+function updateFocusAfterDelete(deletedContentId) {
+    if (focusedContentId === deletedContentId) {
+        const remaining = contentLibrary.find(c => c.type === 'output');
+        focusedContentId = remaining ? remaining.id : null;
+    }
+}
+
+// ヘルパー関数
+function getSinkForContent(contentId) {
+    return globalNodes.find(n => n.type === 'sink' && n.contentId === contentId);
+}
+
+function getImageNodesForContent(contentId) {
+    return globalNodes.filter(n => n.type === 'image' && n.contentId === contentId);
+}
+
+// コンテンツからコンテンツを取得（画像/出力）
+function getContentById(contentId) {
+    return contentLibrary.find(c => c.id === contentId);
+}
+
+// 出力バッファからSinkノードを追加
+function addSinkNodeFromLibrary(contentId) {
+    const content = contentLibrary.find(c => c.id === contentId);
+    if (!content || content.type !== 'output') return;
+
+    // 既にこのcontentに紐付くSinkがあればスキップ
+    const existingSink = getSinkForContent(contentId);
+    if (existingSink) {
+        console.log('Sink already exists for this output');
+        return;
+    }
+
+    // 表示範囲の中央付近に配置 + ランダムオフセット
+    const center = getVisibleNodeGraphCenter();
+    const nodeWidth = 140;
+    const nodeHeight = 70;
+    const posX = center.x + 200 + randomOffset();  // 右寄り
+    const posY = center.y - nodeHeight / 2 + randomOffset();
+
+    // 既存ノードを押し出す
+    pushExistingNodes(posX, posY, nodeWidth, nodeHeight);
+
+    const sinkNode = {
+        id: `sink-${Date.now()}`,
+        type: 'sink',
+        title: content.name,
+        contentId: contentId,
+        posX: posX,
+        posY: posY,
+        originX: 0,           // 仮想スクリーン上の基準座標
+        originY: 0,
+        outputFormat: 0x0200  // RGBA8888
+    };
+
+    globalNodes.push(sinkNode);
+
+    // Renderer下流が未接続なら自動接続
+    autoConnectToRenderer(sinkNode);
+
+    renderNodeGraph();
+    setFocusedContent(contentId);
+    scheduleAutoSave();
+}
+
+// Renderer下流が未接続なら自動接続
+function autoConnectToRenderer(sinkNode) {
+    const rendererNode = globalNodes.find(n => n.type === 'renderer');
+    if (!rendererNode) return;
+
+    // Rendererの出力ポートから出ている接続があるか確認
+    const hasDownstreamConnection = globalConnections.some(
+        c => c.fromNodeId === rendererNode.id && c.fromPortId === 'out'
+    );
+
+    if (!hasDownstreamConnection) {
+        // 自動接続: Renderer.out → Sink.in
+        globalConnections.push({
+            fromNodeId: rendererNode.id,
+            fromPortId: 'out',
+            toNodeId: sinkNode.id,
+            toPortId: 'in'
+        });
+    }
 }
 
 // デバッグ用テストパターン画像を生成
@@ -1189,34 +1385,73 @@ function generateTestPatterns() {
     console.log(`Generated ${patterns.length} test patterns`);
 }
 
-// 画像ライブラリUIを描画
-function renderImageLibrary() {
+// コンテンツライブラリUIを描画
+function renderContentLibrary() {
     const libraryContainer = document.getElementById('sidebar-images-library');
+    if (!libraryContainer) return;
     libraryContainer.innerHTML = '';
 
     const template = document.getElementById('image-item-template');
-    uploadedImages.forEach(image => {
-        const item = template.content.cloneNode(true);
 
-        // サムネイル設定
-        const thumbnail = item.querySelector('.image-thumbnail img');
-        thumbnail.src = createThumbnailDataURL(image.imageData);
+    contentLibrary.forEach(content => {
+        if (content.type === 'image') {
+            // 画像コンテンツ（従来の画像ライブラリと同じ表示）
+            const item = template.content.cloneNode(true);
+            const itemDiv = item.querySelector('.image-item');
 
-        // 画像名設定
-        item.querySelector('.image-name').textContent = image.name;
+            // サムネイル設定
+            const thumbnail = item.querySelector('.image-thumbnail img');
+            thumbnail.src = createThumbnailDataURL(content.imageData);
 
-        // ノード追加ボタン
-        item.querySelector('.add-image-node-btn').addEventListener('click', () => {
-            addImageNodeFromLibrary(image.id);
-        });
+            // 画像名設定
+            item.querySelector('.image-name').textContent = content.name;
 
-        // 削除ボタン
-        item.querySelector('.delete-image-btn').addEventListener('click', () => {
-            deleteImageFromLibrary(image.id);
-        });
+            // ノード追加ボタン
+            item.querySelector('.add-image-node-btn').addEventListener('click', () => {
+                addImageNodeFromLibrary(content.id);
+            });
 
-        libraryContainer.appendChild(item);
+            // 削除ボタン
+            item.querySelector('.delete-image-btn').addEventListener('click', () => {
+                deleteImageFromLibrary(content.id);
+            });
+
+            libraryContainer.appendChild(item);
+        } else if (content.type === 'output') {
+            // 出力バッファコンテンツ（Phase 2で詳細実装）
+            const outputItem = document.createElement('div');
+            outputItem.className = 'content-item output-item';
+            if (content.id === focusedContentId) {
+                outputItem.classList.add('focused');
+            }
+            outputItem.innerHTML = `
+                <span class="content-icon">${CONTENT_TYPES.output.icon}</span>
+                <span class="content-name">${content.name}</span>
+                <span class="content-size">${content.width}x${content.height}</span>
+                <button class="content-add-node-btn">${CONTENT_TYPES.output.buttonLabel}</button>
+            `;
+
+            // フォーカス切り替え
+            outputItem.addEventListener('click', (e) => {
+                if (!e.target.classList.contains('content-add-node-btn')) {
+                    setFocusedContent(content.id);
+                }
+            });
+
+            // +Sink ボタン
+            outputItem.querySelector('.content-add-node-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                addSinkNodeFromLibrary(content.id);
+            });
+
+            libraryContainer.appendChild(outputItem);
+        }
     });
+}
+
+// 互換性用エイリアス
+function renderImageLibrary() {
+    renderContentLibrary();
 }
 
 // サムネイル用のData URLを作成
@@ -1230,9 +1465,9 @@ function createThumbnailDataURL(imageData) {
 }
 
 // 画像ライブラリから画像ノードを追加
-function addImageNodeFromLibrary(imageId) {
-    const image = uploadedImages.find(img => img.id === imageId);
-    if (!image) return;
+function addImageNodeFromLibrary(contentId) {
+    const content = contentLibrary.find(c => c.id === contentId);
+    if (!content || content.type !== 'image') return;
 
     // 表示範囲の中央付近に固定配置（画像ノードは左寄り）+ ランダムオフセット
     const center = getVisibleNodeGraphCenter();
@@ -1247,8 +1482,8 @@ function addImageNodeFromLibrary(imageId) {
     const imageNode = {
         id: `image-node-${nextImageNodeId++}`,
         type: 'image',
-        imageId: imageId,
-        title: image.name,
+        contentId: contentId,  // contentLibraryのID
+        title: content.name,
         posX: posX,
         posY: posY,
         // 元画像の原点（正規化座標 0.0〜1.0）
@@ -1262,21 +1497,29 @@ function addImageNodeFromLibrary(imageId) {
 }
 
 // 画像ライブラリから画像を削除
-function deleteImageFromLibrary(imageId) {
+function deleteImageFromLibrary(contentId) {
+    const content = contentLibrary.find(c => c.id === contentId);
+    if (!content || content.type !== 'image') return;
+
     // この画像を使用しているノードがあるか確認
-    const usingNodes = globalNodes.filter(n => n.type === 'image' && n.imageId === imageId);
+    const usingNodes = getImageNodesForContent(contentId);
     if (usingNodes.length > 0) {
         if (!confirm(`この画像は${usingNodes.length}個のノードで使用されています。削除してもよろしいですか？`)) {
             return;
         }
         // ノードも削除
-        globalNodes = globalNodes.filter(n => !(n.type === 'image' && n.imageId === imageId));
+        globalNodes = globalNodes.filter(n => !(n.type === 'image' && n.contentId === contentId));
+        // 接続も削除
+        const nodeIds = usingNodes.map(n => n.id);
+        globalConnections = globalConnections.filter(
+            c => !nodeIds.includes(c.fromNodeId) && !nodeIds.includes(c.toNodeId)
+        );
     }
 
     // 画像を削除
-    uploadedImages = uploadedImages.filter(img => img.id !== imageId);
+    contentLibrary = contentLibrary.filter(c => c.id !== contentId);
 
-    renderImageLibrary();
+    renderContentLibrary();
     renderNodeGraph();
     scheduleAutoSave();
 }
@@ -1666,15 +1909,15 @@ function drawGlobalNode(node) {
     nodeBox.appendChild(header);
 
     // 画像ノードの場合、サムネイルのみ表示（コンパクト）
-    if (node.type === 'image' && node.imageId !== undefined) {
-        const image = uploadedImages.find(img => img.id === node.imageId);
-        if (image && image.imageData) {
+    if (node.type === 'image' && node.contentId !== undefined) {
+        const content = contentLibrary.find(c => c.id === node.contentId);
+        if (content && content.imageData) {
             const contentRow = document.createElement('div');
             contentRow.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 4px;';
 
             // サムネイル
             const img = document.createElement('img');
-            img.src = createThumbnailDataURL(image.imageData);
+            img.src = createThumbnailDataURL(content.imageData);
             img.style.cssText = 'width: 40px; height: 30px; object-fit: cover; border-radius: 3px;';
             contentRow.appendChild(img);
 
@@ -2538,17 +2781,18 @@ function updatePreviewFromGraph() {
 
     // ノードデータをC++に渡す形式に変換
     const nodesForCpp = globalNodes.map(node => {
-        // 画像ノード: 正規化originをピクセル座標に変換
+        // 画像ノード: 正規化originをピクセル座標に変換、contentIdをcppImageIdに変換
         if (node.type === 'image') {
-            const image = uploadedImages.find(img => img.id === node.imageId);
-            if (image) {
+            const content = contentLibrary.find(c => c.id === node.contentId);
+            if (content) {
                 const ox = node.originX ?? 0.5;
                 const oy = node.originY ?? 0.5;
                 return {
                     ...node,
+                    imageId: content.cppImageId,  // C++側に渡す数値ID
                     // ピクセル座標に変換してC++に渡す
-                    originX: ox * image.width,
-                    originY: oy * image.height
+                    originX: ox * content.width,
+                    originY: oy * content.height
                 };
             }
         }
@@ -3234,13 +3478,13 @@ function onPixelFormatChange(node, formatId) {
     node.pixelFormat = formatId;
 
     // 画像を再登録（バインディング層で変換）
-    const image = uploadedImages.find(img => img.id === node.imageId);
-    if (image && image.imageData) {
+    const content = contentLibrary.find(c => c.id === node.contentId);
+    if (content && content.imageData) {
         graphEvaluator.storeImageWithFormat(
-            node.imageId,
-            image.imageData.data,
-            image.imageData.width,
-            image.imageData.height,
+            content.cppImageId,
+            content.imageData.data,
+            content.imageData.width,
+            content.imageData.height,
             formatId
         );
     }
