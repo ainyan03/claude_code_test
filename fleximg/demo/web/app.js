@@ -4345,7 +4345,7 @@ function setupOriginGrid(gridId, initialOrigin, onChange) {
 // ========================================
 
 const STATE_STORAGE_KEY = 'imageTransformPreviewState';
-const STATE_VERSION = 1;
+const STATE_VERSION = 2;  // コンテンツライブラリ対応
 
 // アプリ状態をオブジェクトとして取得
 function getAppState() {
@@ -4373,17 +4373,25 @@ function getAppState() {
             height: currentTileHeight,
             debugCheckerboard: currentDebugCheckerboard
         },
-        images: uploadedImages.map(img => ({
-            id: img.id,
-            name: img.name,
-            width: img.width,
-            height: img.height,
-            dataURL: imageDataToDataURL(img.imageData)
+        // コンテンツライブラリ（画像・出力バッファ統合）
+        contentLibrary: contentLibrary.map(content => ({
+            id: content.id,
+            type: content.type,
+            name: content.name,
+            width: content.width,
+            height: content.height,
+            cppImageId: content.cppImageId,
+            // 画像コンテンツのみimageDataを保存（出力バッファは再生成）
+            dataURL: content.type === 'image' && content.imageData
+                ? imageDataToDataURL(content.imageData)
+                : null
         })),
+        focusedContentId: focusedContentId,
         nodes: globalNodes.map(node => ({...node})),
         connections: globalConnections.map(conn => ({...conn})),
         nextIds: {
-            imageId: nextImageId,
+            contentId: nextContentId,
+            cppImageId: nextCppImageId,
             globalNodeId: nextGlobalNodeId,
             compositeId: nextCompositeId,
             distributorId: nextDistributorId,
@@ -4558,97 +4566,88 @@ async function restoreAppState(state) {
     applyTileSettings();
 
     // 次のID値を復元
-    nextImageId = state.nextIds.imageId;
+    nextContentId = state.nextIds.contentId || 1;
+    nextCppImageId = state.nextIds.cppImageId || 1;
     nextGlobalNodeId = state.nextIds.globalNodeId;
     nextCompositeId = state.nextIds.compositeId;
     nextDistributorId = state.nextIds.distributorId || 1;
     nextIndependentFilterId = state.nextIds.independentFilterId;
     nextImageNodeId = state.nextIds.imageNodeId;
 
-    // 画像ライブラリを復元
+    // コンテンツライブラリを復元
     // URLパラメータからの復元時は画像データがないため、LocalStorageから補完を試みる
     const localState = loadStateFromLocalStorage();
-    const localImages = localState ? localState.images : [];
+    const localContents = localState ? localState.contentLibrary : [];
 
-    uploadedImages = [];
+    contentLibrary = [];
     let missingImages = [];
-    for (const imgState of state.images) {
-        let dataURL = imgState.dataURL;
+    for (const contentState of state.contentLibrary) {
+        const content = {
+            id: contentState.id,
+            type: contentState.type,
+            name: contentState.name,
+            width: contentState.width,
+            height: contentState.height,
+            cppImageId: contentState.cppImageId,
+            imageData: null
+        };
 
-        // 画像データがない場合、LocalStorageから同じIDの画像を探す
-        if (!dataURL) {
-            const localImg = localImages.find(li => li.id === imgState.id);
-            if (localImg && localImg.dataURL) {
-                dataURL = localImg.dataURL;
-                console.log(`Image ${imgState.id} (${imgState.name}) loaded from LocalStorage`);
+        // 画像コンテンツのみ画像データを復元
+        if (contentState.type === 'image') {
+            let dataURL = contentState.dataURL;
+
+            // 画像データがない場合、LocalStorageから同じIDのコンテンツを探す
+            if (!dataURL) {
+                const localContent = localContents.find(lc => lc.id === contentState.id);
+                if (localContent && localContent.dataURL) {
+                    dataURL = localContent.dataURL;
+                    console.log(`Image content ${contentState.id} (${contentState.name}) loaded from LocalStorage`);
+                }
+            }
+
+            if (dataURL) {
+                content.imageData = await dataURLToImageData(dataURL, contentState.width, contentState.height);
+                // C++側に画像を登録（cppImageIdを使用）
+                graphEvaluator.storeImage(
+                    content.cppImageId,
+                    content.imageData.data,
+                    content.width,
+                    content.height
+                );
+            } else {
+                // 画像データが見つからない場合は警告
+                missingImages.push(contentState.name);
+                console.warn(`Image content ${contentState.id} (${contentState.name}) not found in LocalStorage`);
             }
         }
+        // 出力バッファはimageDataはnull（レンダリング時に生成）
 
-        if (dataURL) {
-            const imageData = await dataURLToImageData(dataURL, imgState.width, imgState.height);
-            const image = {
-                id: imgState.id,
-                name: imgState.name,
-                imageData: imageData,
-                width: imgState.width,
-                height: imgState.height
-            };
-            uploadedImages.push(image);
-            graphEvaluator.storeImage(imgState.id, imageData.data, imgState.width, imgState.height);
-        } else {
-            // 画像データが見つからない場合は警告
-            missingImages.push(imgState.name);
-            console.warn(`Image ${imgState.id} (${imgState.name}) not found in LocalStorage`);
-        }
+        contentLibrary.push(content);
     }
 
     if (missingImages.length > 0) {
         console.warn(`Missing images: ${missingImages.join(', ')}`);
     }
-    renderImageLibrary();
+
+    // フォーカス状態を復元
+    focusedContentId = state.focusedContentId;
+    renderContentLibrary();
 
     // ノードとコネクションを復元
     globalNodes = state.nodes;
     globalConnections = state.connections;
 
-    // マイグレーション: 旧 'output' ノードを 'sink' に変換
-    let oldOutputId = null;
-    globalNodes.forEach(node => {
-        if (node.type === 'output') {
-            oldOutputId = node.id;
-            node.type = 'sink';
-            node.id = 'sink';  // IDも統一
-            // 旧形式のパラメータを新形式に変換
-            if (node.width !== undefined) node.outputWidth = node.width;
-            if (node.height !== undefined) node.outputHeight = node.height;
-        }
-    });
-
-    // 旧output宛の接続をRenderer経由に再配線
-    if (oldOutputId) {
-        globalConnections.forEach(conn => {
-            if (conn.toNodeId === oldOutputId) {
-                // 旧output宛 → Renderer宛に変更
-                conn.toNodeId = 'renderer';
-                conn.toPortId = 'in';
-            }
-            if (conn.fromNodeId === oldOutputId) {
-                conn.fromNodeId = 'sink';
-            }
-        });
-    }
-
     // 画像ノードのピクセルフォーマットを適用
     // (画像はデフォルトのRGBA8で登録済みなので、異なるフォーマットの場合は再登録)
     globalNodes.forEach(node => {
         if (node.type === 'image' && node.pixelFormat && node.pixelFormat !== DEFAULT_PIXEL_FORMAT) {
-            const image = uploadedImages.find(img => img.id === node.imageId);
-            if (image && image.imageData) {
+            const content = contentLibrary.find(c => c.id === node.contentId);
+            if (content && content.imageData) {
                 graphEvaluator.storeImageWithFormat(
-                    node.imageId,
-                    image.imageData.data,
-                    image.imageData.width,
-                    image.imageData.height,
+                    content.cppImageId,
+                    content.imageData.data,
+                    content.imageData.width,
+                    content.imageData.height,
                     node.pixelFormat
                 );
             }
