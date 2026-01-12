@@ -23,19 +23,9 @@
 
 | 機能 | 概要 | 備考 |
 |------|------|------|
-| AffineMatrix固定小数点化 | a,b,c,d,tx,tyをint_fixed16に | 組み込み移植時 |
 | フィルタパラメータ固定小数点化 | brightness/alphaのパラメータ | 組み込み移植時 |
 
 ## 既知の問題
 
 - アルファなしフォーマット（RGB332, RGB565, RGB888等）でアフィン変換すると、画像外エリアが不透明黒になる
   → 対策案は [IDEA_AFFINE_ALPHA_HANDLING.md](docs/ideas/IDEA_AFFINE_ALPHA_HANDLING.md) を参照
-
-## メンテナンス性改善
-
-詳細は [MAINTAINABILITY_ISSUES.md](../.work/reports/MAINTAINABILITY_ISSUES.md) を参照。
-
-| 優先度 | 項目 | 重度 |
-|--------|------|------|
-| 1 | マジックナンバー定数化 | 中 |
-| 2 | ヘッダ責務分離 | 中 |
