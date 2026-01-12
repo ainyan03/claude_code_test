@@ -1,0 +1,7 @@
+# Test binaries
+*_test
+all_tests
+!*_test.cpp
+
+# Object files
+*.o
