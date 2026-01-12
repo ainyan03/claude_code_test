@@ -1176,6 +1176,14 @@ button {
 
 .sidebar-images-library .image-item {
     flex-shrink: 0;
+    cursor: pointer;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+/* 画像アイテムのフォーカス状態（サイドバー内） */
+.sidebar-images-library .image-item.focused {
+    border-color: #4CAF50;
+    box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.3);
 }
 
 /* コンテンツライブラリ */

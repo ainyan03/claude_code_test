@@ -1508,6 +1508,11 @@ function renderContentLibrary() {
             const item = template.content.cloneNode(true);
             const itemDiv = item.querySelector('.image-item');
 
+            // フォーカス状態を反映
+            if (content.id === focusedContentId) {
+                itemDiv.classList.add('focused');
+            }
+
             // サムネイル設定
             const thumbnail = item.querySelector('.image-thumbnail img');
             thumbnail.src = createThumbnailDataURL(content.imageData);
@@ -1515,13 +1520,24 @@ function renderContentLibrary() {
             // 画像名設定
             item.querySelector('.image-name').textContent = content.name;
 
+            // フォーカス切り替え（アイテムクリック）
+            itemDiv.addEventListener('click', (e) => {
+                // ボタンクリック時は除外
+                if (!e.target.closest('.add-image-node-btn') &&
+                    !e.target.closest('.delete-image-btn')) {
+                    setFocusedContent(content.id);
+                }
+            });
+
             // ノード追加ボタン
-            item.querySelector('.add-image-node-btn').addEventListener('click', () => {
+            item.querySelector('.add-image-node-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
                 addImageNodeFromLibrary(content.id);
             });
 
             // 削除ボタン
-            item.querySelector('.delete-image-btn').addEventListener('click', () => {
+            item.querySelector('.delete-image-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
                 deleteImageFromLibrary(content.id);
             });
 
