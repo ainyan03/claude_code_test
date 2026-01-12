@@ -305,6 +305,13 @@ void runEdgeCaseTests(TestResult& result) {
 
     // 180度回転
     runSingleTest("180deg rotation", 180.0f, 1.0f, 0, 0, 64, 64, 256, 256, result, true);
+
+    // 149.8度回転 + 3倍スケール
+    {
+        printf("\n--- Special Test: 149.8deg scale3x ---\n");
+        bool ok = runSingleTest("149.8deg scale3x", 149.8f, 3.0f, 0, 0, 64, 64, 256, 256, result, true);
+        printf("Result: %s\n", ok ? "PASS" : "FAIL");
+    }
 }
 
 int main() {
