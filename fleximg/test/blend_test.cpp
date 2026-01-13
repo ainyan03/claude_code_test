@@ -105,7 +105,7 @@ TEST_CASE("blend::first format conversion RGBA8 to RGBA16") {
     getPixelRGBA16(dst, 1, 1, r, g, b, a);
 
     // 不透明（alpha >= ALPHA_OPAQUE_MIN）であること
-    CHECK(a >= PixelFormatIDs::RGBA16Premul::ALPHA_OPAQUE_MIN);
+    CHECK(a >= RGBA16Premul::ALPHA_OPAQUE_MIN);
     // 赤成分が支配的であること
     CHECK(r > 0);
     CHECK(g == 0);
@@ -233,7 +233,7 @@ TEST_CASE("blend::onto RGBA8 to RGBA16 conversion") {
     // 不透明な赤がdstを上書き
     CHECK(r > 60000);  // 高い赤成分
     CHECK(g < 5000);   // 緑はほぼなし
-    CHECK(a >= PixelFormatIDs::RGBA16Premul::ALPHA_OPAQUE_MIN);
+    CHECK(a >= RGBA16Premul::ALPHA_OPAQUE_MIN);
 }
 
 // =============================================================================

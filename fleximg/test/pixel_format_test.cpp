@@ -1,54 +1,75 @@
-// fleximg pixel_format.h / pixel_format_registry.h Unit Tests
-// ピクセルフォーマットID、記述子、変換のテスト
+// fleximg pixel_format.h Unit Tests
+// ピクセルフォーマットDescriptor、変換のテスト
 
 #include "doctest.h"
 
 #define FLEXIMG_NAMESPACE fleximg
 #include "fleximg/image/pixel_format.h"
-#include "fleximg/image/pixel_format_registry.h"
 
 using namespace fleximg;
 
 // =============================================================================
-// PixelFormatID Constants Tests
+// PixelFormatID (Descriptor Pointer) Tests
 // =============================================================================
 
-TEST_CASE("PixelFormatID constants") {
-    SUBCASE("RGBA16 formats") {
-        CHECK(PixelFormatIDs::RGBA16_Straight == 0x0001);
-        CHECK(PixelFormatIDs::RGBA16_Premultiplied == 0x0002);
+TEST_CASE("PixelFormatID constants are valid pointers") {
+    SUBCASE("RGBA16_Premultiplied") {
+        CHECK(PixelFormatIDs::RGBA16_Premultiplied != nullptr);
+        CHECK(PixelFormatIDs::RGBA16_Premultiplied->name != nullptr);
     }
 
-    SUBCASE("Packed RGB formats") {
-        CHECK(PixelFormatIDs::RGB565_LE == 0x0100);
-        CHECK(PixelFormatIDs::RGB565_BE == 0x0101);
-        CHECK(PixelFormatIDs::RGB332 == 0x0102);
+    SUBCASE("RGBA8_Straight") {
+        CHECK(PixelFormatIDs::RGBA8_Straight != nullptr);
+        CHECK(PixelFormatIDs::RGBA8_Straight->name != nullptr);
     }
 
-    SUBCASE("RGBA8 formats") {
-        CHECK(PixelFormatIDs::RGBA8_Straight == 0x0200);
-        CHECK(PixelFormatIDs::RGBA8_Premultiplied == 0x0201);
-        CHECK(PixelFormatIDs::RGB888 == 0x0202);
-        CHECK(PixelFormatIDs::BGR888 == 0x0203);
+    SUBCASE("RGB565 formats") {
+        CHECK(PixelFormatIDs::RGB565_LE != nullptr);
+        CHECK(PixelFormatIDs::RGB565_BE != nullptr);
     }
 
-    SUBCASE("Grayscale formats") {
-        CHECK(PixelFormatIDs::Grayscale8 == 0x0300);
-        CHECK(PixelFormatIDs::Grayscale16 == 0x0301);
+    SUBCASE("RGB formats") {
+        CHECK(PixelFormatIDs::RGB888 != nullptr);
+        CHECK(PixelFormatIDs::BGR888 != nullptr);
+        CHECK(PixelFormatIDs::RGB332 != nullptr);
+    }
+}
+
+// =============================================================================
+// PixelFormatDescriptor Tests
+// =============================================================================
+
+TEST_CASE("PixelFormatDescriptor properties") {
+    SUBCASE("RGBA16_Premultiplied") {
+        const auto* desc = PixelFormatIDs::RGBA16_Premultiplied;
+        CHECK(desc->bitsPerPixel == 64);
+        CHECK(desc->bytesPerUnit == 8);
+        CHECK(desc->hasAlpha == true);
+        CHECK(desc->isPremultiplied == true);
+        CHECK(desc->isIndexed == false);
     }
 
-    SUBCASE("Mono formats") {
-        CHECK(PixelFormatIDs::Mono1bit_MSB == 0x0400);
-        CHECK(PixelFormatIDs::Mono1bit_LSB == 0x0401);
+    SUBCASE("RGBA8_Straight") {
+        const auto* desc = PixelFormatIDs::RGBA8_Straight;
+        CHECK(desc->bitsPerPixel == 32);
+        CHECK(desc->bytesPerUnit == 4);
+        CHECK(desc->hasAlpha == true);
+        CHECK(desc->isPremultiplied == false);
+        CHECK(desc->isIndexed == false);
     }
 
-    SUBCASE("Indexed formats") {
-        CHECK(PixelFormatIDs::Indexed4bit == 0x0500);
-        CHECK(PixelFormatIDs::Indexed8bit == 0x0501);
+    SUBCASE("RGB565_LE") {
+        const auto* desc = PixelFormatIDs::RGB565_LE;
+        CHECK(desc->bitsPerPixel == 16);
+        CHECK(desc->bytesPerUnit == 2);
+        CHECK(desc->hasAlpha == false);
     }
 
-    SUBCASE("User defined base") {
-        CHECK(PixelFormatIDs::USER_DEFINED_BASE == 0x10000000);
+    SUBCASE("RGB888") {
+        const auto* desc = PixelFormatIDs::RGB888;
+        CHECK(desc->bitsPerPixel == 24);
+        CHECK(desc->bytesPerUnit == 3);
+        CHECK(desc->hasAlpha == false);
     }
 }
 
@@ -57,7 +78,7 @@ TEST_CASE("PixelFormatID constants") {
 // =============================================================================
 
 TEST_CASE("RGBA16 Premultiplied alpha thresholds") {
-    using namespace PixelFormatIDs::RGBA16Premul;
+    using namespace RGBA16Premul;
 
     SUBCASE("threshold constants") {
         CHECK(ALPHA_TRANSPARENT_MAX == 255);
@@ -84,9 +105,6 @@ TEST_CASE("RGBA16 Premultiplied alpha thresholds") {
 // =============================================================================
 
 TEST_CASE("getBytesPerPixel") {
-    // 注: 現在レジストリに登録されているフォーマットのみテスト
-    // 未登録フォーマットはフォールバック値(4)を返す
-
     SUBCASE("RGBA16_Premultiplied - 8 bytes") {
         CHECK(getBytesPerPixel(PixelFormatIDs::RGBA16_Premultiplied) == 8);
     }
@@ -109,44 +127,92 @@ TEST_CASE("getBytesPerPixel") {
         CHECK(getBytesPerPixel(PixelFormatIDs::RGB332) == 1);
     }
 
-    SUBCASE("unknown format returns fallback (4)") {
-        CHECK(getBytesPerPixel(0xFFFFFFFF) == 4);
+    SUBCASE("nullptr returns fallback (4)") {
+        CHECK(getBytesPerPixel(nullptr) == 4);
     }
 }
 
 // =============================================================================
-// PixelFormatRegistry Tests
+// Direct Conversion Tests
 // =============================================================================
 
-TEST_CASE("PixelFormatRegistry") {
-    auto& registry = PixelFormatRegistry::getInstance();
-
-    SUBCASE("singleton instance") {
-        auto& registry2 = PixelFormatRegistry::getInstance();
-        CHECK(&registry == &registry2);
+TEST_CASE("getDirectConversion") {
+    SUBCASE("RGBA16_Premul to RGBA8_Straight has direct conversion") {
+        auto func = getDirectConversion(
+            PixelFormatIDs::RGBA16_Premultiplied,
+            PixelFormatIDs::RGBA8_Straight
+        );
+        CHECK(func != nullptr);
     }
 
-    SUBCASE("getFormat returns valid descriptor") {
-        const auto* desc = registry.getFormat(PixelFormatIDs::RGBA8_Straight);
-        REQUIRE(desc != nullptr);
-        CHECK(desc->id == PixelFormatIDs::RGBA8_Straight);
-        CHECK(desc->bitsPerPixel == 32);
-        CHECK(desc->hasAlpha == true);
-        CHECK(desc->isPremultiplied == false);
+    SUBCASE("RGBA8_Straight to RGBA16_Premul has direct conversion") {
+        auto func = getDirectConversion(
+            PixelFormatIDs::RGBA8_Straight,
+            PixelFormatIDs::RGBA16_Premultiplied
+        );
+        CHECK(func != nullptr);
     }
 
-    SUBCASE("getFormat for RGBA16_Premultiplied") {
-        const auto* desc = registry.getFormat(PixelFormatIDs::RGBA16_Premultiplied);
-        REQUIRE(desc != nullptr);
-        CHECK(desc->id == PixelFormatIDs::RGBA16_Premultiplied);
-        CHECK(desc->bitsPerPixel == 64);
-        CHECK(desc->hasAlpha == true);
-        CHECK(desc->isPremultiplied == true);
+    SUBCASE("unsupported conversion returns nullptr") {
+        auto func = getDirectConversion(
+            PixelFormatIDs::RGB565_LE,
+            PixelFormatIDs::RGB888
+        );
+        CHECK(func == nullptr);
+    }
+}
+
+// =============================================================================
+// convertFormat Tests
+// =============================================================================
+
+TEST_CASE("convertFormat") {
+    SUBCASE("same format just copies") {
+        uint8_t src[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+        uint8_t dst[8] = {0};
+
+        convertFormat(src, PixelFormatIDs::RGBA8_Straight,
+                      dst, PixelFormatIDs::RGBA8_Straight, 2);
+
+        for (int i = 0; i < 8; ++i) {
+            CHECK(dst[i] == src[i]);
+        }
     }
 
-    SUBCASE("getFormat for unknown format returns nullptr") {
-        const auto* desc = registry.getFormat(0xFFFFFFFF);
-        CHECK(desc == nullptr);
+    SUBCASE("RGBA8 to RGBA16 conversion") {
+        // RGBA8: opaque red
+        uint8_t src[4] = {255, 0, 0, 255};
+        uint16_t dst[4] = {0};
+
+        convertFormat(src, PixelFormatIDs::RGBA8_Straight,
+                      dst, PixelFormatIDs::RGBA16_Premultiplied, 1);
+
+        // A8=255, A_tmp=256, so:
+        // R16 = 255 * 256 = 65280
+        // G16 = 0 * 256 = 0
+        // B16 = 0 * 256 = 0
+        // A16 = 255 * 256 = 65280
+        CHECK(dst[0] == 65280);  // R
+        CHECK(dst[1] == 0);      // G
+        CHECK(dst[2] == 0);      // B
+        CHECK(dst[3] == 65280);  // A
+    }
+
+    SUBCASE("RGBA16 to RGBA8 conversion") {
+        // RGBA16 Premul: opaque red (max values)
+        uint16_t src[4] = {65280, 0, 0, 65280};
+        uint8_t dst[4] = {0};
+
+        convertFormat(src, PixelFormatIDs::RGBA16_Premultiplied,
+                      dst, PixelFormatIDs::RGBA8_Straight, 1);
+
+        // A8 = 65280 >> 8 = 255
+        // A_tmp = 256
+        // R8 = 65280 / 256 = 255
+        CHECK(dst[0] == 255);  // R
+        CHECK(dst[1] == 0);    // G
+        CHECK(dst[2] == 0);    // B
+        CHECK(dst[3] == 255);  // A
     }
 }
 

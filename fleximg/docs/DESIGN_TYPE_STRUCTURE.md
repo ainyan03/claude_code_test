@@ -212,6 +212,23 @@ view_ops::blendOnto(canvas, offsetX, offsetY,
 3. **スライシング防止**: コンポジションにより安全
 4. **座標計算の局所化**: パイプライン処理側に集約
 
+## フォーマット変換
+
+`convertFormat()` 関数でピクセルフォーマット間の変換を行います。
+
+```cpp
+// 同じフォーマット: 単純コピー
+// 直接変換が定義されている場合: 最適化パス
+// その他: RGBA8_Straight 経由で変換
+convertFormat(src, srcFormat, dst, dstFormat, pixelCount);
+```
+
+ImageBuffer の `toFormat()` メソッドでも変換できます。
+
+```cpp
+ImageBuffer working = std::move(input).toFormat(PixelFormatIDs::RGBA8_Straight);
+```
+
 ## 注意事項
 
 - blendFirst/blendOnto は RGBA16_Premultiplied 専用
@@ -224,6 +241,7 @@ view_ops::blendOnto(canvas, offsetX, offsetY,
 | `src/fleximg/core/types.h` | 固定小数点型、数学型、AffineMatrix |
 | `src/fleximg/core/common.h` | NAMESPACE定義、バージョン |
 | `src/fleximg/core/memory/allocator.h` | IAllocator, DefaultAllocator |
+| `src/fleximg/image/pixel_format.h` | PixelFormatID, PixelFormatDescriptor, convertFormat() |
 | `src/fleximg/image/viewport.h` | ViewPort, view_ops |
 | `src/fleximg/image/image_buffer.h` | ImageBuffer |
 | `src/fleximg/image/render_types.h` | RenderResult, RenderRequest |

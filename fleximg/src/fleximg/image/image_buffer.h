@@ -11,7 +11,6 @@
 #include "../core/memory/allocator.h"
 #include "pixel_format.h"
 #include "viewport.h"
-#include "pixel_format_registry.h"
 
 namespace FLEXIMG_NAMESPACE {
 
@@ -223,13 +222,12 @@ public:
                               InitPolicy::Uninitialized);
         if (isValid() && converted.isValid()) {
             // 行単位で変換（サブビューのストライドを正しく処理）
-            auto& registry = PixelFormatRegistry::getInstance();
             for (int y = 0; y < view_.height; ++y) {
                 const uint8_t* srcRow = static_cast<const uint8_t*>(view_.data)
                                         + y * view_.stride;
                 uint8_t* dstRow = static_cast<uint8_t*>(converted.view_.data)
                                   + y * converted.view_.stride;
-                registry.convert(srcRow, view_.formatID, dstRow, target, view_.width);
+                convertFormat(srcRow, view_.formatID, dstRow, target, view_.width);
             }
         }
         return converted;

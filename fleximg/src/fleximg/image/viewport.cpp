@@ -1,5 +1,5 @@
 #include "viewport.h"
-#include "pixel_format_registry.h"
+#include "pixel_format.h"
 #include <cstring>
 #include <algorithm>
 
@@ -31,12 +31,11 @@ void copy(ViewPort& dst, int dstX, int dstY,
         return;
     }
 
-    // 異なるフォーマット間のコピー → PixelFormatRegistry で変換
-    PixelFormatRegistry& registry = PixelFormatRegistry::getInstance();
+    // 異なるフォーマット間のコピー
     for (int y = 0; y < height; ++y) {
         const void* srcRow = src.pixelAt(srcX, srcY + y);
         void* dstRow = dst.pixelAt(dstX, dstY + y);
-        registry.convert(srcRow, src.formatID, dstRow, dst.formatID, width);
+        convertFormat(srcRow, src.formatID, dstRow, dst.formatID, width);
     }
 }
 
@@ -85,10 +84,10 @@ void blendOnto(ViewPort& dst, int dstX, int dstY,
 
             uint16_t srcA = sp[3];
 
-            if (PixelFormatIDs::RGBA16Premul::isTransparent(srcA)) {
+            if (RGBA16Premul::isTransparent(srcA)) {
                 continue;  // 透明 - スキップ
             }
-            if (PixelFormatIDs::RGBA16Premul::isOpaque(srcA)) {
+            if (RGBA16Premul::isOpaque(srcA)) {
                 // 不透明 - 上書き
                 dp[0] = sp[0];
                 dp[1] = sp[1];

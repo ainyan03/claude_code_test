@@ -95,8 +95,8 @@ void onto(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
     if (yStart >= yEnd || xStart >= xEnd) return;
 
     // 閾値定数
-    constexpr uint16_t ALPHA_TRANS_MAX = PixelFormatIDs::RGBA16Premul::ALPHA_TRANSPARENT_MAX;
-    constexpr uint16_t ALPHA_OPAQUE_MIN = PixelFormatIDs::RGBA16Premul::ALPHA_OPAQUE_MIN;
+    constexpr uint16_t ALPHA_TRANS_MAX = RGBA16Premul::ALPHA_TRANSPARENT_MAX;
+    constexpr uint16_t ALPHA_OPAQUE_MIN = RGBA16Premul::ALPHA_OPAQUE_MIN;
 
     // RGBA8_Straight → RGBA16_Premultiplied への変換ブレンド
     if (src.formatID == PixelFormatIDs::RGBA8_Straight &&
