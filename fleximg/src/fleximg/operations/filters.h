@@ -41,19 +41,6 @@ void grayscale(ViewPort& dst, const ViewPort& src);
 // boxBlur - ボックスブラー
 // ------------------------------------------------------------------------
 //
-// 2パス（水平→垂直）のボックスブラーを適用します。
-//
-// パラメータ:
-// - dst: 出力バッファ（事前確保済み）
-// - src: 入力バッファ
-// - radius: ブラー半径（ピクセル）
-//
-void boxBlur(ViewPort& dst, const ViewPort& src, int radius);
-
-// ------------------------------------------------------------------------
-// boxBlurWithPadding - 透明拡張ボックスブラー
-// ------------------------------------------------------------------------
-//
 // 入力画像の範囲外を透明（α=0）として扱うボックスブラーです。
 // α加重平均を使用し、透明ピクセルの色成分が結果に影響しないようにします。
 // スライディングウィンドウ方式で O(width×height) の計算量を実現。
@@ -61,16 +48,16 @@ void boxBlur(ViewPort& dst, const ViewPort& src, int radius);
 // パラメータ:
 // - dst: 出力バッファ（事前確保済み、srcと異なるサイズ可）
 // - src: 入力バッファ
-// - srcOffsetX: srcのdst座標系でのX方向オフセット
-// - srcOffsetY: srcのdst座標系でのY方向オフセット
 // - radius: ブラー半径（ピクセル）
+// - srcOffsetX: srcのdst座標系でのX方向オフセット（デフォルト0）
+// - srcOffsetY: srcのdst座標系でのY方向オフセット（デフォルト0）
 //
 // 座標系:
 //   dst座標 (dx, dy) に対応する src座標は (dx - srcOffsetX, dy - srcOffsetY)
 //   src範囲外のピクセルは透明として扱われる
 //
-void boxBlurWithPadding(ViewPort& dst, const ViewPort& src,
-                        int srcOffsetX, int srcOffsetY, int radius);
+void boxBlur(ViewPort& dst, const ViewPort& src, int radius,
+             int srcOffsetX = 0, int srcOffsetY = 0);
 
 // ------------------------------------------------------------------------
 // alpha - アルファ調整
