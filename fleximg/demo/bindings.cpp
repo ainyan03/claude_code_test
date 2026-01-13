@@ -28,36 +28,6 @@ using namespace FLEXIMG_NAMESPACE;
 // ========================================================================
 // 旧 PixelFormatID (uint32_t) と新 PixelFormatID (Descriptor*) の変換
 
-namespace {
-
-// 整数 → PixelFormatID（旧形式からの変換）
-PixelFormatID intToFormat(int formatInt) {
-    // 旧 ID 値に対応するフォーマットを返す
-    switch (formatInt) {
-        case 0x0002: return PixelFormatIDs::RGBA16_Premultiplied;
-        case 0x0100: return PixelFormatIDs::RGB565_LE;
-        case 0x0101: return PixelFormatIDs::RGB565_BE;
-        case 0x0102: return PixelFormatIDs::RGB332;
-        case 0x0200: return PixelFormatIDs::RGBA8_Straight;
-        case 0x0202: return PixelFormatIDs::RGB888;
-        case 0x0203: return PixelFormatIDs::BGR888;
-        default:     return PixelFormatIDs::RGBA8_Straight;
-    }
-}
-
-// PixelFormatID → 整数（旧形式への変換）
-int formatToInt(PixelFormatID format) {
-    if (format == PixelFormatIDs::RGBA16_Premultiplied) return 0x0002;
-    if (format == PixelFormatIDs::RGB565_LE) return 0x0100;
-    if (format == PixelFormatIDs::RGB565_BE) return 0x0101;
-    if (format == PixelFormatIDs::RGB332) return 0x0102;
-    if (format == PixelFormatIDs::RGBA8_Straight) return 0x0200;
-    if (format == PixelFormatIDs::RGB888) return 0x0202;
-    if (format == PixelFormatIDs::BGR888) return 0x0203;
-    return 0x0200;  // デフォルト: RGBA8_Straight
-}
-
-} // anonymous namespace
 
 // ========================================================================
 // SinkOutput - Sink別出力管理（複数Sink対応）
@@ -216,8 +186,9 @@ public:
     }
 
     // Sink別出力フォーマットを設定
-    void setSinkFormat(const std::string& sinkId, int formatId) {
-        sinkFormats_[sinkId] = intToFormat(formatId);
+    void setSinkFormat(const std::string& sinkId, const std::string& formatName) {
+        PixelFormatID format = getFormatByName(formatName.c_str());
+        sinkFormats_[sinkId] = format ? format : PixelFormatIDs::RGBA8_Straight;
     }
 
     // Sink別プレビュー取得（RGBA8888に変換して返す）
@@ -236,7 +207,7 @@ public:
         val result = val::object();
         result.set("width", sinkOut.width);
         result.set("height", sinkOut.height);
-        result.set("format", formatToInt(sinkOut.format));
+        result.set("format", std::string(getFormatName(sinkOut.format)));
 
         size_t pixelCount = sinkOut.width * sinkOut.height;
         size_t rgba8Size = pixelCount * 4;
@@ -267,13 +238,13 @@ public:
 
     // 画像を登録（データをコピー、フォーマット指定なし = RGBA8）
     void storeImage(int id, const val& imageData, int width, int height) {
-        storeImageWithFormat(id, imageData, width, height,
-                             formatToInt(PixelFormatIDs::RGBA8_Straight));
+        storeImageWithFormat(id, imageData, width, height, "RGBA8_Straight");
     }
 
     // 画像を登録（フォーマット指定あり）
-    void storeImageWithFormat(int id, const val& imageData, int width, int height, int formatId) {
-        PixelFormatID targetFormat = intToFormat(formatId);
+    void storeImageWithFormat(int id, const val& imageData, int width, int height, const std::string& formatName) {
+        PixelFormatID targetFormat = getFormatByName(formatName.c_str());
+        if (!targetFormat) targetFormat = PixelFormatIDs::RGBA8_Straight;
 
         // JS から RGBA8 データを受け取り
         unsigned int length = imageData["length"].as<unsigned int>();
