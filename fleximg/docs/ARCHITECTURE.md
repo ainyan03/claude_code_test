@@ -219,31 +219,43 @@ namespace blend {
 
 ```
 src/fleximg/
-├── types.h               # 固定小数点型定義（int_fixed8, int_fixed16）
-├── common.h              # 共通定義（Point, AffineMatrix）
-├── pixel_format.h        # ピクセルフォーマット定義
-├── image_allocator.h     # カスタムアロケータ
-├── image_buffer.h        # ImageBuffer
-├── viewport.h/cpp        # ViewPort
-├── port.h                # Port（ノード接続）
-├── node.h                # Node 基底クラス
-├── render_types.h        # RenderRequest, RenderResult 等
-├── perf_metrics.h        # パフォーマンス計測
+├── core/                     # コア機能（fleximg::core 名前空間）
+│   ├── common.h              # NAMESPACE定義、バージョン
+│   ├── types.h               # 固定小数点型、数学型、AffineMatrix
+│   ├── port.h                # Port（ノード接続）
+│   ├── node.h                # Node 基底クラス
+│   ├── perf_metrics.h        # パフォーマンス計測
+│   └── memory/               # メモリ管理（fleximg::core::memory 名前空間）
+│       ├── allocator.h       # IAllocator, DefaultAllocator
+│       ├── platform.h/cpp    # IPlatformMemory（組込み環境対応）
+│       ├── pool_allocator.h/cpp  # PoolAllocator（ビットマップ方式）
+│       └── buffer_handle.h   # BufferHandle（RAII）
+│
+├── image/                    # 画像処理
+│   ├── pixel_format.h        # ピクセルフォーマット定義
+│   ├── pixel_format_registry.h/cpp  # フォーマット変換レジストリ
+│   ├── viewport.h/cpp        # ViewPort
+│   ├── image_buffer.h        # ImageBuffer
+│   ├── image_allocator.h     # [DEPRECATED] 旧アロケータ
+│   └── render_types.h        # RenderRequest, RenderResult
+│
 ├── nodes/
-│   ├── source_node.h       # SourceNode
-│   ├── sink_node.h         # SinkNode
-│   ├── affine_node.h       # AffineNode
-│   ├── filter_node_base.h  # FilterNodeBase（フィルタ共通基底）
-│   ├── brightness_node.h   # BrightnessNode
-│   ├── grayscale_node.h    # GrayscaleNode
-│   ├── box_blur_node.h     # BoxBlurNode
-│   ├── alpha_node.h        # AlphaNode
-│   ├── composite_node.h    # CompositeNode
-│   └── renderer_node.h     # RendererNode（発火点）
+│   ├── source_node.h         # SourceNode
+│   ├── sink_node.h           # SinkNode
+│   ├── affine_node.h         # AffineNode
+│   ├── distributor_node.h    # DistributorNode
+│   ├── filter_node_base.h    # FilterNodeBase（フィルタ共通基底）
+│   ├── brightness_node.h     # BrightnessNode
+│   ├── grayscale_node.h      # GrayscaleNode
+│   ├── box_blur_node.h       # BoxBlurNode
+│   ├── alpha_node.h          # AlphaNode
+│   ├── composite_node.h      # CompositeNode
+│   └── renderer_node.h       # RendererNode（発火点）
+│
 └── operations/
-    ├── transform.h/cpp   # アフィン変換
-    ├── filters.h/cpp     # フィルタ処理
-    └── blend.h/cpp       # ブレンド処理
+    ├── transform.h/cpp       # アフィン変換
+    ├── filters.h/cpp         # フィルタ処理
+    └── blend.h/cpp           # ブレンド処理
 ```
 
 ## 使用例

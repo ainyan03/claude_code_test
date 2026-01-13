@@ -14,6 +14,7 @@
 #endif
 
 namespace FLEXIMG_NAMESPACE {
+namespace core {
 
 // ========================================================================
 // ノードタイプ定義（デバッグ/リリース共通）
@@ -178,6 +179,14 @@ struct PerfMetrics {
 };
 
 #endif // FLEXIMG_DEBUG_PERF_METRICS
+
+} // namespace core
+
+// [DEPRECATED] 後方互換性のため親名前空間に公開。将来廃止予定。
+// 新規コードでは core:: プレフィックスを使用してください。
+namespace NodeType = core::NodeType;
+using core::NodeMetrics;
+using core::PerfMetrics;
 
 } // namespace FLEXIMG_NAMESPACE
 

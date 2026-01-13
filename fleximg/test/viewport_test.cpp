@@ -4,8 +4,8 @@
 #include "doctest.h"
 
 #define FLEXIMG_NAMESPACE fleximg
-#include "fleximg/viewport.h"
-#include "fleximg/image_buffer.h"
+#include "fleximg/image/viewport.h"
+#include "fleximg/image/image_buffer.h"
 
 using namespace fleximg;
 

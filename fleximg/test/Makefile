@@ -17,12 +17,14 @@ CXXFLAGS = -std=c++17 -Wall -Wextra -I../src -I../third_party/doctest
 
 # ソースディレクトリ
 SRC_DIR = ../src/fleximg
+MEMORY_DIR = ../src/fleximg/core/memory
 OPS_DIR = ../src/fleximg/operations
 
 # ライブラリソース
-CORE_SRCS = $(SRC_DIR)/viewport.cpp $(SRC_DIR)/pixel_format_registry.cpp
+MEMORY_SRCS = $(MEMORY_DIR)/platform.cpp $(MEMORY_DIR)/pool_allocator.cpp
+CORE_SRCS = $(SRC_DIR)/image/viewport.cpp $(SRC_DIR)/image/pixel_format_registry.cpp
 OPS_SRCS = $(OPS_DIR)/blend.cpp $(OPS_DIR)/filters.cpp
-ALL_LIB_SRCS = $(CORE_SRCS) $(OPS_SRCS)
+ALL_LIB_SRCS = $(MEMORY_SRCS) $(CORE_SRCS) $(OPS_SRCS)
 
 # テストソース（test_main.cpp以外）
 TEST_SRCS = $(filter-out test_main.cpp, $(wildcard *_test.cpp))

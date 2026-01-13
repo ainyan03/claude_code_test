@@ -1,11 +1,11 @@
 #ifndef FLEXIMG_COMPOSITE_NODE_H
 #define FLEXIMG_COMPOSITE_NODE_H
 
-#include "../node.h"
-#include "../image_buffer.h"
+#include "../core/node.h"
+#include "../core/perf_metrics.h"
+#include "../image/image_buffer.h"
+#include "../image/pixel_format.h"
 #include "../operations/blend.h"
-#include "../pixel_format.h"
-#include "../perf_metrics.h"
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
 #include <chrono>
 #endif

@@ -1,5 +1,42 @@
 # Changelog
 
+## [2.29.0] - 2026-01-13
+
+### 変更
+
+- **フォルダ構造の整理**: `core/`, `image/` サブディレクトリを導入
+  - `core/`: コア機能（types, node, port, perf_metrics）
+  - `image/`: 画像処理（viewport, image_buffer, pixel_format）
+  - `nodes/`, `operations/` は既存のまま維持
+
+- **namespace core の導入**: `core/` 内ファイルを `fleximg::core` 名前空間に移行
+  - 後方互換性のため親名前空間に using 宣言（将来廃止予定）
+  - 新規コードでは `core::` プレフィックスを使用
+
+- **AffineMatrix の移動**: `common.h` から `types.h` に移動
+  - `common.h` は NAMESPACE 定義とバージョン情報のみに簡略化
+
+### 追加
+
+- **汎用メモリアロケータ** (`core/memory/`): 組込み環境対応のメモリ管理
+  - `IAllocator`: アロケータインターフェース
+  - `DefaultAllocator`: 標準 malloc/free ラッパー
+  - `IPlatformMemory`: プラットフォーム固有メモリ（SRAM/PSRAM選択）
+  - `PoolAllocator`: ビットマップベースのプールアロケータ
+  - `BufferHandle`: RAII方式のバッファハンドル
+
+- **ImageBuffer の新アロケータ対応**: `core::memory::IAllocator` を使用
+  - 内部実装を `ImageAllocator*` から `core::memory::IAllocator*` に変更
+
+### 非推奨
+
+- **image/image_allocator.h**: `core/memory/allocator.h` に置き換え
+  - `ImageAllocator` → `core::memory::IAllocator`
+  - `DefaultAllocator` → `core::memory::DefaultAllocator`
+  - 将来のバージョンで削除予定
+
+---
+
 ## [2.28.0] - 2026-01-12
 
 ### 追加

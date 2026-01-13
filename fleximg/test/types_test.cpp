@@ -4,7 +4,7 @@
 #include "doctest.h"
 
 #define FLEXIMG_NAMESPACE fleximg
-#include "fleximg/types.h"
+#include "fleximg/core/types.h"
 
 using namespace fleximg;
 

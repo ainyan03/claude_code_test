@@ -3,9 +3,9 @@
 
 #include <utility>
 #include <cstdint>
-#include "common.h"
+#include "../core/common.h"
+#include "../core/perf_metrics.h"
 #include "image_buffer.h"
-#include "perf_metrics.h"
 
 namespace FLEXIMG_NAMESPACE {
 

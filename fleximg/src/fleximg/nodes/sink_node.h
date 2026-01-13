@@ -1,8 +1,8 @@
 #ifndef FLEXIMG_SINK_NODE_H
 #define FLEXIMG_SINK_NODE_H
 
-#include "../node.h"
-#include "../viewport.h"
+#include "../core/node.h"
+#include "../image/viewport.h"
 #include <algorithm>
 
 namespace FLEXIMG_NAMESPACE {

@@ -1,5 +1,5 @@
 #include "filters.h"
-#include "../image_buffer.h"
+#include "../image/image_buffer.h"
 #include <algorithm>
 #include <cstdint>
 

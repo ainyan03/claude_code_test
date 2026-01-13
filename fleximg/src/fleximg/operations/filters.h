@@ -1,8 +1,8 @@
 #ifndef FLEXIMG_OPERATIONS_FILTERS_H
 #define FLEXIMG_OPERATIONS_FILTERS_H
 
-#include "../common.h"
-#include "../viewport.h"
+#include "../core/common.h"
+#include "../image/viewport.h"
 
 namespace FLEXIMG_NAMESPACE {
 namespace filters {

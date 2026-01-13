@@ -1,10 +1,10 @@
 #ifndef FLEXIMG_SOURCE_NODE_H
 #define FLEXIMG_SOURCE_NODE_H
 
-#include "../node.h"
-#include "../viewport.h"
-#include "../image_buffer.h"
-#include "../perf_metrics.h"
+#include "../core/node.h"
+#include "../core/perf_metrics.h"
+#include "../image/viewport.h"
+#include "../image/image_buffer.h"
 #include <algorithm>
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
 #include <chrono>

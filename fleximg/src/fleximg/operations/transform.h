@@ -1,9 +1,9 @@
 #ifndef FLEXIMG_OPERATIONS_TRANSFORM_H
 #define FLEXIMG_OPERATIONS_TRANSFORM_H
 
-#include "../common.h"
-#include "../types.h"
-#include "../viewport.h"
+#include "../core/common.h"
+#include "../core/types.h"
+#include "../image/viewport.h"
 #include <cstdint>
 #include <utility>
 

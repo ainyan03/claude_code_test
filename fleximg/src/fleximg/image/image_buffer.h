@@ -6,11 +6,11 @@
 #include <cstring>
 #include <algorithm>
 #include <cassert>
-#include "common.h"
+#include "../core/common.h"
+#include "../core/perf_metrics.h"
+#include "../core/memory/allocator.h"
 #include "pixel_format.h"
 #include "viewport.h"
-#include "image_allocator.h"
-#include "perf_metrics.h"
 #include "pixel_format_registry.h"
 
 namespace FLEXIMG_NAMESPACE {
@@ -51,13 +51,13 @@ public:
     // デフォルトコンストラクタ（空の画像）
     ImageBuffer()
         : view_(), capacity_(0),
-          allocator_(&DefaultAllocator::getInstance()),
+          allocator_(&core::memory::DefaultAllocator::instance()),
           initPolicy_(InitPolicy::Zero) {}
 
     // サイズ指定コンストラクタ
     ImageBuffer(int w, int h, PixelFormatID fmt = PixelFormatIDs::RGBA8_Straight,
                 InitPolicy init = InitPolicy::Zero,
-                ImageAllocator* alloc = &DefaultAllocator::getInstance())
+                core::memory::IAllocator* alloc = &core::memory::DefaultAllocator::instance())
         : view_(nullptr, fmt, 0, static_cast<int16_t>(w), static_cast<int16_t>(h))
         , capacity_(0), allocator_(alloc), initPolicy_(init) {
         allocate();
@@ -87,7 +87,7 @@ public:
         : view_(nullptr, other.view_.formatID, 0,
                 other.view_.width, other.view_.height)
         , capacity_(0)
-        , allocator_(other.allocator_ ? other.allocator_ : &DefaultAllocator::getInstance())
+        , allocator_(other.allocator_ ? other.allocator_ : &core::memory::DefaultAllocator::instance())
         , initPolicy_(InitPolicy::Uninitialized) {
         if (other.isValid()) {
             allocate();
@@ -103,7 +103,7 @@ public:
             view_.formatID = other.view_.formatID;
             view_.width = other.view_.width;
             view_.height = other.view_.height;
-            allocator_ = other.allocator_ ? other.allocator_ : &DefaultAllocator::getInstance();
+            allocator_ = other.allocator_ ? other.allocator_ : &core::memory::DefaultAllocator::instance();
             initPolicy_ = InitPolicy::Uninitialized;
             if (other.isValid()) {
                 allocate();
@@ -238,7 +238,7 @@ public:
 private:
     ViewPort view_;           // コンポジション: 画像データへのビュー
     size_t capacity_;
-    ImageAllocator* allocator_;
+    core::memory::IAllocator* allocator_;
     InitPolicy initPolicy_;
 
     void allocate() {
