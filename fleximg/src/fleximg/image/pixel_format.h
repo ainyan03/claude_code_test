@@ -188,6 +188,35 @@ inline int_fast8_t getBytesPerPixel(PixelFormatID formatID) {
     return 4;  // フォールバック
 }
 
+// 組み込みフォーマット一覧（名前検索用）
+inline const PixelFormatID builtinFormats[] = {
+    PixelFormatIDs::RGBA16_Premultiplied,
+    PixelFormatIDs::RGBA8_Straight,
+    PixelFormatIDs::RGB565_LE,
+    PixelFormatIDs::RGB565_BE,
+    PixelFormatIDs::RGB332,
+    PixelFormatIDs::RGB888,
+    PixelFormatIDs::BGR888,
+};
+
+inline constexpr size_t builtinFormatsCount = sizeof(builtinFormats) / sizeof(builtinFormats[0]);
+
+// 名前からフォーマットを取得（見つからなければ nullptr）
+inline PixelFormatID getFormatByName(const char* name) {
+    if (!name) return nullptr;
+    for (size_t i = 0; i < builtinFormatsCount; ++i) {
+        if (std::strcmp(builtinFormats[i]->name, name) == 0) {
+            return builtinFormats[i];
+        }
+    }
+    return nullptr;
+}
+
+// フォーマット名を取得
+inline const char* getFormatName(PixelFormatID formatID) {
+    return formatID ? formatID->name : "unknown";
+}
+
 // ========================================================================
 // フォーマット変換
 // ========================================================================

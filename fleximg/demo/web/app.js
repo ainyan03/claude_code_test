@@ -48,19 +48,20 @@ const NODE_TYPES = {
 
 // ========================================
 // ピクセルフォーマット定義
-// C++側の PixelFormatIDs と同期を維持すること
+// C++側の BuiltinFormats と同期を維持すること
+// formatName: C++側の PixelFormatDescriptor::name と一致させる
 // ========================================
 const PIXEL_FORMATS = [
-    { id: 0x0200, name: 'RGBA8888',   bpp: 4, description: 'Standard (default)' },
-    { id: 0x0202, name: 'RGB888',     bpp: 3, description: 'RGB order' },
-    { id: 0x0203, name: 'BGR888',     bpp: 3, description: 'BGR order' },
-    { id: 0x0100, name: 'RGB565_LE',  bpp: 2, description: 'Little Endian' },
-    { id: 0x0101, name: 'RGB565_BE',  bpp: 2, description: 'Big Endian' },
-    { id: 0x0102, name: 'RGB332',     bpp: 1, description: '8-bit color' },
+    { formatName: 'RGBA8_Straight',        displayName: 'RGBA8888',   bpp: 4, description: 'Standard (default)' },
+    { formatName: 'RGB888',                displayName: 'RGB888',     bpp: 3, description: 'RGB order' },
+    { formatName: 'BGR888',                displayName: 'BGR888',     bpp: 3, description: 'BGR order' },
+    { formatName: 'RGB565_LE',             displayName: 'RGB565_LE',  bpp: 2, description: 'Little Endian' },
+    { formatName: 'RGB565_BE',             displayName: 'RGB565_BE',  bpp: 2, description: 'Big Endian' },
+    { formatName: 'RGB332',                displayName: 'RGB332',     bpp: 1, description: '8-bit color' },
 ];
 
 // デフォルトピクセルフォーマット
-const DEFAULT_PIXEL_FORMAT = 0x0200;  // RGBA8888
+const DEFAULT_PIXEL_FORMAT = 'RGBA8_Straight';
 
 // ヘルパー関数
 const NodeTypeHelper = {
@@ -1213,7 +1214,7 @@ function addSinkNodeFromLibrary(contentId) {
         posY: posY,
         originX: Math.round(content.width / 2),   // 仮想スクリーン上の基準座標（中央）
         originY: Math.round(content.height / 2),
-        outputFormat: 0x0200  // RGBA8888
+        outputFormat: DEFAULT_PIXEL_FORMAT
     };
 
     globalNodes.push(sinkNode);
@@ -2196,8 +2197,8 @@ function drawGlobalNode(node) {
         const sinkContent = contentLibrary.find(c => c.id === node.contentId);
         const ow = sinkContent?.width ?? 0;
         const oh = sinkContent?.height ?? 0;
-        const formatName = PIXEL_FORMATS.find(f => f.id === (node.outputFormat ?? DEFAULT_PIXEL_FORMAT))?.name ?? 'RGBA8';
-        infoDiv.innerHTML = `${ow}×${oh}<br>${formatName}`;
+        const formatDisplay = PIXEL_FORMATS.find(f => f.formatName === (node.outputFormat ?? DEFAULT_PIXEL_FORMAT))?.displayName ?? 'RGBA8';
+        infoDiv.innerHTML = `${ow}×${oh}<br>${formatDisplay}`;
         contentRow.appendChild(infoDiv);
 
         nodeBox.appendChild(contentRow);
@@ -3612,15 +3613,15 @@ function buildImageDetailContent(node) {
     const currentFormat = node.pixelFormat ?? DEFAULT_PIXEL_FORMAT;
     PIXEL_FORMATS.forEach(fmt => {
         const option = document.createElement('option');
-        option.value = fmt.id;
-        option.textContent = `${fmt.name} (${fmt.bpp}B)`;
+        option.value = fmt.formatName;
+        option.textContent = `${fmt.displayName} (${fmt.bpp}B)`;
         option.title = fmt.description;
-        if (currentFormat === fmt.id) option.selected = true;
+        if (currentFormat === fmt.formatName) option.selected = true;
         formatSelect.appendChild(option);
     });
 
     formatSelect.addEventListener('change', () => {
-        const newFormat = parseInt(formatSelect.value);
+        const newFormat = formatSelect.value;
         onPixelFormatChange(node, newFormat);
     });
 
@@ -4202,10 +4203,10 @@ function buildSinkDetailContent(node) {
     const currentFormat = node.outputFormat ?? DEFAULT_PIXEL_FORMAT;
     PIXEL_FORMATS.forEach(fmt => {
         const option = document.createElement('option');
-        option.value = fmt.id;
-        option.textContent = `${fmt.name} (${fmt.bpp}B)`;
+        option.value = fmt.formatName;
+        option.textContent = `${fmt.displayName} (${fmt.bpp}B)`;
         option.title = fmt.description;
-        if (currentFormat === fmt.id) option.selected = true;
+        if (currentFormat === fmt.formatName) option.selected = true;
         formatSelect.appendChild(option);
     });
 
@@ -4224,7 +4225,7 @@ function buildSinkDetailContent(node) {
     applyBtn.addEventListener('click', () => {
         node.originX = parseFloat(originXInput.value);
         node.originY = parseFloat(originYInput.value);
-        node.outputFormat = parseInt(formatSelect.value);
+        node.outputFormat = formatSelect.value;
 
         // Sink出力フォーマットをC++側に設定
         if (graphEvaluator) {

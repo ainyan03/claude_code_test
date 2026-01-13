@@ -163,6 +163,36 @@ TEST_CASE("getDirectConversion") {
 }
 
 // =============================================================================
+// getFormatByName Tests
+// =============================================================================
+
+TEST_CASE("getFormatByName") {
+    SUBCASE("finds builtin formats by name") {
+        CHECK(getFormatByName("RGBA8_Straight") == PixelFormatIDs::RGBA8_Straight);
+        CHECK(getFormatByName("RGBA16_Premultiplied") == PixelFormatIDs::RGBA16_Premultiplied);
+        CHECK(getFormatByName("RGB565_LE") == PixelFormatIDs::RGB565_LE);
+        CHECK(getFormatByName("RGB888") == PixelFormatIDs::RGB888);
+    }
+
+    SUBCASE("returns nullptr for unknown name") {
+        CHECK(getFormatByName("NonExistent") == nullptr);
+        CHECK(getFormatByName("") == nullptr);
+        CHECK(getFormatByName(nullptr) == nullptr);
+    }
+}
+
+TEST_CASE("getFormatName") {
+    SUBCASE("returns correct names") {
+        CHECK(std::string(getFormatName(PixelFormatIDs::RGBA8_Straight)) == "RGBA8_Straight");
+        CHECK(std::string(getFormatName(PixelFormatIDs::RGB565_LE)) == "RGB565_LE");
+    }
+
+    SUBCASE("returns unknown for nullptr") {
+        CHECK(std::string(getFormatName(nullptr)) == "unknown");
+    }
+}
+
+// =============================================================================
 // convertFormat Tests
 // =============================================================================
 
