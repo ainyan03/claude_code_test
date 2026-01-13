@@ -64,17 +64,15 @@ A16の範囲が非標準（255-65280）のため、合成処理での判定基�
 ### 定数定義（pixel_format.h）
 
 ```cpp
-namespace PixelFormatIDs {
-    namespace RGBA16Premul {
-        constexpr uint16_t ALPHA_TRANSPARENT_MAX = 255;   // この値以下は透明
-        constexpr uint16_t ALPHA_OPAQUE_MIN = 65280;      // この値以上は不透明
+namespace RGBA16Premul {
+    constexpr uint16_t ALPHA_TRANSPARENT_MAX = 255;   // この値以下は透明
+    constexpr uint16_t ALPHA_OPAQUE_MIN = 65280;      // この値以上は不透明
 
-        inline constexpr bool isTransparent(uint16_t a) {
-            return a <= ALPHA_TRANSPARENT_MAX;
-        }
-        inline constexpr bool isOpaque(uint16_t a) {
-            return a >= ALPHA_OPAQUE_MIN;
-        }
+    inline constexpr bool isTransparent(uint16_t a) {
+        return a <= ALPHA_TRANSPARENT_MAX;
+    }
+    inline constexpr bool isOpaque(uint16_t a) {
+        return a >= ALPHA_OPAQUE_MIN;
     }
 }
 ```
@@ -82,7 +80,7 @@ namespace PixelFormatIDs {
 ### 使用例（合成処理）
 
 ```cpp
-using namespace PixelFormatIDs::RGBA16Premul;
+using namespace RGBA16Premul;
 
 for (int i = 0; i < pixelCount; i++) {
     uint16_t srcA = srcPixel[3];
@@ -111,6 +109,39 @@ for (int i = 0; i < pixelCount; i++) {
 
 | ファイル | 役割 |
 |---------|------|
-| `src/fleximg/pixel_format.h` | フォーマットID、閾値定数 |
-| `src/fleximg/pixel_format_registry.cpp` | 変換関数実装 |
+| `src/fleximg/image/pixel_format.h` | フォーマットID（Descriptorポインタ）、閾値定数、変換関数 |
+| `src/fleximg/image/pixel_format.cpp` | Descriptor実体、変換関数実装 |
 | `src/fleximg/operations/blend.cpp` | 合成処理での閾値判定 |
+
+## PixelFormatID
+
+PixelFormatID は `const PixelFormatDescriptor*` として定義されており、Descriptorへのポインタがそのままフォーマット識別子として機能します。
+
+```cpp
+using PixelFormatID = const PixelFormatDescriptor*;
+
+// 組み込みフォーマット
+namespace PixelFormatIDs {
+    inline const PixelFormatID RGBA16_Premultiplied = &BuiltinFormats::RGBA16_Premultiplied;
+    inline const PixelFormatID RGBA8_Straight = &BuiltinFormats::RGBA8_Straight;
+    // ...
+}
+```
+
+### ユーザー定義フォーマット
+
+ユーザーは `constexpr PixelFormatDescriptor` を定義するだけで独自フォーマットを追加できます。
+
+```cpp
+constexpr PixelFormatDescriptor MyCustomFormat = {
+    "MyCustomFormat",
+    32,  // bitsPerPixel
+    // ... 他のフィールド
+    myToStandardFunc,
+    myFromStandardFunc,
+    nullptr, nullptr
+};
+
+// 使用
+PixelFormatID myFormat = &MyCustomFormat;
+```

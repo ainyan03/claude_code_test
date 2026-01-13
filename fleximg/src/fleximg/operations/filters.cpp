@@ -62,93 +62,15 @@ void grayscale(ViewPort& dst, const ViewPort& src) {
 }
 
 // ========================================================================
-// boxBlur - ボックスブラー（2パス）
-// ========================================================================
-
-void boxBlur(ViewPort& dst, const ViewPort& src, int radius) {
-    if (!dst.isValid() || !src.isValid()) return;
-    if (dst.width != src.width || dst.height != src.height) return;
-    if (radius <= 0) {
-        // 半径0の場合は単純コピー
-        view_ops::copy(dst, 0, 0, src, 0, 0, src.width, src.height);
-        return;
-    }
-
-    int width = src.width;
-    int height = src.height;
-
-    // 中間バッファ（水平ブラー結果）
-    ImageBuffer temp(width, height, src.formatID);
-    ViewPort tempView = temp.view();
-
-    // パス1: 水平方向のブラー
-    for (int y = 0; y < height; y++) {
-        const uint8_t* srcRow = static_cast<const uint8_t*>(src.pixelAt(0, y));
-        uint8_t* dstRow = static_cast<uint8_t*>(tempView.pixelAt(0, y));
-
-        for (int x = 0; x < width; x++) {
-            uint32_t sumR = 0, sumG = 0, sumB = 0, sumA = 0;
-
-            int xStart = std::max(0, x - radius);
-            int xEnd = std::min(width - 1, x + radius);
-            // 画像幅以下のカウント値（int16_t範囲で十分）
-            auto count = static_cast<uint_fast16_t>(xEnd - xStart + 1);
-
-            for (int nx = xStart; nx <= xEnd; nx++) {
-                int pixelOffset = nx * 4;
-                sumR += srcRow[pixelOffset];
-                sumG += srcRow[pixelOffset + 1];
-                sumB += srcRow[pixelOffset + 2];
-                sumA += srcRow[pixelOffset + 3];
-            }
-
-            int outOffset = x * 4;
-            dstRow[outOffset]     = static_cast<uint8_t>(sumR / count);
-            dstRow[outOffset + 1] = static_cast<uint8_t>(sumG / count);
-            dstRow[outOffset + 2] = static_cast<uint8_t>(sumB / count);
-            dstRow[outOffset + 3] = static_cast<uint8_t>(sumA / count);
-        }
-    }
-
-    // パス2: 垂直方向のブラー
-    for (int y = 0; y < height; y++) {
-        uint8_t* dstRow = static_cast<uint8_t*>(dst.pixelAt(0, y));
-
-        int yStart = std::max(0, y - radius);
-        int yEnd = std::min(height - 1, y + radius);
-        // 画像高さ以下のカウント値（int16_t範囲で十分）
-        auto count = static_cast<uint_fast16_t>(yEnd - yStart + 1);
-
-        for (int x = 0; x < width; x++) {
-            uint32_t sumR = 0, sumG = 0, sumB = 0, sumA = 0;
-            int pixelOffset = x * 4;
-
-            for (int ny = yStart; ny <= yEnd; ny++) {
-                const uint8_t* tmpRow = static_cast<const uint8_t*>(tempView.pixelAt(0, ny));
-                sumR += tmpRow[pixelOffset];
-                sumG += tmpRow[pixelOffset + 1];
-                sumB += tmpRow[pixelOffset + 2];
-                sumA += tmpRow[pixelOffset + 3];
-            }
-
-            dstRow[pixelOffset]     = static_cast<uint8_t>(sumR / count);
-            dstRow[pixelOffset + 1] = static_cast<uint8_t>(sumG / count);
-            dstRow[pixelOffset + 2] = static_cast<uint8_t>(sumB / count);
-            dstRow[pixelOffset + 3] = static_cast<uint8_t>(sumA / count);
-        }
-    }
-}
-
-// ========================================================================
-// boxBlurWithPadding - 透明拡張ボックスブラー
+// boxBlur - ボックスブラー
 // ========================================================================
 //
 // スライディングウィンドウ方式 + α加重平均
 // 計算量: O(width × height) - radius に依存しない
 //
 
-void boxBlurWithPadding(ViewPort& dst, const ViewPort& src,
-                        int srcOffsetX, int srcOffsetY, int radius) {
+void boxBlur(ViewPort& dst, const ViewPort& src, int radius,
+             int srcOffsetX, int srcOffsetY) {
     if (!dst.isValid()) return;
     if (radius <= 0) {
         // 半径0の場合: srcをdstにコピー（オフセット考慮）

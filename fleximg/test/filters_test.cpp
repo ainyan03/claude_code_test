@@ -275,10 +275,10 @@ TEST_CASE("filters::boxBlur") {
 }
 
 // =============================================================================
-// boxBlurWithPadding Tests
+// boxBlur with offset Tests
 // =============================================================================
 
-TEST_CASE("filters::boxBlurWithPadding") {
+TEST_CASE("filters::boxBlur with offset") {
     SUBCASE("center pixel with transparent padding") {
         ImageBuffer src(4, 4, PixelFormatIDs::RGBA8_Straight);
         ImageBuffer dst(8, 8, PixelFormatIDs::RGBA8_Straight);
@@ -287,7 +287,7 @@ TEST_CASE("filters::boxBlurWithPadding") {
         fillBuffer(src, 255, 0, 0, 255);
 
         // srcをdstの中央に配置（offset 2,2）
-        filters::boxBlurWithPadding(dst.viewRef(), src.view(), 2, 2, 1);
+        filters::boxBlur(dst.viewRef(), src.view(), 1, 2, 2);
 
         uint8_t r, g, b, a;
 
@@ -308,8 +308,8 @@ TEST_CASE("filters::boxBlurWithPadding") {
 
         fillBuffer(src, 255, 0, 0, 255);
 
-        filters::boxBlurWithPadding(dst1.viewRef(), src.view(), 2, 2, 1);
-        filters::boxBlurWithPadding(dst2.viewRef(), src.view(), 2, 2, 3);
+        filters::boxBlur(dst1.viewRef(), src.view(), 1, 2, 2);
+        filters::boxBlur(dst2.viewRef(), src.view(), 3, 2, 2);
 
         uint8_t r1, g1, b1, a1;
         uint8_t r2, g2, b2, a2;

@@ -187,7 +187,8 @@ R8 = R16 / A_tmp;        // 除数範囲が限定的
 namespace filters {
     void brightness(ViewPort& dst, const ViewPort& src, float amount);
     void grayscale(ViewPort& dst, const ViewPort& src);
-    void boxBlur(ViewPort& dst, const ViewPort& src, int radius);
+    void boxBlur(ViewPort& dst, const ViewPort& src, int radius,
+                 int srcOffsetX = 0, int srcOffsetY = 0);
     void alpha(ViewPort& dst, const ViewPort& src, float scale);
 }
 ```

@@ -71,8 +71,8 @@ protected:
         // 透明拡張ブラー（入力範囲外は透明として処理）
         ViewPort blurredView = blurred.view();
         ViewPort workingView = working.view();
-        filters::boxBlurWithPadding(blurredView, workingView,
-                                    srcOffsetX, srcOffsetY, radius_);
+        filters::boxBlur(blurredView, workingView, radius_,
+                         srcOffsetX, srcOffsetY);
 
         // request サイズに切り出し（inputReq の中央 radius 分内側）
         ImageBuffer output(request.width, request.height, PixelFormatIDs::RGBA8_Straight,

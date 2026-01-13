@@ -24,6 +24,42 @@ using namespace emscripten;
 using namespace FLEXIMG_NAMESPACE;
 
 // ========================================================================
+// フォーマットID変換ヘルパー（後方互換用）
+// ========================================================================
+// 旧 PixelFormatID (uint32_t) と新 PixelFormatID (Descriptor*) の変換
+
+namespace {
+
+// 整数 → PixelFormatID（旧形式からの変換）
+PixelFormatID intToFormat(int formatInt) {
+    // 旧 ID 値に対応するフォーマットを返す
+    switch (formatInt) {
+        case 0x0002: return PixelFormatIDs::RGBA16_Premultiplied;
+        case 0x0100: return PixelFormatIDs::RGB565_LE;
+        case 0x0101: return PixelFormatIDs::RGB565_BE;
+        case 0x0102: return PixelFormatIDs::RGB332;
+        case 0x0200: return PixelFormatIDs::RGBA8_Straight;
+        case 0x0202: return PixelFormatIDs::RGB888;
+        case 0x0203: return PixelFormatIDs::BGR888;
+        default:     return PixelFormatIDs::RGBA8_Straight;
+    }
+}
+
+// PixelFormatID → 整数（旧形式への変換）
+int formatToInt(PixelFormatID format) {
+    if (format == PixelFormatIDs::RGBA16_Premultiplied) return 0x0002;
+    if (format == PixelFormatIDs::RGB565_LE) return 0x0100;
+    if (format == PixelFormatIDs::RGB565_BE) return 0x0101;
+    if (format == PixelFormatIDs::RGB332) return 0x0102;
+    if (format == PixelFormatIDs::RGBA8_Straight) return 0x0200;
+    if (format == PixelFormatIDs::RGB888) return 0x0202;
+    if (format == PixelFormatIDs::BGR888) return 0x0203;
+    return 0x0200;  // デフォルト: RGBA8_Straight
+}
+
+} // anonymous namespace
+
+// ========================================================================
 // SinkOutput - Sink別出力管理（複数Sink対応）
 // ========================================================================
 
@@ -181,7 +217,7 @@ public:
 
     // Sink別出力フォーマットを設定
     void setSinkFormat(const std::string& sinkId, int formatId) {
-        sinkFormats_[sinkId] = static_cast<PixelFormatID>(formatId);
+        sinkFormats_[sinkId] = intToFormat(formatId);
     }
 
     // Sink別プレビュー取得（RGBA8888に変換して返す）
@@ -200,7 +236,7 @@ public:
         val result = val::object();
         result.set("width", sinkOut.width);
         result.set("height", sinkOut.height);
-        result.set("format", static_cast<int>(sinkOut.format));
+        result.set("format", formatToInt(sinkOut.format));
 
         size_t pixelCount = sinkOut.width * sinkOut.height;
         size_t rgba8Size = pixelCount * 4;
@@ -215,8 +251,7 @@ public:
         } else {
             // フォーマット変換
             std::vector<uint8_t> rgba8Data(rgba8Size);
-            auto& registry = PixelFormatRegistry::getInstance();
-            registry.convert(
+            convertFormat(
                 sinkOut.buffer.data(), sinkOut.format,
                 rgba8Data.data(), PixelFormatIDs::RGBA8_Straight,
                 pixelCount
@@ -233,12 +268,12 @@ public:
     // 画像を登録（データをコピー、フォーマット指定なし = RGBA8）
     void storeImage(int id, const val& imageData, int width, int height) {
         storeImageWithFormat(id, imageData, width, height,
-                             static_cast<int>(PixelFormatIDs::RGBA8_Straight));
+                             formatToInt(PixelFormatIDs::RGBA8_Straight));
     }
 
     // 画像を登録（フォーマット指定あり）
     void storeImageWithFormat(int id, const val& imageData, int width, int height, int formatId) {
-        PixelFormatID targetFormat = static_cast<PixelFormatID>(formatId);
+        PixelFormatID targetFormat = intToFormat(formatId);
 
         // JS から RGBA8 データを受け取り
         unsigned int length = imageData["length"].as<unsigned int>();
@@ -252,12 +287,11 @@ public:
             // 変換不要
             imageViews_[id] = imageStore_.store(id, rgba8Data.data(), width, height, targetFormat);
         } else {
-            // PixelFormatRegistry を使用して変換
-            auto& registry = PixelFormatRegistry::getInstance();
-            auto targetBpp = registry.getBytesPerPixel(targetFormat);
+            // フォーマット変換
+            auto targetBpp = getBytesPerPixel(targetFormat);
             std::vector<uint8_t> converted(static_cast<size_t>(width * height * targetBpp));
 
-            registry.convert(
+            convertFormat(
                 rgba8Data.data(), PixelFormatIDs::RGBA8_Straight,
                 converted.data(), targetFormat,
                 width * height
@@ -862,8 +896,7 @@ private:
             } else {
                 // フォーマット変換してコピー
                 size_t pixelCount = info.width * info.height;
-                auto& registry = PixelFormatRegistry::getInstance();
-                registry.convert(
+                convertFormat(
                     sinkOut.buffer.data(), info.format,
                     static_cast<uint8_t*>(info.outputView.data), PixelFormatIDs::RGBA8_Straight,
                     pixelCount

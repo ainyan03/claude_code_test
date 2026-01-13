@@ -5,7 +5,6 @@
 #include <cstdint>
 #include "../core/common.h"
 #include "pixel_format.h"
-#include "pixel_format_registry.h"
 
 namespace FLEXIMG_NAMESPACE {
 
