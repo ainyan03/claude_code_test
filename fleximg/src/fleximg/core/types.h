@@ -2,8 +2,10 @@
 #define FLEXIMG_TYPES_H
 
 #include <cstdint>
+#include <cmath>
 
 namespace FLEXIMG_NAMESPACE {
+namespace core {
 
 // ========================================================================
 // 固定小数点型
@@ -184,6 +186,100 @@ constexpr int_fixed16 mul_fixed16(int_fixed16 a, int_fixed16 b) {
 constexpr int_fixed16 div_fixed16(int_fixed16 a, int_fixed16 b) {
     return static_cast<int_fixed16>((static_cast<int64_t>(a) << INT_FIXED16_SHIFT) / b);
 }
+
+
+// ========================================================================
+// AffineMatrix - アフィン変換行列
+// ========================================================================
+
+struct AffineMatrix {
+    float a = 1, b = 0;  // | a  b  tx |
+    float c = 0, d = 1;  // | c  d  ty |
+    float tx = 0, ty = 0;
+
+    AffineMatrix() = default;
+    AffineMatrix(float a_, float b_, float c_, float d_, float tx_, float ty_)
+        : a(a_), b(b_), c(c_), d(d_), tx(tx_), ty(ty_) {}
+
+    // 単位行列
+    static AffineMatrix identity() { return {1, 0, 0, 1, 0, 0}; }
+
+    // 平行移動
+    static AffineMatrix translate(float x, float y) { return {1, 0, 0, 1, x, y}; }
+
+    // スケール
+    static AffineMatrix scale(float sx, float sy) { return {sx, 0, 0, sy, 0, 0}; }
+
+    // 回転（ラジアン）
+    static AffineMatrix rotate(float radians);
+};
+
+// ========================================================================
+// 行列変換関数
+// ========================================================================
+
+// AffineMatrix の 2x2 部分を固定小数点で返す（順変換用）
+// 平行移動成分(tx,ty)は含まない（呼び出し側で別途管理）
+inline Matrix2x2_fixed16 toFixed16(const AffineMatrix& m) {
+    return Matrix2x2_fixed16(
+        static_cast<int_fixed16>(std::lround(m.a * INT_FIXED16_ONE)),
+        static_cast<int_fixed16>(std::lround(m.b * INT_FIXED16_ONE)),
+        static_cast<int_fixed16>(std::lround(m.c * INT_FIXED16_ONE)),
+        static_cast<int_fixed16>(std::lround(m.d * INT_FIXED16_ONE)),
+        true  // valid
+    );
+}
+
+// AffineMatrix の 2x2 部分の逆行列を固定小数点で返す（逆変換用）
+// 平行移動成分(tx,ty)は含まない（呼び出し側で別途管理）
+inline Matrix2x2_fixed16 inverseFixed16(const AffineMatrix& m) {
+    float det = m.a * m.d - m.b * m.c;
+    if (std::abs(det) < 1e-10f) {
+        return Matrix2x2_fixed16();  // valid = false
+    }
+
+    float invDet = 1.0f / det;
+    return Matrix2x2_fixed16(
+        static_cast<int_fixed16>(std::lround(m.d * invDet * INT_FIXED16_ONE)),
+        static_cast<int_fixed16>(std::lround(-m.b * invDet * INT_FIXED16_ONE)),
+        static_cast<int_fixed16>(std::lround(-m.c * invDet * INT_FIXED16_ONE)),
+        static_cast<int_fixed16>(std::lround(m.a * invDet * INT_FIXED16_ONE)),
+        true  // valid
+    );
+}
+
+} // namespace core
+
+// [DEPRECATED] 後方互換性のため親名前空間に公開。将来廃止予定。
+// 新規コードでは core:: プレフィックスを使用してください。
+using core::int_fixed8;
+using core::int_fixed16;
+using core::INT_FIXED8_SHIFT;
+using core::INT_FIXED8_ONE;
+using core::INT_FIXED8_HALF;
+using core::INT_FIXED16_SHIFT;
+using core::INT_FIXED16_ONE;
+using core::INT_FIXED16_HALF;
+using core::Matrix2x2;
+using core::Matrix2x2_fixed16;
+using core::Point;
+using core::to_fixed8;
+using core::from_fixed8;
+using core::from_fixed8_round;
+using core::from_fixed8_floor;
+using core::from_fixed8_ceil;
+using core::to_fixed16;
+using core::from_fixed16;
+using core::from_fixed16_round;
+using core::float_to_fixed8;
+using core::fixed8_to_float;
+using core::mul_fixed8;
+using core::div_fixed8;
+using core::mul_fixed16;
+using core::div_fixed16;
+using core::AffineMatrix;
+using core::toFixed16;
+using core::inverseFixed16;
 
 } // namespace FLEXIMG_NAMESPACE
 

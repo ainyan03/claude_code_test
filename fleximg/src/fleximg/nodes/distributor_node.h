@@ -1,9 +1,9 @@
 #ifndef FLEXIMG_DISTRIBUTOR_NODE_H
 #define FLEXIMG_DISTRIBUTOR_NODE_H
 
-#include "../node.h"
-#include "../image_buffer.h"
-#include "../perf_metrics.h"
+#include "../core/node.h"
+#include "../core/perf_metrics.h"
+#include "../image/image_buffer.h"
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
 #include <chrono>
 #endif

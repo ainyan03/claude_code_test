@@ -4,8 +4,8 @@
 #include "doctest.h"
 
 #define FLEXIMG_NAMESPACE fleximg
-#include "fleximg/pixel_format.h"
-#include "fleximg/pixel_format_registry.h"
+#include "fleximg/image/pixel_format.h"
+#include "fleximg/image/pixel_format_registry.h"
 
 using namespace fleximg;
 

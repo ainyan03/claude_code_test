@@ -1,10 +1,10 @@
 #ifndef FLEXIMG_RENDERER_NODE_H
 #define FLEXIMG_RENDERER_NODE_H
 
-#include "../node.h"
-#include "../render_types.h"
-#include "../perf_metrics.h"
-#include "../types.h"
+#include "../core/node.h"
+#include "../core/types.h"
+#include "../core/perf_metrics.h"
+#include "../image/render_types.h"
 #include <algorithm>
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
 #include <chrono>

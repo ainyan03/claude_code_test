@@ -1,7 +1,7 @@
 #ifndef FLEXIMG_PIXEL_FORMAT_REGISTRY_H
 #define FLEXIMG_PIXEL_FORMAT_REGISTRY_H
 
-#include "common.h"
+#include "../core/common.h"
 #include "pixel_format.h"
 #include <map>
 #include <vector>

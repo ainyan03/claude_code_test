@@ -4,10 +4,10 @@
 #include "doctest.h"
 
 #define FLEXIMG_NAMESPACE fleximg
-#include "fleximg/common.h"
-#include "fleximg/types.h"
-#include "fleximg/render_types.h"
-#include "fleximg/image_buffer.h"
+#include "fleximg/core/common.h"
+#include "fleximg/core/types.h"
+#include "fleximg/image/render_types.h"
+#include "fleximg/image/image_buffer.h"
 #include "fleximg/operations/transform.h"
 #include "fleximg/nodes/affine_node.h"
 #include "fleximg/nodes/source_node.h"

@@ -1,3 +1,13 @@
+/**
+ * @file image_allocator.h
+ * @brief [DEPRECATED] 画像用メモリアロケータ
+ *
+ * このファイルは非推奨です。将来のバージョンで削除予定です。
+ * 新規コードでは core/memory/allocator.h を使用してください。
+ *
+ * @deprecated core::memory::IAllocator を使用してください
+ */
+
 #ifndef FLEXIMG_IMAGE_ALLOCATOR_H
 #define FLEXIMG_IMAGE_ALLOCATOR_H
 
@@ -11,12 +21,13 @@
 #include <stdlib.h>
 #endif
 
-#include "common.h"
+#include "../core/common.h"
 
 namespace FLEXIMG_NAMESPACE {
 
 // ========================================================================
-// メモリアロケータインターフェース
+// [DEPRECATED] メモリアロケータインターフェース
+// 新規コードでは core::memory::IAllocator を使用してください
 // ========================================================================
 
 class ImageAllocator {
@@ -28,7 +39,8 @@ public:
 };
 
 // ========================================================================
-// デフォルトアロケータ（malloc/free）
+// [DEPRECATED] デフォルトアロケータ（malloc/free）
+// 新規コードでは core::memory::DefaultAllocator を使用してください
 // ========================================================================
 
 class DefaultAllocator : public ImageAllocator {
@@ -63,7 +75,8 @@ public:
 };
 
 // ========================================================================
-// 固定バッファアロケータ（組込み環境用）
+// [DEPRECATED] 固定バッファアロケータ（組込み環境用）
+// 将来のバージョンで削除予定
 // ========================================================================
 
 class FixedBufferAllocator : public ImageAllocator {

@@ -1,6 +1,6 @@
 #include "blend.h"
-#include "../pixel_format.h"
-#include "../types.h"
+#include "../core/types.h"
+#include "../image/pixel_format.h"
 #include <cstring>
 #include <algorithm>
 

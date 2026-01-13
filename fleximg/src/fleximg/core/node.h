@@ -4,11 +4,12 @@
 #include <vector>
 #include "common.h"
 #include "port.h"
-#include "render_types.h"
-#include "image_buffer.h"
 #include "perf_metrics.h"
+#include "../image/render_types.h"
+#include "../image/image_buffer.h"
 
 namespace FLEXIMG_NAMESPACE {
+namespace core {
 
 // ========================================================================
 // PrepareState - ノードの準備状態（循環参照検出用）
@@ -313,6 +314,13 @@ protected:
         }
     }
 };
+
+} // namespace core
+
+// [DEPRECATED] 後方互換性のため親名前空間に公開。将来廃止予定。
+// 新規コードでは core:: プレフィックスを使用してください。
+using core::PrepareState;
+using core::Node;
 
 } // namespace FLEXIMG_NAMESPACE
 

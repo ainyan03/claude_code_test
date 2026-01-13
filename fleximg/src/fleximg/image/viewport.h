@@ -3,7 +3,7 @@
 
 #include <cstddef>
 #include <cstdint>
-#include "common.h"
+#include "../core/common.h"
 #include "pixel_format.h"
 #include "pixel_format_registry.h"
 

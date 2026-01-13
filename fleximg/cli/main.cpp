@@ -26,8 +26,8 @@
 #include "stb_image.h"
 #include "stb_image_write.h"
 
-#include "fleximg/image_buffer.h"
-#include "fleximg/viewport.h"
+#include "fleximg/image/image_buffer.h"
+#include "fleximg/image/viewport.h"
 #include "fleximg/operations/filters.h"
 
 using namespace fleximg;

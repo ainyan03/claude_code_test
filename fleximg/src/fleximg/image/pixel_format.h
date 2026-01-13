@@ -3,7 +3,7 @@
 
 #include <cstdint>
 #include <cstddef>
-#include "common.h"
+#include "../core/common.h"
 
 namespace FLEXIMG_NAMESPACE {
 

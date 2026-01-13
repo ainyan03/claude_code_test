@@ -1,11 +1,11 @@
 #ifndef FLEXIMG_AFFINE_NODE_H
 #define FLEXIMG_AFFINE_NODE_H
 
-#include "../node.h"
-#include "../common.h"
-#include "../image_buffer.h"
+#include "../core/node.h"
+#include "../core/common.h"
+#include "../core/perf_metrics.h"
+#include "../image/image_buffer.h"
 #include "../operations/transform.h"
-#include "../perf_metrics.h"
 #include <algorithm>
 #include <cassert>
 #include <climits>

@@ -88,7 +88,8 @@ public:
     // コンストラクタ
     ImageBuffer();  // 空の画像
     ImageBuffer(int w, int h, PixelFormatID fmt = PixelFormatIDs::RGBA8_Straight,
-                ImageAllocator* alloc = &DefaultAllocator::getInstance());
+                InitPolicy init = InitPolicy::Zero,
+                core::memory::IAllocator* alloc = &core::memory::DefaultAllocator::instance());
 
     // コピー/ムーブ
     ImageBuffer(const ImageBuffer& other);      // ディープコピー
@@ -103,6 +104,7 @@ public:
 
     // アクセサ
     bool isValid() const;
+    bool ownsMemory() const;      // メモリ所有の有無
     int16_t width() const;
     int16_t height() const;
     int32_t stride() const;
@@ -112,12 +114,13 @@ public:
     const void* data() const;
 
     // フォーマット変換（右辺値参照版）
-    ImageBuffer toFormat(PixelFormatID target) &&;
+    ImageBuffer toFormat(PixelFormatID target, FormatConversion mode = FormatConversion::CopyIfNeeded) &&;
 
 private:
-    ViewPort view_;           // コンポジション
+    ViewPort view_;                       // コンポジション
     size_t capacity_;
-    ImageAllocator* allocator_;
+    core::memory::IAllocator* allocator_; // メモリアロケータ
+    InitPolicy initPolicy_;
 };
 ```
 
@@ -218,8 +221,9 @@ view_ops::blendOnto(canvas, offsetX, offsetY,
 
 | ファイル | 役割 |
 |---------|------|
-| `src/fleximg/types.h` | 固定小数点型（int_fixed8, int_fixed16）|
-| `src/fleximg/common.h` | Point, AffineMatrix |
-| `src/fleximg/viewport.h` | ViewPort, view_ops |
-| `src/fleximg/image_buffer.h` | ImageBuffer |
-| `src/fleximg/render_types.h` | RenderResult, RenderRequest |
+| `src/fleximg/core/types.h` | 固定小数点型、数学型、AffineMatrix |
+| `src/fleximg/core/common.h` | NAMESPACE定義、バージョン |
+| `src/fleximg/core/memory/allocator.h` | IAllocator, DefaultAllocator |
+| `src/fleximg/image/viewport.h` | ViewPort, view_ops |
+| `src/fleximg/image/image_buffer.h` | ImageBuffer |
+| `src/fleximg/image/render_types.h` | RenderResult, RenderRequest |
