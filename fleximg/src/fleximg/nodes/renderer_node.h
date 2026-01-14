@@ -211,12 +211,16 @@ private:
     bool debugCheckerboard_ = false;
 
     // タイルサイズ取得
+    // 注: パイプライン上のリクエストは必ずスキャンライン（height=1）
+    //     これにより各ノードの最適化が可能になる
     int effectiveTileWidth() const {
         return tileConfig_.isEnabled() ? tileConfig_.tileWidth : virtualWidth_;
     }
 
     int effectiveTileHeight() const {
-        return tileConfig_.isEnabled() ? tileConfig_.tileHeight : virtualHeight_;
+        // スキャンライン必須（height=1）
+        // TileConfig の tileHeight は無視される
+        return 1;
     }
 
     // タイル数取得

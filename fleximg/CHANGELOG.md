@@ -1,5 +1,51 @@
 # Changelog
 
+## [2.30.0] - 2026-01-14
+
+### 決定仕様
+
+- **スキャンライン必須制約**: パイプライン上を流れるリクエストは必ず高さ1ピクセル（スキャンライン）
+  - `RendererNode::effectiveTileHeight()` は TileConfig の設定に関わらず常に 1 を返す
+  - この制約により、DDA処理や範囲計算の最適化が可能に
+  - 各ノードは height=1 を前提とした効率的な実装が可能
+
+### 追加
+
+- **SourceNode スキャンライン最適化**: アフィン変換付きプル処理の効率化
+  - `pullProcessWithAffine()` をスキャンライン専用に最適化
+  - 有効ピクセル範囲のみのバッファを返す（範囲外の0データを下流に送らない）
+  - `transform::calcValidRange()` で1行の有効範囲を事前計算
+  - origin を有効範囲に合わせて調整
+
+### 変更
+
+- **RendererNode タイル高さ固定**: `effectiveTileHeight()` を常に 1 を返すように変更
+  - TileConfig の tileHeight 設定は無視される（後方互換性のため設定API自体は維持）
+  - tileWidth のみがタイル分割に影響
+
+### 技術詳細
+
+- SourceNode の pullProcessWithAffine():
+  ```cpp
+  // 1行の有効範囲を計算
+  auto [xStart, xEnd] = transform::calcValidRange(invMatrix_.a, rowBaseX, source_.width, request.width);
+  auto [yStart, yEnd] = transform::calcValidRange(invMatrix_.c, rowBaseY, source_.height, request.width);
+
+  // 有効範囲のみのバッファを作成
+  int validWidth = dxEnd - dxStart + 1;
+  ImageBuffer output(validWidth, 1, source_.formatID);
+  ```
+
+- RendererNode の effectiveTileHeight():
+  ```cpp
+  int effectiveTileHeight() const {
+      // スキャンライン必須（height=1）
+      return 1;
+  }
+  ```
+
+---
+
 ## [2.29.0] - 2026-01-13
 
 ### 変更

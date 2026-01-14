@@ -50,3 +50,18 @@
 - タイル分割時の挙動: AABB外タイルは `RenderResult` が空で返るため、
   CompositeNode でスキップされ透明扱いになる
 - `hasAlpha` フラグ: `PixelFormatDescriptor` に存在し、フォーマット判定に使用可能
+
+---
+
+## 進捗（v2.30.0）
+
+**スキャンライン必須仕様**により、SourceNode のアフィン処理が最適化され、
+案B/Cに近いアプローチが部分的に実現された：
+
+- SourceNode の `pullProcessWithAffine()` が有効ピクセル範囲のみのバッファを返却
+- `transform::calcValidRange()` で1行単位の有効範囲を事前計算
+- 範囲外の0データを下流に送らないため、合成時の問題を軽減
+
+**残る課題**:
+- AffineNode が Renderer 下流で使用される場合は依然として AABB サイズのバッファを返す
+- 非アルファフォーマットでの根本解決には追加対策が必要
