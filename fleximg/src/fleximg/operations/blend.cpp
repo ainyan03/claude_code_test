@@ -53,19 +53,22 @@ void first(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
                 uint16_t r = srcRow[x * 4 + 0];
                 uint16_t g = srcRow[x * 4 + 1];
                 uint16_t b = srcRow[x * 4 + 2];
-                uint16_t a = srcRow[x * 4 + 3];
+                uint16_t a8 = srcRow[x * 4 + 3];
 
-                // 8bit → 16bit 拡張
-                a = (a << 8) | a;
-                // Straight → Premultiplied
-                r = (r * a) >> 8;
-                g = (g * a) >> 8;
-                b = (b * a) >> 8;
+                // DESIGN_PIXEL_FORMAT.md に従った変換
+                // A_tmp = A8 + 1 (範囲: 1-256)
+                // A16 = 255 * A_tmp (範囲: 255-65280)
+                // R16 = R8 * A_tmp (範囲: 0-65280)
+                uint16_t a_tmp = a8 + 1;
+                uint16_t a16 = 255 * a_tmp;
+                uint16_t r16 = r * a_tmp;
+                uint16_t g16 = g * a_tmp;
+                uint16_t b16 = b * a_tmp;
 
-                dstRow[x * 4 + 0] = r;
-                dstRow[x * 4 + 1] = g;
-                dstRow[x * 4 + 2] = b;
-                dstRow[x * 4 + 3] = a;
+                dstRow[x * 4 + 0] = r16;
+                dstRow[x * 4 + 1] = g16;
+                dstRow[x * 4 + 2] = b16;
+                dstRow[x * 4 + 3] = a16;
             }
         }
         return;
@@ -109,20 +112,25 @@ void onto(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
                 const uint8_t* srcPixel8 = srcRow + x * 4;
                 uint16_t* dstPixel = dstRow + (x + offsetX) * 4;
 
-                // 8bit → 16bit 変換 + Straight → Premultiplied
                 uint16_t a8 = srcPixel8[3];
-                if (a8 == 0) continue;  // 透明スキップ
-
-                uint16_t srcA = (a8 << 8) | a8;
-                uint16_t srcR = (srcPixel8[0] * srcA) >> 8;
-                uint16_t srcG = (srcPixel8[1] * srcA) >> 8;
-                uint16_t srcB = (srcPixel8[2] * srcA) >> 8;
-
                 uint16_t dstA = dstPixel[3];
 
-                // 不透明最適化
-                if (srcA < ALPHA_OPAQUE_MIN && dstA != 0) {
-                    uint16_t invSrcA = 65535 - srcA;
+                // dst に描画があり src が透明 → スキップ
+                if (dstA > ALPHA_TRANS_MAX && a8 == 0) continue;
+
+                // DESIGN_PIXEL_FORMAT.md に従った変換
+                // A_tmp = A8 + 1 (範囲: 1-256)
+                // A16 = 255 * A_tmp (範囲: 255-65280)
+                // R16 = R8 * A_tmp (範囲: 0-65280)
+                uint16_t a_tmp = a8 + 1;
+                uint16_t srcA = 255 * a_tmp;
+                uint16_t srcR = srcPixel8[0] * a_tmp;
+                uint16_t srcG = srcPixel8[1] * a_tmp;
+                uint16_t srcB = srcPixel8[2] * a_tmp;
+
+                // 半透明ブレンド（dst に描画があり src が半透明の場合）
+                if (dstA > ALPHA_TRANS_MAX && srcA < ALPHA_OPAQUE_MIN) {
+                    uint16_t invSrcA = ALPHA_OPAQUE_MIN - srcA;
                     srcR += (dstPixel[0] * invSrcA) >> 16;
                     srcG += (dstPixel[1] * invSrcA) >> 16;
                     srcB += (dstPixel[2] * invSrcA) >> 16;
@@ -148,15 +156,18 @@ void onto(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
             uint16_t* dstPixel = dstRow + (x + offsetX) * 4;
 
             uint16_t srcA = srcPixel[3];
-            if (srcA <= ALPHA_TRANS_MAX) continue;
+            uint16_t dstA = dstPixel[3];
+
+            // dst に描画があり src が透明 → スキップ
+            if (dstA > ALPHA_TRANS_MAX && srcA <= ALPHA_TRANS_MAX) continue;
 
             uint16_t srcR = srcPixel[0];
             uint16_t srcG = srcPixel[1];
             uint16_t srcB = srcPixel[2];
-            uint16_t dstA = dstPixel[3];
 
-            if (srcA < ALPHA_OPAQUE_MIN && dstA != 0) {
-                uint16_t invSrcA = 65535 - srcA;
+            // 半透明ブレンド（dst に描画があり src が半透明の場合）
+            if (dstA > ALPHA_TRANS_MAX && srcA < ALPHA_OPAQUE_MIN) {
+                uint16_t invSrcA = ALPHA_OPAQUE_MIN - srcA;
                 srcR += (dstPixel[0] * invSrcA) >> 16;
                 srcG += (dstPixel[1] * invSrcA) >> 16;
                 srcB += (dstPixel[2] * invSrcA) >> 16;
