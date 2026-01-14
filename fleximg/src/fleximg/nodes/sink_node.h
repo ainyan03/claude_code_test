@@ -4,8 +4,6 @@
 #include "../core/node.h"
 #include "../image/viewport.h"
 #include "../operations/transform.h"
-#include <algorithm>
-#include <cstring>
 
 namespace FLEXIMG_NAMESPACE {
 
@@ -66,13 +64,40 @@ public:
 
         pushPrepareState_ = PrepareState::Preparing;
 
-        // アフィン情報を受け取る
+        // アフィン情報を受け取り、事前計算を行う
         if (request.hasPushAffine) {
-            // 逆行列を事前計算
+            // 逆行列を計算
             invMatrix_ = inverseFixed16(request.pushAffineMatrix);
-            // tx/ty を Q24.8 固定小数点で保持
-            txFixed8_ = float_to_fixed8(request.pushAffineMatrix.tx);
-            tyFixed8_ = float_to_fixed8(request.pushAffineMatrix.ty);
+
+            if (invMatrix_.valid) {
+                // tx/ty を Q24.8 固定小数点に変換
+                int_fixed8 txFixed8 = float_to_fixed8(request.pushAffineMatrix.tx);
+                int_fixed8 tyFixed8 = float_to_fixed8(request.pushAffineMatrix.ty);
+
+                // 逆変換オフセットの計算（tx/ty と逆行列から）
+                int64_t invTx64 = -(static_cast<int64_t>(txFixed8) * invMatrix_.a
+                                  + static_cast<int64_t>(tyFixed8) * invMatrix_.b);
+                int64_t invTy64 = -(static_cast<int64_t>(txFixed8) * invMatrix_.c
+                                  + static_cast<int64_t>(tyFixed8) * invMatrix_.d);
+                int32_t invTxFixed = static_cast<int32_t>(invTx64 >> INT_FIXED8_SHIFT);
+                int32_t invTyFixed = static_cast<int32_t>(invTy64 >> INT_FIXED8_SHIFT);
+
+                // dstOrigin（自身のorigin）を減算して baseTx/Ty を計算
+                const int32_t dstOriginXInt = from_fixed8(originX_);
+                const int32_t dstOriginYInt = from_fixed8(originY_);
+                baseTx_ = invTxFixed
+                        - (dstOriginXInt * invMatrix_.a)
+                        - (dstOriginYInt * invMatrix_.b);
+                baseTy_ = invTyFixed
+                        - (dstOriginXInt * invMatrix_.c)
+                        - (dstOriginYInt * invMatrix_.d);
+
+                // ピクセル中心オフセット
+                rowOffsetX_ = invMatrix_.b >> 1;
+                rowOffsetY_ = invMatrix_.d >> 1;
+                dxOffsetX_ = invMatrix_.a >> 1;
+                dxOffsetY_ = invMatrix_.c >> 1;
+            }
             hasAffine_ = true;
         } else {
             hasAffine_ = false;
@@ -128,10 +153,14 @@ private:
     int_fixed8 originX_ = 0;  // 出力先の基準点X（固定小数点 Q24.8）
     int_fixed8 originY_ = 0;  // 出力先の基準点Y（固定小数点 Q24.8）
 
-    // アフィン伝播用メンバ変数
+    // アフィン伝播用メンバ変数（事前計算済み）
     Matrix2x2_fixed16 invMatrix_;  // 逆行列（2x2部分）
-    int_fixed8 txFixed8_ = 0;      // tx を Q24.8 で保持
-    int_fixed8 tyFixed8_ = 0;      // ty を Q24.8 で保持
+    int32_t baseTx_ = 0;           // 事前計算済みオフセットX（Q16.16）
+    int32_t baseTy_ = 0;           // 事前計算済みオフセットY（Q16.16）
+    int32_t rowOffsetX_ = 0;       // fixedInvB >> 1
+    int32_t rowOffsetY_ = 0;       // fixedInvD >> 1
+    int32_t dxOffsetX_ = 0;        // fixedInvA >> 1
+    int32_t dxOffsetY_ = 0;        // fixedInvC >> 1
     bool hasAffine_ = false;       // アフィン変換が伝播されているか
 
     // ========================================
@@ -155,142 +184,30 @@ private:
             inputView = input.view();
         }
 
-        // アフィン変換を適用してターゲットに書き込み
-        applyAffine(target_, originX_, originY_,
-                    inputView, input.origin.x, input.origin.y);
+        // アフィン変換を適用してターゲットに書き込み（dstOrigin は事前計算済み）
+        applyAffine(target_, inputView, input.origin.x, input.origin.y);
     }
 
     // ========================================
-    // DDA転写テンプレート
+    // アフィン変換実装（事前計算済み値を使用）
     // ========================================
-    template<size_t BytesPerPixel>
-    static void copyRowDDA(
-        uint8_t* dstRow,
-        const uint8_t* srcData,
-        int32_t srcStride,
-        int32_t srcX_fixed,
-        int32_t srcY_fixed,
-        int32_t fixedInvA,
-        int32_t fixedInvC,
-        int count
-    ) {
-        for (int i = 0; i < count; i++) {
-            uint32_t sx = static_cast<uint32_t>(srcX_fixed) >> INT_FIXED16_SHIFT;
-            uint32_t sy = static_cast<uint32_t>(srcY_fixed) >> INT_FIXED16_SHIFT;
-
-            const uint8_t* srcPixel = srcData + sy * srcStride + sx * BytesPerPixel;
-
-            if constexpr (BytesPerPixel == 8) {
-                reinterpret_cast<uint32_t*>(dstRow)[0] =
-                    reinterpret_cast<const uint32_t*>(srcPixel)[0];
-                reinterpret_cast<uint32_t*>(dstRow)[1] =
-                    reinterpret_cast<const uint32_t*>(srcPixel)[1];
-            } else if constexpr (BytesPerPixel == 4) {
-                *reinterpret_cast<uint32_t*>(dstRow) =
-                    *reinterpret_cast<const uint32_t*>(srcPixel);
-            } else if constexpr (BytesPerPixel == 2) {
-                *reinterpret_cast<uint16_t*>(dstRow) =
-                    *reinterpret_cast<const uint16_t*>(srcPixel);
-            } else if constexpr (BytesPerPixel == 1) {
-                *dstRow = *srcPixel;
-            } else {
-                std::memcpy(dstRow, srcPixel, BytesPerPixel);
-            }
-
-            dstRow += BytesPerPixel;
-            srcX_fixed += fixedInvA;
-            srcY_fixed += fixedInvC;
-        }
-    }
-
-    using CopyRowFunc = void(*)(
-        uint8_t* dstRow,
-        const uint8_t* srcData,
-        int32_t srcStride,
-        int32_t srcX_fixed,
-        int32_t srcY_fixed,
-        int32_t fixedInvA,
-        int32_t fixedInvC,
-        int count
-    );
-
-    // ========================================
-    // アフィン変換実装
-    // ========================================
-    void applyAffine(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
+    void applyAffine(ViewPort& dst,
                      const ViewPort& src, int_fixed8 srcOriginX, int_fixed8 srcOriginY) {
-        if (!dst.isValid() || !src.isValid()) return;
         if (!invMatrix_.valid) return;
 
-        const int outW = dst.width;
-        const int outH = dst.height;
-
-        // BytesPerPixel に応じて関数ポインタを選択
-        CopyRowFunc copyRow = nullptr;
-        switch (getBytesPerPixel(src.formatID)) {
-            case 8: copyRow = &copyRowDDA<8>; break;
-            case 4: copyRow = &copyRowDDA<4>; break;
-            case 3: copyRow = &copyRowDDA<3>; break;
-            case 2: copyRow = &copyRowDDA<2>; break;
-            case 1: copyRow = &copyRowDDA<1>; break;
-            default: return;
-        }
-
-        const int32_t fixedInvA = invMatrix_.a;
-        const int32_t fixedInvB = invMatrix_.b;
-        const int32_t fixedInvC = invMatrix_.c;
-        const int32_t fixedInvD = invMatrix_.d;
-
-        const int32_t dstOriginXInt = from_fixed8(dstOriginX);
-        const int32_t dstOriginYInt = from_fixed8(dstOriginY);
+        // srcOrigin分のみ計算（baseTx_/baseTy_ は dstOrigin 込みで事前計算済み）
         const int32_t srcOriginXInt = from_fixed8(srcOriginX);
         const int32_t srcOriginYInt = from_fixed8(srcOriginY);
 
-        // 逆変換オフセットの計算
-        int64_t invTx64 = -(static_cast<int64_t>(txFixed8_) * fixedInvA
-                          + static_cast<int64_t>(tyFixed8_) * fixedInvB);
-        int64_t invTy64 = -(static_cast<int64_t>(txFixed8_) * fixedInvC
-                          + static_cast<int64_t>(tyFixed8_) * fixedInvD);
-        int32_t invTxFixed = static_cast<int32_t>(invTx64 >> INT_FIXED8_SHIFT);
-        int32_t invTyFixed = static_cast<int32_t>(invTy64 >> INT_FIXED8_SHIFT);
-
-        const int32_t fixedInvTx = invTxFixed
-                            - (dstOriginXInt * fixedInvA)
-                            - (dstOriginYInt * fixedInvB)
+        const int32_t fixedInvTx = baseTx_
                             + (srcOriginXInt << INT_FIXED16_SHIFT);
-        const int32_t fixedInvTy = invTyFixed
-                            - (dstOriginXInt * fixedInvC)
-                            - (dstOriginYInt * fixedInvD)
+        const int32_t fixedInvTy = baseTy_
                             + (srcOriginYInt << INT_FIXED16_SHIFT);
 
-        const int32_t rowOffsetX = fixedInvB >> 1;
-        const int32_t rowOffsetY = fixedInvD >> 1;
-        const int32_t dxOffsetX = fixedInvA >> 1;
-        const int32_t dxOffsetY = fixedInvC >> 1;
-
-        const int32_t srcStride = src.stride;
-        const uint8_t* srcData = static_cast<const uint8_t*>(src.data);
-
-        for (int dy = 0; dy < outH; dy++) {
-            int32_t rowBaseX = fixedInvB * dy + fixedInvTx + rowOffsetX;
-            int32_t rowBaseY = fixedInvD * dy + fixedInvTy + rowOffsetY;
-
-            auto [xStart, xEnd] = transform::calcValidRange(fixedInvA, rowBaseX, src.width, outW);
-            auto [yStart, yEnd] = transform::calcValidRange(fixedInvC, rowBaseY, src.height, outW);
-            int dxStart = std::max({0, xStart, yStart});
-            int dxEnd = std::min({outW - 1, xEnd, yEnd});
-
-            if (dxStart > dxEnd) continue;
-
-            int32_t srcX_fixed = fixedInvA * dxStart + rowBaseX + dxOffsetX;
-            int32_t srcY_fixed = fixedInvC * dxStart + rowBaseY + dxOffsetY;
-            int count = dxEnd - dxStart + 1;
-
-            uint8_t* dstRow = static_cast<uint8_t*>(dst.pixelAt(dxStart, dy));
-
-            copyRow(dstRow, srcData, srcStride,
-                    srcX_fixed, srcY_fixed, fixedInvA, fixedInvC, count);
-        }
+        // 共通DDA処理を呼び出し
+        transform::applyAffineDDA(dst, src, fixedInvTx, fixedInvTy,
+                                  invMatrix_, rowOffsetX_, rowOffsetY_,
+                                  dxOffsetX_, dxOffsetY_);
     }
 };
 
