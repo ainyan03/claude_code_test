@@ -36,6 +36,7 @@ public:
 
     void setRadius(int radius) { radius_ = radius; }
     int radius() const { return radius_; }
+    int kernelSize() const { return radius_ * 2 + 1; }
 
     // ========================================
     // Node インターフェース
@@ -52,13 +53,12 @@ public:
         screenHeight_ = screenInfo.height;
         screenOrigin_ = screenInfo.origin;
 
-        // キャッシュサイズ: 幅は出力幅（横ブラー済み）、高さは radius*2+1
-        int cacheHeight = radius_ * 2 + 1;
+        // キャッシュサイズ: 幅は出力幅（横ブラー済み）、高さはカーネルサイズ
         cacheWidth_ = screenWidth_;  // 横ブラー済みデータなので出力幅
 
         // 行キャッシュを確保（横ブラー済みデータを保持）
-        rowCache_.resize(cacheHeight);
-        for (int i = 0; i < cacheHeight; i++) {
+        rowCache_.resize(kernelSize());
+        for (int i = 0; i < kernelSize(); i++) {
             rowCache_[i] = ImageBuffer(cacheWidth_, 1, PixelFormatIDs::RGBA8_Straight,
                                        InitPolicy::Zero);
         }
@@ -69,15 +69,14 @@ public:
         colSumB_.assign(cacheWidth_, 0);
         colSumA_.assign(cacheWidth_, 0);
 
-        cacheStartRow_ = 0;
         currentY_ = 0;
         cacheReady_ = false;
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         // キャッシュ確保をメトリクスに記録
-        size_t cacheBytes = cacheHeight * cacheWidth_ * 4 + cacheWidth_ * 4 * sizeof(uint32_t);
+        size_t cacheBytes = kernelSize() * cacheWidth_ * 4 + cacheWidth_ * 4 * sizeof(uint32_t);
         PerfMetrics::instance().nodes[NodeType::BoxBlur].recordAlloc(
-            cacheBytes, cacheWidth_, cacheHeight);
+            cacheBytes, cacheWidth_, kernelSize());
 #endif
     }
 
@@ -114,16 +113,12 @@ protected:
 
         int requestY = from_fixed8(request.origin.y);
 
-        // 最初の呼び出し: キャッシュを埋める
+        // 最初の呼び出し: キャッシュ初期化のためcurrentY_を設定
         if (!cacheReady_) {
-            initializeCache(upstream, request);
+            currentY_ = requestY - kernelSize();
             cacheReady_ = true;
-            currentY_ = requestY;
-        } else {
-            // 通常の呼び出し: キャッシュを更新
-            updateCache(upstream, request, requestY);
-            currentY_ = requestY;
         }
+        updateCache(upstream, request, requestY);
 
         // 出力バッファを確保
         ImageBuffer output(request.width, 1, PixelFormatIDs::RGBA8_Straight,
@@ -160,7 +155,6 @@ private:
     std::vector<uint32_t> colSumB_;          // 列合計（B * A）
     std::vector<uint32_t> colSumA_;          // 列合計（A）
     int cacheWidth_ = 0;                     // キャッシュ幅
-    int cacheStartRow_ = 0;                  // リングバッファの先頭インデックス
     int currentY_ = 0;                       // 現在の出力Y座標
     bool cacheReady_ = false;                // キャッシュ初期化済みフラグ
 
@@ -168,68 +162,29 @@ private:
     // キャッシュ管理
     // ========================================
 
-    // キャッシュを初期化（最初のpullProcess呼び出し時）
-    void initializeCache(Node* upstream, const RenderRequest& request) {
-        int requestY = from_fixed8(request.origin.y);
-        int kernelSize = radius_ * 2 + 1;
-
-        // 列合計をリセット
-        std::fill(colSumR_.begin(), colSumR_.end(), 0);
-        std::fill(colSumG_.begin(), colSumG_.end(), 0);
-        std::fill(colSumB_.begin(), colSumB_.end(), 0);
-        std::fill(colSumA_.begin(), colSumA_.end(), 0);
-
-        // radius*2+1 行分を上流から取得してキャッシュに格納
-        for (int i = 0; i < kernelSize; i++) {
-            int srcY = requestY - radius_ + i;
-            fetchRowToCache(upstream, request, srcY, i);
-            addRowToColSum(i);
-        }
-        cacheStartRow_ = 0;
-    }
-
-    // キャッシュを更新（2回目以降のpullProcess呼び出し時）
+    // キャッシュを更新（初期化時はprepare()でゼロ初期化済みのため減算は影響なし）
     void updateCache(Node* upstream, const RenderRequest& request, int newY) {
-        int kernelSize = radius_ * 2 + 1;
+        if (currentY_ == newY) return;
 
-        // Y座標が増加する方向（昇順）
-        while (currentY_ < newY) {
-            // 古い行（上端）を列合計から減算
-            subtractRowFromColSum(cacheStartRow_);
+        int step = (currentY_ < newY) ? 1 : -1;
 
-            // 新しい行（下端）を取得
-            int newSrcY = currentY_ + radius_ + 1;
-            fetchRowToCache(upstream, request, newSrcY, cacheStartRow_);
+        while (currentY_ != newY) {
+            // 新しい行のY座標とスロット位置を計算
+            // 注: 出ていく行と入ってくる行はkernelSize離れているため同じスロットになる
+            int newSrcY = currentY_ + step * (radius_ + 1);
+            int slot = newSrcY % kernelSize();
+            if (slot < 0) slot += kernelSize();
 
-            // 新しい行を列合計に加算
-            addRowToColSum(cacheStartRow_);
+            // 古い行を列合計から減算（初期化時はゼロなので影響なし）
+            updateColSum(slot, false);
 
-            // リングバッファを進める
-            cacheStartRow_ = (cacheStartRow_ + 1) % kernelSize;
-            currentY_++;
-        }
-
-        // Y座標が減少する方向（降順）- RendererNodeの座標系対応
-        while (currentY_ > newY) {
-            // 古い行（下端）のインデックスを計算
-            int oldIndex = (cacheStartRow_ + kernelSize - 1) % kernelSize;
-
-            // 古い行を列合計から減算
-            subtractRowFromColSum(oldIndex);
-
-            // 新しい行（上端）を取得
-            int newSrcY = currentY_ - radius_ - 1;
-
-            // リングバッファを逆方向に進める（先に進める）
-            cacheStartRow_ = (cacheStartRow_ + kernelSize - 1) % kernelSize;
-
-            // 新しい行をcacheStartRow_に格納
-            fetchRowToCache(upstream, request, newSrcY, cacheStartRow_);
+            // 新しい行を取得して格納
+            fetchRowToCache(upstream, request, newSrcY, slot);
 
             // 新しい行を列合計に加算
-            addRowToColSum(cacheStartRow_);
+            updateColSum(slot, true);
 
-            currentY_--;
+            currentY_ += step;
         }
     }
 
@@ -281,11 +236,9 @@ private:
     // 横方向スライディングウィンドウブラー
     void applyHorizontalBlur(const uint8_t* input, int inputWidth,
                              uint8_t* output, int outputWidth) {
-        int kernelSize = radius_ * 2 + 1;
-
         // 初期ウィンドウの合計（出力x=0に対応）
         uint32_t sumR = 0, sumG = 0, sumB = 0, sumA = 0;
-        for (int nx = 0; nx < kernelSize; nx++) {
+        for (int nx = 0; nx < kernelSize(); nx++) {
             int off = nx * 4;
             uint32_t a = input[off + 3];
             sumR += input[off] * a;
@@ -295,7 +248,7 @@ private:
         }
 
         // x=0 の出力
-        writeBlurredPixel(output, 0, sumR, sumG, sumB, sumA, kernelSize);
+        writeBlurredPixel(output, 0, sumR, sumG, sumB, sumA, kernelSize());
 
         // スライディング: x = 1 to outputWidth-1
         for (int x = 1; x < outputWidth; x++) {
@@ -322,7 +275,7 @@ private:
                 sumA += a;
             }
 
-            writeBlurredPixel(output, x, sumR, sumG, sumB, sumA, kernelSize);
+            writeBlurredPixel(output, x, sumR, sumG, sumB, sumA, kernelSize());
         }
     }
 
@@ -340,12 +293,13 @@ private:
         }
     }
 
-    // 指定行を列合計に加算（α加重平均のため、RGB×αで蓄積）
-    void addRowToColSum(int cacheIndex) {
+    // 指定行を列合計に加算/減算（α加重平均のため、RGB×αで蓄積）
+    void updateColSum(int cacheIndex, bool add) {
         const uint8_t* row = static_cast<const uint8_t*>(rowCache_[cacheIndex].view().data);
         for (int x = 0; x < cacheWidth_; x++) {
             int off = x * 4;
-            uint32_t a = row[off + 3];
+            int_fast16_t a = row[off + 3];
+            if (!add) a = -a;
             colSumR_[x] += row[off] * a;
             colSumG_[x] += row[off + 1] * a;
             colSumB_[x] += row[off + 2] * a;
@@ -353,35 +307,11 @@ private:
         }
     }
 
-    // 指定行を列合計から減算（α加重平均のため、RGB×αで減算）
-    void subtractRowFromColSum(int cacheIndex) {
-        const uint8_t* row = static_cast<const uint8_t*>(rowCache_[cacheIndex].view().data);
-        for (int x = 0; x < cacheWidth_; x++) {
-            int off = x * 4;
-            uint32_t a = row[off + 3];
-            colSumR_[x] -= row[off] * a;
-            colSumG_[x] -= row[off + 1] * a;
-            colSumB_[x] -= row[off + 2] * a;
-            colSumA_[x] -= a;
-        }
-    }
-
     // 縦方向の列合計から出力行を計算（α加重平均）
     void computeOutputRow(ImageBuffer& output, const RenderRequest& request) {
         uint8_t* outRow = static_cast<uint8_t*>(output.view().data);
-        int kernelSize = radius_ * 2 + 1;
-
         for (int x = 0; x < request.width; x++) {
-            int off = x * 4;
-            uint32_t sumA = colSumA_[x];
-            if (sumA > 0) {
-                outRow[off]     = static_cast<uint8_t>(colSumR_[x] / sumA);
-                outRow[off + 1] = static_cast<uint8_t>(colSumG_[x] / sumA);
-                outRow[off + 2] = static_cast<uint8_t>(colSumB_[x] / sumA);
-                outRow[off + 3] = static_cast<uint8_t>(sumA / kernelSize);
-            } else {
-                outRow[off] = outRow[off + 1] = outRow[off + 2] = outRow[off + 3] = 0;
-            }
+            writeBlurredPixel(outRow, x, colSumR_[x], colSumG_[x], colSumB_[x], colSumA_[x], kernelSize());
         }
     }
 };
