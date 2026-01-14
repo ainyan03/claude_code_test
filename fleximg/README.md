@@ -200,7 +200,7 @@ C++コアのユニットテストを実行できます（[doctest](https://githu
 
 ```bash
 cd test
-make all_tests && ./all_tests    # 全テスト（88ケース）をビルド・実行
+make all_tests && ./all_tests    # 全テスト（91ケース）をビルド・実行
 make clean                        # ビルド成果物を削除
 ```
 

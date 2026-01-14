@@ -77,15 +77,6 @@ inline ViewPort subView(const ViewPort& v, int_fast16_t x, int_fast16_t y,
     return ViewPort(subData, v.formatID, v.stride, w, h);
 }
 
-// ブレンド操作（実装はviewport.cppで提供）
-void blendFirst(ViewPort& dst, int dstX, int dstY,
-                const ViewPort& src, int srcX, int srcY,
-                int width, int height);
-
-void blendOnto(ViewPort& dst, int dstX, int dstY,
-               const ViewPort& src, int srcX, int srcY,
-               int width, int height);
-
 // 矩形コピー
 void copy(ViewPort& dst, int dstX, int dstY,
           const ViewPort& src, int srcX, int srcY,

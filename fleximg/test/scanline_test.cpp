@@ -37,39 +37,6 @@ static ImageBuffer createSolidImage(int width, int height, uint8_t r, uint8_t g,
     return img;
 }
 
-// 垂直方向の空白ピクセル列を検出
-// 戻り値: 垂直に連続して空白ピクセルが並ぶ列のx座標リスト
-static std::vector<int> findVerticalGaps(const ViewPort& view, int minGapHeight = 3) {
-    std::vector<int> gaps;
-
-    for (int x = 0; x < view.width; x++) {
-        int consecutiveTransparent = 0;
-        bool hasOpaqueAbove = false;
-        bool hasOpaqueBelow = false;
-
-        for (int y = 0; y < view.height; y++) {
-            const uint8_t* p = static_cast<const uint8_t*>(view.pixelAt(x, y));
-            if (p[3] == 0) {
-                consecutiveTransparent++;
-            } else {
-                if (consecutiveTransparent >= minGapHeight) {
-                    // 上下に不透明ピクセルがある場合のみカウント
-                    hasOpaqueAbove = true;
-                }
-                consecutiveTransparent = 0;
-                hasOpaqueBelow = true;
-            }
-        }
-
-        if (consecutiveTransparent > 0 && consecutiveTransparent < view.height &&
-            hasOpaqueAbove && hasOpaqueBelow) {
-            gaps.push_back(x);
-        }
-    }
-
-    return gaps;
-}
-
 // 有効なピクセルがあるかチェック
 static bool hasNonZeroPixels(const ViewPort& view) {
     for (int y = 0; y < view.height; y++) {
@@ -143,67 +110,6 @@ TEST_CASE("Scanline: with scale") {
     renderer.exec();
 
     CHECK(hasNonZeroPixels(dstImg.view()));
-}
-
-// =============================================================================
-// Known Issue Test: 149.8 degrees, 3x scale
-// =============================================================================
-//
-// 既知の問題: スキャンラインレンダリング有効時、上流側アフィン変換で
-// 回転149.8度、縦横倍率3倍指定時に1pixelのドット抜けが規則的に縦に並んで発生する
-//
-// このテストは問題を再現するためのものです。
-// 問題が解決された場合、このテストは成功するようになります。
-//
-
-TEST_CASE("Scanline: 149.8 degrees 3x scale (known issue)") {
-    // このテストは既知の問題の条件を記録するためのもの
-    // 149.8度回転 + 3倍スケールで1pixelのドット抜けが発生する可能性がある
-    //
-    // 注: この条件でのレンダリングは出力がキャンバス外になる場合があるため、
-    // 現在はテストの実行自体を確認するのみ
-    //
-    const int imgSize = 32;
-    const int canvasSize = 300;  // 十分大きなキャンバス
-
-    ImageBuffer srcImg = createSolidImage(imgSize, imgSize, 255, 128, 0);
-    ImageBuffer dstImg(canvasSize, canvasSize, PixelFormatIDs::RGBA8_Straight);
-
-    SourceNode src(srcImg.view(), imgSize / 2.0f, imgSize / 2.0f);
-    AffineNode affine;
-
-    // 149.8度回転 + 3倍スケール
-    float angleDeg = 149.8f;
-    float scale = 3.0f;
-    float rad = angleDeg * static_cast<float>(M_PI) / 180.0f;
-    float c = std::cos(rad) * scale;
-    float s = std::sin(rad) * scale;
-
-    AffineMatrix m;
-    m.a = c;   m.b = -s;
-    m.c = s;   m.d = c;
-    m.tx = 0;  m.ty = 0;
-    affine.setMatrix(m);
-
-    RendererNode renderer;
-    SinkNode sink(dstImg.view(), canvasSize / 2.0f, canvasSize / 2.0f);
-
-    src >> affine >> renderer >> sink;
-    renderer.setVirtualScreen(canvasSize, canvasSize);
-    renderer.exec();
-
-    // テストの実行自体が成功したことを確認
-    // 出力の有無は環境によって異なる可能性があるため、ここでは厳密にチェックしない
-    // 問題の詳細はTODO.mdに記載されている
-    CHECK(true);
-
-    // 出力があれば、垂直方向の空白列を検出して警告
-    if (hasNonZeroPixels(dstImg.view())) {
-        std::vector<int> gaps = findVerticalGaps(dstImg.view());
-        if (!gaps.empty()) {
-            MESSAGE("Note: Detected " << gaps.size() << " potential vertical gaps at 149.8deg 3x scale");
-        }
-    }
 }
 
 // =============================================================================
