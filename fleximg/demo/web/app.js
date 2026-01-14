@@ -21,9 +21,10 @@ let canvasOrigin = { x: 400, y: 300 };  // キャンバス原点（ピクセル�
 let previewScale = 1;  // 表示倍率（1〜5）
 let isResetting = false;  // リセット中フラグ（beforeunloadで保存をスキップ）
 
-// タイル分割設定（Rendererノードで管理、グローバルはフォールバック用）
-let tileWidth = 0;       // 0 = タイル分割なし
-let tileHeight = 0;
+// スキャンライン処理設定（Rendererノードで管理、グローバルはフォールバック用）
+// ※ v2.30.0以降、パイプライン上のリクエストは必ずheight=1（スキャンライン）
+let tileWidth = 0;       // 0 = 横方向は分割なし
+let tileHeight = 0;      // 内部的に常に1として扱われる（互換性のため変数は維持）
 let debugCheckerboard = false;
 
 // ========================================
@@ -720,8 +721,8 @@ function initDefaultState() {
             virtualHeight: 1080,
             originX: 960,
             originY: 540,
-            tileWidth: 256,
-            tileHeight: 256
+            tileWidth: 0,      // 横方向は分割なし（height は内部的に常に1）
+            tileHeight: 0
         }
     ];
 
@@ -1756,20 +1757,7 @@ function resizeCanvas(width, height) {
     }
 }
 
-// タイル分割プリセットからサイズを取得
-function getTileSizeFromPreset(preset) {
-    switch (preset) {
-        case 'none':     return { w: 0, h: 0 };
-        case 'scanline': return { w: 0, h: 1 };
-        case '16':       return { w: 16, h: 16 };
-        case '32':       return { w: 32, h: 32 };
-        case '64':       return { w: 64, h: 64 };
-        case 'custom':   return { w: tileWidth || 64, h: tileHeight || 64 };
-        default:         return { w: 0, h: 0 };
-    }
-}
-
-// タイル分割設定を適用
+// スキャンライン処理設定を適用
 function applyTileSettings() {
     if (!graphEvaluator) return;
 
@@ -4001,122 +3989,16 @@ function buildRendererDetailContent(node) {
 
     detailPanelContent.appendChild(sizeSection);
 
-    // === タイル設定 ===
+    // === デバッグ設定 ===
     const tileSection = document.createElement('div');
     tileSection.className = 'node-detail-section';
 
     const tileLabel = document.createElement('div');
     tileLabel.className = 'node-detail-label';
-    tileLabel.textContent = 'タイル分割';
+    tileLabel.textContent = 'デバッグ';
     tileSection.appendChild(tileLabel);
 
-    // プリセット選択
-    const presetRow = document.createElement('div');
-    presetRow.className = 'node-detail-row';
-    const presetLabel = document.createElement('label');
-    presetLabel.textContent = 'モード';
-    const presetSelect = document.createElement('select');
-    presetSelect.style.flex = '1';
-    presetSelect.innerHTML = `
-        <option value="none">なし（一括処理）</option>
-        <option value="scanline">スキャンライン</option>
-        <option value="16">16×16</option>
-        <option value="32">32×32</option>
-        <option value="64">64×64</option>
-        <option value="custom">カスタム</option>
-    `;
-
-    // 現在の設定を反映
-    const currentTileW = node.tileWidth ?? tileWidth;
-    const currentTileH = node.tileHeight ?? tileHeight;
-    if (currentTileW === 0 && currentTileH === 0) {
-        presetSelect.value = 'none';
-    } else if (currentTileH === 1) {
-        presetSelect.value = 'scanline';
-    } else if (currentTileW === 16 && currentTileH === 16) {
-        presetSelect.value = '16';
-    } else if (currentTileW === 32 && currentTileH === 32) {
-        presetSelect.value = '32';
-    } else if (currentTileW === 64 && currentTileH === 64) {
-        presetSelect.value = '64';
-    } else {
-        presetSelect.value = 'custom';
-    }
-
-    presetRow.appendChild(presetLabel);
-    presetRow.appendChild(presetSelect);
-    tileSection.appendChild(presetRow);
-
-    // カスタムサイズ入力
-    const customRow = document.createElement('div');
-    customRow.className = 'node-detail-row';
-    customRow.style.display = presetSelect.value === 'custom' ? 'flex' : 'none';
-
-    const tileWLabel = document.createElement('label');
-    tileWLabel.textContent = '幅';
-    const tileWInput = document.createElement('input');
-    tileWInput.type = 'number';
-    tileWInput.min = '1';
-    tileWInput.max = '512';
-    tileWInput.value = currentTileW || 64;
-    tileWInput.style.width = '60px';
-
-    const tileHLabel = document.createElement('label');
-    tileHLabel.textContent = '高さ';
-    tileHLabel.style.marginLeft = '8px';
-    const tileHInput = document.createElement('input');
-    tileHInput.type = 'number';
-    tileHInput.min = '1';
-    tileHInput.max = '512';
-    tileHInput.value = currentTileH || 64;
-    tileHInput.style.width = '60px';
-
-    customRow.appendChild(tileWLabel);
-    customRow.appendChild(tileWInput);
-    customRow.appendChild(tileHLabel);
-    customRow.appendChild(tileHInput);
-    tileSection.appendChild(customRow);
-
-    // プリセット変更時の処理
-    presetSelect.addEventListener('change', () => {
-        const val = presetSelect.value;
-        customRow.style.display = val === 'custom' ? 'flex' : 'none';
-
-        let tw = 0, th = 0;
-        if (val === 'none') { tw = 0; th = 0; }
-        else if (val === 'scanline') { tw = 0; th = 1; }
-        else if (val === '16') { tw = 16; th = 16; }
-        else if (val === '32') { tw = 32; th = 32; }
-        else if (val === '64') { tw = 64; th = 64; }
-        else if (val === 'custom') { tw = parseInt(tileWInput.value); th = parseInt(tileHInput.value); }
-
-        node.tileWidth = tw;
-        node.tileHeight = th;
-        tileWidth = tw;
-        tileHeight = th;
-        applyTileSettings();
-        throttledUpdatePreview();
-    });
-
-    // カスタム値変更時
-    tileWInput.addEventListener('change', () => {
-        if (presetSelect.value === 'custom') {
-            node.tileWidth = parseInt(tileWInput.value);
-            tileWidth = node.tileWidth;
-            applyTileSettings();
-            throttledUpdatePreview();
-        }
-    });
-    tileHInput.addEventListener('change', () => {
-        if (presetSelect.value === 'custom') {
-            node.tileHeight = parseInt(tileHInput.value);
-            tileHeight = node.tileHeight;
-            applyTileSettings();
-            throttledUpdatePreview();
-        }
-    });
-
-    // デバッグ：交互スキップ
+    // 交互スキップ
     const debugRow = document.createElement('div');
     debugRow.className = 'node-detail-row';
     const debugLabel = document.createElement('label');
@@ -4545,13 +4427,14 @@ async function restoreAppState(state) {
         previewScrollManager.setRatio(state.canvas.scrollRatio.x, state.canvas.scrollRatio.y);
     }
 
-    // タイル分割設定を復元（グローバル変数に直接設定）
+    // スキャンライン処理設定を復元（グローバル変数に直接設定）
+    // ※ tileHeight は内部的に常に1として扱われる（互換性のため変数は維持）
     if (state.tile) {
         tileWidth = state.tile.width || 0;
         tileHeight = state.tile.height || 0;
         debugCheckerboard = state.tile.debugCheckerboard || false;
     }
-    // C++側にタイル設定を反映
+    // C++側に設定を反映
     applyTileSettings();
 
     // 次のID値を復元
