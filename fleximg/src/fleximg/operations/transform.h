@@ -4,7 +4,9 @@
 #include "../core/common.h"
 #include "../core/types.h"
 #include "../image/viewport.h"
+#include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <utility>
 
 namespace FLEXIMG_NAMESPACE {
@@ -107,6 +109,139 @@ inline std::pair<int, int> calcValidRange(
     }
 
     return {dxStart, dxEnd};
+}
+
+// ========================================================================
+// copyRowDDA - DDA行転写テンプレート
+// ========================================================================
+//
+// アフィン変換のDDA描画で、1行分のピクセルを転写します。
+// BytesPerPixel に応じて最適化されたコピーを行います。
+//
+
+template<size_t BytesPerPixel>
+inline void copyRowDDA(
+    uint8_t* dstRow,
+    const uint8_t* srcData,
+    int32_t srcStride,
+    int32_t srcX_fixed,
+    int32_t srcY_fixed,
+    int32_t fixedInvA,
+    int32_t fixedInvC,
+    int count
+) {
+    for (int i = 0; i < count; i++) {
+        uint32_t sx = static_cast<uint32_t>(srcX_fixed) >> INT_FIXED16_SHIFT;
+        uint32_t sy = static_cast<uint32_t>(srcY_fixed) >> INT_FIXED16_SHIFT;
+
+        const uint8_t* srcPixel = srcData + sy * srcStride + sx * BytesPerPixel;
+
+        if constexpr (BytesPerPixel == 8) {
+            reinterpret_cast<uint32_t*>(dstRow)[0] =
+                reinterpret_cast<const uint32_t*>(srcPixel)[0];
+            reinterpret_cast<uint32_t*>(dstRow)[1] =
+                reinterpret_cast<const uint32_t*>(srcPixel)[1];
+        } else if constexpr (BytesPerPixel == 4) {
+            *reinterpret_cast<uint32_t*>(dstRow) =
+                *reinterpret_cast<const uint32_t*>(srcPixel);
+        } else if constexpr (BytesPerPixel == 2) {
+            *reinterpret_cast<uint16_t*>(dstRow) =
+                *reinterpret_cast<const uint16_t*>(srcPixel);
+        } else if constexpr (BytesPerPixel == 1) {
+            *dstRow = *srcPixel;
+        } else {
+            std::memcpy(dstRow, srcPixel, BytesPerPixel);
+        }
+
+        dstRow += BytesPerPixel;
+        srcX_fixed += fixedInvA;
+        srcY_fixed += fixedInvC;
+    }
+}
+
+// copyRowDDA の関数ポインタ型
+using CopyRowDDAFunc = void(*)(
+    uint8_t* dstRow,
+    const uint8_t* srcData,
+    int32_t srcStride,
+    int32_t srcX_fixed,
+    int32_t srcY_fixed,
+    int32_t fixedInvA,
+    int32_t fixedInvC,
+    int count
+);
+
+// ========================================================================
+// applyAffineDDA - DDAによるアフィン変換転写
+// ========================================================================
+//
+// 事前計算済みのパラメータを使用して、DDAによるアフィン変換転写を行います。
+//
+// パラメータ:
+// - dst: 出力ViewPort
+// - src: 入力ViewPort
+// - fixedInvTx/Ty: 逆変換オフセット（process時に計算された最終値）
+// - invMatrix: 逆行列（2x2部分）
+// - rowOffsetX/Y: 行オフセット（invB/D >> 1）
+// - dxOffsetX/Y: dx オフセット（invA/C >> 1）
+//
+
+inline void applyAffineDDA(
+    ViewPort& dst,
+    const ViewPort& src,
+    int32_t fixedInvTx,
+    int32_t fixedInvTy,
+    const Matrix2x2_fixed16& invMatrix,
+    int32_t rowOffsetX,
+    int32_t rowOffsetY,
+    int32_t dxOffsetX,
+    int32_t dxOffsetY
+) {
+    if (!dst.isValid() || !src.isValid()) return;
+    if (!invMatrix.valid) return;
+
+    const int outW = dst.width;
+    const int outH = dst.height;
+
+    // BytesPerPixel に応じて関数ポインタを選択
+    CopyRowDDAFunc copyRow = nullptr;
+    switch (getBytesPerPixel(src.formatID)) {
+        case 8: copyRow = &copyRowDDA<8>; break;
+        case 4: copyRow = &copyRowDDA<4>; break;
+        case 3: copyRow = &copyRowDDA<3>; break;
+        case 2: copyRow = &copyRowDDA<2>; break;
+        case 1: copyRow = &copyRowDDA<1>; break;
+        default: return;
+    }
+
+    const int32_t fixedInvA = invMatrix.a;
+    const int32_t fixedInvB = invMatrix.b;
+    const int32_t fixedInvC = invMatrix.c;
+    const int32_t fixedInvD = invMatrix.d;
+
+    const int32_t srcStride = src.stride;
+    const uint8_t* srcData = static_cast<const uint8_t*>(src.data);
+
+    for (int dy = 0; dy < outH; dy++) {
+        int32_t rowBaseX = fixedInvB * dy + fixedInvTx + rowOffsetX;
+        int32_t rowBaseY = fixedInvD * dy + fixedInvTy + rowOffsetY;
+
+        auto [xStart, xEnd] = calcValidRange(fixedInvA, rowBaseX, src.width, outW);
+        auto [yStart, yEnd] = calcValidRange(fixedInvC, rowBaseY, src.height, outW);
+        int dxStart = std::max({0, xStart, yStart});
+        int dxEnd = std::min({outW - 1, xEnd, yEnd});
+
+        if (dxStart > dxEnd) continue;
+
+        int32_t srcX_fixed = fixedInvA * dxStart + rowBaseX + dxOffsetX;
+        int32_t srcY_fixed = fixedInvC * dxStart + rowBaseY + dxOffsetY;
+        int count = dxEnd - dxStart + 1;
+
+        uint8_t* dstRow = static_cast<uint8_t*>(dst.pixelAt(dxStart, dy));
+
+        copyRow(dstRow, srcData, srcStride,
+                srcX_fixed, srcY_fixed, fixedInvA, fixedInvC, count);
+    }
 }
 
 } // namespace transform
