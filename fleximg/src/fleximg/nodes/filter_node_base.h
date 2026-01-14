@@ -4,6 +4,7 @@
 #include "../core/node.h"
 #include "../core/perf_metrics.h"
 #include "../image/image_buffer.h"
+#include "../operations/filters.h"
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
 #include <chrono>
 #endif
@@ -17,17 +18,24 @@ namespace FLEXIMG_NAMESPACE {
 // フィルタ系ノードの共通基底クラスです。
 // - 入力: 1ポート
 // - 出力: 1ポート
-// - 派生クラスは process() をオーバーライドしてフィルタ処理を実装
+// - スキャンライン必須仕様（height=1）前提で動作
+//
+// 派生クラスの実装:
+//   - getFilterFunc() でフィルタ関数を返す
+//   - params_ にパラメータを設定
+//   - nodeTypeForMetrics() でメトリクス用ノードタイプを返す
 //
 // 派生クラスの実装例:
 //   class BrightnessNode : public FilterNodeBase {
+//   public:
+//       void setAmount(float v) { params_.value1 = v; }
+//       float amount() const { return params_.value1; }
 //   protected:
-//       int nodeTypeForMetrics() const override { return NodeType::Brightness; }
-//       RenderResult process(RenderResult&& input, const RenderRequest& request) override {
-//           ImageBuffer working = std::move(input.buffer).toFormat(PixelFormatIDs::RGBA8_Straight);
-//           // フィルタ処理...
-//           return RenderResult(std::move(output), input.origin);
+//       filters::LineFilterFunc getFilterFunc() const override {
+//           return &filters::brightness_line;
 //       }
+//       int nodeTypeForMetrics() const override { return NodeType::Brightness; }
+//       const char* name() const override { return "BrightnessNode"; }
 //   };
 //
 
@@ -74,6 +82,9 @@ protected:
     // 派生クラスがオーバーライドするフック
     // ========================================
 
+    /// ラインフィルタ関数を返す（派生クラスで実装）
+    virtual filters::LineFilterFunc getFilterFunc() const = 0;
+
     /// 入力マージン（ブラー等で拡大が必要な場合にオーバーライド）
     virtual int computeInputMargin() const { return 0; }
 
@@ -81,9 +92,46 @@ protected:
     int nodeTypeForMetrics() const override = 0;
 
     // ========================================
-    // process() は派生クラスでオーバーライド
-    // prepare() / finalize() も必要に応じてオーバーライド可能
+    // process() 共通実装
     // ========================================
+    //
+    // スキャンライン必須仕様（height=1）前提の共通処理:
+    // 1. RGBA8_Straight形式に変換
+    // 2. ラインフィルタ関数を適用
+    // 3. パフォーマンス計測（デバッグビルド時）
+    //
+
+    RenderResult process(RenderResult&& input,
+                        const RenderRequest& request) override {
+        (void)request;  // スキャンライン必須仕様では未使用
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        auto start = std::chrono::high_resolution_clock::now();
+#endif
+
+        // 入力をRGBA8_Straightに変換（メトリクス記録付き）
+        ImageBuffer working = convertFormat(std::move(input.buffer), PixelFormatIDs::RGBA8_Straight);
+        ViewPort workingView = working.view();
+
+        // ラインフィルタを適用（height=1前提）
+        uint8_t* row = static_cast<uint8_t*>(workingView.data);
+        getFilterFunc()(row, workingView.width, params_);
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        auto& metrics = PerfMetrics::instance().nodes[nodeTypeForMetrics()];
+        metrics.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::high_resolution_clock::now() - start).count();
+        metrics.count++;
+#endif
+
+        return RenderResult(std::move(working), input.origin);
+    }
+
+    // ========================================
+    // パラメータ（派生クラスからアクセス可能）
+    // ========================================
+
+    filters::LineFilterParams params_;
 };
 
 } // namespace FLEXIMG_NAMESPACE
