@@ -61,15 +61,6 @@ namespace view_ops {
     // サブビュー作成
     ViewPort subView(const ViewPort& v, int x, int y, int w, int h);
 
-    // ブレンド操作
-    void blendFirst(ViewPort& dst, int dstX, int dstY,
-                    const ViewPort& src, int srcX, int srcY,
-                    int width, int height);
-
-    void blendOnto(ViewPort& dst, int dstX, int dstY,
-                   const ViewPort& src, int srcX, int srcY,
-                   int width, int height);
-
     // 矩形コピー・クリア
     void copy(ViewPort& dst, int dstX, int dstY,
               const ViewPort& src, int srcX, int srcY,
@@ -77,6 +68,8 @@ namespace view_ops {
     void clear(ViewPort& dst, int x, int y, int width, int height);
 }
 ```
+
+ブレンド操作は `blend` 名前空間で提供されます（`operations/blend.h`）。
 
 ## ImageBuffer（メモリ所有画像）
 
@@ -191,19 +184,20 @@ RenderResult result = node->pullProcess(request);
 int offsetX = static_cast<int>(request.origin.x - result.origin.x);
 int offsetY = static_cast<int>(request.origin.y - result.origin.y);
 
-// キャンバスにブレンド
+// キャンバスにブレンド（blend名前空間を使用）
 ViewPort canvas = canvasBuffer.view();
-view_ops::blendOnto(canvas, offsetX, offsetY,
-                    result.view(), 0, 0,
-                    result.buffer.width(), result.buffer.height());
+blend::onto(canvas, request.origin.x, request.origin.y,
+            result.view(), result.origin.x, result.origin.y);
 ```
 
-### blendFirst vs blendOnto
+### blend::first vs blend::onto
 
 | 関数 | 用途 |
 |-----|------|
-| blendFirst | 透明キャンバスへの最初の描画（memcpy最適化）|
-| blendOnto | 2枚目以降の合成（ブレンド計算）|
+| blend::first | 透明キャンバスへの最初の描画（memcpy最適化）|
+| blend::onto | 2枚目以降の合成（ブレンド計算）|
+
+これらは固定小数点の基準点座標（`int_fixed8`）を使用し、フォーマット変換（RGBA8_Straight → RGBA16_Premultiplied）にも対応しています。
 
 ## 設計の利点
 
@@ -231,7 +225,6 @@ ImageBuffer working = std::move(input).toFormat(PixelFormatIDs::RGBA8_Straight);
 
 ## 注意事項
 
-- blendFirst/blendOnto は RGBA16_Premultiplied 専用
 - ViewPort はメモリを所有しないため、元の ImageBuffer より長く生存してはならない
 
 ## 関連ファイル
