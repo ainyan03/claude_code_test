@@ -108,13 +108,18 @@ public:
         // メトリクスをリセット
         PerfMetrics::instance().reset();
 
-        // スクリーン全体の情報をRenderRequestとして作成
+        // スクリーン全体の情報をPrepareRequestとして作成
         RenderRequest screenInfo = createScreenRequest();
+        PrepareRequest prepReq;
+        prepReq.width = screenInfo.width;
+        prepReq.height = screenInfo.height;
+        prepReq.origin = screenInfo.origin;
+        prepReq.hasAffine = false;
 
         // 上流へ準備を伝播（プル型、循環参照検出付き）
         Node* upstream = upstreamNode(0);
         if (upstream) {
-            if (!upstream->pullPrepare(screenInfo)) {
+            if (!upstream->pullPrepare(prepReq)) {
                 return ExecResult::CycleDetected;
             }
         }
@@ -122,7 +127,7 @@ public:
         // 下流へ準備を伝播（プッシュ型、循環参照検出付き）
         Node* downstream = downstreamNode(0);
         if (downstream) {
-            if (!downstream->pushPrepare(screenInfo)) {
+            if (!downstream->pushPrepare(prepReq)) {
                 return ExecResult::CycleDetected;
             }
         }

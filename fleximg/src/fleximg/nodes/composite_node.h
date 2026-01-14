@@ -67,8 +67,8 @@ public:
     // プル型インターフェース
     // ========================================
 
-    // 全上流ノードに準備を伝播（循環参照検出付き）
-    bool pullPrepare(const RenderRequest& screenInfo) override {
+    // 全上流ノードにPrepareRequestを伝播（循環検出+アフィン伝播）
+    bool pullPrepare(const PrepareRequest& request) override {
         // 循環参照検出: Preparing状態で再訪問 = 循環
         if (pullPrepareState_ == PrepareState::Preparing) {
             pullPrepareState_ = PrepareState::CycleError;
@@ -90,14 +90,22 @@ public:
         for (int i = 0; i < numInputs; ++i) {
             Node* upstream = upstreamNode(i);
             if (upstream) {
-                if (!upstream->pullPrepare(screenInfo)) {
+                // 各上流に同じリクエストを伝播
+                // 注意: アフィン行列は共有されるため、各上流で同じ変換が適用される
+                if (!upstream->pullPrepare(request)) {
                     pullPrepareState_ = PrepareState::CycleError;
                     return false;
                 }
             }
         }
 
+        // 準備処理
+        RenderRequest screenInfo;
+        screenInfo.width = request.width;
+        screenInfo.height = request.height;
+        screenInfo.origin = request.origin;
         prepare(screenInfo);
+
         pullPrepareState_ = PrepareState::Prepared;
         return true;
     }

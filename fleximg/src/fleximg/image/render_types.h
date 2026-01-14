@@ -63,6 +63,28 @@ struct RenderRequest {
 };
 
 // ========================================================================
+// PrepareRequest - 準備リクエスト（アフィン伝播対応）
+// ========================================================================
+//
+// pullPrepare時にアフィン変換パラメータを上流に伝播するための構造体。
+// AffineNodeで行列を合成し、SourceNodeで一括実行する。
+//
+
+struct PrepareRequest {
+    int16_t width = 0;
+    int16_t height = 0;
+    Point origin;  // 基準点位置（固定小数点 Q24.8）
+
+    // プル型アフィン（上流→Source で実行）
+    AffineMatrix affineMatrix;
+    bool hasAffine = false;
+
+    // プッシュ型アフィン（下流→Sink で実行）
+    AffineMatrix pushAffineMatrix;
+    bool hasPushAffine = false;
+};
+
+// ========================================================================
 // RenderResult - 評価結果
 // ========================================================================
 
