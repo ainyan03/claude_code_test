@@ -2,10 +2,6 @@
 #define FLEXIMG_BRIGHTNESS_NODE_H
 
 #include "filter_node_base.h"
-#include "../operations/filters.h"
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-#include <chrono>
-#endif
 
 namespace FLEXIMG_NAMESPACE {
 
@@ -28,8 +24,8 @@ public:
     // パラメータ設定
     // ========================================
 
-    void setAmount(float amount) { amount_ = amount; }
-    float amount() const { return amount_; }
+    void setAmount(float amount) { params_.value1 = amount; }
+    float amount() const { return params_.value1; }
 
     // ========================================
     // Node インターフェース
@@ -38,35 +34,10 @@ public:
     const char* name() const override { return "BrightnessNode"; }
 
 protected:
-    int nodeTypeForMetrics() const override { return NodeType::Brightness; }
-
-    RenderResult process(RenderResult&& input,
-                        const RenderRequest& request) override {
-        (void)request;  // このフィルタでは未使用
-
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto start = std::chrono::high_resolution_clock::now();
-#endif
-
-        // 入力をRGBA8_Straightに変換（メトリクス記録付き）
-        ImageBuffer working = convertFormat(std::move(input.buffer), PixelFormatIDs::RGBA8_Straight);
-        ViewPort workingView = working.view();
-
-        // インプレース編集（dst==src）
-        filters::brightness(workingView, workingView, amount_);
-
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto& metrics = PerfMetrics::instance().nodes[NodeType::Brightness];
-        metrics.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::high_resolution_clock::now() - start).count();
-        metrics.count++;
-#endif
-
-        return RenderResult(std::move(working), input.origin);
+    filters::LineFilterFunc getFilterFunc() const override {
+        return &filters::brightness_line;
     }
-
-private:
-    float amount_ = 0.0f;
+    int nodeTypeForMetrics() const override { return NodeType::Brightness; }
 };
 
 } // namespace FLEXIMG_NAMESPACE
