@@ -43,6 +43,9 @@ namespace FLEXIMG_NAMESPACE {
 // computeInputRequest() の結果を詳細に保持。
 // 分割効率の見積もりに使用。
 //
+// [DEPRECATED] アフィン伝播により、DDA処理はSourceNode/SinkNodeで実行される。
+// この構造体はフォールバック用に残されているが、将来削除予定。
+//
 
 struct InputRegion {
     // 4頂点座標（入力空間、Q24.8）
@@ -70,6 +73,9 @@ struct InputRegion {
 //
 // DDA ループ内で追跡した有効ピクセル範囲を返す。
 // AABB フィット出力やタイル分割最適化に活用可能。
+//
+// [DEPRECATED] アフィン伝播により、DDA処理はSourceNode/SinkNodeで実行される。
+// この構造体はフォールバック用に残されているが、将来削除予定。
 //
 
 struct AffineResult {
@@ -142,6 +148,118 @@ public:
     }
 
     // ========================================
+    // PrepareRequest対応（循環検出+アフィン伝播）
+    // ========================================
+    //
+    // アフィン行列を上流に伝播し、SourceNodeで一括実行する。
+    // 複数のAffineNodeがある場合は行列を合成する。
+    //
+
+    bool pullPrepare(const PrepareRequest& request) override {
+        // 循環参照検出: Preparing状態で再訪問 = 循環
+        if (pullPrepareState_ == PrepareState::Preparing) {
+            pullPrepareState_ = PrepareState::CycleError;
+            return false;
+        }
+        // DAG共有ノード: スキップ
+        if (pullPrepareState_ == PrepareState::Prepared) {
+            return true;
+        }
+        // 既にエラー状態
+        if (pullPrepareState_ == PrepareState::CycleError) {
+            return false;
+        }
+
+        pullPrepareState_ = PrepareState::Preparing;
+
+        // 上流に渡すためのコピーを作成し、自身の行列を累積
+        PrepareRequest upstreamRequest = request;
+        if (upstreamRequest.hasAffine) {
+            // 既存の行列（下流側）に自身の行列（上流側）を後から掛ける
+            // result = existing * self（dst = M_downstream * M_upstream * src）
+            upstreamRequest.affineMatrix = composeMatrix(upstreamRequest.affineMatrix, matrix_);
+        } else {
+            upstreamRequest.affineMatrix = matrix_;
+            upstreamRequest.hasAffine = true;
+        }
+        hasAffinePropagated_ = true;
+
+        // 上流へ伝播
+        Node* upstream = upstreamNode(0);
+        if (upstream) {
+            if (!upstream->pullPrepare(upstreamRequest)) {
+                pullPrepareState_ = PrepareState::CycleError;
+                return false;
+            }
+        }
+
+        // 準備処理（アフィン伝播済みの場合でも、フォールバック用に計算しておく）
+        RenderRequest screenInfo;
+        screenInfo.width = request.width;
+        screenInfo.height = request.height;
+        screenInfo.origin = request.origin;
+        prepare(screenInfo);
+
+        pullPrepareState_ = PrepareState::Prepared;
+        return true;
+    }
+
+    // ========================================
+    // プッシュ型準備（行列伝播）
+    // ========================================
+    //
+    // アフィン行列を下流に伝播し、SinkNodeで一括実行する。
+    // 複数のAffineNodeがある場合は行列を合成する。
+    //
+
+    bool pushPrepare(const PrepareRequest& request) override {
+        // 循環参照検出
+        if (pushPrepareState_ == PrepareState::Preparing) {
+            pushPrepareState_ = PrepareState::CycleError;
+            return false;
+        }
+        if (pushPrepareState_ == PrepareState::Prepared) {
+            return true;
+        }
+        if (pushPrepareState_ == PrepareState::CycleError) {
+            return false;
+        }
+
+        pushPrepareState_ = PrepareState::Preparing;
+
+        // 準備処理
+        RenderRequest screenInfo;
+        screenInfo.width = request.width;
+        screenInfo.height = request.height;
+        screenInfo.origin = request.origin;
+        prepare(screenInfo);
+
+        // 下流に渡すためのコピーを作成し、自身の行列を累積
+        PrepareRequest downstreamRequest = request;
+        if (downstreamRequest.hasPushAffine) {
+            // 既存の行列（上流側）に自身の行列（下流側）を後から掛ける
+            // result = existing * self（プッシュ型は上流から下流へ）
+            downstreamRequest.pushAffineMatrix = composeMatrix(downstreamRequest.pushAffineMatrix, matrix_);
+        } else {
+            downstreamRequest.pushAffineMatrix = matrix_;
+            downstreamRequest.hasPushAffine = true;
+        }
+        hasPushAffinePropagated_ = true;
+
+        // 下流へ伝播
+        Node* downstream = downstreamNode(0);
+        if (downstream) {
+            if (!downstream->pushPrepare(downstreamRequest)) {
+                pushPrepareState_ = PrepareState::CycleError;
+                return false;
+            }
+        }
+
+        pushPrepareState_ = PrepareState::Prepared;
+        return true;
+    }
+
+    // ========================================
     // プル型インターフェース
     // ========================================
 
@@ -153,6 +271,17 @@ public:
 
         Node* upstream = upstreamNode(0);
         if (!upstream) return RenderResult();
+
+        // アフィン伝播済みの場合はパススルー（SourceNodeでDDA処理済み）
+        if (hasAffinePropagated_) {
+            return upstream->pullProcess(request);
+        }
+
+        // ----------------------------------------------------------------
+        // [DEPRECATED] 以下はフォールバック処理（アフィン伝播が無効な場合のみ）
+        // 通常はSourceNodeでDDA処理されるため、このパスは使用されない。
+        // 将来削除予定。
+        // ----------------------------------------------------------------
 
         // 特異行列チェック（prepare で計算済み）
         if (!invMatrix_.valid) {
@@ -382,7 +511,22 @@ public:
             return;
         }
 
-        // 特異行列チェック
+        // アフィン伝播済みの場合はパススルー（SinkNodeでDDA処理される）
+        if (hasPushAffinePropagated_) {
+            Node* downstream = downstreamNode(0);
+            if (downstream) {
+                downstream->pushProcess(std::move(input), request);
+            }
+            return;
+        }
+
+        // ----------------------------------------------------------------
+        // [DEPRECATED] 以下はフォールバック処理（アフィン伝播が無効な場合のみ）
+        // 通常はSinkNodeでDDA処理されるため、このパスは使用されない。
+        // 将来削除予定。
+        // ----------------------------------------------------------------
+
+        // 特異行列チェック（フォールバック時のみ使用）
         if (!fwdMatrix_.valid) {
             return;
         }
@@ -495,6 +639,9 @@ public:
     //
     // transform::affine() を呼ばず、直接 DDA ループを実装。
     // tx/ty を Q24.8 固定小数点で扱い、サブピクセル精度を実現。
+    //
+    // [DEPRECATED] アフィン伝播により、DDA処理はSourceNode/SinkNodeで実行される。
+    // この関数はフォールバック用に残されているが、将来削除予定。
     //
 
     RenderResult process(RenderResult&& input,
@@ -801,6 +948,22 @@ private:
     Matrix2x2_fixed16 fwdMatrix_;  // prepare() で計算（2x2順行列、AABB分割・プッシュ用）
     int_fixed8 txFixed8_ = 0;  // tx を Q24.8 で保持
     int_fixed8 tyFixed8_ = 0;  // ty を Q24.8 で保持
+    bool hasAffinePropagated_ = false;      // プル型アフィン伝播済みフラグ
+    bool hasPushAffinePropagated_ = false;  // プッシュ型アフィン伝播済みフラグ
+
+    // ========================================
+    // 行列合成（順序: result = a * b）
+    // ========================================
+    static AffineMatrix composeMatrix(const AffineMatrix& a, const AffineMatrix& b) {
+        return AffineMatrix(
+            a.a * b.a + a.b * b.c,        // a
+            a.a * b.b + a.b * b.d,        // b
+            a.c * b.a + a.d * b.c,        // c
+            a.c * b.b + a.d * b.d,        // d
+            a.a * b.tx + a.b * b.ty + a.tx,  // tx
+            a.c * b.tx + a.d * b.ty + a.ty   // ty
+        );
+    }
 
     // ========================================
     // アフィン変換実装（tx/ty サブピクセル精度版）

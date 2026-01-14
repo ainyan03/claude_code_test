@@ -69,7 +69,7 @@ public:
     // ========================================
 
     // 下流へ準備を伝播（全出力へ）
-    bool pushPrepare(const RenderRequest& screenInfo) override {
+    bool pushPrepare(const PrepareRequest& request) override {
         // 循環参照検出
         if (pushPrepareState_ == PrepareState::Preparing) {
             pushPrepareState_ = PrepareState::CycleError;
@@ -83,6 +83,12 @@ public:
         }
 
         pushPrepareState_ = PrepareState::Preparing;
+
+        // 準備処理
+        RenderRequest screenInfo;
+        screenInfo.width = request.width;
+        screenInfo.height = request.height;
+        screenInfo.origin = request.origin;
         prepare(screenInfo);
 
         // 全下流へ伝播
@@ -90,7 +96,7 @@ public:
         for (int i = 0; i < numOutputs; ++i) {
             Node* downstream = downstreamNode(i);
             if (downstream) {
-                if (!downstream->pushPrepare(screenInfo)) {
+                if (!downstream->pushPrepare(request)) {
                     pushPrepareState_ = PrepareState::CycleError;
                     return false;
                 }

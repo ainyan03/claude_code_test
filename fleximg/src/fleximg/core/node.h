@@ -126,12 +126,12 @@ public:
         return process(std::move(input), request);
     }
 
-    // 上流へ準備を伝播（循環参照検出付き）
+    // 上流へ準備を伝播（循環参照検出+アフィン伝播）
     // 戻り値: true = 成功、false = 循環参照検出
-    virtual bool pullPrepare(const RenderRequest& screenInfo) {
+    virtual bool pullPrepare(const PrepareRequest& request) {
         // 循環参照検出: Preparing状態で再訪問 = 循環
         if (pullPrepareState_ == PrepareState::Preparing) {
-            pullPrepareState_ = PrepareState::CycleError;  // エラー状態を設定
+            pullPrepareState_ = PrepareState::CycleError;
             return false;
         }
         // DAG共有ノード: スキップ
@@ -148,13 +148,19 @@ public:
         // 上流へ伝播
         Node* upstream = upstreamNode(0);
         if (upstream) {
-            if (!upstream->pullPrepare(screenInfo)) {
-                pullPrepareState_ = PrepareState::CycleError;  // 上流エラーも伝播
+            if (!upstream->pullPrepare(request)) {
+                pullPrepareState_ = PrepareState::CycleError;
                 return false;
             }
         }
 
+        // 準備処理（PrepareRequestからRenderRequest相当の情報を渡す）
+        RenderRequest screenInfo;
+        screenInfo.width = request.width;
+        screenInfo.height = request.height;
+        screenInfo.origin = request.origin;
         prepare(screenInfo);
+
         pullPrepareState_ = PrepareState::Prepared;
         return true;
     }
@@ -195,7 +201,7 @@ public:
 
     // 下流へ準備を伝播（循環参照検出付き）
     // 戻り値: true = 成功、false = 循環参照検出
-    virtual bool pushPrepare(const RenderRequest& screenInfo) {
+    virtual bool pushPrepare(const PrepareRequest& request) {
         // 循環参照検出: Preparing状態で再訪問 = 循環
         if (pushPrepareState_ == PrepareState::Preparing) {
             pushPrepareState_ = PrepareState::CycleError;
@@ -212,12 +218,17 @@ public:
 
         pushPrepareState_ = PrepareState::Preparing;
 
+        // 準備処理
+        RenderRequest screenInfo;
+        screenInfo.width = request.width;
+        screenInfo.height = request.height;
+        screenInfo.origin = request.origin;
         prepare(screenInfo);
 
         // 下流へ伝播
         Node* downstream = downstreamNode(0);
         if (downstream) {
-            if (!downstream->pushPrepare(screenInfo)) {
+            if (!downstream->pushPrepare(request)) {
                 pushPrepareState_ = PrepareState::CycleError;
                 return false;
             }
