@@ -198,8 +198,11 @@ private:
     bool hasAffine_ = false;       // アフィン変換が伝播されているか
 
     // ========================================
-    // アフィン変換付きプル処理
+    // アフィン変換付きプル処理（スキャンライン専用）
     // ========================================
+    // 前提: request.height == 1（RendererNodeはスキャンライン単位で処理）
+    // 有効範囲のみのバッファを返し、範囲外の0データを下流に送らない
+    //
     RenderResult pullProcessWithAffine(const RenderRequest& request) {
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         auto sourceStart = std::chrono::high_resolution_clock::now();
@@ -210,37 +213,9 @@ private:
             return RenderResult(ImageBuffer(), request.origin);
         }
 
-        // 出力バッファを作成
-        ImageBuffer output(request.width, request.height, source_.formatID);
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        PerfMetrics::instance().nodes[NodeType::Source].recordAlloc(
-            output.totalBytes(), output.width(), output.height());
-#endif
-        ViewPort outputView = output.view();
-
-        // アフィン変換を適用（srcOrigin は事前計算済み）
-        applyAffine(outputView, request.origin.x, request.origin.y, source_);
-
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto& m = PerfMetrics::instance().nodes[NodeType::Source];
-        m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::high_resolution_clock::now() - sourceStart).count();
-        m.count++;
-#endif
-
-        return RenderResult(std::move(output), request.origin);
-    }
-
-    // ========================================
-    // アフィン変換実装（事前計算済み値を使用）
-    // ========================================
-    void applyAffine(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
-                     const ViewPort& src) {
-        if (!invMatrix_.valid) return;
-
-        // dstOrigin分のみ計算（baseTx_/baseTy_ は srcOrigin 込みで事前計算済み）
-        const int32_t dstOriginXInt = from_fixed8(dstOriginX);
-        const int32_t dstOriginYInt = from_fixed8(dstOriginY);
+        // dstOrigin分を計算（baseTx_/baseTy_ は srcOrigin 込みで事前計算済み）
+        const int32_t dstOriginXInt = from_fixed8(request.origin.x);
+        const int32_t dstOriginYInt = from_fixed8(request.origin.y);
 
         const int32_t fixedInvTx = baseTx_
                             - (dstOriginXInt * invMatrix_.a)
@@ -249,10 +224,83 @@ private:
                             - (dstOriginXInt * invMatrix_.c)
                             - (dstOriginYInt * invMatrix_.d);
 
-        // 共通DDA処理を呼び出し
-        transform::applyAffineDDA(dst, src, fixedInvTx, fixedInvTy,
-                                  invMatrix_, rowOffsetX_, rowOffsetY_,
-                                  dxOffsetX_, dxOffsetY_);
+        // この1行の有効範囲を計算
+        const int32_t rowBaseX = fixedInvTx + rowOffsetX_;
+        const int32_t rowBaseY = fixedInvTy + rowOffsetY_;
+
+        auto [xStart, xEnd] = transform::calcValidRange(
+            invMatrix_.a, rowBaseX, source_.width, request.width);
+        auto [yStart, yEnd] = transform::calcValidRange(
+            invMatrix_.c, rowBaseY, source_.height, request.width);
+        int dxStart = std::max({0, xStart, yStart});
+        int dxEnd = std::min({request.width - 1, xEnd, yEnd});
+
+        // 有効ピクセルがない場合
+        if (dxStart > dxEnd) {
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+            auto& m = PerfMetrics::instance().nodes[NodeType::Source];
+            m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::high_resolution_clock::now() - sourceStart).count();
+            m.count++;
+#endif
+            return RenderResult(ImageBuffer(), request.origin);
+        }
+
+        // 有効範囲のみのバッファを作成
+        int validWidth = dxEnd - dxStart + 1;
+        ImageBuffer output(validWidth, 1, source_.formatID);
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        PerfMetrics::instance().nodes[NodeType::Source].recordAlloc(
+            output.totalBytes(), output.width(), output.height());
+#endif
+
+        // DDA転写（1行のみ）
+        int32_t srcX_fixed = invMatrix_.a * dxStart + rowBaseX + dxOffsetX_;
+        int32_t srcY_fixed = invMatrix_.c * dxStart + rowBaseY + dxOffsetY_;
+
+        uint8_t* dstRow = static_cast<uint8_t*>(output.data());
+        const uint8_t* srcData = static_cast<const uint8_t*>(source_.data);
+
+        switch (getBytesPerPixel(source_.formatID)) {
+            case 8:
+                transform::copyRowDDA<8>(dstRow, srcData, source_.stride,
+                    srcX_fixed, srcY_fixed, invMatrix_.a, invMatrix_.c, validWidth);
+                break;
+            case 4:
+                transform::copyRowDDA<4>(dstRow, srcData, source_.stride,
+                    srcX_fixed, srcY_fixed, invMatrix_.a, invMatrix_.c, validWidth);
+                break;
+            case 3:
+                transform::copyRowDDA<3>(dstRow, srcData, source_.stride,
+                    srcX_fixed, srcY_fixed, invMatrix_.a, invMatrix_.c, validWidth);
+                break;
+            case 2:
+                transform::copyRowDDA<2>(dstRow, srcData, source_.stride,
+                    srcX_fixed, srcY_fixed, invMatrix_.a, invMatrix_.c, validWidth);
+                break;
+            case 1:
+                transform::copyRowDDA<1>(dstRow, srcData, source_.stride,
+                    srcX_fixed, srcY_fixed, invMatrix_.a, invMatrix_.c, validWidth);
+                break;
+            default:
+                break;
+        }
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        auto& m = PerfMetrics::instance().nodes[NodeType::Source];
+        m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::high_resolution_clock::now() - sourceStart).count();
+        m.count++;
+#endif
+
+        // originを有効範囲に合わせて調整
+        // dxStart分だけ左にオフセット
+        Point adjustedOrigin = {
+            request.origin.x - to_fixed8(dxStart),
+            request.origin.y
+        };
+
+        return RenderResult(std::move(output), adjustedOrigin);
     }
 };
 
