@@ -43,14 +43,19 @@ src >> affine >> renderer >> sink;
 renderer.exec();
 ```
 
-### タイル分割処理
+### スキャンライン処理（必須仕様）
+
+**パイプライン上を流れるリクエストは必ず高さ1ピクセル（スキャンライン）です。**
 
 ```cpp
 RendererNode renderer;
 renderer.setVirtualScreen(1920, 1080, 960, 540);
-renderer.setTileConfig(TileConfig{64, 64});  // 64x64タイルに分割
+renderer.setTileConfig(TileConfig{64, 64});  // tileWidth=64のみ有効（tileHeightは無視）
 renderer.exec();
 ```
+
+> **Note**: `TileConfig` の `tileHeight` は無視され、常に高さ1で処理されます。
+> この制約により、DDA処理の最適化や有効ピクセル範囲の事前計算が可能になります。
 
 ## 座標系
 
@@ -202,12 +207,15 @@ exec() 呼び出し時:
      └─→ downstream->pushPrepare(screenInfo)  // 下流へ伝播
 
 2. execProcess()
-   for each tile:
-     RendererNode.processTile(tx, ty)
-       │
-       ├─→ result = upstream->pullProcess(tileRequest)  // 上流から取得
-       │
-       └─→ downstream->pushProcess(result, tileRequest) // 下流へ配布
+   for each scanline (ty = 0..height-1):
+     for each tile (tx = 0..tileCountX-1):
+       RendererNode.processTile(tx, ty)
+         │
+         │  tileRequest: width=tileWidth, height=1（スキャンライン）
+         │
+         ├─→ result = upstream->pullProcess(tileRequest)  // 上流から取得
+         │
+         └─→ downstream->pushProcess(result, tileRequest) // 下流へ配布
 
 3. execFinalize()
    RendererNode
