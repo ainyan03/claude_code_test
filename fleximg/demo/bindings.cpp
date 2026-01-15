@@ -104,6 +104,7 @@ struct GraphNode {
     std::string filterType;
     std::vector<float> filterParams;
     bool independent = false;
+    bool bilinear = false;  // imageノード用: バイリニア補間を使用
     struct { double a=1, b=0, c=0, d=1, tx=0, ty=0; } affineMatrix;
     std::vector<std::string> compositeInputIds;   // compositeノード用（N入力）
     std::vector<std::string> distributorOutputIds; // distributorノード用（N出力）
@@ -312,6 +313,9 @@ public:
                 }
                 if (nodeObj["originY"].typeOf().as<std::string>() != "undefined") {
                     node.srcOriginY = nodeObj["originY"].as<double>();
+                }
+                if (nodeObj["bilinear"].typeOf().as<std::string>() != "undefined") {
+                    node.bilinear = nodeObj["bilinear"].as<bool>();
                 }
             }
 
@@ -680,6 +684,9 @@ private:
                 src->setSource(viewIt->second);
                 src->setOrigin(float_to_fixed8(static_cast<float>(gnode.srcOriginX)),
                                float_to_fixed8(static_cast<float>(gnode.srcOriginY)));
+                if (gnode.bilinear) {
+                    src->setInterpolationMode(InterpolationMode::Bilinear);
+                }
 
                 Node* result = src.get();
                 sourceNodes[nodeId] = std::move(src);
