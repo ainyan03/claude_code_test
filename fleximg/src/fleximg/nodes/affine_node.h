@@ -177,7 +177,7 @@ public:
         if (upstreamRequest.hasAffine) {
             // 既存の行列（下流側）に自身の行列（上流側）を後から掛ける
             // result = existing * self（dst = M_downstream * M_upstream * src）
-            upstreamRequest.affineMatrix = composeMatrix(upstreamRequest.affineMatrix, matrix_);
+            upstreamRequest.affineMatrix = upstreamRequest.affineMatrix * matrix_;
         } else {
             upstreamRequest.affineMatrix = matrix_;
             upstreamRequest.hasAffine = true;
@@ -239,7 +239,7 @@ public:
         if (downstreamRequest.hasPushAffine) {
             // 既存の行列（上流側）に自身の行列（下流側）を後から掛ける
             // result = existing * self（プッシュ型は上流から下流へ）
-            downstreamRequest.pushAffineMatrix = composeMatrix(downstreamRequest.pushAffineMatrix, matrix_);
+            downstreamRequest.pushAffineMatrix = downstreamRequest.pushAffineMatrix * matrix_;
         } else {
             downstreamRequest.pushAffineMatrix = matrix_;
             downstreamRequest.hasPushAffine = true;
@@ -950,20 +950,6 @@ private:
     int_fixed8 tyFixed8_ = 0;  // ty を Q24.8 で保持
     bool hasAffinePropagated_ = false;      // プル型アフィン伝播済みフラグ
     bool hasPushAffinePropagated_ = false;  // プッシュ型アフィン伝播済みフラグ
-
-    // ========================================
-    // 行列合成（順序: result = a * b）
-    // ========================================
-    static AffineMatrix composeMatrix(const AffineMatrix& a, const AffineMatrix& b) {
-        return AffineMatrix(
-            a.a * b.a + a.b * b.c,        // a
-            a.a * b.b + a.b * b.d,        // b
-            a.c * b.a + a.d * b.c,        // c
-            a.c * b.b + a.d * b.d,        // d
-            a.a * b.tx + a.b * b.ty + a.tx,  // tx
-            a.c * b.tx + a.d * b.ty + a.ty   // ty
-        );
-    }
 
     // ========================================
     // アフィン変換実装（tx/ty サブピクセル精度版）
