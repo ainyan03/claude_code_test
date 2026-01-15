@@ -220,11 +220,17 @@ public:
         ImageBuffer canvasBuf = canvas_utils::createCanvas(request.width, request.height);
         ViewPort canvasView = canvasBuf.view();
 
-        // 全9区画を処理（CompositeNodeと同様）
-        // 各区画のSourceNodeには適切なoriginが設定されているので、
-        // 同じrequestを渡すだけで良い
+        // 全9区画を処理
+        // 描画順序: 固定パッチ（角）→ 伸縮パッチ（辺、中央）
+        // オーバーラップ部分は伸縮パッチで上書きされる
+        constexpr int drawOrder[9] = {
+            0, 2, 6, 8,  // 固定パッチ（角）を先に
+            1, 3, 5, 7,  // 伸縮パッチ（辺）を後から
+            4            // 中央パッチを最後に
+        };
+
         bool first = true;
-        for (int i = 0; i < 9; i++) {
+        for (int i : drawOrder) {
             // サイズ0の区画はスキップ
             int col = i % 3;
             int row = i / 3;
@@ -239,13 +245,20 @@ public:
             patchResult = canvas_utils::ensureBlendableFormat(std::move(patchResult));
 
             // キャンバスに配置
+            // 固定パッチ（col≠1 かつ row≠1）以外は上書き（placeFirst）
+            bool isCornerPatch = (col != 1 && row != 1);
             if (first) {
                 canvas_utils::placeFirst(canvasView, request.origin.x, request.origin.y,
                                          patchResult.view(), patchResult.origin.x, patchResult.origin.y);
                 first = false;
-            } else {
+            } else if (isCornerPatch) {
+                // 固定パッチはブレンド（半透明対応）
                 canvas_utils::placeOnto(canvasView, request.origin.x, request.origin.y,
                                         patchResult.view(), patchResult.origin.x, patchResult.origin.y);
+            } else {
+                // 伸縮パッチは上書き（オーバーラップ部分を完全に塗りつぶす）
+                canvas_utils::placeFirst(canvasView, request.origin.x, request.origin.y,
+                                         patchResult.view(), patchResult.origin.x, patchResult.origin.y);
             }
         }
 
@@ -297,6 +310,28 @@ private:
         return row * 3 + col;
     }
 
+    // オーバーラップ量を計算（ドット抜け対策）
+    // dx, dy: ソース/出力の開始位置オフセット（負値 = 左/上方向に拡張）
+    // dw, dh: ソース/出力のサイズ増分
+    void calculateOverlap(int col, int row, int16_t& dx, int16_t& dy, int16_t& dw, int16_t& dh) const {
+        dx = dy = dw = dh = 0;
+
+        bool hasHStretch = srcPatchW_[1] > 0;  // 横方向伸縮部が存在
+        bool hasVStretch = srcPatchH_[1] > 0;  // 縦方向伸縮部が存在
+
+        // 横方向の拡張（左列は右に、右列は左に）
+        if (hasHStretch) {
+            if (col == 0 && srcPatchW_[0] > 0) { dw = 1; }           // 左列: 右に拡張
+            else if (col == 2 && srcPatchW_[2] > 0) { dx = -1; dw = 1; }  // 右列: 左に拡張
+        }
+
+        // 縦方向の拡張（上行は下に、下行は上に）
+        if (hasVStretch) {
+            if (row == 0 && srcPatchH_[0] > 0) { dh = 1; }           // 上行: 下に拡張
+            else if (row == 2 && srcPatchH_[2] > 0) { dy = -1; dh = 1; }  // 下行: 上に拡張
+        }
+    }
+
     // 各区画のSourceNodeを初期化
     void setupPatchSourceNodes() {
         if (!sourceValid_) return;
@@ -305,7 +340,7 @@ private:
         int16_t srcCenterW = source_.width - srcLeft_ - srcRight_;
         int16_t srcCenterH = source_.height - srcTop_ - srcBottom_;
 
-        // 各列/行のソースサイズを保存（スケール計算用）
+        // 各列/行のソースサイズを保存（スケール計算用 - オーバーラップ前の値）
         srcPatchW_[0] = srcLeft_;
         srcPatchW_[1] = srcCenterW;
         srcPatchW_[2] = srcRight_;
@@ -314,11 +349,11 @@ private:
         srcPatchH_[1] = srcCenterH;
         srcPatchH_[2] = srcBottom_;
 
-        // 各列/行のソース開始位置（ローカル変数）
+        // 各列/行のソース開始位置
         int16_t srcPatchX[3] = { 0, srcLeft_, static_cast<int16_t>(srcLeft_ + srcCenterW) };
         int16_t srcPatchY[3] = { 0, srcTop_, static_cast<int16_t>(srcTop_ + srcCenterH) };
 
-        // 各区画のSourceNodeにsubViewを設定
+        // 各区画のSourceNodeにsubViewを設定（オーバーラップ適用）
         for (int row = 0; row < 3; row++) {
             for (int col = 0; col < 3; col++) {
                 int idx = getPatchIndex(col, row);
@@ -326,8 +361,17 @@ private:
                 int16_t h = srcPatchH_[row];
 
                 if (w > 0 && h > 0) {
-                    ViewPort subView = view_ops::subView(source_,
-                        srcPatchX[col], srcPatchY[row], w, h);
+                    // オーバーラップ量を計算
+                    int16_t dx, dy, dw, dh;
+                    calculateOverlap(col, row, dx, dy, dw, dh);
+
+                    // ソースビューを拡張（オーバーラップ適用）
+                    int16_t sx = srcPatchX[col] + dx;
+                    int16_t sy = srcPatchY[row] + dy;
+                    int16_t sw = w + dw;
+                    int16_t sh = h + dh;
+
+                    ViewPort subView = view_ops::subView(source_, sx, sy, sw, sh);
                     patches_[idx].setSource(subView);
                     patches_[idx].setOrigin(0, 0);
                 }
@@ -379,12 +423,17 @@ private:
                     scaleY = static_cast<float>(patchHeights_[1]) / srcPatchH_[1];
                 }
 
+                // オーバーラップ量を取得
+                int16_t dx, dy, dw, dh;
+                calculateOverlap(col, row, dx, dy, dw, dh);
+
                 // アフィン行列を設定（スケール + 平行移動）
                 // 出力座標P → ソース座標S: S = (P - patchOffset) / scale
                 // アフィン行列（S → P）: P = S * scale + patchOffset
                 // 平行移動はorigin相対座標で指定
-                float tx = static_cast<float>(patchOffsetX_[col]) - from_fixed8(originX_);
-                float ty = static_cast<float>(patchOffsetY_[row]) - from_fixed8(originY_);
+                // オーバーラップにより開始位置がずれる場合は dx, dy を加算
+                float tx = static_cast<float>(patchOffsetX_[col] + dx) - from_fixed8(originX_);
+                float ty = static_cast<float>(patchOffsetY_[row] + dy) - from_fixed8(originY_);
                 patchScales_[idx] = AffineMatrix(scaleX, 0.0f, 0.0f, scaleY, tx, ty);
                 patchNeedsAffine_[idx] = true;  // 平行移動があるので常にtrue
 
