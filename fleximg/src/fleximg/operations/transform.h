@@ -172,6 +172,66 @@ using CopyRowDDAFunc = void(*)(
 );
 
 // ========================================================================
+// copyRowDDABilinear_RGBA8888 - バイリニア補間付きDDA行転写（RGBA8888専用）
+// ========================================================================
+//
+// アフィン変換のDDA描画で、1行分のピクセルをバイリニア補間で転写します。
+// RGBA8888フォーマット専用。
+//
+// 注意:
+// - 半ピクセルオフセット（coeff >> 1）は不要。小数部を補間重みとして使用。
+// - 有効範囲は srcSize - 1 で計算すること（sx+1, sy+1 が範囲内に収まるように）
+//
+
+inline void copyRowDDABilinear_RGBA8888(
+    uint8_t* dstRow,
+    const uint8_t* srcData,
+    int32_t srcStride,
+    int32_t srcX_fixed,
+    int32_t srcY_fixed,
+    int32_t fixedInvA,
+    int32_t fixedInvC,
+    int count
+) {
+    constexpr int BPP = 4;  // RGBA8888 = 4 bytes per pixel
+
+    for (int i = 0; i < count; i++) {
+        // 整数部（ピクセル座標）
+        int32_t sx = srcX_fixed >> INT_FIXED16_SHIFT;
+        int32_t sy = srcY_fixed >> INT_FIXED16_SHIFT;
+
+        // 小数部を 0-255 に正規化（補間の重み）
+        // Q16.16 の下位16ビットを8ビットに縮小
+        uint32_t fx = (static_cast<uint32_t>(srcX_fixed) >> 8) & 0xFF;
+        uint32_t fy = (static_cast<uint32_t>(srcY_fixed) >> 8) & 0xFF;
+
+        // 4点のポインタを取得
+        // 有効範囲計算で sx+1, sy+1 が範囲内であることが保証されている前提
+        const uint8_t* p00 = srcData + sy * srcStride + sx * BPP;
+        const uint8_t* p10 = p00 + BPP;           // (sx+1, sy)
+        const uint8_t* p01 = p00 + srcStride;    // (sx, sy+1)
+        const uint8_t* p11 = p01 + BPP;           // (sx+1, sy+1)
+
+        // バイリニア補間（各チャンネル）
+        // top    = p00 * (256 - fx) + p10 * fx
+        // bottom = p01 * (256 - fx) + p11 * fx
+        // result = top * (256 - fy) + bottom * fy
+        uint32_t ifx = 256 - fx;
+        uint32_t ify = 256 - fy;
+
+        for (int c = 0; c < 4; c++) {
+            uint32_t top    = p00[c] * ifx + p10[c] * fx;
+            uint32_t bottom = p01[c] * ifx + p11[c] * fx;
+            dstRow[c] = static_cast<uint8_t>((top * ify + bottom * fy) >> 16);
+        }
+
+        dstRow += BPP;
+        srcX_fixed += fixedInvA;
+        srcY_fixed += fixedInvC;
+    }
+}
+
+// ========================================================================
 // applyAffineDDA - DDAによるアフィン変換転写
 // ========================================================================
 //

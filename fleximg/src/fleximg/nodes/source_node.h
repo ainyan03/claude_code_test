@@ -14,6 +14,15 @@
 namespace FLEXIMG_NAMESPACE {
 
 // ========================================================================
+// InterpolationMode - 補間モード
+// ========================================================================
+
+enum class InterpolationMode {
+    Nearest,   // 最近傍補間（デフォルト）
+    Bilinear   // バイリニア補間（RGBA8888のみ対応）
+};
+
+// ========================================================================
 // SourceNode - 画像入力ノード（終端）
 // ========================================================================
 //
@@ -44,6 +53,10 @@ public:
     int_fixed8 originX() const { return originX_; }
     int_fixed8 originY() const { return originY_; }
 
+    // 補間モード設定
+    void setInterpolationMode(InterpolationMode mode) { interpolationMode_ = mode; }
+    InterpolationMode interpolationMode() const { return interpolationMode_; }
+
     const char* name() const override { return "SourceNode"; }
 
     // ========================================
@@ -65,29 +78,54 @@ public:
             affine_ = precomputeInverseAffine(request.affineMatrix);
 
             if (affine_.isValid()) {
-                // LovyanGFX方式の範囲計算用事前計算
-                fpWidth_ = source_.width << INT_FIXED16_SHIFT;
-                fpHeight_ = source_.height << INT_FIXED16_SHIFT;
-
                 const int32_t invA = affine_.invMatrix.a;
                 const int32_t invC = affine_.invMatrix.c;
-
-                // 境界値の事前計算（符号によって異なる）
-                xs1_ = invA + (invA < 0 ? fpWidth_ : -1);
-                xs2_ = invA + (invA < 0 ? 0 : (fpWidth_ - 1));
-                ys1_ = invC + (invC < 0 ? fpHeight_ : -1);
-                ys2_ = invC + (invC < 0 ? 0 : (fpHeight_ - 1));
-
-                // オフセット統合（process時の加算を削減）
-                // baseTxWithOffsets = invTx + srcOrigin + rowOffset + dxOffset
                 const int32_t srcOriginXInt = from_fixed8(originX_);
                 const int32_t srcOriginYInt = from_fixed8(originY_);
-                baseTxWithOffsets_ = affine_.invTxFixed
-                                   + (srcOriginXInt << INT_FIXED16_SHIFT)
-                                   + affine_.rowOffsetX + affine_.dxOffsetX;
-                baseTyWithOffsets_ = affine_.invTyFixed
-                                   + (srcOriginYInt << INT_FIXED16_SHIFT)
-                                   + affine_.rowOffsetY + affine_.dxOffsetY;
+
+                // バイリニア補間かどうかで有効範囲とオフセットが異なる
+                const bool useBilinear = (interpolationMode_ == InterpolationMode::Bilinear)
+                                       && (source_.formatID == PixelFormatIDs::RGBA8_Straight);
+
+                if (useBilinear) {
+                    // バイリニア: 有効範囲は srcSize - 1（4点補間のため sx+1 が範囲内に収まるように）
+                    fpWidth_ = (source_.width - 1) << INT_FIXED16_SHIFT;
+                    fpHeight_ = (source_.height - 1) << INT_FIXED16_SHIFT;
+
+                    xs1_ = invA + (invA < 0 ? fpWidth_ : -1);
+                    xs2_ = invA + (invA < 0 ? 0 : (fpWidth_ - 1));
+                    ys1_ = invC + (invC < 0 ? fpHeight_ : -1);
+                    ys2_ = invC + (invC < 0 ? 0 : (fpHeight_ - 1));
+
+                    // バイリニアでも最近傍と同じ半ピクセルオフセットを使用
+                    // さらに origin から 0.5 ピクセル減算（ピクセル中心基準）
+                    constexpr int32_t halfPixel = 1 << (INT_FIXED16_SHIFT - 1);  // 0.5 in Q16.16
+                    baseTxWithOffsets_ = affine_.invTxFixed
+                                       + (srcOriginXInt << INT_FIXED16_SHIFT) - halfPixel
+                                       + affine_.rowOffsetX + affine_.dxOffsetX;
+                    baseTyWithOffsets_ = affine_.invTyFixed
+                                       + (srcOriginYInt << INT_FIXED16_SHIFT) - halfPixel
+                                       + affine_.rowOffsetY + affine_.dxOffsetY;
+                    useBilinear_ = true;
+                } else {
+                    // 最近傍: 現行動作
+                    fpWidth_ = source_.width << INT_FIXED16_SHIFT;
+                    fpHeight_ = source_.height << INT_FIXED16_SHIFT;
+
+                    xs1_ = invA + (invA < 0 ? fpWidth_ : -1);
+                    xs2_ = invA + (invA < 0 ? 0 : (fpWidth_ - 1));
+                    ys1_ = invC + (invC < 0 ? fpHeight_ : -1);
+                    ys2_ = invC + (invC < 0 ? 0 : (fpHeight_ - 1));
+
+                    // dxOffset を含める（半ピクセルオフセット）
+                    baseTxWithOffsets_ = affine_.invTxFixed
+                                       + (srcOriginXInt << INT_FIXED16_SHIFT)
+                                       + affine_.rowOffsetX + affine_.dxOffsetX;
+                    baseTyWithOffsets_ = affine_.invTyFixed
+                                       + (srcOriginYInt << INT_FIXED16_SHIFT)
+                                       + affine_.rowOffsetY + affine_.dxOffsetY;
+                    useBilinear_ = false;
+                }
             }
             hasAffine_ = true;
         } else {
@@ -179,10 +217,12 @@ private:
     ViewPort source_;
     int_fixed8 originX_ = 0;  // 画像内の基準点X（固定小数点 Q24.8）
     int_fixed8 originY_ = 0;  // 画像内の基準点Y（固定小数点 Q24.8）
+    InterpolationMode interpolationMode_ = InterpolationMode::Nearest;
 
     // アフィン伝播用メンバ変数（事前計算済み）
     AffinePrecomputed affine_;     // 逆行列・ピクセル中心オフセット
     bool hasAffine_ = false;       // アフィン変換が伝播されているか
+    bool useBilinear_ = false;     // バイリニア補間を使用するか（事前計算結果）
 
     // LovyanGFX方式の範囲計算用事前計算値
     int32_t xs1_ = 0, xs2_ = 0;  // X方向の範囲境界（invAに依存）
@@ -273,36 +313,45 @@ private:
 #endif
 
         // DDA転写（1行のみ）
-        // srcX_fixed = invA * dxStart + baseXWithHalf（baseXWithHalfにdxOffsetXは含まれている）
+        // srcX_fixed = invA * dxStart + baseXWithHalf
+        // バイリニア時: baseXWithHalfにdxOffsetXは含まれていない（小数部を補間重みとして使用）
+        // 最近傍時: baseXWithHalfにdxOffsetXは含まれている
         int32_t srcX_fixed = invA * dxStart + baseXWithHalf;
         int32_t srcY_fixed = invC * dxStart + baseYWithHalf;
 
         uint8_t* dstRow = static_cast<uint8_t*>(output.data());
         const uint8_t* srcData = static_cast<const uint8_t*>(source_.data);
 
-        switch (getBytesPerPixel(source_.formatID)) {
-            case 8:
-                transform::copyRowDDA<8>(dstRow, srcData, source_.stride,
-                    srcX_fixed, srcY_fixed, affine_.invMatrix.a, affine_.invMatrix.c, validWidth);
-                break;
-            case 4:
-                transform::copyRowDDA<4>(dstRow, srcData, source_.stride,
-                    srcX_fixed, srcY_fixed, affine_.invMatrix.a, affine_.invMatrix.c, validWidth);
-                break;
-            case 3:
-                transform::copyRowDDA<3>(dstRow, srcData, source_.stride,
-                    srcX_fixed, srcY_fixed, affine_.invMatrix.a, affine_.invMatrix.c, validWidth);
-                break;
-            case 2:
-                transform::copyRowDDA<2>(dstRow, srcData, source_.stride,
-                    srcX_fixed, srcY_fixed, affine_.invMatrix.a, affine_.invMatrix.c, validWidth);
-                break;
-            case 1:
-                transform::copyRowDDA<1>(dstRow, srcData, source_.stride,
-                    srcX_fixed, srcY_fixed, affine_.invMatrix.a, affine_.invMatrix.c, validWidth);
-                break;
-            default:
-                break;
+        if (useBilinear_) {
+            // バイリニア補間（RGBA8888専用）
+            transform::copyRowDDABilinear_RGBA8888(dstRow, srcData, source_.stride,
+                srcX_fixed, srcY_fixed, invA, invC, validWidth);
+        } else {
+            // 最近傍補間
+            switch (getBytesPerPixel(source_.formatID)) {
+                case 8:
+                    transform::copyRowDDA<8>(dstRow, srcData, source_.stride,
+                        srcX_fixed, srcY_fixed, invA, invC, validWidth);
+                    break;
+                case 4:
+                    transform::copyRowDDA<4>(dstRow, srcData, source_.stride,
+                        srcX_fixed, srcY_fixed, invA, invC, validWidth);
+                    break;
+                case 3:
+                    transform::copyRowDDA<3>(dstRow, srcData, source_.stride,
+                        srcX_fixed, srcY_fixed, invA, invC, validWidth);
+                    break;
+                case 2:
+                    transform::copyRowDDA<2>(dstRow, srcData, source_.stride,
+                        srcX_fixed, srcY_fixed, invA, invC, validWidth);
+                    break;
+                case 1:
+                    transform::copyRowDDA<1>(dstRow, srcData, source_.stride,
+                        srcX_fixed, srcY_fixed, invA, invC, validWidth);
+                    break;
+                default:
+                    break;
+            }
         }
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
