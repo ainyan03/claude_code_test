@@ -8,6 +8,7 @@
 #include "../operations/transform.h"
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
 #include <chrono>
+#include <cstdio>
 #endif
 
 namespace FLEXIMG_NAMESPACE {
@@ -64,11 +65,29 @@ public:
             affine_ = precomputeInverseAffine(request.affineMatrix);
 
             if (affine_.isValid()) {
-                // srcOrigin（自身のorigin）を加算して baseTx/Ty を計算
+                // LovyanGFX方式の範囲計算用事前計算
+                fpWidth_ = source_.width << INT_FIXED16_SHIFT;
+                fpHeight_ = source_.height << INT_FIXED16_SHIFT;
+
+                const int32_t invA = affine_.invMatrix.a;
+                const int32_t invC = affine_.invMatrix.c;
+
+                // 境界値の事前計算（符号によって異なる）
+                xs1_ = invA + (invA < 0 ? fpWidth_ : -1);
+                xs2_ = invA + (invA < 0 ? 0 : (fpWidth_ - 1));
+                ys1_ = invC + (invC < 0 ? fpHeight_ : -1);
+                ys2_ = invC + (invC < 0 ? 0 : (fpHeight_ - 1));
+
+                // オフセット統合（process時の加算を削減）
+                // baseTxWithOffsets = invTx + srcOrigin + rowOffset + dxOffset
                 const int32_t srcOriginXInt = from_fixed8(originX_);
                 const int32_t srcOriginYInt = from_fixed8(originY_);
-                baseTx_ = affine_.invTxFixed + (srcOriginXInt << INT_FIXED16_SHIFT);
-                baseTy_ = affine_.invTyFixed + (srcOriginYInt << INT_FIXED16_SHIFT);
+                baseTxWithOffsets_ = affine_.invTxFixed
+                                   + (srcOriginXInt << INT_FIXED16_SHIFT)
+                                   + affine_.rowOffsetX + affine_.dxOffsetX;
+                baseTyWithOffsets_ = affine_.invTyFixed
+                                   + (srcOriginYInt << INT_FIXED16_SHIFT)
+                                   + affine_.rowOffsetY + affine_.dxOffsetY;
             }
             hasAffine_ = true;
         } else {
@@ -163,9 +182,15 @@ private:
 
     // アフィン伝播用メンバ変数（事前計算済み）
     AffinePrecomputed affine_;     // 逆行列・ピクセル中心オフセット
-    int32_t baseTx_ = 0;           // 事前計算済みオフセットX（Q16.16、srcOrigin込み）
-    int32_t baseTy_ = 0;           // 事前計算済みオフセットY（Q16.16、srcOrigin込み）
     bool hasAffine_ = false;       // アフィン変換が伝播されているか
+
+    // LovyanGFX方式の範囲計算用事前計算値
+    int32_t xs1_ = 0, xs2_ = 0;  // X方向の範囲境界（invAに依存）
+    int32_t ys1_ = 0, ys2_ = 0;  // Y方向の範囲境界（invCに依存）
+    int32_t fpWidth_ = 0;        // ソース幅（Q16.16固定小数点）
+    int32_t fpHeight_ = 0;       // ソース高さ（Q16.16固定小数点）
+    int32_t baseTxWithOffsets_ = 0;  // 事前計算統合: invTx + srcOrigin + rowOffset + dxOffset
+    int32_t baseTyWithOffsets_ = 0;  // 事前計算統合: invTy + srcOrigin + rowOffset + dxOffset
 
     // ========================================
     // アフィン変換付きプル処理（スキャンライン専用）
@@ -183,27 +208,50 @@ private:
             return RenderResult(ImageBuffer(), request.origin);
         }
 
-        // dstOrigin分を計算（baseTx_/baseTy_ は srcOrigin 込みで事前計算済み）
+        // dstOrigin分を計算
         const int32_t dstOriginXInt = from_fixed8(request.origin.x);
         const int32_t dstOriginYInt = from_fixed8(request.origin.y);
 
-        const int32_t fixedInvTx = baseTx_
-                            - (dstOriginXInt * affine_.invMatrix.a)
-                            - (dstOriginYInt * affine_.invMatrix.b);
-        const int32_t fixedInvTy = baseTy_
-                            - (dstOriginXInt * affine_.invMatrix.c)
-                            - (dstOriginYInt * affine_.invMatrix.d);
+        // LovyanGFX/pixel_image.hpp 方式: 事前計算済み境界値を使った範囲計算
+        const int32_t invA = affine_.invMatrix.a;
+        const int32_t invB = affine_.invMatrix.b;
+        const int32_t invC = affine_.invMatrix.c;
+        const int32_t invD = affine_.invMatrix.d;
 
-        // この1行の有効範囲を計算
-        const int32_t rowBaseX = fixedInvTx + affine_.rowOffsetX;
-        const int32_t rowBaseY = fixedInvTy + affine_.rowOffsetY;
+        // 事前計算統合版（オフセット加算を削減）
+        // baseWithHalf = baseTx + rowOffsetX + dxOffsetX - origin*inv
+        const int32_t baseXWithHalf = baseTxWithOffsets_
+                            - (dstOriginXInt * invA)
+                            - (dstOriginYInt * invB);
+        const int32_t baseYWithHalf = baseTyWithOffsets_
+                            - (dstOriginXInt * invC)
+                            - (dstOriginYInt * invD);
 
-        auto [xStart, xEnd] = transform::calcValidRange(
-            affine_.invMatrix.a, rowBaseX, source_.width, request.width);
-        auto [yStart, yEnd] = transform::calcValidRange(
-            affine_.invMatrix.c, rowBaseY, source_.height, request.width);
-        int dxStart = std::max({0, xStart, yStart});
-        int dxEnd = std::min({request.width - 1, xEnd, yEnd});
+        int dxStart, dxEnd;
+
+        int32_t left = 0;
+        int32_t right = request.width;
+
+        if (invA) {
+            left  = std::max(left, (xs1_ - baseXWithHalf) / invA);
+            right = std::min(right, (xs2_ - baseXWithHalf) / invA);
+        } else if (static_cast<uint32_t>(baseXWithHalf) >= static_cast<uint32_t>(fpWidth_)) {
+            // invA == 0 で baseXWithHalf がソース範囲外の場合は描画不可
+            left = 1;
+            right = 0;
+        }
+
+        if (invC) {
+            left  = std::max(left, (ys1_ - baseYWithHalf) / invC);
+            right = std::min(right, (ys2_ - baseYWithHalf) / invC);
+        } else if (static_cast<uint32_t>(baseYWithHalf) >= static_cast<uint32_t>(fpHeight_)) {
+            // invC == 0 で baseYWithHalf がソース範囲外の場合は描画不可
+            left = 1;
+            right = 0;
+        }
+
+        dxStart = left;
+        dxEnd = right - 1;  // right は排他的なので -1
 
         // 有効ピクセルがない場合
         if (dxStart > dxEnd) {
@@ -225,8 +273,9 @@ private:
 #endif
 
         // DDA転写（1行のみ）
-        int32_t srcX_fixed = affine_.invMatrix.a * dxStart + rowBaseX + affine_.dxOffsetX;
-        int32_t srcY_fixed = affine_.invMatrix.c * dxStart + rowBaseY + affine_.dxOffsetY;
+        // srcX_fixed = invA * dxStart + baseXWithHalf（baseXWithHalfにdxOffsetXは含まれている）
+        int32_t srcX_fixed = invA * dxStart + baseXWithHalf;
+        int32_t srcY_fixed = invC * dxStart + baseYWithHalf;
 
         uint8_t* dstRow = static_cast<uint8_t*>(output.data());
         const uint8_t* srcData = static_cast<const uint8_t*>(source_.data);
