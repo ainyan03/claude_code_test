@@ -943,7 +943,7 @@ function buildNodeAddMenu(menu) {
             { id: 'composite', name: '合成', icon: '📑' },
             { id: 'distributor', name: '分配', icon: '📤' }
         ],
-        special: [{ id: 'ninepatch', name: '9patch', icon: '🖼️' }]
+        special: []
     };
 
     // FILTER_DEFINITIONSからフィルタを追加
@@ -1577,7 +1577,8 @@ function generateTestPatterns() {
                 const tx = Math.floor((x - 1) / tileSize);
                 const ty = Math.floor((y - 1) / tileSize);
                 const isTile1 = (tx + ty) % 2 === 0;
-                tempCtx.fillStyle = isTile1 ? '#e0e8f0' : '#c8d8e8';
+                // 半透明（alpha=0.5）でオーバーラップ効果を視覚的に確認
+                tempCtx.fillStyle = isTile1 ? 'rgba(224, 232, 240, 0.5)' : 'rgba(200, 216, 232, 0.5)';
                 tempCtx.fillRect(x, y, 1, 1);
             }
         }
@@ -1590,7 +1591,7 @@ function generateTestPatterns() {
         const contentRight = totalSize - 1;  // 49 (ピクセル48の右端)
         const contentBottom = totalSize - 1; // 49 (ピクセル48の下端)
         const cutSize = cornerSize / 2;  // 角のカットサイズ
-        tempCtx.fillStyle = '#4a90d9';  // 青
+        tempCtx.fillStyle = 'rgba(74, 144, 217, 0.5)';  // 青（半透明）
         tempCtx.beginPath();
         // 上辺の左側から時計回りに（コンテンツ領域内に収める）
         tempCtx.moveTo(contentLeft + cutSize, contentTop);              // 上辺左
@@ -1604,6 +1605,30 @@ function generateTestPatterns() {
         tempCtx.closePath();
         tempCtx.fill();
         // 枠線は省略（stroke がメタデータ領域にはみ出すため）
+
+        // 固定部と伸縮部の境界線を描画（目視確認用）
+        // 境界位置: 左=16, 右=33, 上=16, 下=33（キャンバス座標）
+        const boundaryLeft = cornerSize;      // 16（左固定部の右端）
+        const boundaryRight = totalSize - 1 - cornerSize;  // 33（右固定部の左端）
+        const boundaryTop = cornerSize;       // 16（上固定部の下端）
+        const boundaryBottom = totalSize - 1 - cornerSize; // 33（下固定部の上端）
+        tempCtx.fillStyle = 'rgba(255, 0, 0, 0.8)';  // 赤（目立つ色）
+        // 縦の境界線（左）
+        for (let y = 1; y < totalSize - 1; y++) {
+            tempCtx.fillRect(boundaryLeft, y, 1, 1);
+        }
+        // 縦の境界線（右）
+        for (let y = 1; y < totalSize - 1; y++) {
+            tempCtx.fillRect(boundaryRight, y, 1, 1);
+        }
+        // 横の境界線（上）
+        for (let x = 1; x < totalSize - 1; x++) {
+            tempCtx.fillRect(x, boundaryTop, 1, 1);
+        }
+        // 横の境界線（下）
+        for (let x = 1; x < totalSize - 1; x++) {
+            tempCtx.fillRect(x, boundaryBottom, 1, 1);
+        }
 
         // メタデータ境界線（外周1px）に伸縮領域を示す黒ピクセルを配置
         // 上辺：中央16ピクセル（x=17〜32）が伸縮領域
@@ -1686,14 +1711,25 @@ function renderContentLibrary() {
         const deleteBtn = item.querySelector('.delete-btn');
 
         if (content.type === 'image') {
-            // 画像（Source側）: オレンジ
-            addBtn.textContent = '+Src';
-            addBtn.classList.add('source');
-            addBtn.title = '画像ソースノードを追加';
-            addBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                addImageNodeFromLibrary(content.id);
-            });
+            if (content.isNinePatch) {
+                // 9patch画像: 紫系
+                addBtn.textContent = '+9P';
+                addBtn.classList.add('ninepatch');
+                addBtn.title = '9patchノードを追加';
+                addBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    addNinePatchNode(content.id);
+                });
+            } else {
+                // 通常画像（Source側）: オレンジ
+                addBtn.textContent = '+Src';
+                addBtn.classList.add('source');
+                addBtn.title = '画像ソースノードを追加';
+                addBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    addImageNodeFromLibrary(content.id);
+                });
+            }
 
             // 削除ボタン
             deleteBtn.addEventListener('click', (e) => {
@@ -1833,11 +1869,17 @@ function loadImage(file) {
                     const imageData = tempCtx.getImageData(0, 0, img.width, img.height);
 
                     console.log('ImageData created:', imageData.data.length, 'bytes');
+                    // .9.png で終わるファイル名は9patch画像として認識
+                    const isNinePatch = file.name.toLowerCase().endsWith('.9.png');
+                    if (isNinePatch) {
+                        console.log('Detected as 9patch image:', file.name);
+                    }
                     resolve({
                         data: imageData.data,
                         width: img.width,
                         height: img.height,
-                        name: file.name
+                        name: file.name,
+                        isNinePatch: isNinePatch
                     });
                 } catch (error) {
                     console.error('Error processing image:', error);
@@ -4679,6 +4721,7 @@ function getAppState() {
             width: content.width,
             height: content.height,
             cppImageId: content.cppImageId,
+            isNinePatch: content.isNinePatch || false,  // 9patchフラグを保存
             // 画像コンテンツのみimageDataを保存（出力バッファは再生成）
             dataURL: content.type === 'image' && content.imageData
                 ? imageDataToDataURL(content.imageData)
@@ -4890,6 +4933,7 @@ async function restoreAppState(state) {
             width: contentState.width,
             height: contentState.height,
             cppImageId: contentState.cppImageId,
+            isNinePatch: contentState.isNinePatch || false,  // 9patchフラグを復元
             imageData: null
         };
 
