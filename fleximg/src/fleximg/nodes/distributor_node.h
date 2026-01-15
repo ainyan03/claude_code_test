@@ -70,19 +70,13 @@ public:
 
     // 下流へ準備を伝播（全出力へ）
     bool pushPrepare(const PrepareRequest& request) override {
-        // 循環参照検出
-        if (pushPrepareState_ == PrepareState::Preparing) {
-            pushPrepareState_ = PrepareState::CycleError;
+        bool shouldContinue;
+        if (!checkPrepareState(pushPrepareState_, shouldContinue)) {
             return false;
         }
-        if (pushPrepareState_ == PrepareState::Prepared) {
-            return true;
+        if (!shouldContinue) {
+            return true;  // DAG共有ノード: スキップ
         }
-        if (pushPrepareState_ == PrepareState::CycleError) {
-            return false;
-        }
-
-        pushPrepareState_ = PrepareState::Preparing;
 
         // 準備処理
         RenderRequest screenInfo;

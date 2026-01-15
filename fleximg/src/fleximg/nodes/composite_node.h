@@ -69,21 +69,13 @@ public:
 
     // 全上流ノードにPrepareRequestを伝播（循環検出+アフィン伝播）
     bool pullPrepare(const PrepareRequest& request) override {
-        // 循環参照検出: Preparing状態で再訪問 = 循環
-        if (pullPrepareState_ == PrepareState::Preparing) {
-            pullPrepareState_ = PrepareState::CycleError;
+        bool shouldContinue;
+        if (!checkPrepareState(pullPrepareState_, shouldContinue)) {
             return false;
         }
-        // DAG共有ノード: スキップ
-        if (pullPrepareState_ == PrepareState::Prepared) {
-            return true;
+        if (!shouldContinue) {
+            return true;  // DAG共有ノード: スキップ
         }
-        // 既にエラー状態
-        if (pullPrepareState_ == PrepareState::CycleError) {
-            return false;
-        }
-
-        pullPrepareState_ = PrepareState::Preparing;
 
         // 全上流へ伝播
         int numInputs = inputCount();

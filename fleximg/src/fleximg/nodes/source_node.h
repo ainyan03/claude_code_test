@@ -50,51 +50,25 @@ public:
     // ========================================
 
     bool pullPrepare(const PrepareRequest& request) override {
-        // 循環参照検出: Preparing状態で再訪問 = 循環
-        if (pullPrepareState_ == PrepareState::Preparing) {
-            pullPrepareState_ = PrepareState::CycleError;
+        bool shouldContinue;
+        if (!checkPrepareState(pullPrepareState_, shouldContinue)) {
             return false;
         }
-        // DAG共有ノード: スキップ
-        if (pullPrepareState_ == PrepareState::Prepared) {
-            return true;
+        if (!shouldContinue) {
+            return true;  // DAG共有ノード: スキップ
         }
-        // 既にエラー状態
-        if (pullPrepareState_ == PrepareState::CycleError) {
-            return false;
-        }
-
-        pullPrepareState_ = PrepareState::Preparing;
 
         // アフィン情報を受け取り、事前計算を行う
         if (request.hasAffine) {
-            // 逆行列を計算
-            invMatrix_ = inverseFixed16(request.affineMatrix);
+            // 逆行列とピクセル中心オフセットを計算（共通処理）
+            affine_ = precomputeInverseAffine(request.affineMatrix);
 
-            if (invMatrix_.valid) {
-                // tx/ty を Q24.8 固定小数点に変換
-                int_fixed8 txFixed8 = float_to_fixed8(request.affineMatrix.tx);
-                int_fixed8 tyFixed8 = float_to_fixed8(request.affineMatrix.ty);
-
-                // 逆変換オフセットの計算（tx/ty と逆行列から）
-                int64_t invTx64 = -(static_cast<int64_t>(txFixed8) * invMatrix_.a
-                                  + static_cast<int64_t>(tyFixed8) * invMatrix_.b);
-                int64_t invTy64 = -(static_cast<int64_t>(txFixed8) * invMatrix_.c
-                                  + static_cast<int64_t>(tyFixed8) * invMatrix_.d);
-                int32_t invTxFixed = static_cast<int32_t>(invTx64 >> INT_FIXED8_SHIFT);
-                int32_t invTyFixed = static_cast<int32_t>(invTy64 >> INT_FIXED8_SHIFT);
-
+            if (affine_.isValid()) {
                 // srcOrigin（自身のorigin）を加算して baseTx/Ty を計算
                 const int32_t srcOriginXInt = from_fixed8(originX_);
                 const int32_t srcOriginYInt = from_fixed8(originY_);
-                baseTx_ = invTxFixed + (srcOriginXInt << INT_FIXED16_SHIFT);
-                baseTy_ = invTyFixed + (srcOriginYInt << INT_FIXED16_SHIFT);
-
-                // ピクセル中心オフセット
-                rowOffsetX_ = invMatrix_.b >> 1;
-                rowOffsetY_ = invMatrix_.d >> 1;
-                dxOffsetX_ = invMatrix_.a >> 1;
-                dxOffsetY_ = invMatrix_.c >> 1;
+                baseTx_ = affine_.invTxFixed + (srcOriginXInt << INT_FIXED16_SHIFT);
+                baseTy_ = affine_.invTyFixed + (srcOriginYInt << INT_FIXED16_SHIFT);
             }
             hasAffine_ = true;
         } else {
@@ -188,13 +162,9 @@ private:
     int_fixed8 originY_ = 0;  // 画像内の基準点Y（固定小数点 Q24.8）
 
     // アフィン伝播用メンバ変数（事前計算済み）
-    Matrix2x2_fixed16 invMatrix_;  // 逆行列（2x2部分）
-    int32_t baseTx_ = 0;           // 事前計算済みオフセットX（Q16.16）
-    int32_t baseTy_ = 0;           // 事前計算済みオフセットY（Q16.16）
-    int32_t rowOffsetX_ = 0;       // fixedInvB >> 1
-    int32_t rowOffsetY_ = 0;       // fixedInvD >> 1
-    int32_t dxOffsetX_ = 0;        // fixedInvA >> 1
-    int32_t dxOffsetY_ = 0;        // fixedInvC >> 1
+    AffinePrecomputed affine_;     // 逆行列・ピクセル中心オフセット
+    int32_t baseTx_ = 0;           // 事前計算済みオフセットX（Q16.16、srcOrigin込み）
+    int32_t baseTy_ = 0;           // 事前計算済みオフセットY（Q16.16、srcOrigin込み）
     bool hasAffine_ = false;       // アフィン変換が伝播されているか
 
     // ========================================
@@ -209,7 +179,7 @@ private:
 #endif
 
         // 特異行列チェック
-        if (!invMatrix_.valid) {
+        if (!affine_.isValid()) {
             return RenderResult(ImageBuffer(), request.origin);
         }
 
@@ -218,20 +188,20 @@ private:
         const int32_t dstOriginYInt = from_fixed8(request.origin.y);
 
         const int32_t fixedInvTx = baseTx_
-                            - (dstOriginXInt * invMatrix_.a)
-                            - (dstOriginYInt * invMatrix_.b);
+                            - (dstOriginXInt * affine_.invMatrix.a)
+                            - (dstOriginYInt * affine_.invMatrix.b);
         const int32_t fixedInvTy = baseTy_
-                            - (dstOriginXInt * invMatrix_.c)
-                            - (dstOriginYInt * invMatrix_.d);
+                            - (dstOriginXInt * affine_.invMatrix.c)
+                            - (dstOriginYInt * affine_.invMatrix.d);
 
         // この1行の有効範囲を計算
-        const int32_t rowBaseX = fixedInvTx + rowOffsetX_;
-        const int32_t rowBaseY = fixedInvTy + rowOffsetY_;
+        const int32_t rowBaseX = fixedInvTx + affine_.rowOffsetX;
+        const int32_t rowBaseY = fixedInvTy + affine_.rowOffsetY;
 
         auto [xStart, xEnd] = transform::calcValidRange(
-            invMatrix_.a, rowBaseX, source_.width, request.width);
+            affine_.invMatrix.a, rowBaseX, source_.width, request.width);
         auto [yStart, yEnd] = transform::calcValidRange(
-            invMatrix_.c, rowBaseY, source_.height, request.width);
+            affine_.invMatrix.c, rowBaseY, source_.height, request.width);
         int dxStart = std::max({0, xStart, yStart});
         int dxEnd = std::min({request.width - 1, xEnd, yEnd});
 
@@ -255,8 +225,8 @@ private:
 #endif
 
         // DDA転写（1行のみ）
-        int32_t srcX_fixed = invMatrix_.a * dxStart + rowBaseX + dxOffsetX_;
-        int32_t srcY_fixed = invMatrix_.c * dxStart + rowBaseY + dxOffsetY_;
+        int32_t srcX_fixed = affine_.invMatrix.a * dxStart + rowBaseX + affine_.dxOffsetX;
+        int32_t srcY_fixed = affine_.invMatrix.c * dxStart + rowBaseY + affine_.dxOffsetY;
 
         uint8_t* dstRow = static_cast<uint8_t*>(output.data());
         const uint8_t* srcData = static_cast<const uint8_t*>(source_.data);
@@ -264,23 +234,23 @@ private:
         switch (getBytesPerPixel(source_.formatID)) {
             case 8:
                 transform::copyRowDDA<8>(dstRow, srcData, source_.stride,
-                    srcX_fixed, srcY_fixed, invMatrix_.a, invMatrix_.c, validWidth);
+                    srcX_fixed, srcY_fixed, affine_.invMatrix.a, affine_.invMatrix.c, validWidth);
                 break;
             case 4:
                 transform::copyRowDDA<4>(dstRow, srcData, source_.stride,
-                    srcX_fixed, srcY_fixed, invMatrix_.a, invMatrix_.c, validWidth);
+                    srcX_fixed, srcY_fixed, affine_.invMatrix.a, affine_.invMatrix.c, validWidth);
                 break;
             case 3:
                 transform::copyRowDDA<3>(dstRow, srcData, source_.stride,
-                    srcX_fixed, srcY_fixed, invMatrix_.a, invMatrix_.c, validWidth);
+                    srcX_fixed, srcY_fixed, affine_.invMatrix.a, affine_.invMatrix.c, validWidth);
                 break;
             case 2:
                 transform::copyRowDDA<2>(dstRow, srcData, source_.stride,
-                    srcX_fixed, srcY_fixed, invMatrix_.a, invMatrix_.c, validWidth);
+                    srcX_fixed, srcY_fixed, affine_.invMatrix.a, affine_.invMatrix.c, validWidth);
                 break;
             case 1:
                 transform::copyRowDDA<1>(dstRow, srcData, source_.stride,
-                    srcX_fixed, srcY_fixed, invMatrix_.a, invMatrix_.c, validWidth);
+                    srcX_fixed, srcY_fixed, affine_.invMatrix.a, affine_.invMatrix.c, validWidth);
                 break;
             default:
                 break;

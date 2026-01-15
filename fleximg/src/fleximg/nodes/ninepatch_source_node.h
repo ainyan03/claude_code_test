@@ -143,25 +143,20 @@ public:
     int16_t srcBottom() const { return srcBottom_; }
 
     const char* name() const override { return "NinePatchSourceNode"; }
+    int nodeTypeForMetrics() const override { return NodeType::NinePatch; }
 
     // ========================================
     // PrepareRequest対応
     // ========================================
 
     bool pullPrepare(const PrepareRequest& request) override {
-        // 循環参照検出
-        if (pullPrepareState_ == PrepareState::Preparing) {
-            pullPrepareState_ = PrepareState::CycleError;
+        bool shouldContinue;
+        if (!checkPrepareState(pullPrepareState_, shouldContinue)) {
             return false;
         }
-        if (pullPrepareState_ == PrepareState::Prepared) {
-            return true;
+        if (!shouldContinue) {
+            return true;  // DAG共有ノード: スキップ
         }
-        if (pullPrepareState_ == PrepareState::CycleError) {
-            return false;
-        }
-
-        pullPrepareState_ = PrepareState::Preparing;
 
         // ジオメトリ計算（まだなら）
         if (!geometryValid_) {

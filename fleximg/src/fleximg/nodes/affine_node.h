@@ -156,21 +156,13 @@ public:
     //
 
     bool pullPrepare(const PrepareRequest& request) override {
-        // 循環参照検出: Preparing状態で再訪問 = 循環
-        if (pullPrepareState_ == PrepareState::Preparing) {
-            pullPrepareState_ = PrepareState::CycleError;
+        bool shouldContinue;
+        if (!checkPrepareState(pullPrepareState_, shouldContinue)) {
             return false;
         }
-        // DAG共有ノード: スキップ
-        if (pullPrepareState_ == PrepareState::Prepared) {
-            return true;
+        if (!shouldContinue) {
+            return true;  // DAG共有ノード: スキップ
         }
-        // 既にエラー状態
-        if (pullPrepareState_ == PrepareState::CycleError) {
-            return false;
-        }
-
-        pullPrepareState_ = PrepareState::Preparing;
 
         // 上流に渡すためのコピーを作成し、自身の行列を累積
         PrepareRequest upstreamRequest = request;
@@ -213,19 +205,13 @@ public:
     //
 
     bool pushPrepare(const PrepareRequest& request) override {
-        // 循環参照検出
-        if (pushPrepareState_ == PrepareState::Preparing) {
-            pushPrepareState_ = PrepareState::CycleError;
+        bool shouldContinue;
+        if (!checkPrepareState(pushPrepareState_, shouldContinue)) {
             return false;
         }
-        if (pushPrepareState_ == PrepareState::Prepared) {
-            return true;
+        if (!shouldContinue) {
+            return true;  // DAG共有ノード: スキップ
         }
-        if (pushPrepareState_ == PrepareState::CycleError) {
-            return false;
-        }
-
-        pushPrepareState_ = PrepareState::Preparing;
 
         // 準備処理
         RenderRequest screenInfo;

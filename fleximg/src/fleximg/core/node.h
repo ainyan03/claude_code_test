@@ -129,21 +129,13 @@ public:
     // 上流へ準備を伝播（循環参照検出+アフィン伝播）
     // 戻り値: true = 成功、false = 循環参照検出
     virtual bool pullPrepare(const PrepareRequest& request) {
-        // 循環参照検出: Preparing状態で再訪問 = 循環
-        if (pullPrepareState_ == PrepareState::Preparing) {
-            pullPrepareState_ = PrepareState::CycleError;
+        bool shouldContinue;
+        if (!checkPrepareState(pullPrepareState_, shouldContinue)) {
             return false;
         }
-        // DAG共有ノード: スキップ
-        if (pullPrepareState_ == PrepareState::Prepared) {
-            return true;
+        if (!shouldContinue) {
+            return true;  // DAG共有ノード: スキップ
         }
-        // 既にエラー状態
-        if (pullPrepareState_ == PrepareState::CycleError) {
-            return false;
-        }
-
-        pullPrepareState_ = PrepareState::Preparing;
 
         // 上流へ伝播
         Node* upstream = upstreamNode(0);
@@ -202,21 +194,13 @@ public:
     // 下流へ準備を伝播（循環参照検出付き）
     // 戻り値: true = 成功、false = 循環参照検出
     virtual bool pushPrepare(const PrepareRequest& request) {
-        // 循環参照検出: Preparing状態で再訪問 = 循環
-        if (pushPrepareState_ == PrepareState::Preparing) {
-            pushPrepareState_ = PrepareState::CycleError;
+        bool shouldContinue;
+        if (!checkPrepareState(pushPrepareState_, shouldContinue)) {
             return false;
         }
-        // DAG共有ノード: スキップ
-        if (pushPrepareState_ == PrepareState::Prepared) {
-            return true;
+        if (!shouldContinue) {
+            return true;  // DAG共有ノード: スキップ
         }
-        // 既にエラー状態
-        if (pushPrepareState_ == PrepareState::CycleError) {
-            return false;
-        }
-
-        pushPrepareState_ = PrepareState::Preparing;
 
         // 準備処理
         RenderRequest screenInfo;
@@ -295,6 +279,28 @@ protected:
     // ========================================
     // ヘルパーメソッド
     // ========================================
+
+    // 循環参照チェック（pullPrepare/pushPrepare共通）
+    // 戻り値: true=成功, false=エラー
+    // shouldContinue: true=処理継続, false=スキップ（Prepared）またはエラー
+    bool checkPrepareState(PrepareState& state, bool& shouldContinue) {
+        if (state == PrepareState::Preparing) {
+            state = PrepareState::CycleError;
+            shouldContinue = false;
+            return false;  // 循環参照検出
+        }
+        if (state == PrepareState::Prepared) {
+            shouldContinue = false;
+            return true;   // 成功（DAG共有、スキップ）
+        }
+        if (state == PrepareState::CycleError) {
+            shouldContinue = false;
+            return false;  // 既にエラー状態
+        }
+        state = PrepareState::Preparing;
+        shouldContinue = true;
+        return true;       // 成功（処理継続）
+    }
 
     // フォーマット変換ヘルパー（メトリクス記録付き）
     // 参照モードから所有モードに変わった場合、ノード別統計に記録

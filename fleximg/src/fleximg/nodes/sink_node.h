@@ -50,53 +50,29 @@ public:
     // ========================================
 
     bool pushPrepare(const PrepareRequest& request) override {
-        // 循環参照検出
-        if (pushPrepareState_ == PrepareState::Preparing) {
-            pushPrepareState_ = PrepareState::CycleError;
+        bool shouldContinue;
+        if (!checkPrepareState(pushPrepareState_, shouldContinue)) {
             return false;
         }
-        if (pushPrepareState_ == PrepareState::Prepared) {
-            return true;
+        if (!shouldContinue) {
+            return true;  // DAG共有ノード: スキップ
         }
-        if (pushPrepareState_ == PrepareState::CycleError) {
-            return false;
-        }
-
-        pushPrepareState_ = PrepareState::Preparing;
 
         // アフィン情報を受け取り、事前計算を行う
         if (request.hasPushAffine) {
-            // 逆行列を計算
-            invMatrix_ = inverseFixed16(request.pushAffineMatrix);
+            // 逆行列とピクセル中心オフセットを計算（共通処理）
+            affine_ = precomputeInverseAffine(request.pushAffineMatrix);
 
-            if (invMatrix_.valid) {
-                // tx/ty を Q24.8 固定小数点に変換
-                int_fixed8 txFixed8 = float_to_fixed8(request.pushAffineMatrix.tx);
-                int_fixed8 tyFixed8 = float_to_fixed8(request.pushAffineMatrix.ty);
-
-                // 逆変換オフセットの計算（tx/ty と逆行列から）
-                int64_t invTx64 = -(static_cast<int64_t>(txFixed8) * invMatrix_.a
-                                  + static_cast<int64_t>(tyFixed8) * invMatrix_.b);
-                int64_t invTy64 = -(static_cast<int64_t>(txFixed8) * invMatrix_.c
-                                  + static_cast<int64_t>(tyFixed8) * invMatrix_.d);
-                int32_t invTxFixed = static_cast<int32_t>(invTx64 >> INT_FIXED8_SHIFT);
-                int32_t invTyFixed = static_cast<int32_t>(invTy64 >> INT_FIXED8_SHIFT);
-
+            if (affine_.isValid()) {
                 // dstOrigin（自身のorigin）を減算して baseTx/Ty を計算
                 const int32_t dstOriginXInt = from_fixed8(originX_);
                 const int32_t dstOriginYInt = from_fixed8(originY_);
-                baseTx_ = invTxFixed
-                        - (dstOriginXInt * invMatrix_.a)
-                        - (dstOriginYInt * invMatrix_.b);
-                baseTy_ = invTyFixed
-                        - (dstOriginXInt * invMatrix_.c)
-                        - (dstOriginYInt * invMatrix_.d);
-
-                // ピクセル中心オフセット
-                rowOffsetX_ = invMatrix_.b >> 1;
-                rowOffsetY_ = invMatrix_.d >> 1;
-                dxOffsetX_ = invMatrix_.a >> 1;
-                dxOffsetY_ = invMatrix_.c >> 1;
+                baseTx_ = affine_.invTxFixed
+                        - (dstOriginXInt * affine_.invMatrix.a)
+                        - (dstOriginYInt * affine_.invMatrix.b);
+                baseTy_ = affine_.invTyFixed
+                        - (dstOriginXInt * affine_.invMatrix.c)
+                        - (dstOriginYInt * affine_.invMatrix.d);
             }
             hasAffine_ = true;
         } else {
@@ -154,13 +130,9 @@ private:
     int_fixed8 originY_ = 0;  // 出力先の基準点Y（固定小数点 Q24.8）
 
     // アフィン伝播用メンバ変数（事前計算済み）
-    Matrix2x2_fixed16 invMatrix_;  // 逆行列（2x2部分）
-    int32_t baseTx_ = 0;           // 事前計算済みオフセットX（Q16.16）
-    int32_t baseTy_ = 0;           // 事前計算済みオフセットY（Q16.16）
-    int32_t rowOffsetX_ = 0;       // fixedInvB >> 1
-    int32_t rowOffsetY_ = 0;       // fixedInvD >> 1
-    int32_t dxOffsetX_ = 0;        // fixedInvA >> 1
-    int32_t dxOffsetY_ = 0;        // fixedInvC >> 1
+    AffinePrecomputed affine_;     // 逆行列・ピクセル中心オフセット
+    int32_t baseTx_ = 0;           // 事前計算済みオフセットX（Q16.16、dstOrigin込み）
+    int32_t baseTy_ = 0;           // 事前計算済みオフセットY（Q16.16、dstOrigin込み）
     bool hasAffine_ = false;       // アフィン変換が伝播されているか
 
     // ========================================
@@ -168,7 +140,7 @@ private:
     // ========================================
     void pushProcessWithAffine(RenderResult&& input) {
         // 特異行列チェック
-        if (!invMatrix_.valid) {
+        if (!affine_.isValid()) {
             return;
         }
 
@@ -193,7 +165,7 @@ private:
     // ========================================
     void applyAffine(ViewPort& dst,
                      const ViewPort& src, int_fixed8 srcOriginX, int_fixed8 srcOriginY) {
-        if (!invMatrix_.valid) return;
+        if (!affine_.isValid()) return;
 
         // srcOrigin分のみ計算（baseTx_/baseTy_ は dstOrigin 込みで事前計算済み）
         const int32_t srcOriginXInt = from_fixed8(srcOriginX);
@@ -206,8 +178,8 @@ private:
 
         // 共通DDA処理を呼び出し
         transform::applyAffineDDA(dst, src, fixedInvTx, fixedInvTy,
-                                  invMatrix_, rowOffsetX_, rowOffsetY_,
-                                  dxOffsetX_, dxOffsetY_);
+                                  affine_.invMatrix, affine_.rowOffsetX, affine_.rowOffsetY,
+                                  affine_.dxOffsetX, affine_.dxOffsetY);
     }
 };
 
