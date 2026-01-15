@@ -212,6 +212,18 @@ struct AffineMatrix {
 
     // 回転（ラジアン）
     static AffineMatrix rotate(float radians);
+
+    // 行列の乗算（合成）: this * other
+    AffineMatrix operator*(const AffineMatrix& other) const {
+        return AffineMatrix(
+            a * other.a + b * other.c,           // a
+            a * other.b + b * other.d,           // b
+            c * other.a + d * other.c,           // c
+            c * other.b + d * other.d,           // d
+            a * other.tx + b * other.ty + tx,    // tx
+            c * other.tx + d * other.ty + ty     // ty
+        );
+    }
 };
 
 // ========================================================================

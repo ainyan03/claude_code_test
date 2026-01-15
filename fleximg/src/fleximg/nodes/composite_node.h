@@ -5,7 +5,7 @@
 #include "../core/perf_metrics.h"
 #include "../image/image_buffer.h"
 #include "../image/pixel_format.h"
-#include "../operations/blend.h"
+#include "../operations/canvas_utils.h"
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
 #include <chrono>
 #endif
@@ -161,17 +161,7 @@ public:
             if (!inputResult.isValid()) continue;
 
             // フォーマット変換: blend関数が対応していないフォーマットは変換
-            // 対応フォーマット: RGBA8_Straight, RGBA16_Premultiplied
-            PixelFormatID inputFmt = inputResult.view().formatID;
-            if (inputFmt != PixelFormatIDs::RGBA8_Straight &&
-                inputFmt != PixelFormatIDs::RGBA16_Premultiplied) {
-                // RGBA16_Premultiplied に変換（合成キャンバスと同じフォーマット）
-                Point savedOrigin = inputResult.origin;
-                inputResult = RenderResult(
-                    std::move(inputResult.buffer).toFormat(PixelFormatIDs::RGBA16_Premultiplied),
-                    savedOrigin
-                );
-            }
+            inputResult = canvas_utils::ensureBlendableFormat(std::move(inputResult));
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
             auto compStart = std::chrono::high_resolution_clock::now();
@@ -179,17 +169,15 @@ public:
 
             if (!canvasInitialized) {
                 // 最初の非空入力 → 新しいキャンバスを作成
-                ImageBuffer canvasBuf(request.width, request.height,
-                                      PixelFormatIDs::RGBA16_Premultiplied);
+                ImageBuffer canvasBuf = canvas_utils::createCanvas(request.width, request.height);
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
                 PerfMetrics::instance().nodes[NodeType::Composite].recordAlloc(
                     canvasBuf.totalBytes(), canvasBuf.width(), canvasBuf.height());
 #endif
                 ViewPort canvasView = canvasBuf.view();
-                ViewPort inputView = inputResult.view();
 
-                blend::first(canvasView, request.origin.x, request.origin.y,
-                            inputView, inputResult.origin.x, inputResult.origin.y);
+                canvas_utils::placeFirst(canvasView, request.origin.x, request.origin.y,
+                                         inputResult.view(), inputResult.origin.x, inputResult.origin.y);
 
                 canvas = RenderResult(std::move(canvasBuf),
                                      Point{canvasOriginX, canvasOriginY});
@@ -197,10 +185,9 @@ public:
             } else {
                 // 2枚目以降 → ブレンド処理
                 ViewPort canvasView = canvas.view();
-                ViewPort inputView = inputResult.view();
 
-                blend::onto(canvasView, canvas.origin.x, canvas.origin.y,
-                           inputView, inputResult.origin.x, inputResult.origin.y);
+                canvas_utils::placeOnto(canvasView, canvas.origin.x, canvas.origin.y,
+                                        inputResult.view(), inputResult.origin.x, inputResult.origin.y);
             }
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS

@@ -19,6 +19,7 @@
 #include "../src/fleximg/nodes/composite_node.h"
 #include "../src/fleximg/nodes/distributor_node.h"
 #include "../src/fleximg/nodes/renderer_node.h"
+#include "../src/fleximg/nodes/ninepatch_source_node.h"
 
 using namespace emscripten;
 using namespace FLEXIMG_NAMESPACE;
@@ -98,8 +99,8 @@ struct GraphNode {
     int imageId = -1;
     double srcOriginX = 0;
     double srcOriginY = 0;
-    int outputWidth = 0;    // sinkノード用: 出力バッファ幅
-    int outputHeight = 0;   // sinkノード用: 出力バッファ高さ
+    int outputWidth = 0;    // sinkノード用: 出力バッファ幅、ninepatchノード用: 出力幅
+    int outputHeight = 0;   // sinkノード用: 出力バッファ高さ、ninepatchノード用: 出力高さ
     std::string filterType;
     std::vector<float> filterParams;
     bool independent = false;
@@ -394,6 +395,25 @@ public:
                 }
             }
 
+            // ninepatch用パラメータ
+            if (node.type == "ninepatch") {
+                if (nodeObj["imageId"].typeOf().as<std::string>() != "undefined") {
+                    node.imageId = nodeObj["imageId"].as<int>();
+                }
+                if (nodeObj["outputWidth"].typeOf().as<std::string>() != "undefined") {
+                    node.outputWidth = nodeObj["outputWidth"].as<int>();
+                }
+                if (nodeObj["outputHeight"].typeOf().as<std::string>() != "undefined") {
+                    node.outputHeight = nodeObj["outputHeight"].as<int>();
+                }
+                if (nodeObj["originX"].typeOf().as<std::string>() != "undefined") {
+                    node.srcOriginX = nodeObj["originX"].as<double>();
+                }
+                if (nodeObj["originY"].typeOf().as<std::string>() != "undefined") {
+                    node.srcOriginY = nodeObj["originY"].as<double>();
+                }
+            }
+
             graphNodes_.push_back(node);
         }
     }
@@ -663,6 +683,23 @@ private:
 
                 Node* result = src.get();
                 sourceNodes[nodeId] = std::move(src);
+                return result;
+            }
+            else if (gnode.type == "ninepatch") {
+                auto viewIt = imageViews_.find(gnode.imageId);
+                if (viewIt == imageViews_.end()) return nullptr;
+
+                auto np = std::make_unique<NinePatchSourceNode>();
+                np->setupFromNinePatch(viewIt->second);
+                np->setOutputSize(
+                    static_cast<int16_t>(gnode.outputWidth > 0 ? gnode.outputWidth : viewIt->second.width - 2),
+                    static_cast<int16_t>(gnode.outputHeight > 0 ? gnode.outputHeight : viewIt->second.height - 2)
+                );
+                np->setOrigin(float_to_fixed8(static_cast<float>(gnode.srcOriginX)),
+                              float_to_fixed8(static_cast<float>(gnode.srcOriginY)));
+
+                Node* result = np.get();
+                v2Nodes[nodeId] = std::move(np);
                 return result;
             }
             else if (gnode.type == "filter" && gnode.independent) {
