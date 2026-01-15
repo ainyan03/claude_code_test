@@ -59,21 +59,93 @@ renderer.exec();
 ```
 Node (基底クラス)
 │
-├── SourceNode        # 画像データを提供
-├── SinkNode          # 出力先を保持
+├── SourceNode        # 画像データを提供（入力端点）
+├── SinkNode          # 出力先を保持（出力端点）
 ├── AffineNode        # アフィン変換（プル/プッシュ両対応）
 ├── FilterNodeBase    # フィルタ共通基底
 │   ├── BrightnessNode   # 明るさ調整
 │   ├── GrayscaleNode    # グレースケール
 │   ├── BoxBlurNode      # ぼかし
 │   └── AlphaNode        # アルファ調整
-├── CompositeNode     # 複数入力の合成
+├── CompositeNode     # 複数画像を合成（N入力 → 1出力）
+├── DistributorNode   # 画像を複数先に分配（1入力 → N出力）
 └── RendererNode      # パイプライン実行の発火点
+```
+
+### CompositeNode と DistributorNode の違い
+
+これらは対称的な構造を持つノードです。
+
+| ノード | ポート構成 | 用途 |
+|--------|-----------|------|
+| CompositeNode | N入力 → 1出力 | 複数の画像を重ね合わせて1つの画像を生成 |
+| DistributorNode | 1入力 → N出力 | 1つの画像を複数の出力先（SinkNode等）に配布 |
+
+```
+【CompositeNode】            【DistributorNode】
+背景画像 ─┐                        ┌─→ SinkA
+          ├→ CompositeNode         │
+前景画像1 ─┤       ↓           RendererNode → DistributorNode
+          │   合成された                │
+前景画像2 ─┘   1枚の画像               └─→ SinkB
+```
+
+使用例:
+```cpp
+// CompositeNode: 背景に前景を重ねる
+CompositeNode composite(2);  // 2入力
+bgSource >> composite;                // 入力ポート0（背景）
+fgSource.connectTo(composite, 1);     // 入力ポート1（前景）
+composite >> renderer >> sink;
+
+// DistributorNode: 1つの画像を複数のSinkに出力
+DistributorNode distributor(2);       // 2出力
+renderer >> distributor;
+distributor.connectTo(sinkMain, 0, 0);     // 出力0 → メイン出力
+distributor.connectTo(sinkPreview, 0, 1);  // 出力1 → プレビュー
 ```
 
 ### 接続方式
 
-ノード間は Port オブジェクトで接続します。`>>` 演算子でチェーン接続も可能です。
+ノード間は Port オブジェクトで接続します。3つの接続方法が利用可能です。
+
+#### 演算子チェーン（推奨）
+
+最も簡潔で可読性の高い接続方法です。
+
+```cpp
+// >> 演算子: 左から右へデータが流れるイメージ
+source >> affine >> renderer >> sink;
+
+// << 演算子: 右から左へ接続を記述（同じ結果）
+sink << renderer << affine << source;
+```
+
+#### connectTo() メソッド
+
+このノードの出力を、指定したノードの入力に接続します。
+
+```cpp
+source.connectTo(affine);      // source → affine
+affine.connectTo(renderer);    // affine → renderer
+renderer.connectTo(sink);      // renderer → sink
+
+// 複数ポートを持つノードでは、ポートインデックスを指定可能
+// connectTo(target, targetInputIndex, outputIndex)
+nodeA.connectTo(composite, 1);  // nodeAをcompositeの2番目の入力に接続
+```
+
+#### connectFrom() メソッド
+
+指定したノードの出力を、このノードの入力に接続します（connectTo の逆向き）。
+
+```cpp
+sink.connectFrom(renderer);    // renderer → sink
+renderer.connectFrom(affine);  // affine → renderer
+affine.connectFrom(source);    // source → affine
+```
+
+#### 使用例
 
 ```cpp
 SourceNode source(imageView);

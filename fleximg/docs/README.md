@@ -6,8 +6,10 @@ fleximg の設計ドキュメント一覧です。
 
 | ドキュメント | 内容 |
 |-------------|------|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | 全体アーキテクチャ（まずここから） |
 | [QUICKSTART.md](QUICKSTART.md) | クイックスタートガイド |
+| [CONCEPTS.md](CONCEPTS.md) | 基本概念（初見の方向け） |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | 全体アーキテクチャ |
+| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | よくある問題と解決方法 |
 
 ## 詳細設計
 

@@ -57,6 +57,32 @@ public:
 
 ---
 
+## パラメータ一覧
+
+各フィルタノードのパラメータと有効範囲です。
+
+| フィルタ | パラメータ | 型 | 範囲 | デフォルト | 説明 |
+|---------|----------|-----|------|----------|------|
+| BrightnessNode | amount | float | -1.0〜1.0 | 0.0 | 明るさ調整量。正で明るく、負で暗く |
+| GrayscaleNode | - | - | - | - | パラメータなし |
+| BoxBlurNode | radius | int | 0以上 | 5 | ブラー半径。0でスルー出力 |
+| AlphaNode | scale | float | 0.0〜1.0 | 1.0 | アルファスケール。0.5で50%の不透明度 |
+
+### 設定例
+
+```cpp
+BrightnessNode brightness;
+brightness.setAmount(0.2f);   // 20%明るく
+
+AlphaNode alpha;
+alpha.setScale(0.5f);         // 50%の不透明度
+
+BoxBlurNode blur;
+blur.setRadius(10);           // 半径10ピクセルのブラー
+```
+
+---
+
 ## 派生クラス
 
 ### BrightnessNode

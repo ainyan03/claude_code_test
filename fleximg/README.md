@@ -41,12 +41,22 @@ PC・スマートフォン両方から直接アクセス可能です。C++で実
 
 ## ドキュメント
 
-| 目的 | ドキュメント |
-|------|-------------|
-| すぐに試したい | [docs/QUICKSTART.md](docs/QUICKSTART.md) |
-| アーキテクチャを理解したい | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
-| 組込み環境に移植したい | 本ファイルの「組込み環境への移植」セクション |
-| 設計詳細を知りたい | [docs/README.md](docs/README.md) |
+### 初めての方へ（推奨する読む順番）
+
+1. **[QUICKSTART.md](docs/QUICKSTART.md)** - 5分で動作確認（ライブデモの操作方法）
+2. **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - アーキテクチャ概要（15分で全体像を把握）
+3. **本ファイルの「組込み環境への移植」セクション** - 自分のプロジェクトへの組み込み方
+
+### 深く学びたい方へ
+
+| ドキュメント | 内容 |
+|-------------|------|
+| [DESIGN_RENDERER_NODE.md](docs/DESIGN_RENDERER_NODE.md) | パイプライン実行の発火点、Pull/Push処理フロー |
+| [DESIGN_FILTER_NODES.md](docs/DESIGN_FILTER_NODES.md) | フィルタノードの階層構造、新規フィルタ追加方法 |
+| [DESIGN_TYPE_STRUCTURE.md](docs/DESIGN_TYPE_STRUCTURE.md) | ViewPort/ImageBuffer/RenderResultの設計 |
+| [DESIGN_PIXEL_FORMAT.md](docs/DESIGN_PIXEL_FORMAT.md) | ピクセルフォーマット変換アルゴリズム |
+
+全てのドキュメントは [docs/README.md](docs/README.md) から参照できます。
 
 ## 必要要件
 
