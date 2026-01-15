@@ -104,6 +104,11 @@ protected:
         Node* upstream = upstreamNode(0);
         if (!upstream) return RenderResult();
 
+        // radius=0の場合は処理をスキップしてスルー出力
+        if (radius_ == 0) {
+            return upstream->pullProcess(request);
+        }
+
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         auto start = std::chrono::high_resolution_clock::now();
         auto& metrics = PerfMetrics::instance().nodes[NodeType::BoxBlur];

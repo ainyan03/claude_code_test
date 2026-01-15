@@ -195,7 +195,7 @@ const FILTER_DEFINITIONS = {
             {
                 name: 'radius',
                 label: '半径',
-                min: 1,
+                min: 0,
                 max: 20,
                 step: 1,
                 default: 3,
