@@ -295,6 +295,14 @@ header p {
     background: #5568d3;
 }
 
+.add-node-btn.ninepatch {
+    background: #d97706;  /* アンバー系（+Srcと同系統） */
+}
+
+.add-node-btn.ninepatch:hover {
+    background: #b45309;
+}
+
 .add-node-btn:disabled {
     background: #ccc;
     cursor: default;
