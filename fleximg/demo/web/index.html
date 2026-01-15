@@ -37,33 +37,6 @@
                 </div>
             </div>
 
-            <!-- 表示設定（アコーディオン） -->
-            <div class="sidebar-accordion-item" data-accordion="settings">
-                <button class="sidebar-accordion-header">
-                    <span class="sidebar-accordion-icon">▶</span>
-                    <span>⚙️ 表示設定</span>
-                </button>
-                <div class="sidebar-accordion-content">
-                <div class="sidebar-settings">
-                    <div class="sidebar-setting-group">
-                        <span class="sidebar-setting-label">表示倍率</span>
-                        <div class="sidebar-setting-row">
-                            <input type="range" id="sidebar-preview-scale" min="1" max="5" step="0.5" value="1" class="sidebar-scale-slider">
-                            <span id="sidebar-preview-scale-value" class="sidebar-scale-value">1x</span>
-                        </div>
-                    </div>
-                    <div class="sidebar-setting-group">
-                        <span class="sidebar-setting-label">状態管理</span>
-                        <div class="sidebar-setting-row sidebar-state-buttons">
-                            <button id="copy-state-url-btn" class="secondary-btn" title="現在の状態をURLとしてコピー">🔗 URLコピー</button>
-                            <button id="reset-state-btn" class="secondary-btn danger" title="保存された状態をクリアしてリセット">🔄 リセット</button>
-                        </div>
-                    </div>
-                    <p class="sidebar-hint">※ サイズ・タイル設定はRendererノードをクリック</p>
-                </div>
-                </div>
-            </div>
-
             <!-- デバッグ情報（アコーディオン） -->
             <div class="sidebar-accordion-item" data-accordion="debug">
                 <button class="sidebar-accordion-header">
@@ -98,6 +71,8 @@
             <div class="node-graph-header">
                 <h2>🔗 ノードグラフ</h2>
                 <div class="node-graph-controls">
+                    <button id="copy-state-url-btn" class="secondary-btn small" title="現在の状態をURLとしてコピー">🔗 URLコピー</button>
+                    <button id="reset-state-btn" class="secondary-btn small danger" title="保存された状態をクリアしてリセット">🔄 リセット</button>
                     <div class="node-add-dropdown" id="node-add-dropdown">
                         <button class="node-add-btn" id="node-add-btn">+ ノード追加</button>
                         <div class="node-add-menu" id="node-add-menu">
@@ -127,7 +102,12 @@
                 <div class="canvas-container">
                     <canvas id="preview-canvas"></canvas>
                 </div>
-                <div class="canvas-download">
+                <div class="canvas-controls">
+                    <div class="preview-scale-control">
+                        <span class="scale-label">倍率</span>
+                        <input type="range" id="sidebar-preview-scale" min="1" max="5" step="0.1" value="1" class="scale-slider">
+                        <span id="sidebar-preview-scale-value" class="scale-value">1x</span>
+                    </div>
                     <button id="download-btn" class="primary-btn">📥 画像を保存</button>
                 </div>
             </div>
@@ -137,17 +117,20 @@
         <input type="file" id="image-input" accept="image/*" style="display:none;" multiple>
     </div>
 
-    <!-- 画像アイテムテンプレート -->
-    <template id="image-item-template">
-        <div class="image-item">
-            <div class="image-thumbnail">
+    <!-- コンテンツアイテムテンプレート（画像・出力共通） -->
+    <template id="content-item-template">
+        <div class="content-item">
+            <div class="content-thumbnail">
                 <img src="" alt="thumbnail">
             </div>
-            <div class="image-info">
-                <span class="image-name">Image</span>
-                <div class="image-actions">
-                    <button class="add-image-node-btn" title="ノード追加">+ ノード</button>
-                    <button class="delete-image-btn" title="削除">×</button>
+            <div class="content-info">
+                <span class="content-name">Content</span>
+                <div class="content-row">
+                    <span class="content-size">0x0</span>
+                    <div class="content-actions">
+                        <button class="add-node-btn" title="ノード追加">+ ノード</button>
+                        <button class="delete-btn" title="削除">×</button>
+                    </div>
                 </div>
             </div>
         </div>

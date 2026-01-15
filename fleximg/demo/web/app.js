@@ -910,8 +910,12 @@ function initNodeAddDropdown() {
         }
     });
 
-    // スクロールやリサイズで閉じる
-    window.addEventListener('scroll', hideMenu, true);
+    // スクロールやリサイズで閉じる（メニュー内のスクロールは除外）
+    window.addEventListener('scroll', (e) => {
+        if (!menu.contains(e.target)) {
+            hideMenu();
+        }
+    }, true);
     window.addEventListener('resize', hideMenu);
 
     // メニューアイテムクリック
@@ -1074,9 +1078,20 @@ function addOutputContent(name, width, height) {
 
 // フォーカス管理
 function setFocusedContent(contentId) {
+    // 切り替え前のスクロール比率を保存
+    const scrollRatio = previewScrollManager ? previewScrollManager.getRatio() : null;
+
     focusedContentId = contentId;
     renderContentLibrary();
     updateFocusedPreview();
+
+    // 切り替え後にスクロール比率を復元
+    if (scrollRatio && previewScrollManager) {
+        // キャンバスサイズ変更後に比率を適用するため少し遅延
+        requestAnimationFrame(() => {
+            previewScrollManager.setRatio(scrollRatio.x, scrollRatio.y);
+        });
+    }
 }
 
 function getFocusedContent() {
@@ -1224,11 +1239,12 @@ function addSinkNodeFromLibrary(contentId) {
     autoConnectToRenderer(sinkNode);
 
     renderNodeGraph();
+    throttledUpdatePreview();  // 接続変更時の描画更新
     setFocusedContent(contentId);
     scheduleAutoSave();
 }
 
-// Renderer下流が未接続なら自動接続
+// Renderer下流が未接続なら自動接続（Sink追加時）
 function autoConnectToRenderer(sinkNode) {
     const rendererNode = globalNodes.find(n => n.type === 'renderer');
     if (!rendererNode) return;
@@ -1244,6 +1260,27 @@ function autoConnectToRenderer(sinkNode) {
             fromNodeId: rendererNode.id,
             fromPortId: 'out',
             toNodeId: sinkNode.id,
+            toPortId: 'in'
+        });
+    }
+}
+
+// Renderer上流が未接続なら自動接続（Source追加時）
+function autoConnectFromSource(imageNode) {
+    const rendererNode = globalNodes.find(n => n.type === 'renderer');
+    if (!rendererNode) return;
+
+    // Rendererの入力ポートに入っている接続があるか確認
+    const hasUpstreamConnection = globalConnections.some(
+        c => c.toNodeId === rendererNode.id && c.toPortId === 'in'
+    );
+
+    if (!hasUpstreamConnection) {
+        // 自動接続: Image.out → Renderer.in
+        globalConnections.push({
+            fromNodeId: imageNode.id,
+            fromPortId: 'out',
+            toNodeId: rendererNode.id,
             toPortId: 'in'
         });
     }
@@ -1525,80 +1562,72 @@ function renderContentLibrary() {
     if (!libraryContainer) return;
     libraryContainer.innerHTML = '';
 
-    const template = document.getElementById('image-item-template');
+    const template = document.getElementById('content-item-template');
 
     contentLibrary.forEach(content => {
+        const item = template.content.cloneNode(true);
+        const itemDiv = item.querySelector('.content-item');
+
+        // フォーカス状態を反映
+        if (content.id === focusedContentId) {
+            itemDiv.classList.add('focused');
+        }
+
+        // サムネイル設定
+        const thumbnailContainer = item.querySelector('.content-thumbnail');
+        const thumbnailImg = thumbnailContainer.querySelector('img');
+
         if (content.type === 'image') {
-            // 画像コンテンツ（従来の画像ライブラリと同じ表示）
-            const item = template.content.cloneNode(true);
-            const itemDiv = item.querySelector('.image-item');
-
-            // フォーカス状態を反映
-            if (content.id === focusedContentId) {
-                itemDiv.classList.add('focused');
+            // 画像コンテンツ: サムネイルを表示
+            thumbnailImg.src = createThumbnailDataURL(content.imageData);
+        } else if (content.type === 'output') {
+            // 出力コンテンツ: レンダリング結果があればサムネイル、なければアイコン
+            if (content.imageData) {
+                thumbnailImg.src = createThumbnailDataURL(content.imageData);
+            } else {
+                thumbnailImg.remove();
+                const placeholder = document.createElement('span');
+                placeholder.className = 'placeholder-icon';
+                placeholder.textContent = '📤';
+                thumbnailContainer.appendChild(placeholder);
             }
+        }
 
-            // サムネイル設定
-            const thumbnail = item.querySelector('.image-thumbnail img');
-            thumbnail.src = createThumbnailDataURL(content.imageData);
+        // 名前設定
+        item.querySelector('.content-name').textContent = content.name;
 
-            // 画像名設定
-            item.querySelector('.image-name').textContent = content.name;
+        // 解像度設定
+        item.querySelector('.content-size').textContent = `${content.width}x${content.height}`;
 
-            // フォーカス切り替え（アイテムクリック）
-            itemDiv.addEventListener('click', (e) => {
-                // ボタンクリック時は除外
-                if (!e.target.closest('.add-image-node-btn') &&
-                    !e.target.closest('.delete-image-btn')) {
-                    setFocusedContent(content.id);
-                }
-            });
+        // ボタンの設定
+        const addBtn = item.querySelector('.add-node-btn');
+        const deleteBtn = item.querySelector('.delete-btn');
 
-            // ノード追加ボタン
-            item.querySelector('.add-image-node-btn').addEventListener('click', (e) => {
+        if (content.type === 'image') {
+            // 画像（Source側）: オレンジ
+            addBtn.textContent = '+Src';
+            addBtn.classList.add('source');
+            addBtn.title = '画像ソースノードを追加';
+            addBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 addImageNodeFromLibrary(content.id);
             });
 
             // 削除ボタン
-            item.querySelector('.delete-image-btn').addEventListener('click', (e) => {
+            deleteBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 deleteImageFromLibrary(content.id);
             });
-
-            libraryContainer.appendChild(item);
         } else if (content.type === 'output') {
-            // 出力バッファコンテンツ
-            const outputItem = document.createElement('div');
-            outputItem.className = 'content-item output-item';
-            if (content.id === focusedContentId) {
-                outputItem.classList.add('focused');
-            }
-
-            // 既にSinkノードが存在するか確認
+            // 出力（Sink側）: 青
+            addBtn.classList.add('sink');
+            addBtn.title = '出力シンクノードを追加';
             const existingSink = getSinkForContent(content.id);
-            const addBtnLabel = existingSink ? '✓ Sink' : CONTENT_TYPES.output.buttonLabel;
-            const addBtnDisabled = existingSink ? 'disabled' : '';
-
-            outputItem.innerHTML = `
-                <span class="content-icon">${CONTENT_TYPES.output.icon}</span>
-                <span class="content-name">${content.name}</span>
-                <span class="content-size">${content.width}x${content.height}</span>
-                <button class="content-add-node-btn" ${addBtnDisabled}>${addBtnLabel}</button>
-                <button class="content-delete-btn" title="削除">🗑️</button>
-            `;
-
-            // フォーカス切り替え
-            outputItem.addEventListener('click', (e) => {
-                if (!e.target.classList.contains('content-add-node-btn') &&
-                    !e.target.classList.contains('content-delete-btn')) {
-                    setFocusedContent(content.id);
-                }
-            });
-
-            // +Sink ボタン
-            const addBtn = outputItem.querySelector('.content-add-node-btn');
-            if (!existingSink) {
+            if (existingSink) {
+                addBtn.textContent = '✓Snk';
+                addBtn.disabled = true;
+            } else {
+                addBtn.textContent = '+Snk';
                 addBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
                     addSinkNodeFromLibrary(content.id);
@@ -1606,13 +1635,21 @@ function renderContentLibrary() {
             }
 
             // 削除ボタン
-            outputItem.querySelector('.content-delete-btn').addEventListener('click', (e) => {
+            deleteBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 deleteOutputContent(content.id);
             });
-
-            libraryContainer.appendChild(outputItem);
         }
+
+        // フォーカス切り替え（アイテムクリック）
+        itemDiv.addEventListener('click', (e) => {
+            if (!e.target.closest('.add-node-btn') &&
+                !e.target.closest('.delete-btn')) {
+                setFocusedContent(content.id);
+            }
+        });
+
+        libraryContainer.appendChild(item);
     });
 }
 
@@ -1655,7 +1692,12 @@ function addImageNodeFromLibrary(contentId) {
     };
 
     globalNodes.push(imageNode);
+
+    // Renderer上流が未接続なら自動接続
+    autoConnectFromSource(imageNode);
+
     renderNodeGraph();
+    throttledUpdatePreview();  // 接続変更時の描画更新
     scheduleAutoSave();
 }
 
@@ -1849,13 +1891,13 @@ function renderNodeGraph() {
         });
     }
 
-    // 接続線を描画（レイヤーと手動接続の両方）
-    drawAllConnections();
-
-    // ノードを描画
+    // ノードを描画（背面）
     globalNodes.forEach(node => {
         drawGlobalNode(node);
     });
+
+    // 接続線を描画（前面）
+    drawAllConnections();
 }
 
 function drawAllConnections() {
@@ -1877,18 +1919,33 @@ function drawAllConnections() {
 function calculateConnectionPath(fromPos, toPos) {
     const dx = toPos.x - fromPos.x;
     const dy = Math.abs(toPos.y - fromPos.y);
-    const minOffset = 80;
 
-    // オフセットは以下の最大値を使用：
-    // - 最小オフセット（常に確保）
-    // - 水平距離の半分（通常のS字用）
-    // - 垂直距離の比率（ループの膨らみ用）
-    const offset = Math.max(minOffset, dx / 2, dy * 0.3);
+    // 接続点間の距離
+    const distance = Math.sqrt(dx * dx + dy * dy);
 
-    const cp1x = fromPos.x + offset;  // 常に右へ
-    const cp2x = toPos.x - offset;    // 常に左から
+    // 距離に応じたスケール係数（距離200以上で1.0、近いほど小さく）
+    const distanceScale = Math.min(1, 0.2 + distance / 250);
 
-    return `M ${fromPos.x} ${fromPos.y} C ${cp1x} ${fromPos.y}, ${cp2x} ${toPos.y}, ${toPos.x} ${toPos.y}`;
+    // 縦並び度合い（0〜1）：dxが小さくdyが大きいほど1に近づく
+    const verticalness = dy > 0 ? Math.min(1, Math.max(0, (dy - dx) / dy)) : 0;
+
+    // オフセット：縦並び度合いに応じて連続的に変化（距離に応じて縮小）
+    const baseOffset = 80 * distanceScale;
+    const verticalOffset = Math.max(100, dy * 0.4) * distanceScale;
+    const offset = Math.max(baseOffset, dx / 2, dy * 0.3) * (1 - verticalness) + verticalOffset * verticalness;
+
+    // オフセットを距離の半分までに制限
+    const limitedOffset = Math.min(offset, distance / 2);
+
+    // 制御点Y：縦並び度合いに応じて相手側に寄せる
+    const blendY = verticalness * 0.9;
+    const cp1y = fromPos.y + (toPos.y - fromPos.y) * blendY;
+    const cp2y = toPos.y + (fromPos.y - toPos.y) * blendY;
+
+    const cp1x = fromPos.x + limitedOffset;  // 常に右へ
+    const cp2x = toPos.x - limitedOffset;    // 常に左から
+
+    return `M ${fromPos.x} ${fromPos.y} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${toPos.x} ${toPos.y}`;
 }
 
 function drawConnectionBetweenPorts(fromNode, fromPortId, toNode, toPortId) {
@@ -2256,7 +2313,7 @@ function drawNodePorts(node, nodeWidth) {
         circle.setAttribute('cy', y);
         circle.setAttribute('r', portRadius);
         circle.setAttribute('class', 'node-port node-port-input');
-        circle.setAttribute('fill', '#4a5568');
+        circle.setAttribute('fill', '#667eea');  // 青（受ける側/Sink）
         circle.setAttribute('stroke', '#e2e8f0');
         circle.setAttribute('stroke-width', '2');
         circle.dataset.nodeId = node.id;
@@ -2309,7 +2366,7 @@ function drawNodePorts(node, nodeWidth) {
         circle.setAttribute('cy', y);
         circle.setAttribute('r', portRadius);
         circle.setAttribute('class', 'node-port node-port-output');
-        circle.setAttribute('fill', '#48bb78');
+        circle.setAttribute('fill', '#ff9800');  // オレンジ（送る側/Source）
         circle.setAttribute('stroke', '#e2e8f0');
         circle.setAttribute('stroke-width', '2');
         circle.dataset.nodeId = node.id;
@@ -4352,11 +4409,13 @@ function encodeStateToURL() {
     // 画像データを除外した軽量版（URLが長くなりすぎるため）
     const lightState = {
         ...state,
-        images: state.images.map(img => ({
-            id: img.id,
-            name: img.name,
-            width: img.width,
-            height: img.height
+        contentLibrary: state.contentLibrary.map(content => ({
+            id: content.id,
+            type: content.type,
+            name: content.name,
+            width: content.width,
+            height: content.height,
+            cppImageId: content.cppImageId
             // dataURLは除外
         }))
     };

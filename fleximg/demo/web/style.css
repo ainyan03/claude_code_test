@@ -151,19 +151,44 @@ header p {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
-.canvas-download {
+.canvas-controls {
     display: flex;
     justify-content: flex-end;
+    align-items: center;
+    gap: 12px;
     margin-top: 8px;
 }
 
-.canvas-download .primary-btn {
+.canvas-controls .primary-btn {
     padding: 8px 16px;
     font-size: 13px;
 }
 
-/* 画像ライブラリ */
-.image-item {
+.preview-scale-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.preview-scale-control .scale-label {
+    font-size: 12px;
+    color: #666;
+}
+
+.preview-scale-control .scale-slider {
+    width: 100px;
+    height: 4px;
+    cursor: pointer;
+}
+
+.preview-scale-control .scale-value {
+    font-size: 12px;
+    color: #333;
+    min-width: 28px;
+}
+
+/* コンテンツライブラリ（画像・出力共通） */
+.content-item {
     background: white;
     border: 2px solid #e0e0e0;
     border-radius: 8px;
@@ -174,35 +199,48 @@ header p {
     transition: all 0.2s;
 }
 
-.image-item:hover {
+.content-item:hover {
     border-color: #667eea;
     box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
 }
 
-.image-thumbnail {
+.content-item.focused {
+    border-color: #4CAF50;
+    box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.3);
+}
+
+.content-thumbnail {
     width: 60px;
     height: 45px;
     border-radius: 4px;
     overflow: hidden;
     background: #f0f0f0;
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
-.image-thumbnail img {
+.content-thumbnail img {
     width: 100%;
     height: 100%;
     object-fit: cover;
 }
 
-.image-info {
+.content-thumbnail .placeholder-icon {
+    font-size: 24px;
+    opacity: 0.5;
+}
+
+.content-info {
     flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 2px;
     min-width: 0;
 }
 
-.image-name {
+.content-name {
     font-weight: 500;
     color: #333;
     font-size: 0.85em;
@@ -211,27 +249,58 @@ header p {
     text-overflow: ellipsis;
 }
 
-.image-actions {
+.content-row {
     display: flex;
+    align-items: center;
     gap: 8px;
 }
 
-.add-image-node-btn {
-    padding: 4px 12px;
-    background: #667eea;
+.content-size {
+    font-size: 0.75em;
+    color: #888;
+}
+
+.content-actions {
+    display: flex;
+    gap: 4px;
+    margin-left: auto;
+}
+
+.add-node-btn {
+    padding: 4px 8px;
     color: white;
     border: none;
     border-radius: 4px;
     cursor: pointer;
-    font-size: 0.85em;
+    font-size: 0.8em;
     transition: background 0.2s;
+    white-space: nowrap;
 }
 
-.add-image-node-btn:hover {
+/* Source側（送る）: オレンジ */
+.add-node-btn.source {
+    background: #ff9800;
+}
+
+.add-node-btn.source:hover {
+    background: #f57c00;
+}
+
+/* Sink側（受ける）: 青 */
+.add-node-btn.sink {
+    background: #667eea;
+}
+
+.add-node-btn.sink:hover {
     background: #5568d3;
 }
 
-.delete-image-btn {
+.add-node-btn:disabled {
+    background: #ccc;
+    cursor: default;
+}
+
+.delete-btn {
     padding: 4px 8px;
     background: #ef4444;
     color: white;
@@ -242,7 +311,7 @@ header p {
     transition: background 0.2s;
 }
 
-.delete-image-btn:hover {
+.delete-btn:hover {
     background: #dc2626;
 }
 
@@ -302,15 +371,9 @@ button {
     box-shadow: 0 4px 12px rgba(220, 53, 69, 0.4);
 }
 
-.sidebar-state-buttons {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-
-.sidebar-state-buttons .secondary-btn {
-    flex: 1;
-    min-width: 80px;
+.secondary-btn.small {
+    padding: 4px 8px;
+    font-size: 11px;
 }
 
 /* ローディング */
@@ -1174,16 +1237,9 @@ button {
     background: #aaa;
 }
 
-.sidebar-images-library .image-item {
+.sidebar-images-library .content-item {
     flex-shrink: 0;
     cursor: pointer;
-    transition: border-color 0.2s, box-shadow 0.2s;
-}
-
-/* 画像アイテムのフォーカス状態（サイドバー内） */
-.sidebar-images-library .image-item.focused {
-    border-color: #4CAF50;
-    box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.3);
 }
 
 /* コンテンツライブラリ */
@@ -1199,78 +1255,6 @@ button {
     padding: 6px 8px;
 }
 
-/* 出力アイテム */
-.content-item.output-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px;
-    margin-bottom: 8px;
-    background: #2a2a2a;
-    border-radius: 6px;
-    cursor: pointer;
-    transition: background 0.2s;
-}
-
-.content-item.output-item:hover {
-    background: #3a3a3a;
-}
-
-.content-item.output-item.focused {
-    background: rgba(76, 175, 80, 0.3);
-    border-left: 3px solid #4CAF50;
-}
-
-.content-item .content-icon {
-    font-size: 16px;
-}
-
-.content-item .content-name {
-    flex: 1;
-    font-size: 12px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.content-item .content-size {
-    font-size: 10px;
-    color: #888;
-}
-
-.content-item .content-add-node-btn {
-    font-size: 10px;
-    padding: 2px 6px;
-    background: #4a4a4a;
-    border: none;
-    border-radius: 3px;
-    color: #fff;
-    cursor: pointer;
-}
-
-.content-item .content-add-node-btn:hover {
-    background: #5a5a5a;
-}
-
-.content-item .content-add-node-btn:disabled {
-    background: #3a3a3a;
-    color: #888;
-    cursor: default;
-}
-
-.content-item .content-delete-btn {
-    font-size: 12px;
-    padding: 2px 4px;
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    opacity: 0.5;
-    transition: opacity 0.2s;
-}
-
-.content-item .content-delete-btn:hover {
-    opacity: 1;
-}
 
 /* 出力設定 */
 .sidebar-settings {
