@@ -88,9 +88,11 @@ public:
                                        && (source_.formatID == PixelFormatIDs::RGBA8_Straight);
 
                 if (useBilinear) {
-                    // バイリニア: 有効範囲は srcSize - 1（4点補間のため sx+1 が範囲内に収まるように）
-                    fpWidth_ = (source_.width - 1) << INT_FIXED16_SHIFT;
-                    fpHeight_ = (source_.height - 1) << INT_FIXED16_SHIFT;
+                    // バイリニア: 有効範囲は srcSize - 1 + ε
+                    // +1 により端ピクセル（小数部=0）も有効範囲に含める
+                    // 端での隣接ピクセルアクセスは copyRowDDABilinear_RGBA8888 側でクランプ
+                    fpWidth_ = ((source_.width - 1) << INT_FIXED16_SHIFT) + 1;
+                    fpHeight_ = ((source_.height - 1) << INT_FIXED16_SHIFT) + 1;
 
                     xs1_ = invA + (invA < 0 ? fpWidth_ : -1);
                     xs2_ = invA + (invA < 0 ? 0 : (fpWidth_ - 1));
@@ -324,7 +326,7 @@ private:
 
         if (useBilinear_) {
             // バイリニア補間（RGBA8888専用）
-            transform::copyRowDDABilinear_RGBA8888(dstRow, srcData, source_.stride,
+            transform::copyRowDDABilinear_RGBA8888(dstRow, source_,
                 srcX_fixed, srcY_fixed, invA, invC, validWidth);
         } else {
             // 最近傍補間

@@ -180,13 +180,12 @@ using CopyRowDDAFunc = void(*)(
 //
 // 注意:
 // - 半ピクセルオフセット（coeff >> 1）は不要。小数部を補間重みとして使用。
-// - 有効範囲は srcSize - 1 で計算すること（sx+1, sy+1 が範囲内に収まるように）
+// - 境界ピクセルでは隣接ピクセルアクセスをスキップし範囲外アクセスを防止
 //
 
 inline void copyRowDDABilinear_RGBA8888(
     uint8_t* dstRow,
-    const uint8_t* srcData,
-    int32_t srcStride,
+    const ViewPort& src,
     int32_t srcX_fixed,
     int32_t srcY_fixed,
     int32_t fixedInvA,
@@ -194,6 +193,10 @@ inline void copyRowDDABilinear_RGBA8888(
     int count
 ) {
     constexpr int BPP = 4;  // RGBA8888 = 4 bytes per pixel
+    const uint8_t* srcData = static_cast<const uint8_t*>(src.data);
+    const int32_t srcStride = src.stride;
+    const int32_t srcLastX = src.width - 1;
+    const int32_t srcLastY = src.height - 1;
 
     for (int i = 0; i < count; i++) {
         // 整数部（ピクセル座標）
@@ -206,11 +209,11 @@ inline void copyRowDDABilinear_RGBA8888(
         uint32_t fy = (static_cast<uint32_t>(srcY_fixed) >> 8) & 0xFF;
 
         // 4点のポインタを取得
-        // 有効範囲計算で sx+1, sy+1 が範囲内であることが保証されている前提
+        // 境界ピクセルでは隣接ピクセルへのアクセスを回避（範囲外アクセス防止）
         const uint8_t* p00 = srcData + sy * srcStride + sx * BPP;
-        const uint8_t* p10 = p00 + BPP;           // (sx+1, sy)
-        const uint8_t* p01 = p00 + srcStride;    // (sx, sy+1)
-        const uint8_t* p11 = p01 + BPP;           // (sx+1, sy+1)
+        const uint8_t* p10 = (sx >= srcLastX) ? p00 : p00 + BPP;
+        const uint8_t* p01 = (sy >= srcLastY) ? p00 : p00 + srcStride;
+        const uint8_t* p11 = (sx >= srcLastX) ? p01 : p01 + BPP;
 
         // バイリニア補間（各チャンネル）
         // top    = p00 * (256 - fx) + p10 * fx
