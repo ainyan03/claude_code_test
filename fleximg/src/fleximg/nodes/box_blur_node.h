@@ -120,9 +120,10 @@ public:
         // 出力サイズ = 入力サイズ + radius*2（pull型と対称）
         pushOutputWidth_ = pushInputWidth_ + radius_ * 2;
         pushOutputHeight_ = pushInputHeight_ + radius_ * 2;
-        pushInputOriginX_ = 0;
-        pushInputOriginY_ = 0;
-        pushInputOriginSet_ = false;
+        // prepare時点のoriginを基準として保存
+        pushInputOriginX_ = request.origin.x;
+        pushInputOriginY_ = request.origin.y;
+        lastInputOriginY_ = request.origin.y;
 
         // キャッシュを初期化（出力幅 = 入力幅 + radius*2）
         initializeCache(pushOutputWidth_);
@@ -150,13 +151,6 @@ public:
             return;
         }
 
-        // 最初の入力のoriginを保存
-        if (!pushInputOriginSet_) {
-            pushInputOriginX_ = input.origin.x;
-            pushInputOriginY_ = input.origin.y;
-            pushInputOriginSet_ = true;
-        }
-
         if (!input.isValid()) {
             pushInputY_++;
             // 入力が無効でも出力タイミングなら出力（ゼロ行として扱う）
@@ -178,8 +172,12 @@ public:
             updateColSum(slot, false);
         }
 
-        // 入力行を横ブラーしてキャッシュに格納（出力幅の中央に配置）
-        storeInputRowToCache(converted, slot);
+        // 入力行を横ブラーしてキャッシュに格納
+        // 各行のoriginを考慮してオフセットを計算
+        int xOffset = from_fixed8(input.origin.x - pushInputOriginX_);
+        // Y方向: 入力origin.yと基準origin.yの差分を記録（最新の値を保持）
+        lastInputOriginY_ = input.origin.y;
+        storeInputRowToCache(converted, slot, xOffset);
 
         // 新しい行を列合計に加算
         updateColSum(slot, true);
@@ -209,6 +207,8 @@ public:
             std::memset(rowCache_[slot].view().data, 0, cacheWidth_ * 4);
             // updateColSum(slot, true) は不要（ゼロなので）
 
+            // 仮想的な入力行のorigin.yを更新（1行下に進むのでorigin.yは減少）
+            lastInputOriginY_ -= to_fixed8(1);
             pushInputY_++;
             emitBlurredLine();
         }
@@ -296,9 +296,9 @@ private:
     int pushInputHeight_ = 0;                // 入力高さ
     int pushOutputWidth_ = 0;                // 出力幅（入力幅 + radius*2）
     int pushOutputHeight_ = 0;               // 出力高さ（入力高さ + radius*2）
-    int_fixed8 pushInputOriginX_ = 0;        // 入力のorigin.x
-    int_fixed8 pushInputOriginY_ = 0;        // 入力のorigin.y
-    bool pushInputOriginSet_ = false;        // origin設定済みフラグ
+    int_fixed8 pushInputOriginX_ = 0;        // 基準origin.x（prepare時点で設定）
+    int_fixed8 pushInputOriginY_ = 0;        // 基準origin.y（prepare時点で設定）
+    int_fixed8 lastInputOriginY_ = 0;        // 最後に受け取った有効な入力のorigin.y
 
     // ========================================
     // キャッシュ管理（push/pull共通）
@@ -462,23 +462,17 @@ private:
     // 指定行を列合計に加算/減算（α加重平均のため、RGB×αで蓄積）
     void updateColSum(int cacheIndex, bool add) {
         const uint8_t* row = static_cast<const uint8_t*>(rowCache_[cacheIndex].view().data);
+        int sign = add ? 1 : -1;
         for (int x = 0; x < cacheWidth_; x++) {
             int off = x * 4;
-            uint32_t a = row[off + 3];
-            uint32_t ra = static_cast<uint32_t>(row[off]) * a;
-            uint32_t ga = static_cast<uint32_t>(row[off + 1]) * a;
-            uint32_t ba = static_cast<uint32_t>(row[off + 2]) * a;
-            if (add) {
-                colSumR_[x] += ra;
-                colSumG_[x] += ga;
-                colSumB_[x] += ba;
-                colSumA_[x] += a;
-            } else {
-                colSumR_[x] -= ra;
-                colSumG_[x] -= ga;
-                colSumB_[x] -= ba;
-                colSumA_[x] -= a;
-            }
+            int32_t a = row[off + 3] * sign;
+            int32_t ra = row[off] * a;
+            int32_t ga = row[off + 1] * a;
+            int32_t ba = row[off + 2] * a;
+            colSumR_[x] += ra;
+            colSumG_[x] += ga;
+            colSumB_[x] += ba;
+            colSumA_[x] += a;
         }
     }
 
@@ -500,7 +494,8 @@ private:
 
     // 入力行を横ブラーしてキャッシュに格納
     // 出力幅 = 入力幅 + radius*2、入力は中央に配置
-    void storeInputRowToCache(const ImageBuffer& input, int cacheIndex) {
+    // xOffset: 基準origin.xからのオフセット（アフィン変換対応）
+    void storeInputRowToCache(const ImageBuffer& input, int cacheIndex, int xOffset = 0) {
         ViewPort srcView = input.view();
         ViewPort dstView = rowCache_[cacheIndex].view();
         const uint8_t* srcRow = static_cast<const uint8_t*>(srcView.data);
@@ -509,11 +504,15 @@ private:
         // 実際の入力バッファ幅を使用（pushInputWidth_と異なる可能性あり）
         int actualInputWidth = srcView.width;
 
+        // キャッシュをゼロクリア（オフセットがある場合、前の行のデータが残らないように）
+        std::memset(dstRow, 0, outputWidth * 4);
+
         // 横方向スライディングウィンドウでブラー処理
-        // push型: inputOffset = -radius（出力[radius]のカーネル中心が入力[0]に対応）
+        // push型: inputOffset = -radius + xOffset
+        // xOffset > 0: origin.xが大きい = 基準点がバッファ右側 = 入力が基準点より左に拡張
         applyHorizontalBlurWithPadding(srcRow, actualInputWidth,
                                        dstRow, outputWidth,
-                                       -radius_);
+                                       -radius_ + xOffset);
     }
 
     // 出力行を計算して下流にpush
@@ -527,13 +526,23 @@ private:
 
         // 出力リクエストを構築
         // 出力はradius分拡張されるので、originもradius分オフセット
-        // origin.x: 入力位置からradius分左（xが大きいほど左）
-        // origin.y: 入力位置からradius分上、そこから出力行分下
+        // origin.x: 基準点位置を右にradius分シフト（出力バッファが左に拡張されるため）
+        // origin.y: 最後に受け取った入力のorigin.yを基準に、入力行と出力行の差分を調整
+        //   - 出力行 pushOutputY_ に対応する入力の中心行: pushOutputY_ - radius
+        //   - 最後の入力行: pushInputY_ - 1
+        //   - 差分: (pushInputY_ - 1) - (pushOutputY_ - radius) = pushInputY_ - pushOutputY_ + radius - 1
         RenderRequest outReq;
         outReq.width = static_cast<int16_t>(cacheWidth_);
         outReq.height = 1;
         outReq.origin.x = pushInputOriginX_ + to_fixed8(radius_);
-        outReq.origin.y = pushInputOriginY_ + to_fixed8(radius_ - pushOutputY_);
+        // lastInputOriginY_は入力行(pushInputY_-1)のorigin.y
+        // 出力行に対応する入力行との行差分を加算
+        // 出力行 m は入力行 m - radius に対応
+        // lastInputRow = pushInputY_ - 1
+        // 対応入力行 = pushOutputY_ - radius_
+        // rowDiff = lastInputRow - 対応入力行 = pushInputY_ - 1 - pushOutputY_ + radius_
+        int rowDiff = (pushInputY_ - 1) - (pushOutputY_ - radius_);
+        outReq.origin.y = lastInputOriginY_ + to_fixed8(rowDiff);
 
         pushOutputY_++;
 
