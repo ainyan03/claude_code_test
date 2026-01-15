@@ -260,6 +260,60 @@ inline Matrix2x2_fixed16 inverseFixed16(const AffineMatrix& m) {
     );
 }
 
+
+// ========================================================================
+// AffinePrecomputed - アフィン変換の事前計算結果
+// ========================================================================
+//
+// SourceNode/SinkNode でのDDA処理に必要な事前計算値をまとめた構造体。
+// 逆行列とピクセル中心オフセットを保持する。
+// baseTx/baseTy は呼び出し側で origin に応じて計算する。
+//
+
+struct AffinePrecomputed {
+    Matrix2x2_fixed16 invMatrix;  // 逆行列（2x2部分）
+    int32_t invTxFixed = 0;       // 逆変換オフセットX（Q16.16）
+    int32_t invTyFixed = 0;       // 逆変換オフセットY（Q16.16）
+    int32_t rowOffsetX = 0;       // ピクセル中心オフセット: invMatrix.b >> 1
+    int32_t rowOffsetY = 0;       // ピクセル中心オフセット: invMatrix.d >> 1
+    int32_t dxOffsetX = 0;        // ピクセル中心オフセット: invMatrix.a >> 1
+    int32_t dxOffsetY = 0;        // ピクセル中心オフセット: invMatrix.c >> 1
+
+    bool isValid() const { return invMatrix.valid; }
+};
+
+// アフィン行列から事前計算値を生成
+// 逆行列、逆変換オフセット、ピクセル中心オフセットを計算
+inline AffinePrecomputed precomputeInverseAffine(const AffineMatrix& m) {
+    AffinePrecomputed result;
+
+    // 逆行列を計算
+    result.invMatrix = inverseFixed16(m);
+    if (!result.invMatrix.valid) {
+        return result;  // 特異行列の場合は無効な結果を返す
+    }
+
+    // tx/ty を Q24.8 固定小数点に変換
+    int_fixed8 txFixed8 = float_to_fixed8(m.tx);
+    int_fixed8 tyFixed8 = float_to_fixed8(m.ty);
+
+    // 逆変換オフセットの計算（tx/ty と逆行列から）
+    int64_t invTx64 = -(static_cast<int64_t>(txFixed8) * result.invMatrix.a
+                      + static_cast<int64_t>(tyFixed8) * result.invMatrix.b);
+    int64_t invTy64 = -(static_cast<int64_t>(txFixed8) * result.invMatrix.c
+                      + static_cast<int64_t>(tyFixed8) * result.invMatrix.d);
+    result.invTxFixed = static_cast<int32_t>(invTx64 >> INT_FIXED8_SHIFT);
+    result.invTyFixed = static_cast<int32_t>(invTy64 >> INT_FIXED8_SHIFT);
+
+    // ピクセル中心オフセット
+    result.rowOffsetX = result.invMatrix.b >> 1;
+    result.rowOffsetY = result.invMatrix.d >> 1;
+    result.dxOffsetX = result.invMatrix.a >> 1;
+    result.dxOffsetY = result.invMatrix.c >> 1;
+
+    return result;
+}
+
 } // namespace core
 
 // [DEPRECATED] 後方互換性のため親名前空間に公開。将来廃止予定。
@@ -292,6 +346,8 @@ using core::div_fixed16;
 using core::AffineMatrix;
 using core::toFixed16;
 using core::inverseFixed16;
+using core::AffinePrecomputed;
+using core::precomputeInverseAffine;
 
 } // namespace FLEXIMG_NAMESPACE
 

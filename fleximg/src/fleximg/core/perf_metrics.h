@@ -19,6 +19,16 @@ namespace core {
 // ========================================================================
 // ノードタイプ定義（デバッグ/リリース共通）
 // ========================================================================
+//
+// 重要: demo/web/app.js の NODE_TYPES と同期を維持すること
+//
+// 新規ノード追加時の手順:
+//   1. ここに新しいノードタイプを追加（連番で）
+//   2. Count を更新（最後のノードタイプ + 1）
+//   3. demo/web/app.js の NODE_TYPES にも同じ index で追加
+//   4. 該当ノードの nodeTypeForMetrics() が正しい値を返すことを確認
+//
+// ========================================================================
 
 namespace NodeType {
     // システム系
@@ -34,8 +44,17 @@ namespace NodeType {
     constexpr int Grayscale = 7;
     constexpr int BoxBlur = 8;
     constexpr int Alpha = 9;
-    constexpr int Count = 10;
+    // 特殊ソース系
+    constexpr int NinePatch = 10;  // 9patch画像
+
+    constexpr int Count = 11;
 }
+
+// コンパイル時チェック: 最後のノードタイプ + 1 == Count
+// ノード追加時に Count の更新を忘れるとここでエラーになる
+static_assert(NodeType::NinePatch + 1 == NodeType::Count,
+              "NodeType::Count must equal last node type + 1. "
+              "Also update demo/web/app.js NODE_TYPES.");
 
 // ========================================================================
 // パフォーマンス計測構造体
