@@ -45,6 +45,8 @@ const NODE_TYPES = {
     grayscale:   { index: 7, name: 'Grayscale',   category: 'filter',    showEfficiency: true },
     boxBlur:     { index: 8, name: 'BoxBlur',     category: 'filter',    showEfficiency: true },
     alpha:       { index: 9, name: 'Alpha',       category: 'filter',    showEfficiency: true },
+    // 特殊ソース系
+    ninepatch:   { index: 10, name: 'NinePatch',  category: 'system',    showEfficiency: false },
 };
 
 // ========================================
@@ -839,13 +841,14 @@ function setupEventListeners() {
 const CATEGORY_LABELS = {
     transform: '変換',
     composite: '合成',
+    special: '特殊ソース',
     color: 'フィルタ - 色調',
     blur: 'フィルタ - ぼかし',
     other: 'フィルタ - その他'
 };
 
 // カテゴリの表示順序
-const CATEGORY_ORDER = ['transform', 'composite', 'color', 'blur', 'other'];
+const CATEGORY_ORDER = ['transform', 'composite', 'special', 'color', 'blur', 'other'];
 
 // ノード追加ドロップダウンの初期化
 function initNodeAddDropdown() {
@@ -939,7 +942,8 @@ function buildNodeAddMenu(menu) {
         composite: [
             { id: 'composite', name: '合成', icon: '📑' },
             { id: 'distributor', name: '分配', icon: '📤' }
-        ]
+        ],
+        special: [{ id: 'ninepatch', name: '9patch', icon: '🖼️' }]
     };
 
     // FILTER_DEFINITIONSからフィルタを追加
@@ -997,6 +1001,8 @@ function handleNodeAdd(nodeType) {
         addCompositeNode();
     } else if (nodeType === 'distributor') {
         addDistributorNode();
+    } else if (nodeType === 'ninepatch') {
+        addNinePatchNode();
     } else if (FILTER_DEFINITIONS[nodeType]) {
         addIndependentFilterNode(nodeType);
     }
@@ -1031,7 +1037,8 @@ function addImageToLibrary(imageData) {
         imageData.name || `Image ${nextContentId}`,
         imageData.width,
         imageData.height,
-        imageData
+        imageData,
+        imageData.isNinePatch || false
     );
 
     // C++側の入力ライブラリに登録（数値IDを使用）
@@ -1046,7 +1053,7 @@ function addImageToLibrary(imageData) {
 // ========================================
 
 // 画像コンテンツを追加
-function addImageContent(name, width, height, imageData) {
+function addImageContent(name, width, height, imageData, isNinePatch = false) {
     const content = {
         id: `img-${nextContentId++}`,
         type: 'image',
@@ -1054,7 +1061,8 @@ function addImageContent(name, width, height, imageData) {
         width: width,
         height: height,
         imageData: imageData,
-        cppImageId: nextCppImageId++  // C++側に渡す数値ID
+        cppImageId: nextCppImageId++,  // C++側に渡す数値ID
+        isNinePatch: isNinePatch       // 9patchフラグ
     };
     contentLibrary.push(content);
     return content;
@@ -1548,6 +1556,80 @@ function generateTestPatterns() {
         });
     }
 
+    // パターン6: 9patch テスト画像（八角形 + タイルパターン背景）
+    // 外周1pxはメタデータ、内部48x48がコンテンツ
+    {
+        const totalSize = 50;  // メタデータ含む
+        const contentSize = 48;  // コンテンツサイズ
+        const cornerSize = 16;  // 角の固定サイズ
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = totalSize;
+        tempCanvas.height = totalSize;
+        const tempCtx = tempCanvas.getContext('2d');
+
+        // 背景を透明に
+        tempCtx.clearRect(0, 0, totalSize, totalSize);
+
+        // コンテンツ領域（1,1から48x48）にタイルパターン背景
+        const tileSize = 8;
+        for (let y = 1; y < totalSize - 1; y++) {
+            for (let x = 1; x < totalSize - 1; x++) {
+                const tx = Math.floor((x - 1) / tileSize);
+                const ty = Math.floor((y - 1) / tileSize);
+                const isTile1 = (tx + ty) % 2 === 0;
+                tempCtx.fillStyle = isTile1 ? '#e0e8f0' : '#c8d8e8';
+                tempCtx.fillRect(x, y, 1, 1);
+            }
+        }
+
+        // 八角形を描画（角を斜めカット）
+        // コンテンツ領域は (1,1) から (48,48) の 48x48 ピクセル
+        // Canvas座標では左上角を指すので、右端/下端は +1 する
+        const contentLeft = 1;
+        const contentTop = 1;
+        const contentRight = totalSize - 1;  // 49 (ピクセル48の右端)
+        const contentBottom = totalSize - 1; // 49 (ピクセル48の下端)
+        const cutSize = cornerSize / 2;  // 角のカットサイズ
+        tempCtx.fillStyle = '#4a90d9';  // 青
+        tempCtx.beginPath();
+        // 上辺の左側から時計回りに（コンテンツ領域内に収める）
+        tempCtx.moveTo(contentLeft + cutSize, contentTop);              // 上辺左
+        tempCtx.lineTo(contentRight - cutSize, contentTop);             // 上辺右
+        tempCtx.lineTo(contentRight, contentTop + cutSize);             // 右上角
+        tempCtx.lineTo(contentRight, contentBottom - cutSize);          // 右辺下
+        tempCtx.lineTo(contentRight - cutSize, contentBottom);          // 右下角
+        tempCtx.lineTo(contentLeft + cutSize, contentBottom);           // 下辺左
+        tempCtx.lineTo(contentLeft, contentBottom - cutSize);           // 左下角
+        tempCtx.lineTo(contentLeft, contentTop + cutSize);              // 左辺上
+        tempCtx.closePath();
+        tempCtx.fill();
+        // 枠線は省略（stroke がメタデータ領域にはみ出すため）
+
+        // メタデータ境界線（外周1px）に伸縮領域を示す黒ピクセルを配置
+        // 上辺：中央16ピクセル（x=17〜32）が伸縮領域
+        // 左辺：中央16ピクセル（y=17〜32）が伸縮領域
+        const stretchStart = 1 + cornerSize;  // 17
+        const stretchEnd = totalSize - 1 - cornerSize;  // 33
+        tempCtx.fillStyle = 'rgba(0, 0, 0, 1)';  // 黒（不透明）
+        // 上辺
+        for (let x = stretchStart; x < stretchEnd; x++) {
+            tempCtx.fillRect(x, 0, 1, 1);
+        }
+        // 左辺
+        for (let y = stretchStart; y < stretchEnd; y++) {
+            tempCtx.fillRect(0, y, 1, 1);
+        }
+
+        const imageData = tempCtx.getImageData(0, 0, totalSize, totalSize);
+        patterns.push({
+            name: '9patch-Octagon',
+            data: new Uint8ClampedArray(imageData.data),
+            width: totalSize,
+            height: totalSize,
+            isNinePatch: true  // 9patchフラグ
+        });
+    }
+
     // 画像ライブラリに追加
     patterns.forEach(pattern => {
         addImageToLibrary(pattern);
@@ -2015,6 +2097,8 @@ function getNodeHeight(node) {
         return Math.max(minHeight, (outputCount + 1) * minPortSpacing);
     } else if (node.type === 'affine') {
         return 70; // アフィン: 主要パラメータ1つ
+    } else if (node.type === 'ninepatch') {
+        return 120; // 9patch: サムネイル + 幅/高さスライダー
     } else if (node.type === 'filter' && node.independent) {
         return 70; // フィルタ: 主要パラメータ1つ
     } else if (node.type === 'renderer') {
@@ -2205,6 +2289,93 @@ function drawGlobalNode(node) {
         label.appendChild(slider);
         label.appendChild(display);
         controls.appendChild(label);
+        nodeBox.appendChild(controls);
+    }
+
+    // 9patchノードの場合、出力サイズスライダーを表示
+    if (node.type === 'ninepatch') {
+        const content = contentLibrary.find(c => c.id === node.contentId);
+        const controls = document.createElement('div');
+        controls.className = 'node-box-controls';
+        controls.style.cssText = 'padding: 4px;';
+
+        // サムネイル表示
+        if (content && content.imageData) {
+            const thumbRow = document.createElement('div');
+            thumbRow.style.cssText = 'display: flex; align-items: center; gap: 6px; margin-bottom: 4px;';
+            const img = document.createElement('img');
+            img.src = createThumbnailDataURL(content.imageData);
+            img.style.cssText = 'width: 32px; height: 32px; object-fit: cover; border-radius: 3px;';
+            thumbRow.appendChild(img);
+
+            const sizeInfo = document.createElement('span');
+            sizeInfo.style.cssText = 'font-size: 10px; color: #666;';
+            sizeInfo.textContent = `${node.outputWidth}×${node.outputHeight}`;
+            sizeInfo.id = `ninepatch-size-${node.id}`;
+            thumbRow.appendChild(sizeInfo);
+            controls.appendChild(thumbRow);
+        }
+
+        // 幅スライダー
+        const widthLabel = document.createElement('label');
+        widthLabel.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px; margin-bottom: 2px;';
+        const widthSpan = document.createElement('span');
+        widthSpan.textContent = 'W:';
+        widthSpan.style.cssText = 'min-width: 18px;';
+        const widthSlider = document.createElement('input');
+        widthSlider.type = 'range';
+        widthSlider.min = '16';
+        widthSlider.max = '512';
+        widthSlider.step = '1';
+        widthSlider.value = String(node.outputWidth || 48);
+        widthSlider.style.cssText = 'flex: 1; min-width: 50px;';
+        const widthDisplay = document.createElement('span');
+        widthDisplay.style.cssText = 'min-width: 30px; text-align: right;';
+        widthDisplay.textContent = String(node.outputWidth || 48);
+
+        widthSlider.addEventListener('input', (e) => {
+            node.outputWidth = parseInt(e.target.value);
+            widthDisplay.textContent = String(node.outputWidth);
+            const sizeInfo = document.getElementById(`ninepatch-size-${node.id}`);
+            if (sizeInfo) sizeInfo.textContent = `${node.outputWidth}×${node.outputHeight}`;
+            throttledUpdatePreview();
+        });
+
+        widthLabel.appendChild(widthSpan);
+        widthLabel.appendChild(widthSlider);
+        widthLabel.appendChild(widthDisplay);
+        controls.appendChild(widthLabel);
+
+        // 高さスライダー
+        const heightLabel = document.createElement('label');
+        heightLabel.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px;';
+        const heightSpan = document.createElement('span');
+        heightSpan.textContent = 'H:';
+        heightSpan.style.cssText = 'min-width: 18px;';
+        const heightSlider = document.createElement('input');
+        heightSlider.type = 'range';
+        heightSlider.min = '16';
+        heightSlider.max = '512';
+        heightSlider.step = '1';
+        heightSlider.value = String(node.outputHeight || 48);
+        heightSlider.style.cssText = 'flex: 1; min-width: 50px;';
+        const heightDisplay = document.createElement('span');
+        heightDisplay.style.cssText = 'min-width: 30px; text-align: right;';
+        heightDisplay.textContent = String(node.outputHeight || 48);
+
+        heightSlider.addEventListener('input', (e) => {
+            node.outputHeight = parseInt(e.target.value);
+            heightDisplay.textContent = String(node.outputHeight);
+            const sizeInfo = document.getElementById(`ninepatch-size-${node.id}`);
+            if (sizeInfo) sizeInfo.textContent = `${node.outputWidth}×${node.outputHeight}`;
+            throttledUpdatePreview();
+        });
+
+        heightLabel.appendChild(heightSpan);
+        heightLabel.appendChild(heightSlider);
+        heightLabel.appendChild(heightDisplay);
+        controls.appendChild(heightLabel);
+
         nodeBox.appendChild(controls);
     }
 
@@ -2686,6 +2857,11 @@ function getNodePorts(node) {
             ports.outputs.push({ id: 'out', label: '出力', type: 'image' });
             break;
 
+        case 'ninepatch':
+            // 9patchノード: 出力のみ（ソースノードと同様）
+            ports.outputs.push({ id: 'out', label: '出力', type: 'image' });
+            break;
+
         case 'renderer':
             // Rendererノード: 入力1つ、出力1つ
             ports.inputs.push({ id: 'in', label: '入力', type: 'image' });
@@ -2885,6 +3061,60 @@ function addDistributorOutput(node) {
     scheduleAutoSave();
 }
 
+// 9patchノードIDカウンタ
+let nextNinePatchNodeId = 1;
+
+// 9patchノードを追加
+function addNinePatchNode(contentId = null) {
+    // contentIdが指定されていない場合、最初の9patch画像を探す
+    let content = null;
+    if (contentId) {
+        content = contentLibrary.find(c => c.id === contentId && c.isNinePatch);
+    }
+    if (!content) {
+        // ライブラリから最初の9patch画像を探す
+        content = contentLibrary.find(c => c.type === 'image' && c.isNinePatch);
+    }
+    if (!content) {
+        alert('9patch画像がコンテンツライブラリにありません。\n9patch形式の画像をアップロードしてください。');
+        return;
+    }
+
+    // 表示範囲の中央に固定配置 + ランダムオフセット
+    const center = getVisibleNodeGraphCenter();
+    const nodeWidth = 160;
+    const nodeHeight = 120;  // サムネイル + 幅/高さスライダー
+    const posX = center.x - nodeWidth / 2 + randomOffset();
+    const posY = center.y - nodeHeight / 2 + randomOffset();
+
+    // 既存ノードを押し出す
+    pushExistingNodes(posX, posY, nodeWidth, nodeHeight);
+
+    // 9patchの内部サイズ（メタデータの1px境界を除く）
+    const contentWidth = content.width - 2;
+    const contentHeight = content.height - 2;
+
+    const ninepatchNode = {
+        id: `ninepatch-${nextNinePatchNodeId++}`,
+        type: 'ninepatch',
+        contentId: content.id,
+        title: content.name || '9patch',
+        posX: posX,
+        posY: posY,
+        // 出力サイズ（デフォルトはコンテンツサイズ）
+        outputWidth: contentWidth,
+        outputHeight: contentHeight,
+        // 原点（正規化座標 0.0〜1.0）
+        originX: 0.5,
+        originY: 0.5
+    };
+
+    globalNodes.push(ninepatchNode);
+    renderNodeGraph();
+    throttledUpdatePreview();
+    scheduleAutoSave();
+}
+
 // 独立フィルタノードを追加（レイヤーに属さない）
 function addIndependentFilterNode(filterType) {
     const filterDef = FILTER_DEFINITIONS[filterType];
@@ -3021,6 +3251,25 @@ function updatePreviewFromGraph() {
                 ...node,
                 filterParams: filterParams
             };
+        }
+        // 9patchノード: contentIdをcppImageIdに変換
+        if (node.type === 'ninepatch') {
+            const content = contentLibrary.find(c => c.id === node.contentId);
+            if (content) {
+                const outW = node.outputWidth ?? (content.width - 2);
+                const outH = node.outputHeight ?? (content.height - 2);
+                // 正規化座標（0.0〜1.0）をピクセル座標に変換
+                const ox = (node.originX ?? 0.5) * outW;
+                const oy = (node.originY ?? 0.5) * outH;
+                return {
+                    ...node,
+                    imageId: content.cppImageId,  // C++側に渡す数値ID
+                    outputWidth: outW,
+                    outputHeight: outH,
+                    originX: ox,
+                    originY: oy
+                };
+            }
         }
         return node;
     });
@@ -3594,6 +3843,8 @@ function buildDetailPanelContent(node) {
         buildDistributorDetailContent(node);
     } else if (node.type === 'affine') {
         buildAffineDetailContent(node);
+    } else if (node.type === 'ninepatch') {
+        buildNinePatchDetailContent(node);
     } else if (node.type === 'renderer') {
         buildRendererDetailContent(node);
     } else if (node.type === 'sink') {
@@ -4179,6 +4430,125 @@ function buildSinkDetailContent(node) {
     section.appendChild(applyRow);
 
     detailPanelContent.appendChild(section);
+}
+
+// 9patchノードの詳細コンテンツ
+function buildNinePatchDetailContent(node) {
+    const content = contentLibrary.find(c => c.id === node.contentId);
+
+    // 出力サイズセクション
+    const sizeSection = document.createElement('div');
+    sizeSection.className = 'node-detail-section';
+
+    const sizeLabel = document.createElement('div');
+    sizeLabel.className = 'node-detail-label';
+    sizeLabel.textContent = '出力サイズ';
+    sizeSection.appendChild(sizeLabel);
+
+    // 元画像サイズ（参考情報）
+    if (content) {
+        const srcSizeRow = document.createElement('div');
+        srcSizeRow.className = 'node-detail-row';
+        srcSizeRow.style.color = '#888';
+        srcSizeRow.style.fontSize = '11px';
+        srcSizeRow.textContent = `元画像: ${content.width - 2} x ${content.height - 2}`;
+        sizeSection.appendChild(srcSizeRow);
+    }
+
+    // 幅
+    const widthRow = document.createElement('div');
+    widthRow.className = 'node-detail-row';
+    const widthLabel = document.createElement('label');
+    widthLabel.textContent = '幅';
+    const widthInput = document.createElement('input');
+    widthInput.type = 'number';
+    widthInput.min = '1';
+    widthInput.max = '2048';
+    widthInput.value = node.outputWidth ?? (content ? content.width - 2 : 48);
+    widthInput.style.width = '80px';
+    widthRow.appendChild(widthLabel);
+    widthRow.appendChild(widthInput);
+    sizeSection.appendChild(widthRow);
+
+    // 高さ
+    const heightRow = document.createElement('div');
+    heightRow.className = 'node-detail-row';
+    const heightLabel = document.createElement('label');
+    heightLabel.textContent = '高さ';
+    const heightInput = document.createElement('input');
+    heightInput.type = 'number';
+    heightInput.min = '1';
+    heightInput.max = '2048';
+    heightInput.value = node.outputHeight ?? (content ? content.height - 2 : 48);
+    heightInput.style.width = '80px';
+    heightRow.appendChild(heightLabel);
+    heightRow.appendChild(heightInput);
+    sizeSection.appendChild(heightRow);
+
+    detailPanelContent.appendChild(sizeSection);
+
+    // 原点セクション
+    const originSection = document.createElement('div');
+    originSection.className = 'node-detail-section';
+
+    const originLabel = document.createElement('div');
+    originLabel.className = 'node-detail-label';
+    originLabel.textContent = '原点（正規化）';
+    originSection.appendChild(originLabel);
+
+    // 原点X
+    const originXRow = document.createElement('div');
+    originXRow.className = 'node-detail-row';
+    const originXLabel = document.createElement('label');
+    originXLabel.textContent = 'X';
+    const originXInput = document.createElement('input');
+    originXInput.type = 'number';
+    originXInput.step = '0.1';
+    originXInput.min = '0';
+    originXInput.max = '1';
+    originXInput.value = node.originX ?? 0.5;
+    originXInput.style.width = '80px';
+    originXRow.appendChild(originXLabel);
+    originXRow.appendChild(originXInput);
+    originSection.appendChild(originXRow);
+
+    // 原点Y
+    const originYRow = document.createElement('div');
+    originYRow.className = 'node-detail-row';
+    const originYLabel = document.createElement('label');
+    originYLabel.textContent = 'Y';
+    const originYInput = document.createElement('input');
+    originYInput.type = 'number';
+    originYInput.step = '0.1';
+    originYInput.min = '0';
+    originYInput.max = '1';
+    originYInput.value = node.originY ?? 0.5;
+    originYInput.style.width = '80px';
+    originYRow.appendChild(originYLabel);
+    originYRow.appendChild(originYInput);
+    originSection.appendChild(originYRow);
+
+    detailPanelContent.appendChild(originSection);
+
+    // 適用ボタン
+    const applySection = document.createElement('div');
+    applySection.className = 'node-detail-section';
+    applySection.style.justifyContent = 'flex-end';
+    const applyBtn = document.createElement('button');
+    applyBtn.className = 'primary-btn';
+    applyBtn.textContent = '適用';
+    applyBtn.addEventListener('click', () => {
+        node.outputWidth = parseInt(widthInput.value);
+        node.outputHeight = parseInt(heightInput.value);
+        node.originX = parseFloat(originXInput.value);
+        node.originY = parseFloat(originYInput.value);
+
+        renderNodeGraph();
+        throttledUpdatePreview();
+        scheduleAutoSave();
+    });
+    applySection.appendChild(applyBtn);
+    detailPanelContent.appendChild(applySection);
 }
 
 // ノードを削除
