@@ -2991,6 +2991,7 @@ function drawNodePorts(node, nodeWidth) {
         // ポートからドラッグ開始（マウス）
         hitArea.addEventListener('mousedown', (e) => {
             e.stopPropagation();
+            console.log('mousedown on port:', node.id, port.id, 'dataset:', hitArea.dataset.nodeId);  // デバッグ用
             startDraggingConnection(node.id, port.id, e.clientX, e.clientY);
         });
 
@@ -3024,6 +3025,7 @@ function drawNodePorts(node, nodeWidth) {
 }
 
 function startDraggingConnection(nodeId, portId, mouseX, mouseY) {
+    console.log('startDraggingConnection:', nodeId, portId);  // デバッグ用
     isDraggingConnection = true;
     dragConnectionFrom = { nodeId, portId };
 
