@@ -402,11 +402,12 @@ private:
         int16_t srcX[3] = { 0, srcLeft_, static_cast<int16_t>(source_.width - effectiveSrcRight_) };
         int16_t srcY[3] = { 0, srcTop_, static_cast<int16_t>(source_.height - effectiveSrcBottom_) };
 
-        // 隣接パッチ存在判定（オーバーラップ用）
-        bool hasRight[3] = { effW[1] > 0 || effW[2] > 0, effW[2] > 0, false };
-        bool hasLeft[3] = { false, effW[0] > 0, effW[0] > 0 || effW[1] > 0 };
-        bool hasBelow[3] = { effH[1] > 0 || effH[2] > 0, effH[2] > 0, false };
-        bool hasAbove[3] = { false, effH[0] > 0, effH[0] > 0 || effH[1] > 0 };
+        // クリッピング状態を判定
+        bool hClipping = (effectiveSrcLeft_ != srcLeft_) || (effectiveSrcRight_ != srcRight_);
+        bool vClipping = (effectiveSrcTop_ != srcTop_) || (effectiveSrcBottom_ != srcBottom_);
+
+        bool hasHStretch = effW[1] > 0 && !hClipping;  // 横方向伸縮部が存在かつクリッピングなし
+        bool hasVStretch = effH[1] > 0 && !vClipping;  // 縦方向伸縮部が存在かつクリッピングなし
 
         float originXf = static_cast<float>(originX_) / INT_FIXED_ONE;
         float originYf = static_cast<float>(originY_) / INT_FIXED_ONE;
@@ -415,11 +416,30 @@ private:
             for (int col = 0; col < 3; col++) {
                 int idx = row * 3 + col;
 
-                // オーバーラップ量（隣接パッチがあれば1px拡張）
-                int16_t dx = (hasLeft[col] && effW[col] > 0) ? -1 : 0;
-                int16_t dy = (hasAbove[row] && effH[row] > 0) ? -1 : 0;
-                int16_t dw = (hasRight[col] && effW[col] > 0) ? 1 - dx : -dx;
-                int16_t dh = (hasBelow[row] && effH[row] > 0) ? 1 - dy : -dy;
+                // オーバーラップ量（固定部→伸縮部方向に拡張）
+                int16_t dx = 0, dy = 0, dw = 0, dh = 0;
+
+                // 横方向オーバーラップ
+                if (hasHStretch) {
+                    // 通常時: 固定部 → 伸縮部方向の拡張
+                    if (col == 0 && effW[0] > 0) { dw = 1; }           // 左固定: 右に拡張
+                    else if (col == 2 && effW[2] > 0) { dx = -1; dw = 1; }  // 右固定: 左に拡張
+                } else if (hClipping) {
+                    // クリッピング時: 左固定と右固定が直接隣接
+                    if (col == 0 && effW[0] > 0 && effW[2] > 0) { dw = 1; }
+                    else if (col == 2 && effW[0] > 0 && effW[2] > 0) { dx = -1; dw = 1; }
+                }
+
+                // 縦方向オーバーラップ
+                if (hasVStretch) {
+                    // 通常時: 固定部 → 伸縮部方向の拡張
+                    if (row == 0 && effH[0] > 0) { dh = 1; }           // 上固定: 下に拡張
+                    else if (row == 2 && effH[2] > 0) { dy = -1; dh = 1; }  // 下固定: 上に拡張
+                } else if (vClipping) {
+                    // クリッピング時: 上固定と下固定が直接隣接
+                    if (row == 0 && effH[0] > 0 && effH[2] > 0) { dh = 1; }
+                    else if (row == 2 && effH[0] > 0 && effH[2] > 0) { dy = -1; dh = 1; }
+                }
 
                 // ソースビュー設定
                 if (effW[col] > 0 && effH[row] > 0) {
