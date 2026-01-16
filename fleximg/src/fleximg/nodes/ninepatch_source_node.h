@@ -335,10 +335,10 @@ private:
         return row * 3 + col;
     }
 
-    // オーバーラップ量を計算（ドット抜け対策）
+    // 基本オーバーラップ量を計算（ドット抜け対策、tx/tyにも適用）
     // dx, dy: ソース/出力の開始位置オフセット（負値 = 左/上方向に拡張）
     // dw, dh: ソース/出力のサイズ増分
-    void calculateOverlap(int col, int row, int16_t& dx, int16_t& dy, int16_t& dw, int16_t& dh) const {
+    void calculateBaseOverlap(int col, int row, int16_t& dx, int16_t& dy, int16_t& dw, int16_t& dh) const {
         dx = dy = dw = dh = 0;
 
         bool hasHStretch = srcPatchW_[1] > 0;  // 横方向伸縮部が存在
@@ -354,20 +354,6 @@ private:
         if (hasVStretch) {
             if (row == 0 && srcPatchH_[0] > 0) { dh = 1; }           // 上行: 下に拡張
             else if (row == 2 && srcPatchH_[2] > 0) { dy = -1; dh = 1; }  // 下行: 上に拡張
-        }
-
-        // バイリニア補間時: 伸縮部 → 固定部方向の拡張
-        if (interpolationMode_ == InterpolationMode::Bilinear) {
-            // 中央列（横伸縮部）: 左右の固定部方向に拡張
-            if (col == 1) {
-                if (srcPatchW_[0] > 0) { dx -= 1; dw += 1; }  // 左に拡張
-                if (srcPatchW_[2] > 0) { dw += 1; }           // 右に拡張
-            }
-            // 中央行（縦伸縮部）: 上下の固定部方向に拡張
-            if (row == 1) {
-                if (srcPatchH_[0] > 0) { dy -= 1; dh += 1; }  // 上に拡張
-                if (srcPatchH_[2] > 0) { dh += 1; }           // 下に拡張
-            }
         }
     }
 
@@ -402,7 +388,7 @@ private:
                 if (w > 0 && h > 0) {
                     // オーバーラップ量を計算
                     int16_t dx, dy, dw, dh;
-                    calculateOverlap(col, row, dx, dy, dw, dh);
+                    calculateBaseOverlap(col, row, dx, dy, dw, dh);
 
                     // ソースビューを拡張（オーバーラップ適用）
                     int16_t sx = srcPatchX[col] + dx;
@@ -454,17 +440,29 @@ private:
 
                 // 中央列（col=1）は横方向に伸縮
                 if (col == 1 && srcPatchW_[1] > 0) {
-                    scaleX = static_cast<float>(patchWidths_[1]) / srcPatchW_[1];
+                    // バイリニア時は端1pxが描画されないため、有効ソース幅で割る
+                    // 固定部のオーバーラップが片側をカバーするため、1px分のみ補正
+                    int16_t effectiveSrcW = srcPatchW_[1];
+                    if (interpolationMode_ == InterpolationMode::Bilinear && effectiveSrcW > 1) {
+                        effectiveSrcW -= 1;
+                    }
+                    scaleX = static_cast<float>(patchWidths_[1]) / effectiveSrcW;
                 }
 
                 // 中央行（row=1）は縦方向に伸縮
                 if (row == 1 && srcPatchH_[1] > 0) {
-                    scaleY = static_cast<float>(patchHeights_[1]) / srcPatchH_[1];
+                    // バイリニア時は端1pxが描画されないため、有効ソース高さで割る
+                    // 固定部のオーバーラップが片側をカバーするため、1px分のみ補正
+                    int16_t effectiveSrcH = srcPatchH_[1];
+                    if (interpolationMode_ == InterpolationMode::Bilinear && effectiveSrcH > 1) {
+                        effectiveSrcH -= 1;
+                    }
+                    scaleY = static_cast<float>(patchHeights_[1]) / effectiveSrcH;
                 }
 
                 // オーバーラップ量を取得
                 int16_t dx, dy, dw, dh;
-                calculateOverlap(col, row, dx, dy, dw, dh);
+                calculateBaseOverlap(col, row, dx, dy, dw, dh);
 
                 // アフィン行列を設定（スケール + 平行移動）
                 // 出力座標P → ソース座標S: S = (P - patchOffset) / scale
@@ -474,6 +472,17 @@ private:
                 // positionX_/positionY_ を加算して配置位置を反映
                 float tx = static_cast<float>(patchOffsetX_[col] + dx) - from_fixed(originX_) + positionX_;
                 float ty = static_cast<float>(patchOffsetY_[row] + dy) - from_fixed(originY_) + positionY_;
+
+                // バイリニア時、伸縮部は端1pxが描画されないため位置を補正
+                // 固定部のオーバーラップと合わせて中央に配置するため、0.5*scale分ずらす
+                if (interpolationMode_ == InterpolationMode::Bilinear) {
+                    if (col == 1 && srcPatchW_[1] > 1) {
+                        tx -= scaleX * 0.5f;  // 左に0.5ソースピクセル分ずらす
+                    }
+                    if (row == 1 && srcPatchH_[1] > 1) {
+                        ty -= scaleY * 0.5f;  // 上に0.5ソースピクセル分ずらす
+                    }
+                }
                 patchScales_[idx] = AffineMatrix(scaleX, 0.0f, 0.0f, scaleY, tx, ty);
                 patchNeedsAffine_[idx] = true;  // 平行移動があるので常にtrue
 
