@@ -137,9 +137,9 @@ public:
 
         RenderResult canvas;
         bool canvasInitialized = false;
-        // バッファ内基準点位置（固定小数点 Q24.8）
-        int_fixed8 canvasOriginX = request.origin.x;
-        int_fixed8 canvasOriginY = request.origin.y;
+        // バッファ内基準点位置（固定小数点 Q16.16）
+        int_fixed canvasOriginX = request.origin.x;
+        int_fixed canvasOriginY = request.origin.y;
 
         // 逐次合成: 入力を1つずつ評価して合成
         for (int i = 0; i < numInputs; i++) {

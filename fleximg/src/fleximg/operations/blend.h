@@ -13,8 +13,8 @@ namespace blend {
 // ========================================================================
 //
 // 基準点座標系での合成処理を行います。
-// - dstOrigin: dstバッファ内での基準点位置（固定小数点 Q24.8）
-// - srcOrigin: srcバッファ内での基準点位置（固定小数点 Q24.8）
+// - dstOrigin: dstバッファ内での基準点位置（固定小数点 Q16.16）
+// - srcOrigin: srcバッファ内での基準点位置（固定小数点 Q16.16）
 //
 // 両者の基準点を一致させて合成します。
 //
@@ -25,8 +25,8 @@ namespace blend {
 //
 // 宛先が透明であることを前提とし、単純コピーで合成します。
 //
-void first(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
-           const ViewPort& src, int_fixed8 srcOriginX, int_fixed8 srcOriginY);
+void first(ViewPort& dst, int_fixed dstOriginX, int_fixed dstOriginY,
+           const ViewPort& src, int_fixed srcOriginX, int_fixed srcOriginY);
 
 // ------------------------------------------------------------------------
 // onto - 既存画像への合成（アルファブレンド）
@@ -34,8 +34,8 @@ void first(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
 //
 // プリマルチプライド形式でのアルファブレンド合成を行います。
 //
-void onto(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
-          const ViewPort& src, int_fixed8 srcOriginX, int_fixed8 srcOriginY);
+void onto(ViewPort& dst, int_fixed dstOriginX, int_fixed dstOriginY,
+          const ViewPort& src, int_fixed srcOriginX, int_fixed srcOriginY);
 
 } // namespace blend
 } // namespace FLEXIMG_NAMESPACE

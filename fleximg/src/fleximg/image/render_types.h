@@ -46,14 +46,14 @@ struct TileConfig {
 struct RenderRequest {
     int16_t width = 0;
     int16_t height = 0;
-    Point origin;  // バッファ内での基準点位置（固定小数点 Q24.8）
+    Point origin;  // バッファ内での基準点位置（固定小数点 Q16.16）
 
     bool isEmpty() const { return width <= 0 || height <= 0; }
 
     // マージン分拡大（フィルタ用）
     // 左右上下に適用されるため width/height は margin*2 増加
     RenderRequest expand(int margin) const {
-        int_fixed8 marginFixed = to_fixed8(margin);
+        int_fixed marginFixed = to_fixed(margin);
         return {
             static_cast<int16_t>(width + margin * 2),
             static_cast<int16_t>(height + margin * 2),
@@ -73,7 +73,7 @@ struct RenderRequest {
 struct PrepareRequest {
     int16_t width = 0;
     int16_t height = 0;
-    Point origin;  // 基準点位置（固定小数点 Q24.8）
+    Point origin;  // 基準点位置（固定小数点 Q16.16）
 
     // プル型アフィン（上流→Source で実行）
     AffineMatrix affineMatrix;
@@ -90,7 +90,7 @@ struct PrepareRequest {
 
 struct RenderResult {
     ImageBuffer buffer;
-    Point origin;  // バッファ内での基準点位置（固定小数点 Q24.8）
+    Point origin;  // バッファ内での基準点位置（固定小数点 Q16.16）
 
     RenderResult() = default;
 

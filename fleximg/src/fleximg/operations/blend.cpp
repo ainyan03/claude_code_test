@@ -11,13 +11,13 @@ namespace blend {
 // first - 透明キャンバスへの最初の描画
 // ========================================================================
 
-void first(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
-           const ViewPort& src, int_fixed8 srcOriginX, int_fixed8 srcOriginY) {
+void first(ViewPort& dst, int_fixed dstOriginX, int_fixed dstOriginY,
+           const ViewPort& src, int_fixed srcOriginX, int_fixed srcOriginY) {
     if (!dst.isValid() || !src.isValid()) return;
 
     // 基準点を一致させるためのオフセット計算（固定小数点演算）
-    int offsetX = from_fixed8(dstOriginX - srcOriginX);
-    int offsetY = from_fixed8(dstOriginY - srcOriginY);
+    int offsetX = from_fixed(dstOriginX - srcOriginX);
+    int offsetY = from_fixed(dstOriginY - srcOriginY);
 
     // クリッピング範囲を計算
     int srcStartX = std::max(0, -offsetX);
@@ -81,13 +81,13 @@ void first(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
 // onto - 既存画像への合成
 // ========================================================================
 
-void onto(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
-          const ViewPort& src, int_fixed8 srcOriginX, int_fixed8 srcOriginY) {
+void onto(ViewPort& dst, int_fixed dstOriginX, int_fixed dstOriginY,
+          const ViewPort& src, int_fixed srcOriginX, int_fixed srcOriginY) {
     if (!dst.isValid() || !src.isValid()) return;
 
     // 基準点を一致させるためのオフセット計算（固定小数点演算）
-    int offsetX = from_fixed8(dstOriginX - srcOriginX);
-    int offsetY = from_fixed8(dstOriginY - srcOriginY);
+    int offsetX = from_fixed(dstOriginX - srcOriginX);
+    int offsetY = from_fixed(dstOriginY - srcOriginY);
 
     // ループ範囲を事前計算
     int_fast32_t yStart = std::max(0, -offsetY);

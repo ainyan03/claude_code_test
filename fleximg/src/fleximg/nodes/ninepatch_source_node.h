@@ -119,7 +119,7 @@ public:
     }
 
     // 基準点設定（デフォルトは左上 (0,0)）
-    void setOrigin(int_fixed8 x, int_fixed8 y) {
+    void setOrigin(int_fixed x, int_fixed y) {
         if (originX_ != x || originY_ != y) {
             originX_ = x;
             originY_ = y;
@@ -133,8 +133,8 @@ public:
 
     int16_t outputWidth() const { return outputWidth_; }
     int16_t outputHeight() const { return outputHeight_; }
-    int_fixed8 originX() const { return originX_; }
-    int_fixed8 originY() const { return originY_; }
+    int_fixed originX() const { return originX_; }
+    int_fixed originY() const { return originY_; }
 
     // 境界座標（読み取り用）
     int16_t srcLeft() const { return srcLeft_; }
@@ -279,8 +279,8 @@ private:
     int16_t outputHeight_ = 0;
 
     // 基準点（出力座標系）
-    int_fixed8 originX_ = 0;
-    int_fixed8 originY_ = 0;
+    int_fixed originX_ = 0;
+    int_fixed originY_ = 0;
 
     // ジオメトリ計算結果
     bool geometryValid_ = false;
@@ -427,8 +427,8 @@ private:
                 // アフィン行列（S → P）: P = S * scale + patchOffset
                 // 平行移動はorigin相対座標で指定
                 // オーバーラップにより開始位置がずれる場合は dx, dy を加算
-                float tx = static_cast<float>(patchOffsetX_[col] + dx) - from_fixed8(originX_);
-                float ty = static_cast<float>(patchOffsetY_[row] + dy) - from_fixed8(originY_);
+                float tx = static_cast<float>(patchOffsetX_[col] + dx) - from_fixed(originX_);
+                float ty = static_cast<float>(patchOffsetY_[row] + dy) - from_fixed(originY_);
                 patchScales_[idx] = AffineMatrix(scaleX, 0.0f, 0.0f, scaleY, tx, ty);
                 patchNeedsAffine_[idx] = true;  // 平行移動があるので常にtrue
 

@@ -48,10 +48,10 @@ namespace FLEXIMG_NAMESPACE {
 //
 
 struct InputRegion {
-    // 4頂点座標（入力空間、Q24.8）
+    // 4頂点座標（入力空間、Q16.16）
     // corners[0]: 左上, corners[1]: 右上, corners[2]: 左下, corners[3]: 右下
-    int_fixed8 corners_x[4];
-    int_fixed8 corners_y[4];
+    int_fixed corners_x[4];
+    int_fixed corners_y[4];
 
     // AABB（入力空間、整数）
     int aabbLeft, aabbTop, aabbRight, aabbBottom;
@@ -142,9 +142,9 @@ public:
         // 順変換行列を事前計算（AABB分割・プッシュモード用）
         fwdMatrix_ = toFixed16(matrix_);
 
-        // tx/ty を Q24.8 固定小数点で保持（サブピクセル精度）
-        txFixed8_ = float_to_fixed8(matrix_.tx);
-        tyFixed8_ = float_to_fixed8(matrix_.ty);
+        // tx/ty を Q16.16 固定小数点で保持（サブピクセル精度）
+        txFixed_ = float_to_fixed(matrix_.tx);
+        tyFixed_ = float_to_fixed(matrix_.ty);
     }
 
     // ========================================
@@ -466,8 +466,8 @@ public:
     // ========================================
     const Matrix2x2_fixed16& getInvMatrix() const { return invMatrix_; }
     const Matrix2x2_fixed16& getFwdMatrix() const { return fwdMatrix_; }
-    int_fixed8 getTxFixed8() const { return txFixed8_; }
-    int_fixed8 getTyFixed8() const { return tyFixed8_; }
+    int_fixed getTxFixed() const { return txFixed_; }
+    int_fixed getTyFixed() const { return tyFixed_; }
     InputRegion testComputeInputRegion(const RenderRequest& request) {
         return computeInputRegion(request);
     }
@@ -550,8 +550,8 @@ public:
                          + static_cast<int64_t>(fwdMatrix_.b) * in_y[i];
             int64_t oy64 = static_cast<int64_t>(fwdMatrix_.c) * in_x[i]
                          + static_cast<int64_t>(fwdMatrix_.d) * in_y[i];
-            int_fixed8 ox = static_cast<int_fixed8>(ox64 >> INT_FIXED16_SHIFT) + txFixed8_;
-            int_fixed8 oy = static_cast<int_fixed8>(oy64 >> INT_FIXED16_SHIFT) + tyFixed8_;
+            int_fixed8 ox = static_cast<int_fixed8>(ox64 >> INT_FIXED16_SHIFT) + txFixed_;
+            int_fixed8 oy = static_cast<int_fixed8>(oy64 >> INT_FIXED16_SHIFT) + tyFixed_;
             minX_f8 = std::min(minX_f8, ox);
             minY_f8 = std::min(minY_f8, oy);
             maxX_f8 = std::max(maxX_f8, ox);
@@ -854,10 +854,10 @@ protected:
 
         // tx/ty を Q24.8 のまま減算（小数部保持）
         for (int i = 0; i < 4; i++) {
-            corner_x[i] -= txFixed8_;
-            corner_y[i] -= tyFixed8_;
-            aabb_x[i] -= txFixed8_;
-            aabb_y[i] -= tyFixed8_;
+            corner_x[i] -= txFixed_;
+            corner_y[i] -= tyFixed_;
+            aabb_x[i] -= txFixed_;
+            aabb_y[i] -= tyFixed_;
         }
 
         // 逆変換して入力空間の座標を計算（Q24.8 精度）
@@ -932,8 +932,8 @@ private:
     AffineMatrix matrix_;  // 恒等行列がデフォルト
     Matrix2x2_fixed16 invMatrix_;  // prepare() で計算（2x2逆行列、プル用）
     Matrix2x2_fixed16 fwdMatrix_;  // prepare() で計算（2x2順行列、AABB分割・プッシュ用）
-    int_fixed8 txFixed8_ = 0;  // tx を Q24.8 で保持
-    int_fixed8 tyFixed8_ = 0;  // ty を Q24.8 で保持
+    int_fixed txFixed_ = 0;  // tx を Q16.16 で保持
+    int_fixed tyFixed_ = 0;  // ty を Q16.16 で保持
     bool hasAffinePropagated_ = false;      // プル型アフィン伝播済みフラグ
     bool hasPushAffinePropagated_ = false;  // プッシュ型アフィン伝播済みフラグ
 
@@ -1047,10 +1047,10 @@ private:
         // ================================================================
         // 逆変換オフセットの計算（tx/ty 固定小数点版）
         // ================================================================
-        int64_t invTx64 = -(static_cast<int64_t>(txFixed8_) * fixedInvA
-                          + static_cast<int64_t>(tyFixed8_) * fixedInvB);
-        int64_t invTy64 = -(static_cast<int64_t>(txFixed8_) * fixedInvC
-                          + static_cast<int64_t>(tyFixed8_) * fixedInvD);
+        int64_t invTx64 = -(static_cast<int64_t>(txFixed_) * fixedInvA
+                          + static_cast<int64_t>(tyFixed_) * fixedInvB);
+        int64_t invTy64 = -(static_cast<int64_t>(txFixed_) * fixedInvC
+                          + static_cast<int64_t>(tyFixed_) * fixedInvD);
         int32_t invTxFixed = static_cast<int32_t>(invTx64 >> INT_FIXED8_SHIFT);
         int32_t invTyFixed = static_cast<int32_t>(invTy64 >> INT_FIXED8_SHIFT);
 

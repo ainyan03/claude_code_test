@@ -24,20 +24,20 @@ public:
         initPorts(1, 0);  // 入力1、出力0
     }
 
-    SinkNode(const ViewPort& vp, int_fixed8 originX = 0, int_fixed8 originY = 0)
+    SinkNode(const ViewPort& vp, int_fixed originX = 0, int_fixed originY = 0)
         : target_(vp), originX_(originX), originY_(originY) {
         initPorts(1, 0);
     }
 
     // ターゲット設定
     void setTarget(const ViewPort& vp) { target_ = vp; }
-    void setOrigin(int_fixed8 x, int_fixed8 y) { originX_ = x; originY_ = y; }
+    void setOrigin(int_fixed x, int_fixed y) { originX_ = x; originY_ = y; }
 
     // アクセサ
     const ViewPort& target() const { return target_; }
     ViewPort& target() { return target_; }
-    int_fixed8 originX() const { return originX_; }
-    int_fixed8 originY() const { return originY_; }
+    int_fixed originX() const { return originX_; }
+    int_fixed originY() const { return originY_; }
 
     // キャンバスサイズ（targetから取得）
     int16_t canvasWidth() const { return target_.width; }
@@ -65,8 +65,8 @@ public:
 
             if (affine_.isValid()) {
                 // dstOrigin（自身のorigin）を減算して baseTx/Ty を計算
-                const int32_t dstOriginXInt = from_fixed8(originX_);
-                const int32_t dstOriginYInt = from_fixed8(originY_);
+                const int32_t dstOriginXInt = from_fixed(originX_);
+                const int32_t dstOriginYInt = from_fixed(originY_);
                 baseTx_ = affine_.invTxFixed
                         - (dstOriginXInt * affine_.invMatrix.a)
                         - (dstOriginYInt * affine_.invMatrix.b);
@@ -107,8 +107,8 @@ public:
         // input.origin: 入力バッファ内での基準点位置
         // originX_/Y_: 出力バッファ内での基準点位置
         // dstX = originX_ - input.origin.x
-        int dstX = from_fixed8(originX_ - input.origin.x);
-        int dstY = from_fixed8(originY_ - input.origin.y);
+        int dstX = from_fixed(originX_ - input.origin.x);
+        int dstY = from_fixed(originY_ - input.origin.y);
 
         // クリッピング処理
         int srcX = 0, srcY = 0;
@@ -126,8 +126,8 @@ public:
 
 private:
     ViewPort target_;
-    int_fixed8 originX_ = 0;  // 出力先の基準点X（固定小数点 Q24.8）
-    int_fixed8 originY_ = 0;  // 出力先の基準点Y（固定小数点 Q24.8）
+    int_fixed originX_ = 0;  // 出力先の基準点X（固定小数点 Q16.16）
+    int_fixed originY_ = 0;  // 出力先の基準点Y（固定小数点 Q16.16）
 
     // アフィン伝播用メンバ変数（事前計算済み）
     AffinePrecomputed affine_;     // 逆行列・ピクセル中心オフセット
@@ -164,12 +164,12 @@ private:
     // アフィン変換実装（事前計算済み値を使用）
     // ========================================
     void applyAffine(ViewPort& dst,
-                     const ViewPort& src, int_fixed8 srcOriginX, int_fixed8 srcOriginY) {
+                     const ViewPort& src, int_fixed srcOriginX, int_fixed srcOriginY) {
         if (!affine_.isValid()) return;
 
         // srcOrigin分のみ計算（baseTx_/baseTy_ は dstOrigin 込みで事前計算済み）
-        const int32_t srcOriginXInt = from_fixed8(srcOriginX);
-        const int32_t srcOriginYInt = from_fixed8(srcOriginY);
+        const int32_t srcOriginXInt = from_fixed(srcOriginX);
+        const int32_t srcOriginYInt = from_fixed(srcOriginY);
 
         const int32_t fixedInvTx = baseTx_
                             + (srcOriginXInt << INT_FIXED16_SHIFT);

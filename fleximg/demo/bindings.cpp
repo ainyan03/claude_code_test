@@ -660,8 +660,8 @@ private:
             // SinkNodeを作成
             info.node = std::make_unique<SinkNode>();
             info.node->setTarget(info.targetView);
-            info.node->setOrigin(float_to_fixed8(static_cast<float>(gnode->srcOriginX)),
-                                 float_to_fixed8(static_cast<float>(gnode->srcOriginY)));
+            info.node->setOrigin(float_to_fixed(static_cast<float>(gnode->srcOriginX)),
+                                 float_to_fixed(static_cast<float>(gnode->srcOriginY)));
 
             sinkNodeMap[gnode->id] = info.node.get();
             sinkInfos.push_back(std::move(info));
@@ -678,8 +678,8 @@ private:
         // RendererNodeを作成
         auto rendererNode = std::make_unique<RendererNode>();
         rendererNode->setVirtualScreen(canvasWidth_, canvasHeight_,
-                                        float_to_fixed8(static_cast<float>(dstOriginX_)),
-                                        float_to_fixed8(static_cast<float>(dstOriginY_)));
+                                        float_to_fixed(static_cast<float>(dstOriginX_)),
+                                        float_to_fixed(static_cast<float>(dstOriginY_)));
 
         // 再帰的にノードを構築
         std::function<Node*(const std::string&)> buildNode;
@@ -705,8 +705,8 @@ private:
 
                 auto src = std::make_unique<SourceNode>();
                 src->setSource(viewIt->second);
-                src->setOrigin(float_to_fixed8(static_cast<float>(gnode.srcOriginX)),
-                               float_to_fixed8(static_cast<float>(gnode.srcOriginY)));
+                src->setOrigin(float_to_fixed(static_cast<float>(gnode.srcOriginX)),
+                               float_to_fixed(static_cast<float>(gnode.srcOriginY)));
                 src->setPosition(static_cast<float>(gnode.positionX),
                                  static_cast<float>(gnode.positionY));
                 if (gnode.bilinear) {
@@ -727,8 +727,8 @@ private:
                     static_cast<int16_t>(gnode.outputWidth > 0 ? gnode.outputWidth : viewIt->second.width - 2),
                     static_cast<int16_t>(gnode.outputHeight > 0 ? gnode.outputHeight : viewIt->second.height - 2)
                 );
-                np->setOrigin(float_to_fixed8(static_cast<float>(gnode.srcOriginX)),
-                              float_to_fixed8(static_cast<float>(gnode.srcOriginY)));
+                np->setOrigin(float_to_fixed(static_cast<float>(gnode.srcOriginX)),
+                              float_to_fixed(static_cast<float>(gnode.srcOriginY)));
 
                 Node* result = np.get();
                 v2Nodes[nodeId] = std::move(np);
