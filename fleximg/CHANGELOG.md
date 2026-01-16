@@ -1,5 +1,35 @@
 # Changelog
 
+## [2.32.0] - 2026-01-16
+
+### 追加
+
+- **水平/垂直ブラーノードの分離**: BoxBlurを水平・垂直の独立したノードに分離
+  - `HorizontalBlurNode`: 水平方向のみのブラー処理（1行完結、キャッシュ不要）
+  - `VerticalBlurNode`: 垂直方向のみのブラー処理（列合計ベース）
+  - 組み合わせにより従来のBoxBlurと同等の結果を得られる
+  - モーションブラー的な効果（方向別ブラー）に対応
+
+### 使用例
+
+```cpp
+// 水平ブラーのみ
+src >> hblur >> renderer >> sink;
+
+// 垂直ブラーのみ
+src >> vblur >> renderer >> sink;
+
+// 組み合わせ（BoxBlur相当）- HorizontalBlur → VerticalBlur の順が効率的
+src >> hblur >> vblur >> renderer >> sink;
+```
+
+### WebUI
+
+- フィルタメニューに「水平ぼかし」「垂直ぼかし」を追加
+- 既存の「ぼかし」(BoxBlur) も引き続き利用可能
+
+---
+
 ## [2.31.0] - 2026-01-16
 
 ### 変更

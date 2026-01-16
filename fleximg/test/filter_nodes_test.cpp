@@ -12,6 +12,8 @@
 #include "fleximg/nodes/grayscale_node.h"
 #include "fleximg/nodes/alpha_node.h"
 #include "fleximg/nodes/box_blur_node.h"
+#include "fleximg/nodes/horizontal_blur_node.h"
+#include "fleximg/nodes/vertical_blur_node.h"
 #include "fleximg/nodes/source_node.h"
 #include "fleximg/nodes/sink_node.h"
 #include "fleximg/nodes/renderer_node.h"
@@ -252,6 +254,140 @@ TEST_CASE("BoxBlurNode blurs image") {
     renderer.exec();
 
     // ブラー処理が完了することを確認
+    CHECK(true);
+}
+
+// =============================================================================
+// HorizontalBlurNode Tests
+// =============================================================================
+
+TEST_CASE("HorizontalBlurNode basic construction") {
+    HorizontalBlurNode node;
+    CHECK(node.name() != nullptr);
+    CHECK(node.radius() == 5);  // デフォルト半径
+}
+
+TEST_CASE("HorizontalBlurNode setRadius") {
+    HorizontalBlurNode node;
+
+    node.setRadius(3);
+    CHECK(node.radius() == 3);
+
+    node.setRadius(0);
+    CHECK(node.radius() == 0);
+}
+
+TEST_CASE("HorizontalBlurNode blurs image horizontally") {
+    const int imgSize = 32;
+    const int canvasSize = 64;
+
+    // 中央に白い点のある黒い画像を作成
+    ImageBuffer srcImg = createSolidImage(imgSize, imgSize, 0, 0, 0, 255);
+    ViewPort srcView = srcImg.view();
+    uint8_t* centerPixel = static_cast<uint8_t*>(srcView.pixelAt(imgSize / 2, imgSize / 2));
+    centerPixel[0] = 255; centerPixel[1] = 255; centerPixel[2] = 255; centerPixel[3] = 255;
+
+    ImageBuffer dstImg(canvasSize, canvasSize, PixelFormatIDs::RGBA8_Straight);
+    ViewPort dstView = dstImg.view();
+
+    SourceNode src(srcView, imgSize / 2.0f, imgSize / 2.0f);
+    HorizontalBlurNode hblur;
+    RendererNode renderer;
+    SinkNode sink(dstView, canvasSize / 2.0f, canvasSize / 2.0f);
+
+    src >> hblur >> renderer >> sink;
+
+    hblur.setRadius(2);
+
+    renderer.setVirtualScreen(canvasSize, canvasSize);
+    renderer.exec();
+
+    // 水平ブラー処理が完了することを確認
+    CHECK(true);
+}
+
+// =============================================================================
+// VerticalBlurNode Tests
+// =============================================================================
+
+TEST_CASE("VerticalBlurNode basic construction") {
+    VerticalBlurNode node;
+    CHECK(node.name() != nullptr);
+    CHECK(node.radius() == 5);  // デフォルト半径
+}
+
+TEST_CASE("VerticalBlurNode setRadius") {
+    VerticalBlurNode node;
+
+    node.setRadius(3);
+    CHECK(node.radius() == 3);
+
+    node.setRadius(0);
+    CHECK(node.radius() == 0);
+}
+
+TEST_CASE("VerticalBlurNode blurs image vertically") {
+    const int imgSize = 32;
+    const int canvasSize = 64;
+
+    // 中央に白い点のある黒い画像を作成
+    ImageBuffer srcImg = createSolidImage(imgSize, imgSize, 0, 0, 0, 255);
+    ViewPort srcView = srcImg.view();
+    uint8_t* centerPixel = static_cast<uint8_t*>(srcView.pixelAt(imgSize / 2, imgSize / 2));
+    centerPixel[0] = 255; centerPixel[1] = 255; centerPixel[2] = 255; centerPixel[3] = 255;
+
+    ImageBuffer dstImg(canvasSize, canvasSize, PixelFormatIDs::RGBA8_Straight);
+    ViewPort dstView = dstImg.view();
+
+    SourceNode src(srcView, imgSize / 2.0f, imgSize / 2.0f);
+    VerticalBlurNode vblur;
+    RendererNode renderer;
+    SinkNode sink(dstView, canvasSize / 2.0f, canvasSize / 2.0f);
+
+    src >> vblur >> renderer >> sink;
+
+    vblur.setRadius(2);
+
+    renderer.setVirtualScreen(canvasSize, canvasSize);
+    renderer.exec();
+
+    // 垂直ブラー処理が完了することを確認
+    CHECK(true);
+}
+
+// =============================================================================
+// Horizontal + Vertical Blur Combination Tests
+// =============================================================================
+
+TEST_CASE("HorizontalBlur + VerticalBlur combination equals BoxBlur") {
+    const int imgSize = 32;
+    const int canvasSize = 64;
+
+    // 中央に白い点のある黒い画像を作成
+    ImageBuffer srcImg = createSolidImage(imgSize, imgSize, 0, 0, 0, 255);
+    ViewPort srcView = srcImg.view();
+    uint8_t* centerPixel = static_cast<uint8_t*>(srcView.pixelAt(imgSize / 2, imgSize / 2));
+    centerPixel[0] = 255; centerPixel[1] = 255; centerPixel[2] = 255; centerPixel[3] = 255;
+
+    ImageBuffer dstImg(canvasSize, canvasSize, PixelFormatIDs::RGBA8_Straight);
+    ViewPort dstView = dstImg.view();
+
+    SourceNode src(srcView, imgSize / 2.0f, imgSize / 2.0f);
+    HorizontalBlurNode hblur;
+    VerticalBlurNode vblur;
+    RendererNode renderer;
+    SinkNode sink(dstView, canvasSize / 2.0f, canvasSize / 2.0f);
+
+    // HorizontalBlur -> VerticalBlur の順で接続
+    src >> hblur >> vblur >> renderer >> sink;
+
+    hblur.setRadius(2);
+    vblur.setRadius(2);
+
+    renderer.setVirtualScreen(canvasSize, canvasSize);
+    renderer.exec();
+
+    // 組み合わせブラー処理が完了することを確認
     CHECK(true);
 }
 

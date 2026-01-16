@@ -45,8 +45,10 @@ const NODE_TYPES = {
     grayscale:   { index: 7, name: 'Grayscale',   category: 'filter',    showEfficiency: true },
     boxBlur:     { index: 8, name: 'BoxBlur',     category: 'filter',    showEfficiency: true },
     alpha:       { index: 9, name: 'Alpha',       category: 'filter',    showEfficiency: true },
+    horizontalBlur: { index: 10, name: 'HorizontalBlur', category: 'filter', showEfficiency: true },
+    verticalBlur:   { index: 11, name: 'VerticalBlur',   category: 'filter', showEfficiency: true },
     // 特殊ソース系
-    ninepatch:   { index: 10, name: 'NinePatch',  category: 'system',    showEfficiency: false },
+    ninepatch:   { index: 12, name: 'NinePatch',  category: 'system',    showEfficiency: false },
 };
 
 // ========================================
@@ -218,6 +220,38 @@ const FILTER_DEFINITIONS = {
                 step: 0.01,
                 default: 1,
                 format: v => `${Math.round(v * 100)}%`
+            }
+        ]
+    },
+    horizontalBlur: {
+        id: 'horizontalBlur',
+        name: '水平ぼかし',
+        category: 'blur',
+        params: [
+            {
+                name: 'radius',
+                label: '半径',
+                min: 0,
+                max: 20,
+                step: 1,
+                default: 3,
+                format: v => `${Math.round(v)}px`
+            }
+        ]
+    },
+    verticalBlur: {
+        id: 'verticalBlur',
+        name: '垂直ぼかし',
+        category: 'blur',
+        params: [
+            {
+                name: 'radius',
+                label: '半径',
+                min: 0,
+                max: 20,
+                step: 1,
+                default: 3,
+                format: v => `${Math.round(v)}px`
             }
         ]
     }
