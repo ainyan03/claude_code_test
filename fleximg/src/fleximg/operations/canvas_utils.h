@@ -23,15 +23,15 @@ inline ImageBuffer createCanvas(int width, int height) {
 
 // 最初の画像をキャンバスに配置
 // blend::first を使用（透明キャンバスへの最初の描画、memcpy最適化）
-inline void placeFirst(ViewPort& canvas, int_fixed8 canvasOriginX, int_fixed8 canvasOriginY,
-                       const ViewPort& src, int_fixed8 srcOriginX, int_fixed8 srcOriginY) {
+inline void placeFirst(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canvasOriginY,
+                       const ViewPort& src, int_fixed srcOriginX, int_fixed srcOriginY) {
     blend::first(canvas, canvasOriginX, canvasOriginY, src, srcOriginX, srcOriginY);
 }
 
 // 追加画像をキャンバスに配置（ブレンド）
 // blend::onto を使用（2枚目以降の合成、ブレンド計算）
-inline void placeOnto(ViewPort& canvas, int_fixed8 canvasOriginX, int_fixed8 canvasOriginY,
-                      const ViewPort& src, int_fixed8 srcOriginX, int_fixed8 srcOriginY) {
+inline void placeOnto(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canvasOriginY,
+                      const ViewPort& src, int_fixed srcOriginX, int_fixed srcOriginY) {
     blend::onto(canvas, canvasOriginX, canvasOriginY, src, srcOriginX, srcOriginY);
 }
 

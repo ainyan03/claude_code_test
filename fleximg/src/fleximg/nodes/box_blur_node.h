@@ -169,7 +169,7 @@ public:
 
         // 入力行を横ブラーしてキャッシュに格納
         // 各行のoriginを考慮してオフセットを計算
-        int xOffset = from_fixed8(input.origin.x - pushInputOriginX_);
+        int xOffset = from_fixed(input.origin.x - pushInputOriginX_);
         // Y方向: 入力origin.yと基準origin.yの差分を記録（最新の値を保持）
         lastInputOriginY_ = input.origin.y;
         storeInputRowToCache(converted, slot, xOffset);
@@ -203,7 +203,7 @@ public:
             // updateColSum(slot, true) は不要（ゼロなので）
 
             // 仮想的な入力行のorigin.yを更新（1行下に進むのでorigin.yは減少）
-            lastInputOriginY_ -= to_fixed8(1);
+            lastInputOriginY_ -= to_fixed(1);
             pushInputY_++;
             emitBlurredLine();
         }
@@ -237,7 +237,7 @@ protected:
         metrics.usedPixels += static_cast<uint64_t>(request.width) * 1;
 #endif
 
-        int requestY = from_fixed8(request.origin.y);
+        int requestY = from_fixed(request.origin.y);
 
         // 最初の呼び出し: キャッシュ初期化のためcurrentY_を設定
         if (!cacheReady_) {
@@ -291,9 +291,9 @@ private:
     int pushInputHeight_ = 0;                // 入力高さ
     int pushOutputWidth_ = 0;                // 出力幅（入力幅 + radius*2）
     int pushOutputHeight_ = 0;               // 出力高さ（入力高さ + radius*2）
-    int_fixed8 pushInputOriginX_ = 0;        // 基準origin.x（prepare時点で設定）
-    int_fixed8 pushInputOriginY_ = 0;        // 基準origin.y（prepare時点で設定）
-    int_fixed8 lastInputOriginY_ = 0;        // 最後に受け取った有効な入力のorigin.y
+    int_fixed pushInputOriginX_ = 0;         // 基準origin.x（prepare時点で設定）
+    int_fixed pushInputOriginY_ = 0;         // 基準origin.y（prepare時点で設定）
+    int_fixed lastInputOriginY_ = 0;         // 最後に受け取った有効な入力のorigin.y
 
     // ========================================
     // キャッシュ管理（push/pull共通）
@@ -349,8 +349,8 @@ private:
         RenderRequest upstreamReq;
         upstreamReq.width = inputWidth;
         upstreamReq.height = 1;
-        upstreamReq.origin.x = request.origin.x + to_fixed8(radius_);
-        upstreamReq.origin.y = to_fixed8(srcY);
+        upstreamReq.origin.x = request.origin.x + to_fixed(radius_);
+        upstreamReq.origin.y = to_fixed(srcY);
 
         RenderResult result = upstream->pullProcess(upstreamReq);
 
@@ -370,7 +370,7 @@ private:
         // 座標系: origin.x が大きいほど左
         // srcOffsetX > 0: 結果は要求より右側から始まる → inputRowの右側にコピー
         std::vector<uint8_t> inputRow(inputWidth * 4, 0);
-        int srcOffsetX = from_fixed8(upstreamReq.origin.x - result.origin.x);
+        int srcOffsetX = from_fixed(upstreamReq.origin.x - result.origin.x);
         int dstStartX = std::max(0, srcOffsetX);
         int srcStartX = std::max(0, -srcOffsetX);
         int copyWidth = std::min(srcView.width - srcStartX, inputWidth - dstStartX);
@@ -529,7 +529,7 @@ private:
         RenderRequest outReq;
         outReq.width = static_cast<int16_t>(cacheWidth_);
         outReq.height = 1;
-        outReq.origin.x = pushInputOriginX_ + to_fixed8(radius_);
+        outReq.origin.x = pushInputOriginX_ + to_fixed(radius_);
         // lastInputOriginY_は入力行(pushInputY_-1)のorigin.y
         // 出力行に対応する入力行との行差分を加算
         // 出力行 m は入力行 m - radius に対応
@@ -537,7 +537,7 @@ private:
         // 対応入力行 = pushOutputY_ - radius_
         // rowDiff = lastInputRow - 対応入力行 = pushInputY_ - 1 - pushOutputY_ + radius_
         int rowDiff = (pushInputY_ - 1) - (pushOutputY_ - radius_);
-        outReq.origin.y = lastInputOriginY_ + to_fixed8(rowDiff);
+        outReq.origin.y = lastInputOriginY_ + to_fixed(rowDiff);
 
         pushOutputY_++;
 

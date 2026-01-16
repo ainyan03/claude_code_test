@@ -39,27 +39,27 @@ public:
         initPorts(0, 1);  // 入力0、出力1
     }
 
-    SourceNode(const ViewPort& vp, int_fixed8 originX = 0, int_fixed8 originY = 0)
+    SourceNode(const ViewPort& vp, int_fixed originX = 0, int_fixed originY = 0)
         : source_(vp), originX_(originX), originY_(originY) {
         initPorts(0, 1);
     }
 
     // ソース設定
     void setSource(const ViewPort& vp) { source_ = vp; }
-    void setOrigin(int_fixed8 x, int_fixed8 y) { originX_ = x; originY_ = y; }
+    void setOrigin(int_fixed x, int_fixed y) { originX_ = x; originY_ = y; }
 
     // アクセサ
     const ViewPort& source() const { return source_; }
-    int_fixed8 originX() const { return originX_; }
-    int_fixed8 originY() const { return originY_; }
+    int_fixed originX() const { return originX_; }
+    int_fixed originY() const { return originY_; }
 
     // ユーザー向けAPI: pivot（内部 origin のラッパー）
     void setPivot(float x, float y) {
-        originX_ = to_fixed8(x);
-        originY_ = to_fixed8(y);
+        originX_ = float_to_fixed(x);
+        originY_ = float_to_fixed(y);
     }
     std::pair<float, float> getPivot() const {
-        return {from_fixed8(originX_), from_fixed8(originY_)};
+        return {fixed_to_float(originX_), fixed_to_float(originY_)};
     }
 
     // ユーザー向けAPI: position（配置位置）
@@ -107,10 +107,9 @@ public:
                 const int32_t invA = affine_.invMatrix.a;
                 const int32_t invC = affine_.invMatrix.c;
 
-                // origin を Q24.8 から Q16.16 に変換（小数部を保持）
-                // これにより奇数幅画像の中心など、小数部を持つ origin が正しく反映される
-                const int32_t srcOriginXFixed16 = static_cast<int32_t>(originX_) << (INT_FIXED16_SHIFT - INT_FIXED8_SHIFT);
-                const int32_t srcOriginYFixed16 = static_cast<int32_t>(originY_) << (INT_FIXED16_SHIFT - INT_FIXED8_SHIFT);
+                // origin は既に Q16.16 なのでそのまま使用
+                const int32_t srcOriginXFixed16 = originX_;
+                const int32_t srcOriginYFixed16 = originY_;
 
                 // バイリニア補間かどうかで有効範囲とオフセットが異なる
                 const bool useBilinear = (interpolationMode_ == InterpolationMode::Bilinear)
@@ -160,16 +159,18 @@ public:
                 // ドットバイドット判定（逆行列の増分値で判定）
                 // 整数オフセットのみの場合は DDA をスキップし、高速な非アフィンパスを使用
                 // origin の小数部もチェック（アフィンパスでは整数部のみ使用するため）
+                // 注: invTxFixed/invTyFixed がゼロでない場合は、アフィン行列に平行移動が
+                // 含まれているため、非アフィンパスは使えない（NinePatch のパッチ位置など）
                 constexpr int32_t one = 1 << INT_FIXED16_SHIFT;  // 65536 (Q16.16)
                 bool isDotByDot =
                     (affine_.invMatrix.a == one || affine_.invMatrix.a == -one) &&
                     (affine_.invMatrix.d == one || affine_.invMatrix.d == -one) &&
                     affine_.invMatrix.b == 0 &&
                     affine_.invMatrix.c == 0 &&
-                    (affine_.invTxFixed & 0xFFFF) == 0 &&  // position の小数部が0
-                    (affine_.invTyFixed & 0xFFFF) == 0 &&
-                    (originX_ & 0xFF) == 0 &&              // origin の小数部が0（Q24.8）
-                    (originY_ & 0xFF) == 0;
+                    affine_.invTxFixed == 0 &&             // 平行移動がない（tx = 0）
+                    affine_.invTyFixed == 0 &&             // 平行移動がない（ty = 0）
+                    (originX_ & 0xFFFF) == 0 &&            // origin の小数部が0（Q16.16）
+                    (originY_ & 0xFFFF) == 0;
 
                 if (isDotByDot) {
                     hasAffine_ = false;
@@ -184,7 +185,7 @@ public:
                        affine_.invMatrix.a, affine_.invMatrix.d,
                        affine_.invMatrix.b, affine_.invMatrix.c,
                        affine_.invTxFixed & 0xFFFF, affine_.invTyFixed & 0xFFFF,
-                       originX_ & 0xFF, originY_ & 0xFF);
+                       originX_ & 0xFFFF, originY_ & 0xFFFF);
 #endif
             } else {
                 // 逆行列が無効（特異行列）
@@ -224,26 +225,26 @@ public:
             return pullProcessWithAffine(request);
         }
 
-        // ソース画像の基準相対座標範囲（固定小数点 Q24.8）
+        // ソース画像の基準相対座標範囲（固定小数点 Q16.16）
         // position が設定されている場合、origin からのオフセットとして適用
-        int_fixed8 posOffsetX = to_fixed8(positionX_);
-        int_fixed8 posOffsetY = to_fixed8(positionY_);
-        int_fixed8 imgLeft = -originX_ + posOffsetX;
-        int_fixed8 imgTop = -originY_ + posOffsetY;
-        int_fixed8 imgRight = imgLeft + to_fixed8(source_.width);
-        int_fixed8 imgBottom = imgTop + to_fixed8(source_.height);
+        int_fixed posOffsetX = float_to_fixed(positionX_);
+        int_fixed posOffsetY = float_to_fixed(positionY_);
+        int_fixed imgLeft = -originX_ + posOffsetX;
+        int_fixed imgTop = -originY_ + posOffsetY;
+        int_fixed imgRight = imgLeft + to_fixed(source_.width);
+        int_fixed imgBottom = imgTop + to_fixed(source_.height);
 
-        // 要求範囲の基準相対座標（固定小数点 Q24.8）
-        int_fixed8 reqLeft = -request.origin.x;
-        int_fixed8 reqTop = -request.origin.y;
-        int_fixed8 reqRight = reqLeft + to_fixed8(request.width);
-        int_fixed8 reqBottom = reqTop + to_fixed8(request.height);
+        // 要求範囲の基準相対座標（固定小数点 Q16.16）
+        int_fixed reqLeft = -request.origin.x;
+        int_fixed reqTop = -request.origin.y;
+        int_fixed reqRight = reqLeft + to_fixed(request.width);
+        int_fixed reqBottom = reqTop + to_fixed(request.height);
 
         // 交差領域
-        int_fixed8 interLeft = std::max(imgLeft, reqLeft);
-        int_fixed8 interTop = std::max(imgTop, reqTop);
-        int_fixed8 interRight = std::min(imgRight, reqRight);
-        int_fixed8 interBottom = std::min(imgBottom, reqBottom);
+        int_fixed interLeft = std::max(imgLeft, reqLeft);
+        int_fixed interTop = std::max(imgTop, reqTop);
+        int_fixed interRight = std::min(imgRight, reqRight);
+        int_fixed interBottom = std::min(imgBottom, reqBottom);
 
         if (interLeft >= interRight || interTop >= interBottom) {
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
@@ -258,10 +259,10 @@ public:
 
         // 交差領域のサブビューを参照モードで返す（コピーなし）
         // 開始位置は floor、終端位置は ceil で計算（タイル境界でのピクセル欠落を防ぐ）
-        int srcX = from_fixed8_floor(interLeft - imgLeft);
-        int srcY = from_fixed8_floor(interTop - imgTop);
-        int srcEndX = from_fixed8_ceil(interRight - imgLeft);
-        int srcEndY = from_fixed8_ceil(interBottom - imgTop);
+        int srcX = from_fixed_floor(interLeft - imgLeft);
+        int srcY = from_fixed_floor(interTop - imgTop);
+        int srcEndX = from_fixed_ceil(interRight - imgLeft);
+        int srcEndY = from_fixed_ceil(interBottom - imgTop);
         int interW = srcEndX - srcX;
         int interH = srcEndY - srcY;
 
@@ -280,8 +281,8 @@ public:
 
 private:
     ViewPort source_;
-    int_fixed8 originX_ = 0;  // 画像内の基準点X（固定小数点 Q24.8）
-    int_fixed8 originY_ = 0;  // 画像内の基準点Y（固定小数点 Q24.8）
+    int_fixed originX_ = 0;  // 画像内の基準点X（固定小数点 Q16.16）
+    int_fixed originY_ = 0;  // 画像内の基準点Y（固定小数点 Q16.16）
     float positionX_ = 0.0f;  // 配置位置X（アフィン行列の tx に合成）
     float positionY_ = 0.0f;  // 配置位置Y（アフィン行列の ty に合成）
     InterpolationMode interpolationMode_ = InterpolationMode::Nearest;
@@ -315,9 +316,9 @@ private:
             return RenderResult(ImageBuffer(), request.origin);
         }
 
-        // dstOrigin分を計算
-        const int32_t dstOriginXInt = from_fixed8(request.origin.x);
-        const int32_t dstOriginYInt = from_fixed8(request.origin.y);
+        // dstOrigin分を計算（Q16.16 → int）
+        const int32_t dstOriginXInt = from_fixed(request.origin.x);
+        const int32_t dstOriginYInt = from_fixed(request.origin.y);
 
         // LovyanGFX/pixel_image.hpp 方式: 事前計算済み境界値を使った範囲計算
         const int32_t invA = affine_.invMatrix.a;
@@ -431,7 +432,7 @@ private:
         // originを有効範囲に合わせて調整
         // dxStart分だけ左にオフセット
         Point adjustedOrigin = {
-            request.origin.x - to_fixed8(dxStart),
+            request.origin.x - to_fixed(dxStart),
             request.origin.y
         };
 

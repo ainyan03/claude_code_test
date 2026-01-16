@@ -16,11 +16,15 @@ namespace core {
 //
 
 // ------------------------------------------------------------------------
-// Q24.8 固定小数点（座標用）
+// Q24.8 固定小数点（座標用）[DEPRECATED]
 // ------------------------------------------------------------------------
 // 整数部: 24bit (-8,388,608 ~ 8,388,607)
 // 小数部: 8bit (精度 1/256 = 0.00390625)
 // 用途: origin座標、基準点位置など
+//
+// [DEPRECATED] Q16.16への統一により非推奨。
+// 新規コードでは int_fixed（Q16.16）を使用してください。
+// 既存コードとの互換性のため残しています。
 
 using int_fixed8 = int32_t;
 
@@ -40,6 +44,19 @@ using int_fixed16 = int32_t;
 constexpr int INT_FIXED16_SHIFT = 16;
 constexpr int_fixed16 INT_FIXED16_ONE = 1 << INT_FIXED16_SHIFT;  // 65536
 constexpr int_fixed16 INT_FIXED16_HALF = 1 << (INT_FIXED16_SHIFT - 1);  // 32768
+
+// ------------------------------------------------------------------------
+// 統一固定小数点型（Q16.16）
+// ------------------------------------------------------------------------
+// 座標、行列ともにQ16.16を標準とする。
+// 整数範囲 ±32,767 は組み込みディスプレイで十分。
+// 精度 1/65536 により、サブピクセル計算の精度も向上。
+
+using int_fixed = int_fixed16;
+
+constexpr int INT_FIXED_SHIFT = INT_FIXED16_SHIFT;
+constexpr int_fixed INT_FIXED_ONE = INT_FIXED16_ONE;
+constexpr int_fixed INT_FIXED_HALF = INT_FIXED16_HALF;
 
 
 // ========================================================================
@@ -73,15 +90,15 @@ using Matrix2x2_fixed16 = Matrix2x2<int_fixed16>;
 
 
 // ========================================================================
-// Point - 2D座標構造体（固定小数点 Q24.8）
+// Point - 2D座標構造体（固定小数点 Q16.16）
 // ========================================================================
 
 struct Point {
-    int_fixed8 x = 0;
-    int_fixed8 y = 0;
+    int_fixed x = 0;
+    int_fixed y = 0;
 
     Point() = default;
-    Point(int_fixed8 x_, int_fixed8 y_) : x(x_), y(y_) {}
+    Point(int_fixed x_, int_fixed y_) : x(x_), y(y_) {}
 
     Point operator+(const Point& o) const { return {x + o.x, y + o.y}; }
     Point operator-(const Point& o) const { return {x - o.x, y - o.y}; }
@@ -148,8 +165,51 @@ constexpr int from_fixed16_round(int_fixed16 v) {
     return static_cast<int>((v + INT_FIXED16_HALF) >> INT_FIXED16_SHIFT);
 }
 
+// fixed16 → int (負の無限大方向への切り捨て = floor)
+constexpr int from_fixed16_floor(int_fixed16 v) {
+    return (v >= 0) ? (v >> INT_FIXED16_SHIFT)
+                    : -(((-v) + INT_FIXED16_ONE - 1) >> INT_FIXED16_SHIFT);
+}
+
+// fixed16 → int (正の無限大方向への切り上げ = ceil)
+constexpr int from_fixed16_ceil(int_fixed16 v) {
+    return (v >= 0) ? ((v + INT_FIXED16_ONE - 1) >> INT_FIXED16_SHIFT)
+                    : -((-v) >> INT_FIXED16_SHIFT);
+}
+
 // ------------------------------------------------------------------------
-// float ↔ fixed8 変換
+// int ↔ fixed 変換（統一型エイリアス）
+// ------------------------------------------------------------------------
+
+constexpr int_fixed to_fixed(int v) { return to_fixed16(v); }
+constexpr int from_fixed(int_fixed v) { return from_fixed16(v); }
+constexpr int from_fixed_round(int_fixed v) { return from_fixed16_round(v); }
+constexpr int from_fixed_floor(int_fixed v) { return from_fixed16_floor(v); }
+constexpr int from_fixed_ceil(int_fixed v) { return from_fixed16_ceil(v); }
+
+// ------------------------------------------------------------------------
+// float ↔ fixed16 変換
+// ------------------------------------------------------------------------
+
+// float → fixed16
+constexpr int_fixed16 float_to_fixed16(float v) {
+    return static_cast<int_fixed16>(v * INT_FIXED16_ONE);
+}
+
+// fixed16 → float
+constexpr float fixed16_to_float(int_fixed16 v) {
+    return static_cast<float>(v) / INT_FIXED16_ONE;
+}
+
+// ------------------------------------------------------------------------
+// float ↔ fixed 変換（統一型エイリアス）
+// ------------------------------------------------------------------------
+
+constexpr int_fixed float_to_fixed(float v) { return float_to_fixed16(v); }
+constexpr float fixed_to_float(int_fixed v) { return fixed16_to_float(v); }
+
+// ------------------------------------------------------------------------
+// float ↔ fixed8 変換 [DEPRECATED]
 // ------------------------------------------------------------------------
 
 // float → fixed8
@@ -293,17 +353,18 @@ inline AffinePrecomputed precomputeInverseAffine(const AffineMatrix& m) {
         return result;  // 特異行列の場合は無効な結果を返す
     }
 
-    // tx/ty を Q24.8 固定小数点に変換
-    int_fixed8 txFixed8 = float_to_fixed8(m.tx);
-    int_fixed8 tyFixed8 = float_to_fixed8(m.ty);
+    // tx/ty を Q16.16 固定小数点に変換
+    int_fixed txFixed = float_to_fixed(m.tx);
+    int_fixed tyFixed = float_to_fixed(m.ty);
 
     // 逆変換オフセットの計算（tx/ty と逆行列から）
-    int64_t invTx64 = -(static_cast<int64_t>(txFixed8) * result.invMatrix.a
-                      + static_cast<int64_t>(tyFixed8) * result.invMatrix.b);
-    int64_t invTy64 = -(static_cast<int64_t>(txFixed8) * result.invMatrix.c
-                      + static_cast<int64_t>(tyFixed8) * result.invMatrix.d);
-    result.invTxFixed = static_cast<int32_t>(invTx64 >> INT_FIXED8_SHIFT);
-    result.invTyFixed = static_cast<int32_t>(invTy64 >> INT_FIXED8_SHIFT);
+    // Q16.16 × Q16.16 = Q32、16bit シフトで Q16.16
+    int64_t invTx64 = -(static_cast<int64_t>(txFixed) * result.invMatrix.a
+                      + static_cast<int64_t>(tyFixed) * result.invMatrix.b);
+    int64_t invTy64 = -(static_cast<int64_t>(txFixed) * result.invMatrix.c
+                      + static_cast<int64_t>(tyFixed) * result.invMatrix.d);
+    result.invTxFixed = static_cast<int32_t>(invTx64 >> INT_FIXED16_SHIFT);
+    result.invTyFixed = static_cast<int32_t>(invTy64 >> INT_FIXED16_SHIFT);
 
     // ピクセル中心オフセット
     result.rowOffsetX = result.invMatrix.b >> 1;
@@ -320,12 +381,16 @@ inline AffinePrecomputed precomputeInverseAffine(const AffineMatrix& m) {
 // 新規コードでは core:: プレフィックスを使用してください。
 using core::int_fixed8;
 using core::int_fixed16;
+using core::int_fixed;
 using core::INT_FIXED8_SHIFT;
 using core::INT_FIXED8_ONE;
 using core::INT_FIXED8_HALF;
 using core::INT_FIXED16_SHIFT;
 using core::INT_FIXED16_ONE;
 using core::INT_FIXED16_HALF;
+using core::INT_FIXED_SHIFT;
+using core::INT_FIXED_ONE;
+using core::INT_FIXED_HALF;
 using core::Matrix2x2;
 using core::Matrix2x2_fixed16;
 using core::Point;
@@ -337,8 +402,19 @@ using core::from_fixed8_ceil;
 using core::to_fixed16;
 using core::from_fixed16;
 using core::from_fixed16_round;
+using core::from_fixed16_floor;
+using core::from_fixed16_ceil;
+using core::to_fixed;
+using core::from_fixed;
+using core::from_fixed_round;
+using core::from_fixed_floor;
+using core::from_fixed_ceil;
 using core::float_to_fixed8;
 using core::fixed8_to_float;
+using core::float_to_fixed16;
+using core::fixed16_to_float;
+using core::float_to_fixed;
+using core::fixed_to_float;
 using core::mul_fixed8;
 using core::div_fixed8;
 using core::mul_fixed16;

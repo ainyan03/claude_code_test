@@ -46,7 +46,7 @@ public:
     // ========================================
 
     // 仮想スクリーン設定
-    void setVirtualScreen(int width, int height, int_fixed8 originX, int_fixed8 originY) {
+    void setVirtualScreen(int width, int height, int_fixed originX, int_fixed originY) {
         virtualWidth_ = width;
         virtualHeight_ = height;
         originX_ = originX;
@@ -55,8 +55,8 @@ public:
 
     void setVirtualScreen(int width, int height) {
         setVirtualScreen(width, height,
-                         to_fixed8(width / 2),
-                         to_fixed8(height / 2));
+                         to_fixed(width / 2),
+                         to_fixed(height / 2));
     }
 
     // タイル設定
@@ -76,10 +76,10 @@ public:
     // アクセサ
     int virtualWidth() const { return virtualWidth_; }
     int virtualHeight() const { return virtualHeight_; }
-    int_fixed8 originX() const { return originX_; }
-    int_fixed8 originY() const { return originY_; }
-    float originXf() const { return fixed8_to_float(originX_); }
-    float originYf() const { return fixed8_to_float(originY_); }
+    int_fixed originX() const { return originX_; }
+    int_fixed originY() const { return originY_; }
+    float originXf() const { return fixed_to_float(originX_); }
+    float originYf() const { return fixed_to_float(originY_); }
     const TileConfig& tileConfig() const { return tileConfig_; }
 
     const char* name() const override { return "RendererNode"; }
@@ -205,8 +205,8 @@ protected:
 private:
     int virtualWidth_ = 0;
     int virtualHeight_ = 0;
-    int_fixed8 originX_ = 0;
-    int_fixed8 originY_ = 0;
+    int_fixed originX_ = 0;
+    int_fixed originY_ = 0;
     TileConfig tileConfig_;
     bool debugCheckerboard_ = false;
 
@@ -258,8 +258,8 @@ private:
         RenderRequest req;
         req.width = static_cast<int16_t>(tileW);
         req.height = static_cast<int16_t>(tileH);
-        req.origin.x = originX_ - to_fixed8(tileLeft);
-        req.origin.y = originY_ - to_fixed8(tileTop);
+        req.origin.x = originX_ - to_fixed(tileLeft);
+        req.origin.y = originY_ - to_fixed(tileTop);
         return req;
     }
 };
