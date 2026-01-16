@@ -461,6 +461,10 @@ public:
                         node.positionY = pos["y"].as<double>();
                     }
                 }
+                // バイリニア補間
+                if (nodeObj["bilinear"].typeOf().as<std::string>() != "undefined") {
+                    node.bilinear = nodeObj["bilinear"].as<bool>();
+                }
             }
 
             graphNodes_.push_back(node);
@@ -753,6 +757,9 @@ private:
                               float_to_fixed(static_cast<float>(gnode.srcOriginY)));
                 np->setPosition(static_cast<float>(gnode.positionX),
                                 static_cast<float>(gnode.positionY));
+                if (gnode.bilinear) {
+                    np->setInterpolationMode(InterpolationMode::Bilinear);
+                }
 
                 Node* result = np.get();
                 v2Nodes[nodeId] = std::move(np);

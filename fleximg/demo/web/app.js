@@ -3724,7 +3724,8 @@ function updatePreviewFromGraph() {
                     position: {
                         x: node.position?.x ?? 0,
                         y: node.position?.y ?? 0
-                    }
+                    },
+                    bilinear: node.bilinear || false  // バイリニア補間フラグ
                 };
             }
         }
@@ -4997,6 +4998,35 @@ function buildNinePatchDetailContent(node) {
     sizeSection.appendChild(heightResult.row);
 
     detailPanelContent.appendChild(sizeSection);
+
+    // バイリニア補間チェックボックス
+    const interpolationSection = document.createElement('div');
+    interpolationSection.className = 'node-detail-section';
+
+    const interpolationLabel = document.createElement('label');
+    interpolationLabel.className = 'node-detail-checkbox-label';
+    interpolationLabel.style.cssText = 'display: flex; align-items: center; gap: 8px; cursor: pointer;';
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = node.bilinear || false;
+    checkbox.addEventListener('change', () => {
+        node.bilinear = checkbox.checked;
+        throttledUpdatePreview();
+    });
+
+    interpolationLabel.appendChild(checkbox);
+    interpolationLabel.appendChild(document.createTextNode('バイリニア補間'));
+
+    // 注釈
+    const note = document.createElement('div');
+    note.className = 'node-detail-note';
+    note.style.cssText = 'font-size: 11px; color: #888; margin-top: 4px;';
+    note.textContent = '※ RGBA8形式のみ対応。端1pxは描画されません。';
+
+    interpolationSection.appendChild(interpolationLabel);
+    interpolationSection.appendChild(note);
+    detailPanelContent.appendChild(interpolationSection);
 }
 
 // ノードを削除

@@ -136,6 +136,20 @@ public:
         }
     }
 
+    // 補間モード設定（内部の全SourceNodeに適用）
+    void setInterpolationMode(InterpolationMode mode) {
+        if (interpolationMode_ != mode) {
+            interpolationMode_ = mode;
+            // バイリニア時はソースビューの拡張が必要なため再設定
+            if (sourceValid_) {
+                setupPatchSourceNodes();
+            }
+        }
+        for (int i = 0; i < 9; i++) {
+            patches_[i].setInterpolationMode(mode);
+        }
+    }
+
     // ========================================
     // アクセサ
     // ========================================
@@ -295,6 +309,9 @@ private:
     float positionX_ = 0.0f;
     float positionY_ = 0.0f;
 
+    // 補間モード
+    InterpolationMode interpolationMode_ = InterpolationMode::Nearest;
+
     // ジオメトリ計算結果
     bool geometryValid_ = false;
     int16_t patchWidths_[3] = {0, 0, 0};   // [左固定, 中央伸縮, 右固定]
@@ -327,16 +344,30 @@ private:
         bool hasHStretch = srcPatchW_[1] > 0;  // 横方向伸縮部が存在
         bool hasVStretch = srcPatchH_[1] > 0;  // 縦方向伸縮部が存在
 
-        // 横方向の拡張（左列は右に、右列は左に）
+        // 固定部 → 伸縮部方向の拡張（左列は右に、右列は左に）
         if (hasHStretch) {
             if (col == 0 && srcPatchW_[0] > 0) { dw = 1; }           // 左列: 右に拡張
             else if (col == 2 && srcPatchW_[2] > 0) { dx = -1; dw = 1; }  // 右列: 左に拡張
         }
 
-        // 縦方向の拡張（上行は下に、下行は上に）
+        // 固定部 → 伸縮部方向の拡張（上行は下に、下行は上に）
         if (hasVStretch) {
             if (row == 0 && srcPatchH_[0] > 0) { dh = 1; }           // 上行: 下に拡張
             else if (row == 2 && srcPatchH_[2] > 0) { dy = -1; dh = 1; }  // 下行: 上に拡張
+        }
+
+        // バイリニア補間時: 伸縮部 → 固定部方向の拡張
+        if (interpolationMode_ == InterpolationMode::Bilinear) {
+            // 中央列（横伸縮部）: 左右の固定部方向に拡張
+            if (col == 1) {
+                if (srcPatchW_[0] > 0) { dx -= 1; dw += 1; }  // 左に拡張
+                if (srcPatchW_[2] > 0) { dw += 1; }           // 右に拡張
+            }
+            // 中央行（縦伸縮部）: 上下の固定部方向に拡張
+            if (row == 1) {
+                if (srcPatchH_[0] > 0) { dy -= 1; dh += 1; }  // 上に拡張
+                if (srcPatchH_[2] > 0) { dh += 1; }           // 下に拡張
+            }
         }
     }
 
