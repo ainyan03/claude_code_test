@@ -53,6 +53,24 @@ public:
     int_fixed8 originX() const { return originX_; }
     int_fixed8 originY() const { return originY_; }
 
+    // ユーザー向けAPI: pivot（内部 origin のラッパー）
+    void setPivot(float x, float y) {
+        originX_ = to_fixed8(x);
+        originY_ = to_fixed8(y);
+    }
+    std::pair<float, float> getPivot() const {
+        return {from_fixed8(originX_), from_fixed8(originY_)};
+    }
+
+    // ユーザー向けAPI: position（配置位置）
+    void setPosition(float x, float y) {
+        positionX_ = x;
+        positionY_ = y;
+    }
+    std::pair<float, float> getPosition() const {
+        return {positionX_, positionY_};
+    }
+
     // 補間モード設定
     void setInterpolationMode(InterpolationMode mode) { interpolationMode_ = mode; }
     InterpolationMode interpolationMode() const { return interpolationMode_; }
@@ -73,15 +91,26 @@ public:
         }
 
         // アフィン情報を受け取り、事前計算を行う
-        if (request.hasAffine) {
+        // position が設定されている場合も、アフィン行列に合成して処理
+        if (request.hasAffine || positionX_ != 0.0f || positionY_ != 0.0f) {
+            // アフィン行列がない場合は単位行列を使用し、position を tx/ty として設定
+            AffineMatrix mat = request.hasAffine
+                ? request.affineMatrix
+                : AffineMatrix{1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f};
+            mat.tx += positionX_;
+            mat.ty += positionY_;
+
             // 逆行列とピクセル中心オフセットを計算（共通処理）
-            affine_ = precomputeInverseAffine(request.affineMatrix);
+            affine_ = precomputeInverseAffine(mat);
 
             if (affine_.isValid()) {
                 const int32_t invA = affine_.invMatrix.a;
                 const int32_t invC = affine_.invMatrix.c;
-                const int32_t srcOriginXInt = from_fixed8(originX_);
-                const int32_t srcOriginYInt = from_fixed8(originY_);
+
+                // origin を Q24.8 から Q16.16 に変換（小数部を保持）
+                // これにより奇数幅画像の中心など、小数部を持つ origin が正しく反映される
+                const int32_t srcOriginXFixed16 = static_cast<int32_t>(originX_) << (INT_FIXED16_SHIFT - INT_FIXED8_SHIFT);
+                const int32_t srcOriginYFixed16 = static_cast<int32_t>(originY_) << (INT_FIXED16_SHIFT - INT_FIXED8_SHIFT);
 
                 // バイリニア補間かどうかで有効範囲とオフセットが異なる
                 const bool useBilinear = (interpolationMode_ == InterpolationMode::Bilinear)
@@ -99,18 +128,17 @@ public:
                     ys1_ = invC + (invC < 0 ? fpHeight_ : -1);
                     ys2_ = invC + (invC < 0 ? 0 : (fpHeight_ - 1));
 
-                    // バイリニアでも最近傍と同じ半ピクセルオフセットを使用
-                    // さらに origin から 0.5 ピクセル減算（ピクセル中心基準）
+                    // バイリニア: origin の小数部を保持し、0.5 ピクセル減算（ピクセル中心基準）
                     constexpr int32_t halfPixel = 1 << (INT_FIXED16_SHIFT - 1);  // 0.5 in Q16.16
                     baseTxWithOffsets_ = affine_.invTxFixed
-                                       + (srcOriginXInt << INT_FIXED16_SHIFT) - halfPixel
+                                       + srcOriginXFixed16 - halfPixel
                                        + affine_.rowOffsetX + affine_.dxOffsetX;
                     baseTyWithOffsets_ = affine_.invTyFixed
-                                       + (srcOriginYInt << INT_FIXED16_SHIFT) - halfPixel
+                                       + srcOriginYFixed16 - halfPixel
                                        + affine_.rowOffsetY + affine_.dxOffsetY;
                     useBilinear_ = true;
                 } else {
-                    // 最近傍: 現行動作
+                    // 最近傍: origin の小数部を保持
                     fpWidth_ = source_.width << INT_FIXED16_SHIFT;
                     fpHeight_ = source_.height << INT_FIXED16_SHIFT;
 
@@ -121,15 +149,47 @@ public:
 
                     // dxOffset を含める（半ピクセルオフセット）
                     baseTxWithOffsets_ = affine_.invTxFixed
-                                       + (srcOriginXInt << INT_FIXED16_SHIFT)
+                                       + srcOriginXFixed16
                                        + affine_.rowOffsetX + affine_.dxOffsetX;
                     baseTyWithOffsets_ = affine_.invTyFixed
-                                       + (srcOriginYInt << INT_FIXED16_SHIFT)
+                                       + srcOriginYFixed16
                                        + affine_.rowOffsetY + affine_.dxOffsetY;
                     useBilinear_ = false;
                 }
+
+                // ドットバイドット判定（逆行列の増分値で判定）
+                // 整数オフセットのみの場合は DDA をスキップし、高速な非アフィンパスを使用
+                // origin の小数部もチェック（アフィンパスでは整数部のみ使用するため）
+                constexpr int32_t one = 1 << INT_FIXED16_SHIFT;  // 65536 (Q16.16)
+                bool isDotByDot =
+                    (affine_.invMatrix.a == one || affine_.invMatrix.a == -one) &&
+                    (affine_.invMatrix.d == one || affine_.invMatrix.d == -one) &&
+                    affine_.invMatrix.b == 0 &&
+                    affine_.invMatrix.c == 0 &&
+                    (affine_.invTxFixed & 0xFFFF) == 0 &&  // position の小数部が0
+                    (affine_.invTyFixed & 0xFFFF) == 0 &&
+                    (originX_ & 0xFF) == 0 &&              // origin の小数部が0（Q24.8）
+                    (originY_ & 0xFF) == 0;
+
+                if (isDotByDot) {
+                    hasAffine_ = false;
+                    // position は pullProcess の非アフィンパスで origin オフセットとして適用
+                } else {
+                    hasAffine_ = true;
+                }
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+                printf("[SourceNode] isDotByDot=%s (invA=%d, invD=%d, invB=%d, invC=%d, txFrac=%d, tyFrac=%d, oxFrac=%d, oyFrac=%d)\n",
+                       isDotByDot ? "true" : "false",
+                       affine_.invMatrix.a, affine_.invMatrix.d,
+                       affine_.invMatrix.b, affine_.invMatrix.c,
+                       affine_.invTxFixed & 0xFFFF, affine_.invTyFixed & 0xFFFF,
+                       originX_ & 0xFF, originY_ & 0xFF);
+#endif
+            } else {
+                // 逆行列が無効（特異行列）
+                hasAffine_ = true;
             }
-            hasAffine_ = true;
         } else {
             hasAffine_ = false;
         }
@@ -165,8 +225,11 @@ public:
         }
 
         // ソース画像の基準相対座標範囲（固定小数点 Q24.8）
-        int_fixed8 imgLeft = -originX_;
-        int_fixed8 imgTop = -originY_;
+        // position が設定されている場合、origin からのオフセットとして適用
+        int_fixed8 posOffsetX = to_fixed8(positionX_);
+        int_fixed8 posOffsetY = to_fixed8(positionY_);
+        int_fixed8 imgLeft = -originX_ + posOffsetX;
+        int_fixed8 imgTop = -originY_ + posOffsetY;
         int_fixed8 imgRight = imgLeft + to_fixed8(source_.width);
         int_fixed8 imgBottom = imgTop + to_fixed8(source_.height);
 
@@ -219,6 +282,8 @@ private:
     ViewPort source_;
     int_fixed8 originX_ = 0;  // 画像内の基準点X（固定小数点 Q24.8）
     int_fixed8 originY_ = 0;  // 画像内の基準点Y（固定小数点 Q24.8）
+    float positionX_ = 0.0f;  // 配置位置X（アフィン行列の tx に合成）
+    float positionY_ = 0.0f;  // 配置位置Y（アフィン行列の ty に合成）
     InterpolationMode interpolationMode_ = InterpolationMode::Nearest;
 
     // アフィン伝播用メンバ変数（事前計算済み）

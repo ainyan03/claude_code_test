@@ -3253,6 +3253,11 @@ function updatePreviewFromGraph() {
                     // ピクセル座標に変換してC++に渡す
                     originX: ox * content.width,
                     originY: oy * content.height,
+                    // 配置位置（オブジェクト形式で渡す）
+                    position: {
+                        x: node.position?.x ?? 0,
+                        y: node.position?.y ?? 0
+                    },
                     bilinear: node.bilinear || false  // バイリニア補間フラグ
                 };
             }
@@ -3935,6 +3940,53 @@ function buildImageDetailContent(node) {
 
     section.appendChild(originGrid);
     detailPanelContent.appendChild(section);
+
+    // Position（配置位置）セクション
+    const positionSection = document.createElement('div');
+    positionSection.className = 'node-detail-section';
+
+    const positionLabel = document.createElement('div');
+    positionLabel.className = 'node-detail-label';
+    positionLabel.textContent = '配置位置';
+    positionSection.appendChild(positionLabel);
+
+    const positionRow = document.createElement('div');
+    positionRow.style.cssText = 'display: flex; gap: 8px; margin-top: 4px;';
+
+    // position X
+    const posXLabel = document.createElement('label');
+    posXLabel.style.cssText = 'display: flex; align-items: center; gap: 4px; flex: 1;';
+    posXLabel.textContent = 'X:';
+    const posXInput = document.createElement('input');
+    posXInput.type = 'number';
+    posXInput.style.cssText = 'width: 60px; padding: 2px 4px;';
+    posXInput.value = node.position?.x ?? 0;
+    posXInput.addEventListener('change', () => {
+        if (!node.position) node.position = { x: 0, y: 0 };
+        node.position.x = parseFloat(posXInput.value) || 0;
+        throttledUpdatePreview();
+    });
+    posXLabel.appendChild(posXInput);
+    positionRow.appendChild(posXLabel);
+
+    // position Y
+    const posYLabel = document.createElement('label');
+    posYLabel.style.cssText = 'display: flex; align-items: center; gap: 4px; flex: 1;';
+    posYLabel.textContent = 'Y:';
+    const posYInput = document.createElement('input');
+    posYInput.type = 'number';
+    posYInput.style.cssText = 'width: 60px; padding: 2px 4px;';
+    posYInput.value = node.position?.y ?? 0;
+    posYInput.addEventListener('change', () => {
+        if (!node.position) node.position = { x: 0, y: 0 };
+        node.position.y = parseFloat(posYInput.value) || 0;
+        throttledUpdatePreview();
+    });
+    posYLabel.appendChild(posYInput);
+    positionRow.appendChild(posYLabel);
+
+    positionSection.appendChild(positionRow);
+    detailPanelContent.appendChild(positionSection);
 
     // ピクセルフォーマット選択セクション
     const formatSection = document.createElement('div');
