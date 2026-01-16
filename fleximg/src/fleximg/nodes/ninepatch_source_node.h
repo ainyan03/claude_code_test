@@ -55,6 +55,11 @@ public:
         srcTop_ = top;
         srcRight_ = right;
         srcBottom_ = bottom;
+        // クリッピングなしの初期状態
+        effectiveSrcLeft_ = left;
+        effectiveSrcRight_ = right;
+        effectiveSrcTop_ = top;
+        effectiveSrcBottom_ = bottom;
         sourceValid_ = image.isValid();
         geometryValid_ = false;
 
@@ -299,6 +304,12 @@ private:
     int16_t srcRight_ = 0;   // 右端からの固定幅
     int16_t srcBottom_ = 0;  // 下端からの固定高さ
 
+    // クリッピング適用後の固定部サイズ（出力サイズが固定部合計より小さい場合に使用）
+    int16_t effectiveSrcLeft_ = 0;
+    int16_t effectiveSrcRight_ = 0;
+    int16_t effectiveSrcTop_ = 0;
+    int16_t effectiveSrcBottom_ = 0;
+
     // 出力サイズ（小数対応）
     float outputWidth_ = 0.0f;
     float outputHeight_ = 0.0f;
@@ -343,19 +354,39 @@ private:
     void calculateBaseOverlap(int col, int row, int16_t& dx, int16_t& dy, int16_t& dw, int16_t& dh) const {
         dx = dy = dw = dh = 0;
 
-        bool hasHStretch = srcPatchW_[1] > 0;  // 横方向伸縮部が存在
-        bool hasVStretch = srcPatchH_[1] > 0;  // 縦方向伸縮部が存在
+        // クリッピング状態を判定
+        bool hClipping = (effectiveSrcLeft_ != srcLeft_) || (effectiveSrcRight_ != srcRight_);
+        bool vClipping = (effectiveSrcTop_ != srcTop_) || (effectiveSrcBottom_ != srcBottom_);
 
-        // 固定部 → 伸縮部方向の拡張（左列は右に、右列は左に）
+        bool hasHStretch = srcPatchW_[1] > 0 && !hClipping;  // 横方向伸縮部が存在かつクリッピングなし
+        bool hasVStretch = srcPatchH_[1] > 0 && !vClipping;  // 縦方向伸縮部が存在かつクリッピングなし
+
+        // 通常時: 固定部 → 伸縮部方向の拡張（左列は右に、右列は左に）
         if (hasHStretch) {
             if (col == 0 && srcPatchW_[0] > 0) { dw = 1; }           // 左列: 右に拡張
             else if (col == 2 && srcPatchW_[2] > 0) { dx = -1; dw = 1; }  // 右列: 左に拡張
         }
+        // クリッピング時: 左固定と右固定が直接隣接するため、互いにオーバーラップ
+        else if (hClipping) {
+            if (col == 0 && effectiveSrcLeft_ > 0 && effectiveSrcRight_ > 0) {
+                dw = 1;  // 左固定: 右に拡張
+            } else if (col == 2 && effectiveSrcLeft_ > 0 && effectiveSrcRight_ > 0) {
+                dx = -1; dw = 1;  // 右固定: 左に拡張
+            }
+        }
 
-        // 固定部 → 伸縮部方向の拡張（上行は下に、下行は上に）
+        // 通常時: 固定部 → 伸縮部方向の拡張（上行は下に、下行は上に）
         if (hasVStretch) {
             if (row == 0 && srcPatchH_[0] > 0) { dh = 1; }           // 上行: 下に拡張
             else if (row == 2 && srcPatchH_[2] > 0) { dy = -1; dh = 1; }  // 下行: 上に拡張
+        }
+        // クリッピング時: 上固定と下固定が直接隣接するため、互いにオーバーラップ
+        else if (vClipping) {
+            if (row == 0 && effectiveSrcTop_ > 0 && effectiveSrcBottom_ > 0) {
+                dh = 1;  // 上固定: 下に拡張
+            } else if (row == 2 && effectiveSrcTop_ > 0 && effectiveSrcBottom_ > 0) {
+                dy = -1; dh = 1;  // 下固定: 上に拡張
+            }
         }
     }
 
@@ -406,28 +437,125 @@ private:
         }
     }
 
+    // クリッピング発生時にソースビューを更新
+    void updatePatchSourceViews() {
+        if (!sourceValid_) return;
+
+        // クリッピングが発生しているかチェック
+        bool hClip = (effectiveSrcLeft_ != srcLeft_) || (effectiveSrcRight_ != srcRight_);
+        bool vClip = (effectiveSrcTop_ != srcTop_) || (effectiveSrcBottom_ != srcBottom_);
+
+        // クリッピングなしの場合はソースビューの更新不要
+        // （setupPatchSourceNodes()で設定済み）
+        if (!hClip && !vClip) return;
+
+        // クリッピングされたソースビューを設定
+        // 左固定 (col=0): 左端から effectiveSrcLeft_ 幅
+        // 右固定 (col=2): 右端から effectiveSrcRight_ 幅
+        // 上固定 (row=0): 上端から effectiveSrcTop_ 高さ
+        // 下固定 (row=2): 下端から effectiveSrcBottom_ 高さ
+
+        // 各列/行の有効ソースサイズ
+        int16_t effSrcW[3] = { effectiveSrcLeft_, srcPatchW_[1], effectiveSrcRight_ };
+        int16_t effSrcH[3] = { effectiveSrcTop_, srcPatchH_[1], effectiveSrcBottom_ };
+
+        // 各列/行の有効ソース開始位置
+        // 右固定と下固定は内側からクリップするため、開始位置をずらす
+        int16_t effSrcX[3] = {
+            0,
+            srcLeft_,
+            static_cast<int16_t>(source_.width - effectiveSrcRight_)
+        };
+        int16_t effSrcY[3] = {
+            0,
+            srcTop_,
+            static_cast<int16_t>(source_.height - effectiveSrcBottom_)
+        };
+
+        for (int row = 0; row < 3; row++) {
+            for (int col = 0; col < 3; col++) {
+                int idx = getPatchIndex(col, row);
+                int16_t w = effSrcW[col];
+                int16_t h = effSrcH[row];
+
+                if (w > 0 && h > 0) {
+                    // オーバーラップ量を計算（setupPatchSourceNodes()と同様）
+                    int16_t dx, dy, dw, dh;
+                    calculateBaseOverlap(col, row, dx, dy, dw, dh);
+
+                    // ソースビューを拡張（オーバーラップ適用）
+                    int16_t sx = effSrcX[col] + dx;
+                    int16_t sy = effSrcY[row] + dy;
+                    int16_t sw = w + dw;
+                    int16_t sh = h + dh;
+
+                    ViewPort subView = view_ops::subView(source_, sx, sy, sw, sh);
+                    patches_[idx].setSource(subView);
+                    patches_[idx].setOrigin(0, 0);
+                }
+            }
+        }
+    }
+
     // 出力サイズ変更時にジオメトリを再計算
     void updatePatchGeometry() {
         // 出力サイズから各区画のサイズを計算
-        // 角: 固定サイズ
+        // 角: 固定サイズ（ただし出力サイズが小さい場合はクリッピング）
         // 辺・中央: 伸縮サイズ
 
-        patchWidths_[0] = static_cast<float>(srcLeft_);                              // 左列: 固定
-        patchWidths_[2] = static_cast<float>(srcRight_);                             // 右列: 固定
-        patchWidths_[1] = outputWidth_ - srcLeft_ - srcRight_;   // 中央列: 伸縮
+        // 横方向のクリッピング判定
+        float totalFixedW = static_cast<float>(srcLeft_ + srcRight_);
+        if (outputWidth_ < totalFixedW && totalFixedW > 0) {
+            // 比率維持でクリッピング
+            float ratio = outputWidth_ / totalFixedW;
+            // 出力幅は正確にfloatで計算（隙間防止）
+            patchWidths_[0] = srcLeft_ * ratio;
+            patchWidths_[1] = 0.0f;  // 伸縮部なし
+            patchWidths_[2] = outputWidth_ - patchWidths_[0];  // 残り全部
+            // ソースビューサイズは切り上げ（十分なピクセルを確保）
+            effectiveSrcLeft_ = static_cast<int16_t>(std::ceil(patchWidths_[0]));
+            effectiveSrcRight_ = static_cast<int16_t>(std::ceil(patchWidths_[2]));
+        } else {
+            // 通常処理
+            effectiveSrcLeft_ = srcLeft_;
+            effectiveSrcRight_ = srcRight_;
+            patchWidths_[0] = static_cast<float>(srcLeft_);
+            patchWidths_[1] = outputWidth_ - srcLeft_ - srcRight_;
+            patchWidths_[2] = static_cast<float>(srcRight_);
+        }
 
-        patchHeights_[0] = static_cast<float>(srcTop_);                              // 上段: 固定
-        patchHeights_[2] = static_cast<float>(srcBottom_);                           // 下段: 固定
-        patchHeights_[1] = outputHeight_ - srcTop_ - srcBottom_; // 中央段: 伸縮
+        // 縦方向のクリッピング判定
+        float totalFixedH = static_cast<float>(srcTop_ + srcBottom_);
+        if (outputHeight_ < totalFixedH && totalFixedH > 0) {
+            // 比率維持でクリッピング
+            float ratio = outputHeight_ / totalFixedH;
+            // 出力高さは正確にfloatで計算（隙間防止）
+            patchHeights_[0] = srcTop_ * ratio;
+            patchHeights_[1] = 0.0f;  // 伸縮部なし
+            patchHeights_[2] = outputHeight_ - patchHeights_[0];  // 残り全部
+            // ソースビューサイズは切り上げ（十分なピクセルを確保）
+            effectiveSrcTop_ = static_cast<int16_t>(std::ceil(patchHeights_[0]));
+            effectiveSrcBottom_ = static_cast<int16_t>(std::ceil(patchHeights_[2]));
+        } else {
+            // 通常処理
+            effectiveSrcTop_ = srcTop_;
+            effectiveSrcBottom_ = srcBottom_;
+            patchHeights_[0] = static_cast<float>(srcTop_);
+            patchHeights_[1] = outputHeight_ - srcTop_ - srcBottom_;
+            patchHeights_[2] = static_cast<float>(srcBottom_);
+        }
 
         // 各区画の出力開始位置
         patchOffsetX_[0] = 0.0f;
-        patchOffsetX_[1] = static_cast<float>(srcLeft_);
-        patchOffsetX_[2] = outputWidth_ - srcRight_;
+        patchOffsetX_[1] = static_cast<float>(effectiveSrcLeft_);
+        patchOffsetX_[2] = outputWidth_ - effectiveSrcRight_;
 
         patchOffsetY_[0] = 0.0f;
-        patchOffsetY_[1] = static_cast<float>(srcTop_);
-        patchOffsetY_[2] = outputHeight_ - srcBottom_;
+        patchOffsetY_[1] = static_cast<float>(effectiveSrcTop_);
+        patchOffsetY_[2] = outputHeight_ - effectiveSrcBottom_;
+
+        // クリッピング発生時はソースビューを更新
+        updatePatchSourceViews();
 
         // 各区画のスケール行列とoriginを計算
         // 角（[0], [2], [6], [8]）: スケール = 1.0（固定サイズ）
