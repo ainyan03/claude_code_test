@@ -97,8 +97,10 @@ struct GraphNode {
     std::string type;
     std::string id;
     int imageId = -1;
-    double srcOriginX = 0;
-    double srcOriginY = 0;
+    double srcOriginX = 0;  // 基準点X（pivot）
+    double srcOriginY = 0;  // 基準点Y（pivot）
+    double positionX = 0;   // 配置位置X
+    double positionY = 0;   // 配置位置Y
     int outputWidth = 0;    // sinkノード用: 出力バッファ幅、ninepatchノード用: 出力幅
     int outputHeight = 0;   // sinkノード用: 出力バッファ高さ、ninepatchノード用: 出力高さ
     std::string filterType;
@@ -308,11 +310,32 @@ public:
                 if (nodeObj["imageId"].typeOf().as<std::string>() != "undefined") {
                     node.imageId = nodeObj["imageId"].as<int>();
                 }
+                // 既存API: originX/originY（互換性維持）
                 if (nodeObj["originX"].typeOf().as<std::string>() != "undefined") {
                     node.srcOriginX = nodeObj["originX"].as<double>();
                 }
                 if (nodeObj["originY"].typeOf().as<std::string>() != "undefined") {
                     node.srcOriginY = nodeObj["originY"].as<double>();
+                }
+                // 新API: pivot オブジェクト（originのエイリアス）
+                if (nodeObj["pivot"].typeOf().as<std::string>() != "undefined") {
+                    auto pivot = nodeObj["pivot"];
+                    if (pivot["x"].typeOf().as<std::string>() != "undefined") {
+                        node.srcOriginX = pivot["x"].as<double>();
+                    }
+                    if (pivot["y"].typeOf().as<std::string>() != "undefined") {
+                        node.srcOriginY = pivot["y"].as<double>();
+                    }
+                }
+                // 新API: position オブジェクト
+                if (nodeObj["position"].typeOf().as<std::string>() != "undefined") {
+                    auto pos = nodeObj["position"];
+                    if (pos["x"].typeOf().as<std::string>() != "undefined") {
+                        node.positionX = pos["x"].as<double>();
+                    }
+                    if (pos["y"].typeOf().as<std::string>() != "undefined") {
+                        node.positionY = pos["y"].as<double>();
+                    }
                 }
                 if (nodeObj["bilinear"].typeOf().as<std::string>() != "undefined") {
                     node.bilinear = nodeObj["bilinear"].as<bool>();
@@ -684,6 +707,8 @@ private:
                 src->setSource(viewIt->second);
                 src->setOrigin(float_to_fixed8(static_cast<float>(gnode.srcOriginX)),
                                float_to_fixed8(static_cast<float>(gnode.srcOriginY)));
+                src->setPosition(static_cast<float>(gnode.positionX),
+                                 static_cast<float>(gnode.positionY));
                 if (gnode.bilinear) {
                     src->setInterpolationMode(InterpolationMode::Bilinear);
                 }
