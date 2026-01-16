@@ -45,6 +45,15 @@ src >> hblur >> vblur >> renderer >> sink;
 
 - フィルタメニューに「水平ぼかし」「垂直ぼかし」を追加
 - 既存の「ぼかし」(BoxBlur) も引き続き利用可能
+- **デバッグメトリクス表示の改善**
+  - ノード名を日本語化（アフィン、ぼかし、水平ぼかし など）
+  - Distributor、Source、NinePatchの処理時間を表示に追加
+  - NODE_TYPESにnameJaフィールドを追加
+  - SourceとNinePatchをsourceカテゴリに整理
+  - **計測の重複問題を修正**: 各ノードが自身の処理時間のみを計測するように変更
+    - RendererNode: 計測を削除（自身の処理がほぼないため）
+    - HorizontalBlurNode, VerticalBlurNode, BoxBlurNode: pullProcess後に計測開始
+    - AffineNode: AABB分割処理でapplyAffineのみを計測
 
 ---
 

@@ -230,13 +230,6 @@ protected:
             return upstream->pullProcess(request);
         }
 
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto start = std::chrono::high_resolution_clock::now();
-        auto& metrics = PerfMetrics::instance().nodes[NodeType::BoxBlur];
-        metrics.requestedPixels += static_cast<uint64_t>(request.width + radius_ * 2) * 1;
-        metrics.usedPixels += static_cast<uint64_t>(request.width) * 1;
-#endif
-
         int requestY = from_fixed(request.origin.y);
 
         // 最初の呼び出し: キャッシュ初期化のためcurrentY_を設定
@@ -244,7 +237,15 @@ protected:
             currentY_ = requestY - kernelSize();
             cacheReady_ = true;
         }
+        // updateCache内で上流をpullするため、計測はこの後から開始
         updateCache(upstream, request, requestY);
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        auto start = std::chrono::high_resolution_clock::now();
+        auto& metrics = PerfMetrics::instance().nodes[NodeType::BoxBlur];
+        metrics.requestedPixels += static_cast<uint64_t>(request.width + radius_ * 2) * 1;
+        metrics.usedPixels += static_cast<uint64_t>(request.width) * 1;
+#endif
 
         // 出力バッファを確保
         ImageBuffer output(request.width, 1, PixelFormatIDs::RGBA8_Straight,

@@ -330,10 +330,6 @@ private:
     RenderResult pullProcessWithAABBSplit(const RenderRequest& request,
                                           const InputRegion& region,
                                           Node* upstream) {
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto start = std::chrono::high_resolution_clock::now();
-#endif
-
         // 分割戦略を計算
         SplitStrategy strategy = computeSplitStrategy(region);
 
@@ -409,8 +405,16 @@ private:
             }
 
             // 部分変換を実行（出力バッファに直接書き込み）
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+            auto transformStart = std::chrono::high_resolution_clock::now();
+#endif
             AffineResult subResult = applyAffine(outputView, request.origin.x, request.origin.y,
                         subInput.view(), subInput.origin.x, subInput.origin.y);
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+            PerfMetrics::instance().nodes[NodeType::Affine].time_us +=
+                std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::high_resolution_clock::now() - transformStart).count();
+#endif
 
             // 全体の有効範囲を更新
             if (!subResult.isEmpty()) {
@@ -422,10 +426,8 @@ private:
         }
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto& metrics = PerfMetrics::instance().nodes[NodeType::Affine];
-        metrics.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::high_resolution_clock::now() - start).count();
-        metrics.count++;
+        // 分割処理全体のカウント（time_usは各applyAffineで累積済み）
+        PerfMetrics::instance().nodes[NodeType::Affine].count++;
 #endif
 
         // 有効範囲が空なら空のバッファを返す（透明扱い）
