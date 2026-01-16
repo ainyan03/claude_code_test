@@ -175,11 +175,8 @@ public:
 
 protected:
     // タイル処理（派生クラスでカスタマイズ可能）
+    // 注: Rendererの処理時間は計測しない（上流/下流の時間と重複するため）
     virtual void processTile(int tileX, int tileY) {
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto renderStart = std::chrono::high_resolution_clock::now();
-#endif
-
         RenderRequest request = createTileRequest(tileX, tileY);
 
         // 上流からプル
@@ -193,13 +190,6 @@ protected:
         if (downstream && result.isValid()) {
             downstream->pushProcess(std::move(result), request);
         }
-
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto& m = PerfMetrics::instance().nodes[NodeType::Renderer];
-        m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::high_resolution_clock::now() - renderStart).count();
-        m.count++;
-#endif
     }
 
 private:

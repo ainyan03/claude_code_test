@@ -33,22 +33,22 @@ let debugCheckerboard = false;
 // ========================================
 const NODE_TYPES = {
     // システム系（パイプライン制御）
-    renderer:    { index: 0, name: 'Renderer',    category: 'system',    showEfficiency: false },
-    source:      { index: 1, name: 'Source',      category: 'system',    showEfficiency: false },
-    sink:        { index: 2, name: 'Sink',        category: 'system',    showEfficiency: false },
-    distributor: { index: 3, name: 'Distributor', category: 'system',    showEfficiency: false },
+    renderer:    { index: 0, name: 'Renderer',    nameJa: 'レンダラー',   category: 'system',    showEfficiency: false },
+    source:      { index: 1, name: 'Source',      nameJa: 'ソース',       category: 'source',    showEfficiency: false },
+    sink:        { index: 2, name: 'Sink',        nameJa: 'シンク',       category: 'system',    showEfficiency: false },
+    distributor: { index: 3, name: 'Distributor', nameJa: '分配',         category: 'system',    showEfficiency: false },
     // 構造系（変換・合成）
-    affine:      { index: 4, name: 'Affine',      category: 'structure', showEfficiency: true },
-    composite:   { index: 5, name: 'Composite',   category: 'structure', showEfficiency: false },
+    affine:      { index: 4, name: 'Affine',      nameJa: 'アフィン',     category: 'structure', showEfficiency: true },
+    composite:   { index: 5, name: 'Composite',   nameJa: '合成',         category: 'structure', showEfficiency: false },
     // フィルタ系
-    brightness:  { index: 6, name: 'Brightness',  category: 'filter',    showEfficiency: true },
-    grayscale:   { index: 7, name: 'Grayscale',   category: 'filter',    showEfficiency: true },
-    boxBlur:     { index: 8, name: 'BoxBlur',     category: 'filter',    showEfficiency: true },
-    alpha:       { index: 9, name: 'Alpha',       category: 'filter',    showEfficiency: true },
-    horizontalBlur: { index: 10, name: 'HorizontalBlur', category: 'filter', showEfficiency: true },
-    verticalBlur:   { index: 11, name: 'VerticalBlur',   category: 'filter', showEfficiency: true },
+    brightness:  { index: 6, name: 'Brightness',  nameJa: '明るさ',       category: 'filter',    showEfficiency: true },
+    grayscale:   { index: 7, name: 'Grayscale',   nameJa: 'グレースケール', category: 'filter',  showEfficiency: true },
+    boxBlur:     { index: 8, name: 'BoxBlur',     nameJa: 'ぼかし',       category: 'filter',    showEfficiency: true },
+    alpha:       { index: 9, name: 'Alpha',       nameJa: '透明度',       category: 'filter',    showEfficiency: true },
+    horizontalBlur: { index: 10, name: 'HBlur',   nameJa: '水平ぼかし',   category: 'filter',    showEfficiency: true },
+    verticalBlur:   { index: 11, name: 'VBlur',   nameJa: '垂直ぼかし',   category: 'filter',    showEfficiency: true },
     // 特殊ソース系
-    ninepatch:   { index: 12, name: 'NinePatch',  category: 'system',    showEfficiency: false },
+    ninepatch:   { index: 12, name: 'NinePatch',  nameJa: '9パッチ',      category: 'source',    showEfficiency: false },
 };
 
 // ========================================
@@ -3518,6 +3518,9 @@ function initDebugDetailsSection() {
     const container = document.getElementById('debug-details');
     if (!container) return;
 
+    // 表示名取得ヘルパー（日本語名優先）
+    const getDisplayName = (def) => def.nameJa || def.name;
+
     // 処理時間セクション
     let timeHtml = `
         <div class="debug-section">
@@ -3525,14 +3528,35 @@ function initDebugDetailsSection() {
             <div class="debug-metrics" id="debug-metrics-time">`;
 
     // カテゴリ別にグループ化して表示
+    const systemTypes = NodeTypeHelper.byCategory('system');
+    const sourceTypes = NodeTypeHelper.byCategory('source');
     const structureTypes = NodeTypeHelper.byCategory('structure');
     const filterTypes = NodeTypeHelper.byCategory('filter');
+
+    // システム系ノード（Distributor等、Renderer/Sinkは計測しない）
+    for (const [key, def] of systemTypes) {
+        if (key === 'renderer' || key === 'sink') continue;
+        timeHtml += `
+                <div class="debug-metric-row">
+                    <span class="debug-metric-label">${getDisplayName(def)}</span>
+                    <span class="debug-metric-value" id="debug-${key}-time">--</span>
+                </div>`;
+    }
+
+    // ソース系ノード
+    for (const [key, def] of sourceTypes) {
+        timeHtml += `
+                <div class="debug-metric-row">
+                    <span class="debug-metric-label">${getDisplayName(def)}</span>
+                    <span class="debug-metric-value" id="debug-${key}-time">--</span>
+                </div>`;
+    }
 
     // 構造系ノード
     for (const [key, def] of structureTypes) {
         timeHtml += `
                 <div class="debug-metric-row">
-                    <span class="debug-metric-label">${def.name}</span>
+                    <span class="debug-metric-label">${getDisplayName(def)}</span>
                     <span class="debug-metric-value" id="debug-${key}-time">--</span>
                 </div>`;
     }
@@ -3541,13 +3565,13 @@ function initDebugDetailsSection() {
     if (filterTypes.length > 0) {
         timeHtml += `
                 <div class="debug-metric-row debug-metric-sub">
-                    <span class="debug-metric-label">Filters:</span>
+                    <span class="debug-metric-label">フィルタ:</span>
                     <span class="debug-metric-value"></span>
                 </div>`;
         for (const [key, def] of filterTypes) {
             timeHtml += `
                 <div class="debug-metric-row debug-metric-sub">
-                    <span class="debug-metric-label">├ ${def.name}</span>
+                    <span class="debug-metric-label">├ ${getDisplayName(def)}</span>
                     <span class="debug-metric-value" id="debug-${key}-time">--</span>
                 </div>`;
         }
@@ -3580,12 +3604,11 @@ function initDebugDetailsSection() {
                     <span class="debug-metric-value" id="debug-max-alloc">--</span>
                 </div>`;
 
-    // 構造系ノードのメモリ（Sink以外）
+    // 構造系ノードのメモリ
     for (const [key, def] of structureTypes) {
-        if (key === 'sink') continue;  // Sinkはメモリ確保しない
         memHtml += `
                 <div class="debug-metric-row debug-metric-sub">
-                    <span class="debug-metric-label">├ ${def.name}</span>
+                    <span class="debug-metric-label">├ ${getDisplayName(def)}</span>
                     <span class="debug-metric-value" id="debug-${key}-alloc">--</span>
                 </div>
                 <div class="debug-metric-row debug-metric-sub debug-metric-max">
@@ -3598,7 +3621,7 @@ function initDebugDetailsSection() {
     for (const [key, def] of filterTypes) {
         memHtml += `
                 <div class="debug-metric-row debug-metric-sub">
-                    <span class="debug-metric-label">├ ${def.name}</span>
+                    <span class="debug-metric-label">├ ${getDisplayName(def)}</span>
                     <span class="debug-metric-value" id="debug-${key}-alloc">--</span>
                 </div>
                 <div class="debug-metric-row debug-metric-sub debug-metric-max">

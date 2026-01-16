@@ -67,13 +67,6 @@ protected:
             return upstream->pullProcess(request);
         }
 
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto start = std::chrono::high_resolution_clock::now();
-        auto& metrics = PerfMetrics::instance().nodes[NodeType::HorizontalBlur];
-        metrics.requestedPixels += static_cast<uint64_t>(request.width + radius_ * 2) * 1;
-        metrics.usedPixels += static_cast<uint64_t>(request.width) * 1;
-#endif
-
         // 上流への要求（マージン含む）
         RenderRequest inputReq;
         inputReq.width = request.width + radius_ * 2;
@@ -83,6 +76,13 @@ protected:
 
         RenderResult input = upstream->pullProcess(inputReq);
         if (!input.isValid()) return input;
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        auto start = std::chrono::high_resolution_clock::now();
+        auto& metrics = PerfMetrics::instance().nodes[NodeType::HorizontalBlur];
+        metrics.requestedPixels += static_cast<uint64_t>(request.width + radius_ * 2) * 1;
+        metrics.usedPixels += static_cast<uint64_t>(request.width) * 1;
+#endif
 
         // RGBA8_Straightに変換
         ImageBuffer converted = convertFormat(std::move(input.buffer),
