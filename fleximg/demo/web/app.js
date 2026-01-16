@@ -1932,6 +1932,34 @@ function generateTestPatterns() {
             tempCtx.fillRect(0, y, 1, 1);
         }
 
+        // 各伸縮部にX字状の斜線を描画（バイリニア補間の動作確認用）
+        // 伸縮部の座標:
+        // [1] 上辺: x=17-32, y=1-16   (col=1, row=0)
+        // [3] 左辺: x=1-16, y=17-32   (col=0, row=1)
+        // [4] 中央: x=17-32, y=17-32  (col=1, row=1)
+        // [5] 右辺: x=33-48, y=17-32  (col=2, row=1)
+        // [7] 下辺: x=17-32, y=33-48  (col=1, row=2)
+        tempCtx.fillStyle = 'rgba(0, 128, 0, 0.8)';  // 緑
+        const stretchParts = [
+            { x1: stretchStart, y1: 1, x2: stretchEnd - 1, y2: boundaryTop },               // [1] 上辺
+            { x1: 1, y1: stretchStart, x2: boundaryLeft, y2: stretchEnd - 1 },              // [3] 左辺
+            { x1: stretchStart, y1: stretchStart, x2: stretchEnd - 1, y2: stretchEnd - 1 }, // [4] 中央
+            { x1: boundaryRight, y1: stretchStart, x2: totalSize - 2, y2: stretchEnd - 1 }, // [5] 右辺
+            { x1: stretchStart, y1: boundaryBottom, x2: stretchEnd - 1, y2: totalSize - 2 } // [7] 下辺
+        ];
+        stretchParts.forEach(part => {
+            const w = part.x2 - part.x1 + 1;
+            const h = part.y2 - part.y1 + 1;
+            // 左上→右下の斜線
+            for (let i = 0; i < Math.min(w, h); i++) {
+                tempCtx.fillRect(part.x1 + i, part.y1 + i, 1, 1);
+            }
+            // 右上→左下の斜線
+            for (let i = 0; i < Math.min(w, h); i++) {
+                tempCtx.fillRect(part.x2 - i, part.y1 + i, 1, 1);
+            }
+        });
+
         const imageData = tempCtx.getImageData(0, 0, totalSize, totalSize);
         patterns.push({
             name: '9patch-Octagon',
