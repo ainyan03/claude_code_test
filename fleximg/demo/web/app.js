@@ -1227,7 +1227,260 @@ function deleteOutputContent(contentId) {
     scheduleAutoSave();
 }
 
+// ========================================
+// UI共通ヘルパー関数
+// ========================================
+
+// ノードグラフ用X,Yスライダーを作成（配置位置用）
+// options: { node, property, label, min, max, step, container }
+function createNodeGraphPositionSlider(options) {
+    const { node, property, label, min = -500, max = 500, step = 0.1, container } = options;
+
+    const row = document.createElement('label');
+    row.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px; margin-bottom: 2px;';
+
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = label + ':';
+    labelSpan.style.cssText = 'min-width: 18px;';
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = String(min);
+    slider.max = String(max);
+    slider.step = String(step);
+    const currentValue = node.position?.[property] ?? 0;
+    slider.value = String(currentValue);
+    slider.style.cssText = 'flex: 1; min-width: 50px;';
+
+    const display = document.createElement('span');
+    display.style.cssText = 'min-width: 35px; text-align: right; font-size: 9px;';
+    display.textContent = currentValue.toFixed(1);
+
+    slider.addEventListener('input', (e) => {
+        if (!node.position) node.position = { x: 0, y: 0 };
+        const value = parseFloat(e.target.value);
+        node.position[property] = value;
+        display.textContent = value.toFixed(1);
+        throttledUpdatePreview();
+    });
+
+    row.appendChild(labelSpan);
+    row.appendChild(slider);
+    row.appendChild(display);
+    container.appendChild(row);
+
+    return { row, slider, display };
+}
+
+// 詳細ダイアログ用スライダー行を作成
+// options: { label, min, max, step, value, onChange, unit }
+function createDetailSliderRow(options) {
+    const { label, min, max, step, value, onChange, unit = '', width = '100%' } = options;
+
+    const row = document.createElement('div');
+    row.className = 'node-detail-row';
+    row.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+
+    const labelEl = document.createElement('label');
+    labelEl.textContent = label;
+    labelEl.style.cssText = 'min-width: 24px;';
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = String(min);
+    slider.max = String(max);
+    slider.step = String(step);
+    slider.value = String(value);
+    slider.style.cssText = 'flex: 1; min-width: 80px;';
+
+    const display = document.createElement('span');
+    display.style.cssText = 'min-width: 50px; text-align: right; font-size: 11px;';
+    display.textContent = value.toFixed(step < 1 ? (step < 0.1 ? 2 : 1) : 0) + unit;
+
+    slider.addEventListener('input', (e) => {
+        const newValue = parseFloat(e.target.value);
+        const decimals = step < 1 ? (step < 0.1 ? 2 : 1) : 0;
+        display.textContent = newValue.toFixed(decimals) + unit;
+        if (onChange) onChange(newValue);
+    });
+
+    row.appendChild(labelEl);
+    row.appendChild(slider);
+    row.appendChild(display);
+
+    return { row, slider, display };
+}
+
+// 9点セレクタ + 正規化スライダーのセクションを作成
+function createOriginSection(options) {
+    const { node, container, onChange } = options;
+
+    const section = document.createElement('div');
+    section.className = 'node-detail-section';
+
+    const label = document.createElement('div');
+    label.className = 'node-detail-label';
+    label.textContent = '原点';
+    section.appendChild(label);
+
+    // 9点セレクタ
+    const originGrid = document.createElement('div');
+    originGrid.className = 'node-origin-grid';
+    originGrid.style.cssText = 'width: 60px; height: 60px; margin: 0 auto 8px;';
+
+    const originValues = [
+        { x: 0, y: 0 }, { x: 0.5, y: 0 }, { x: 1, y: 0 },
+        { x: 0, y: 0.5 }, { x: 0.5, y: 0.5 }, { x: 1, y: 0.5 },
+        { x: 0, y: 1 }, { x: 0.5, y: 1 }, { x: 1, y: 1 }
+    ];
+
+    let sliderX, sliderY, displayX, displayY;
+
+    const updateSliders = (x, y) => {
+        if (sliderX) { sliderX.value = String(x); displayX.textContent = x.toFixed(2); }
+        if (sliderY) { sliderY.value = String(y); displayY.textContent = y.toFixed(2); }
+    };
+
+    const updateGridSelection = (x, y) => {
+        originGrid.querySelectorAll('.node-origin-point').forEach(btn => {
+            const bx = parseFloat(btn.dataset.x);
+            const by = parseFloat(btn.dataset.y);
+            btn.classList.toggle('selected', bx === x && by === y);
+        });
+    };
+
+    originValues.forEach(({ x, y }) => {
+        const btn = document.createElement('button');
+        btn.className = 'node-origin-point';
+        btn.dataset.x = String(x);
+        btn.dataset.y = String(y);
+        if (node.originX === x && node.originY === y) {
+            btn.classList.add('selected');
+        }
+        btn.addEventListener('click', () => {
+            node.originX = x;
+            node.originY = y;
+            updateGridSelection(x, y);
+            updateSliders(x, y);
+            if (onChange) onChange();
+        });
+        originGrid.appendChild(btn);
+    });
+    section.appendChild(originGrid);
+
+    // X スライダー
+    const xRow = document.createElement('div');
+    xRow.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 4px;';
+    const xLabel = document.createElement('label');
+    xLabel.textContent = 'X:';
+    xLabel.style.cssText = 'min-width: 20px;';
+    sliderX = document.createElement('input');
+    sliderX.type = 'range';
+    sliderX.min = '0';
+    sliderX.max = '1';
+    sliderX.step = '0.01';
+    sliderX.value = String(node.originX ?? 0.5);
+    sliderX.style.cssText = 'flex: 1;';
+    displayX = document.createElement('span');
+    displayX.style.cssText = 'min-width: 36px; text-align: right; font-size: 11px;';
+    displayX.textContent = (node.originX ?? 0.5).toFixed(2);
+
+    sliderX.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        node.originX = val;
+        displayX.textContent = val.toFixed(2);
+        updateGridSelection(val, node.originY);
+        if (onChange) onChange();
+    });
+
+    xRow.appendChild(xLabel);
+    xRow.appendChild(sliderX);
+    xRow.appendChild(displayX);
+    section.appendChild(xRow);
+
+    // Y スライダー
+    const yRow = document.createElement('div');
+    yRow.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+    const yLabel = document.createElement('label');
+    yLabel.textContent = 'Y:';
+    yLabel.style.cssText = 'min-width: 20px;';
+    sliderY = document.createElement('input');
+    sliderY.type = 'range';
+    sliderY.min = '0';
+    sliderY.max = '1';
+    sliderY.step = '0.01';
+    sliderY.value = String(node.originY ?? 0.5);
+    sliderY.style.cssText = 'flex: 1;';
+    displayY = document.createElement('span');
+    displayY.style.cssText = 'min-width: 36px; text-align: right; font-size: 11px;';
+    displayY.textContent = (node.originY ?? 0.5).toFixed(2);
+
+    sliderY.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        node.originY = val;
+        displayY.textContent = val.toFixed(2);
+        updateGridSelection(node.originX, val);
+        if (onChange) onChange();
+    });
+
+    yRow.appendChild(yLabel);
+    yRow.appendChild(sliderY);
+    yRow.appendChild(displayY);
+    section.appendChild(yRow);
+
+    container.appendChild(section);
+    return section;
+}
+
+// 配置位置セクションを作成（詳細ダイアログ用）
+function createPositionSection(options) {
+    const { node, container, onChange } = options;
+
+    const section = document.createElement('div');
+    section.className = 'node-detail-section';
+
+    const label = document.createElement('div');
+    label.className = 'node-detail-label';
+    label.textContent = '配置位置';
+    section.appendChild(label);
+
+    // X スライダー
+    const xResult = createDetailSliderRow({
+        label: 'X',
+        min: -500,
+        max: 500,
+        step: 0.1,
+        value: node.position?.x ?? 0,
+        onChange: (val) => {
+            if (!node.position) node.position = { x: 0, y: 0 };
+            node.position.x = val;
+            if (onChange) onChange();
+        }
+    });
+    section.appendChild(xResult.row);
+
+    // Y スライダー
+    const yResult = createDetailSliderRow({
+        label: 'Y',
+        min: -500,
+        max: 500,
+        step: 0.1,
+        value: node.position?.y ?? 0,
+        onChange: (val) => {
+            if (!node.position) node.position = { x: 0, y: 0 };
+            node.position.y = val;
+            if (onChange) onChange();
+        }
+    });
+    section.appendChild(yResult.row);
+
+    container.appendChild(section);
+    return section;
+}
+
+// ========================================
 // ヘルパー関数
+// ========================================
 function getSinkForContent(contentId) {
     return globalNodes.find(n => n.type === 'sink' && n.contentId === contentId);
 }
@@ -2301,7 +2554,7 @@ function calculateMatrixFromParams(translateX, translateY, rotation, scaleX, sca
 // ノードの高さを動的に計算（コンパクト表示）
 function getNodeHeight(node) {
     if (node.type === 'image') {
-        return 70; // 画像ノード: サムネイル表示
+        return 120; // 画像ノード: サムネイル + X,Yスライダー
     } else if (node.type === 'composite') {
         // 合成ノード: 入力数に応じて可変高さ（ポート間隔を最低15px確保）
         const inputCount = node.inputs ? node.inputs.length : 2;
@@ -2317,7 +2570,7 @@ function getNodeHeight(node) {
     } else if (node.type === 'affine') {
         return 70; // アフィン: 主要パラメータ1つ
     } else if (node.type === 'ninepatch') {
-        return 120; // 9patch: サムネイル + 幅/高さスライダー
+        return 120; // 9patch: サムネイル + X,Yスライダー
     } else if (node.type === 'filter' && node.independent) {
         return 70; // フィルタ: 主要パラメータ1つ
     } else if (node.type === 'renderer') {
@@ -2388,18 +2641,22 @@ function drawGlobalNode(node) {
     header.appendChild(idBadge);
     nodeBox.appendChild(header);
 
-    // 画像ノードの場合、サムネイルのみ表示（コンパクト）
+    // 画像ノードの場合、サムネイル + X,Yスライダー表示
     if (node.type === 'image' && node.contentId !== undefined) {
         const content = contentLibrary.find(c => c.id === node.contentId);
-        if (content && content.imageData) {
-            const contentRow = document.createElement('div');
-            contentRow.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 4px;';
+        const controls = document.createElement('div');
+        controls.className = 'node-box-controls';
+        controls.style.cssText = 'padding: 4px;';
 
-            // サムネイル
+        // サムネイル行
+        if (content && content.imageData) {
+            const thumbRow = document.createElement('div');
+            thumbRow.style.cssText = 'display: flex; align-items: center; gap: 6px; margin-bottom: 4px;';
+
             const img = document.createElement('img');
             img.src = createThumbnailDataURL(content.imageData);
-            img.style.cssText = 'width: 40px; height: 30px; object-fit: cover; border-radius: 3px;';
-            contentRow.appendChild(img);
+            img.style.cssText = 'width: 32px; height: 32px; object-fit: cover; border-radius: 3px;';
+            thumbRow.appendChild(img);
 
             // 原点表示（コンパクト）
             const originText = document.createElement('span');
@@ -2408,10 +2665,26 @@ function drawGlobalNode(node) {
             const oy = node.originY ?? 0.5;
             const originNames = { '0,0': '左上', '0.5,0': '上', '1,0': '右上', '0,0.5': '左', '0.5,0.5': '中央', '1,0.5': '右', '0,1': '左下', '0.5,1': '下', '1,1': '右下' };
             originText.textContent = originNames[`${ox},${oy}`] || '中央';
-            contentRow.appendChild(originText);
+            thumbRow.appendChild(originText);
 
-            nodeBox.appendChild(contentRow);
+            controls.appendChild(thumbRow);
         }
+
+        // X スライダー
+        createNodeGraphPositionSlider({
+            node, property: 'x', label: 'X',
+            min: -500, max: 500, step: 0.1,
+            container: controls
+        });
+
+        // Y スライダー
+        createNodeGraphPositionSlider({
+            node, property: 'y', label: 'Y',
+            min: -500, max: 500, step: 0.1,
+            container: controls
+        });
+
+        nodeBox.appendChild(controls);
     }
 
     // 独立フィルタノードの場合、主要パラメータ1つのみ表示（コンパクト）
@@ -2511,14 +2784,14 @@ function drawGlobalNode(node) {
         nodeBox.appendChild(controls);
     }
 
-    // 9patchノードの場合、出力サイズスライダーを表示
+    // 9patchノードの場合、サムネイル + X,Yスライダーを表示
     if (node.type === 'ninepatch') {
         const content = contentLibrary.find(c => c.id === node.contentId);
         const controls = document.createElement('div');
         controls.className = 'node-box-controls';
         controls.style.cssText = 'padding: 4px;';
 
-        // サムネイル表示
+        // サムネイル + サイズ情報
         if (content && content.imageData) {
             const thumbRow = document.createElement('div');
             thumbRow.style.cssText = 'display: flex; align-items: center; gap: 6px; margin-bottom: 4px;';
@@ -2535,65 +2808,19 @@ function drawGlobalNode(node) {
             controls.appendChild(thumbRow);
         }
 
-        // 幅スライダー
-        const widthLabel = document.createElement('label');
-        widthLabel.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px; margin-bottom: 2px;';
-        const widthSpan = document.createElement('span');
-        widthSpan.textContent = 'W:';
-        widthSpan.style.cssText = 'min-width: 18px;';
-        const widthSlider = document.createElement('input');
-        widthSlider.type = 'range';
-        widthSlider.min = '16';
-        widthSlider.max = '512';
-        widthSlider.step = '1';
-        widthSlider.value = String(node.outputWidth || 48);
-        widthSlider.style.cssText = 'flex: 1; min-width: 50px;';
-        const widthDisplay = document.createElement('span');
-        widthDisplay.style.cssText = 'min-width: 30px; text-align: right;';
-        widthDisplay.textContent = String(node.outputWidth || 48);
-
-        widthSlider.addEventListener('input', (e) => {
-            node.outputWidth = parseInt(e.target.value);
-            widthDisplay.textContent = String(node.outputWidth);
-            const sizeInfo = document.getElementById(`ninepatch-size-${node.id}`);
-            if (sizeInfo) sizeInfo.textContent = `${node.outputWidth}×${node.outputHeight}`;
-            throttledUpdatePreview();
+        // X スライダー（配置位置）
+        createNodeGraphPositionSlider({
+            node, property: 'x', label: 'X',
+            min: -500, max: 500, step: 0.1,
+            container: controls
         });
 
-        widthLabel.appendChild(widthSpan);
-        widthLabel.appendChild(widthSlider);
-        widthLabel.appendChild(widthDisplay);
-        controls.appendChild(widthLabel);
-
-        // 高さスライダー
-        const heightLabel = document.createElement('label');
-        heightLabel.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px;';
-        const heightSpan = document.createElement('span');
-        heightSpan.textContent = 'H:';
-        heightSpan.style.cssText = 'min-width: 18px;';
-        const heightSlider = document.createElement('input');
-        heightSlider.type = 'range';
-        heightSlider.min = '16';
-        heightSlider.max = '512';
-        heightSlider.step = '1';
-        heightSlider.value = String(node.outputHeight || 48);
-        heightSlider.style.cssText = 'flex: 1; min-width: 50px;';
-        const heightDisplay = document.createElement('span');
-        heightDisplay.style.cssText = 'min-width: 30px; text-align: right;';
-        heightDisplay.textContent = String(node.outputHeight || 48);
-
-        heightSlider.addEventListener('input', (e) => {
-            node.outputHeight = parseInt(e.target.value);
-            heightDisplay.textContent = String(node.outputHeight);
-            const sizeInfo = document.getElementById(`ninepatch-size-${node.id}`);
-            if (sizeInfo) sizeInfo.textContent = `${node.outputWidth}×${node.outputHeight}`;
-            throttledUpdatePreview();
+        // Y スライダー（配置位置）
+        createNodeGraphPositionSlider({
+            node, property: 'y', label: 'Y',
+            min: -500, max: 500, step: 0.1,
+            container: controls
         });
-
-        heightLabel.appendChild(heightSpan);
-        heightLabel.appendChild(heightSlider);
-        heightLabel.appendChild(heightDisplay);
-        controls.appendChild(heightLabel);
 
         nodeBox.appendChild(controls);
     }
@@ -4105,91 +4332,24 @@ function buildDetailPanelContent(node) {
 
 // 画像ノードの詳細コンテンツ
 function buildImageDetailContent(node) {
-    const section = document.createElement('div');
-    section.className = 'node-detail-section';
-
-    const label = document.createElement('div');
-    label.className = 'node-detail-label';
-    label.textContent = '原点';
-    section.appendChild(label);
-
-    // 原点セレクタ（9点グリッド）
-    const originGrid = document.createElement('div');
-    originGrid.className = 'node-origin-grid';
-    originGrid.style.cssText = 'width: 60px; height: 60px; margin: 0 auto;';
-
-    const originValues = [
-        { x: 0, y: 0 }, { x: 0.5, y: 0 }, { x: 1, y: 0 },
-        { x: 0, y: 0.5 }, { x: 0.5, y: 0.5 }, { x: 1, y: 0.5 },
-        { x: 0, y: 1 }, { x: 0.5, y: 1 }, { x: 1, y: 1 }
-    ];
-
-    originValues.forEach(({ x, y }) => {
-        const btn = document.createElement('button');
-        btn.className = 'node-origin-point';
-        if (node.originX === x && node.originY === y) {
-            btn.classList.add('selected');
-        }
-        btn.addEventListener('click', () => {
-            originGrid.querySelectorAll('.node-origin-point').forEach(b => b.classList.remove('selected'));
-            btn.classList.add('selected');
-            node.originX = x;
-            node.originY = y;
-            renderNodeGraph();
-            throttledUpdatePreview();
-        });
-        originGrid.appendChild(btn);
-    });
-
-    section.appendChild(originGrid);
-    detailPanelContent.appendChild(section);
-
-    // Position（配置位置）セクション
-    const positionSection = document.createElement('div');
-    positionSection.className = 'node-detail-section';
-
-    const positionLabel = document.createElement('div');
-    positionLabel.className = 'node-detail-label';
-    positionLabel.textContent = '配置位置';
-    positionSection.appendChild(positionLabel);
-
-    const positionRow = document.createElement('div');
-    positionRow.style.cssText = 'display: flex; gap: 8px; margin-top: 4px;';
-
-    // position X
-    const posXLabel = document.createElement('label');
-    posXLabel.style.cssText = 'display: flex; align-items: center; gap: 4px; flex: 1;';
-    posXLabel.textContent = 'X:';
-    const posXInput = document.createElement('input');
-    posXInput.type = 'number';
-    posXInput.style.cssText = 'width: 60px; padding: 2px 4px;';
-    posXInput.value = node.position?.x ?? 0;
-    posXInput.addEventListener('change', () => {
-        if (!node.position) node.position = { x: 0, y: 0 };
-        node.position.x = parseFloat(posXInput.value) || 0;
+    const onUpdate = () => {
+        renderNodeGraph();
         throttledUpdatePreview();
-    });
-    posXLabel.appendChild(posXInput);
-    positionRow.appendChild(posXLabel);
+    };
 
-    // position Y
-    const posYLabel = document.createElement('label');
-    posYLabel.style.cssText = 'display: flex; align-items: center; gap: 4px; flex: 1;';
-    posYLabel.textContent = 'Y:';
-    const posYInput = document.createElement('input');
-    posYInput.type = 'number';
-    posYInput.style.cssText = 'width: 60px; padding: 2px 4px;';
-    posYInput.value = node.position?.y ?? 0;
-    posYInput.addEventListener('change', () => {
-        if (!node.position) node.position = { x: 0, y: 0 };
-        node.position.y = parseFloat(posYInput.value) || 0;
-        throttledUpdatePreview();
+    // 原点セクション（9点セレクタ + X,Yスライダー）
+    createOriginSection({
+        node,
+        container: detailPanelContent,
+        onChange: onUpdate
     });
-    posYLabel.appendChild(posYInput);
-    positionRow.appendChild(posYLabel);
 
-    positionSection.appendChild(positionRow);
-    detailPanelContent.appendChild(positionSection);
+    // 配置位置セクション（X,Yスライダー）
+    createPositionSection({
+        node,
+        container: detailPanelContent,
+        onChange: onUpdate
+    });
 
     // ピクセルフォーマット選択セクション
     const formatSection = document.createElement('div');
@@ -4763,6 +4923,25 @@ function buildSinkDetailContent(node) {
 function buildNinePatchDetailContent(node) {
     const content = contentLibrary.find(c => c.id === node.contentId);
 
+    const onUpdate = () => {
+        renderNodeGraph();
+        throttledUpdatePreview();
+    };
+
+    // 原点セクション（9点セレクタ + X,Yスライダー）
+    createOriginSection({
+        node,
+        container: detailPanelContent,
+        onChange: onUpdate
+    });
+
+    // 配置位置セクション（X,Yスライダー）
+    createPositionSection({
+        node,
+        container: detailPanelContent,
+        onChange: onUpdate
+    });
+
     // 出力サイズセクション
     const sizeSection = document.createElement('div');
     sizeSection.className = 'node-detail-section';
@@ -4782,100 +4961,37 @@ function buildNinePatchDetailContent(node) {
         sizeSection.appendChild(srcSizeRow);
     }
 
-    // 幅
-    const widthRow = document.createElement('div');
-    widthRow.className = 'node-detail-row';
-    const widthLabel = document.createElement('label');
-    widthLabel.textContent = '幅';
-    const widthInput = document.createElement('input');
-    widthInput.type = 'number';
-    widthInput.min = '1';
-    widthInput.max = '2048';
-    widthInput.value = node.outputWidth ?? (content ? content.width - 2 : 48);
-    widthInput.style.width = '80px';
-    widthRow.appendChild(widthLabel);
-    widthRow.appendChild(widthInput);
-    sizeSection.appendChild(widthRow);
+    // 幅スライダー
+    const defaultWidth = node.outputWidth ?? (content ? content.width - 2 : 48);
+    const widthResult = createDetailSliderRow({
+        label: 'W',
+        min: 1,
+        max: 1000,
+        step: 0.1,
+        value: defaultWidth,
+        onChange: (val) => {
+            node.outputWidth = val;
+            onUpdate();
+        }
+    });
+    sizeSection.appendChild(widthResult.row);
 
-    // 高さ
-    const heightRow = document.createElement('div');
-    heightRow.className = 'node-detail-row';
-    const heightLabel = document.createElement('label');
-    heightLabel.textContent = '高さ';
-    const heightInput = document.createElement('input');
-    heightInput.type = 'number';
-    heightInput.min = '1';
-    heightInput.max = '2048';
-    heightInput.value = node.outputHeight ?? (content ? content.height - 2 : 48);
-    heightInput.style.width = '80px';
-    heightRow.appendChild(heightLabel);
-    heightRow.appendChild(heightInput);
-    sizeSection.appendChild(heightRow);
+    // 高さスライダー
+    const defaultHeight = node.outputHeight ?? (content ? content.height - 2 : 48);
+    const heightResult = createDetailSliderRow({
+        label: 'H',
+        min: 1,
+        max: 1000,
+        step: 0.1,
+        value: defaultHeight,
+        onChange: (val) => {
+            node.outputHeight = val;
+            onUpdate();
+        }
+    });
+    sizeSection.appendChild(heightResult.row);
 
     detailPanelContent.appendChild(sizeSection);
-
-    // 原点セクション
-    const originSection = document.createElement('div');
-    originSection.className = 'node-detail-section';
-
-    const originLabel = document.createElement('div');
-    originLabel.className = 'node-detail-label';
-    originLabel.textContent = '原点（正規化）';
-    originSection.appendChild(originLabel);
-
-    // 原点X
-    const originXRow = document.createElement('div');
-    originXRow.className = 'node-detail-row';
-    const originXLabel = document.createElement('label');
-    originXLabel.textContent = 'X';
-    const originXInput = document.createElement('input');
-    originXInput.type = 'number';
-    originXInput.step = '0.1';
-    originXInput.min = '0';
-    originXInput.max = '1';
-    originXInput.value = node.originX ?? 0.5;
-    originXInput.style.width = '80px';
-    originXRow.appendChild(originXLabel);
-    originXRow.appendChild(originXInput);
-    originSection.appendChild(originXRow);
-
-    // 原点Y
-    const originYRow = document.createElement('div');
-    originYRow.className = 'node-detail-row';
-    const originYLabel = document.createElement('label');
-    originYLabel.textContent = 'Y';
-    const originYInput = document.createElement('input');
-    originYInput.type = 'number';
-    originYInput.step = '0.1';
-    originYInput.min = '0';
-    originYInput.max = '1';
-    originYInput.value = node.originY ?? 0.5;
-    originYInput.style.width = '80px';
-    originYRow.appendChild(originYLabel);
-    originYRow.appendChild(originYInput);
-    originSection.appendChild(originYRow);
-
-    detailPanelContent.appendChild(originSection);
-
-    // 適用ボタン
-    const applySection = document.createElement('div');
-    applySection.className = 'node-detail-section';
-    applySection.style.justifyContent = 'flex-end';
-    const applyBtn = document.createElement('button');
-    applyBtn.className = 'primary-btn';
-    applyBtn.textContent = '適用';
-    applyBtn.addEventListener('click', () => {
-        node.outputWidth = parseInt(widthInput.value);
-        node.outputHeight = parseInt(heightInput.value);
-        node.originX = parseFloat(originXInput.value);
-        node.originY = parseFloat(originYInput.value);
-
-        renderNodeGraph();
-        throttledUpdatePreview();
-        scheduleAutoSave();
-    });
-    applySection.appendChild(applyBtn);
-    detailPanelContent.appendChild(applySection);
 }
 
 // ノードを削除
