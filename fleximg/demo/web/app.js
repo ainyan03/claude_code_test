@@ -3676,9 +3676,9 @@ function initDebugDetailsSection() {
     const structureTypes = NodeTypeHelper.byCategory('structure');
     const filterTypes = NodeTypeHelper.byCategory('filter');
 
-    // システム系ノード（Distributor等、Renderer/Sinkは計測しない）
+    // システム系ノード（Distributor/Sink、Rendererは計測しない）
     for (const [key, def] of systemTypes) {
-        if (key === 'renderer' || key === 'sink') continue;
+        if (key === 'renderer') continue;
         timeHtml += `
                 <div class="debug-metric-row">
                     <span class="debug-metric-label">${getDisplayName(def)}</span>
@@ -3686,8 +3686,9 @@ function initDebugDetailsSection() {
                 </div>`;
     }
 
-    // ソース系ノード
+    // ソース系ノード（NinePatchは内部でSourceを使うため除外）
     for (const [key, def] of sourceTypes) {
+        if (key === 'ninepatch') continue;
         timeHtml += `
                 <div class="debug-metric-row">
                     <span class="debug-metric-label">${getDisplayName(def)}</span>
@@ -3695,8 +3696,9 @@ function initDebugDetailsSection() {
                 </div>`;
     }
 
-    // 構造系ノード
+    // 構造系ノード（Affineはアフィン伝播によりSourceで処理されるため除外）
     for (const [key, def] of structureTypes) {
+        if (key === 'affine') continue;
         timeHtml += `
                 <div class="debug-metric-row">
                     <span class="debug-metric-label">${getDisplayName(def)}</span>
@@ -3747,8 +3749,9 @@ function initDebugDetailsSection() {
                     <span class="debug-metric-value" id="debug-max-alloc">--</span>
                 </div>`;
 
-    // 構造系ノードのメモリ
+    // 構造系ノードのメモリ（Affineは除外）
     for (const [key, def] of structureTypes) {
+        if (key === 'affine') continue;
         memHtml += `
                 <div class="debug-metric-row debug-metric-sub">
                     <span class="debug-metric-label">├ ${getDisplayName(def)}</span>

@@ -2,8 +2,12 @@
 #define FLEXIMG_SINK_NODE_H
 
 #include "../core/node.h"
+#include "../core/perf_metrics.h"
 #include "../image/viewport.h"
 #include "../operations/transform.h"
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+#include <chrono>
+#endif
 
 namespace FLEXIMG_NAMESPACE {
 
@@ -45,6 +49,10 @@ public:
 
     const char* name() const override { return "SinkNode"; }
 
+protected:
+    int nodeTypeForMetrics() const override { return NodeType::Sink; }
+
+public:
     // ========================================
     // プッシュ型準備（アフィン情報受け取り）
     // ========================================
@@ -95,9 +103,19 @@ public:
 
         if (!input.isValid() || !target_.isValid()) return;
 
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        auto start = std::chrono::high_resolution_clock::now();
+#endif
+
         // アフィン変換が伝播されている場合はDDA処理
         if (hasAffine_) {
             pushProcessWithAffine(std::move(input));
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+            auto& metrics = PerfMetrics::instance().nodes[NodeType::Sink];
+            metrics.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::high_resolution_clock::now() - start).count();
+            metrics.count++;
+#endif
             return;
         }
 
@@ -122,6 +140,13 @@ public:
             view_ops::copy(target_, dstX, dstY, inputView, srcX, srcY,
                           static_cast<int>(copyW), static_cast<int>(copyH));
         }
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        auto& metrics = PerfMetrics::instance().nodes[NodeType::Sink];
+        metrics.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::high_resolution_clock::now() - start).count();
+        metrics.count++;
+#endif
     }
 
 private:
