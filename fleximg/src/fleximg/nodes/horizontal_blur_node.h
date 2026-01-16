@@ -146,16 +146,20 @@ protected:
                                                PixelFormatIDs::RGBA8_Straight);
         ViewPort srcView = converted.view();
 
-        // 出力サイズ = 入力サイズ（push型では幅は変わらない）
-        int outputWidth = srcView.width;
+        // 出力サイズ = 入力サイズ + radius*2（左右に拡張）
+        int inputWidth = srcView.width;
+        int outputWidth = inputWidth + radius_ * 2;
 
         // 出力バッファを確保
         ImageBuffer output(outputWidth, 1, PixelFormatIDs::RGBA8_Straight,
                           InitPolicy::Uninitialized);
 
         // 水平方向スライディングウィンドウでブラー処理
-        // push型では inputOffset = 0（入力の先頭がカーネル中心）
-        applyHorizontalBlur(srcView, 0, output);
+        // push型では inputOffset = -radius
+        // 出力x=radius のカーネル中心 = -radius + radius = 0（入力x=0）
+        // これにより出力x=radiusのブラー結果が入力x=0を中心としたものになり、
+        // origin.x + radius と整合性が取れる
+        applyHorizontalBlur(srcView, -radius_, output);
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         auto& metrics = PerfMetrics::instance().nodes[NodeType::HorizontalBlur];
@@ -164,12 +168,16 @@ protected:
         metrics.count++;
 #endif
 
-        // 下流にpush（originはそのまま）
+        // 下流にpush
+        // origin.xをradius分大きくする（左に拡張するため）
         Node* downstream = downstreamNode(0);
         if (downstream) {
             RenderRequest outReq = request;
             outReq.width = static_cast<int16_t>(outputWidth);
-            downstream->pushProcess(RenderResult(std::move(output), input.origin), outReq);
+            Point outOrigin;
+            outOrigin.x = input.origin.x + to_fixed(radius_);
+            outOrigin.y = input.origin.y;
+            downstream->pushProcess(RenderResult(std::move(output), outOrigin), outReq);
         }
     }
 
