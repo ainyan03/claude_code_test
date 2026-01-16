@@ -103,8 +103,8 @@ struct GraphNode {
     double srcOriginY = 0;  // 基準点Y（pivot）
     double positionX = 0;   // 配置位置X
     double positionY = 0;   // 配置位置Y
-    int outputWidth = 0;    // sinkノード用: 出力バッファ幅、ninepatchノード用: 出力幅
-    int outputHeight = 0;   // sinkノード用: 出力バッファ高さ、ninepatchノード用: 出力高さ
+    float outputWidth = 0;    // sinkノード用: 出力バッファ幅、ninepatchノード用: 出力幅（小数対応）
+    float outputHeight = 0;   // sinkノード用: 出力バッファ高さ、ninepatchノード用: 出力高さ（小数対応）
     std::string filterType;
     std::vector<float> filterParams;
     bool independent = false;
@@ -420,10 +420,10 @@ public:
                     node.imageId = nodeObj["imageId"].as<int>();
                 }
                 if (nodeObj["outputWidth"].typeOf().as<std::string>() != "undefined") {
-                    node.outputWidth = nodeObj["outputWidth"].as<int>();
+                    node.outputWidth = nodeObj["outputWidth"].as<float>();
                 }
                 if (nodeObj["outputHeight"].typeOf().as<std::string>() != "undefined") {
-                    node.outputHeight = nodeObj["outputHeight"].as<int>();
+                    node.outputHeight = nodeObj["outputHeight"].as<float>();
                 }
                 // Sink固有の基準点（仮想スクリーン上の切り出し位置）
                 if (nodeObj["originX"].typeOf().as<std::string>() != "undefined") {
@@ -440,10 +440,10 @@ public:
                     node.imageId = nodeObj["imageId"].as<int>();
                 }
                 if (nodeObj["outputWidth"].typeOf().as<std::string>() != "undefined") {
-                    node.outputWidth = nodeObj["outputWidth"].as<int>();
+                    node.outputWidth = nodeObj["outputWidth"].as<float>();
                 }
                 if (nodeObj["outputHeight"].typeOf().as<std::string>() != "undefined") {
-                    node.outputHeight = nodeObj["outputHeight"].as<int>();
+                    node.outputHeight = nodeObj["outputHeight"].as<float>();
                 }
                 if (nodeObj["originX"].typeOf().as<std::string>() != "undefined") {
                     node.srcOriginX = nodeObj["originX"].as<double>();
@@ -666,9 +666,9 @@ private:
                 ? formatIt->second
                 : PixelFormatIDs::RGBA8_Straight;
 
-            // Sinkノード固有のサイズと基準点を使用
-            info.width = (gnode->outputWidth > 0) ? gnode->outputWidth : canvasWidth_;
-            info.height = (gnode->outputHeight > 0) ? gnode->outputHeight : canvasHeight_;
+            // Sinkノード固有のサイズと基準点を使用（整数に丸め）
+            info.width = (gnode->outputWidth > 0) ? static_cast<int>(gnode->outputWidth) : canvasWidth_;
+            info.height = (gnode->outputHeight > 0) ? static_cast<int>(gnode->outputHeight) : canvasHeight_;
 
             auto& sinkOut = sinkOutputs_[gnode->id];
             sinkOut.format = info.format;
@@ -750,8 +750,8 @@ private:
                 auto np = std::make_unique<NinePatchSourceNode>();
                 np->setupFromNinePatch(viewIt->second);
                 np->setOutputSize(
-                    static_cast<int16_t>(gnode.outputWidth > 0 ? gnode.outputWidth : viewIt->second.width - 2),
-                    static_cast<int16_t>(gnode.outputHeight > 0 ? gnode.outputHeight : viewIt->second.height - 2)
+                    gnode.outputWidth > 0 ? gnode.outputWidth : static_cast<float>(viewIt->second.width - 2),
+                    gnode.outputHeight > 0 ? gnode.outputHeight : static_cast<float>(viewIt->second.height - 2)
                 );
                 np->setOrigin(float_to_fixed(static_cast<float>(gnode.srcOriginX)),
                               float_to_fixed(static_cast<float>(gnode.srcOriginY)));

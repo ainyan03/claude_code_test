@@ -109,8 +109,8 @@ public:
         setupWithBounds(innerImage, left, top, right, bottom);
     }
 
-    // 出力サイズ設定
-    void setOutputSize(int16_t width, int16_t height) {
+    // 出力サイズ設定（小数対応）
+    void setOutputSize(float width, float height) {
         if (outputWidth_ != width || outputHeight_ != height) {
             outputWidth_ = width;
             outputHeight_ = height;
@@ -154,8 +154,8 @@ public:
     // アクセサ
     // ========================================
 
-    int16_t outputWidth() const { return outputWidth_; }
-    int16_t outputHeight() const { return outputHeight_; }
+    float outputWidth() const { return outputWidth_; }
+    float outputHeight() const { return outputHeight_; }
     int_fixed originX() const { return originX_; }
     int_fixed originY() const { return originY_; }
 
@@ -299,9 +299,9 @@ private:
     int16_t srcRight_ = 0;   // 右端からの固定幅
     int16_t srcBottom_ = 0;  // 下端からの固定高さ
 
-    // 出力サイズ
-    int16_t outputWidth_ = 0;
-    int16_t outputHeight_ = 0;
+    // 出力サイズ（小数対応）
+    float outputWidth_ = 0.0f;
+    float outputHeight_ = 0.0f;
 
     // 基準点（出力座標系）
     int_fixed originX_ = 0;
@@ -314,12 +314,12 @@ private:
     // 補間モード
     InterpolationMode interpolationMode_ = InterpolationMode::Nearest;
 
-    // ジオメトリ計算結果
+    // ジオメトリ計算結果（小数対応）
     bool geometryValid_ = false;
-    int16_t patchWidths_[3] = {0, 0, 0};   // [左固定, 中央伸縮, 右固定]
-    int16_t patchHeights_[3] = {0, 0, 0};  // [上固定, 中央伸縮, 下固定]
-    int16_t patchOffsetX_[3] = {0, 0, 0};  // 各列の出力X開始位置
-    int16_t patchOffsetY_[3] = {0, 0, 0};  // 各行の出力Y開始位置
+    float patchWidths_[3] = {0, 0, 0};   // [左固定, 中央伸縮, 右固定]
+    float patchHeights_[3] = {0, 0, 0};  // [上固定, 中央伸縮, 下固定]
+    float patchOffsetX_[3] = {0, 0, 0};  // 各列の出力X開始位置
+    float patchOffsetY_[3] = {0, 0, 0};  // 各行の出力Y開始位置
 
     // ソース画像内の各区画のサイズ
     int16_t srcPatchW_[3] = {0, 0, 0};     // 各列のソース幅
@@ -412,21 +412,21 @@ private:
         // 角: 固定サイズ
         // 辺・中央: 伸縮サイズ
 
-        patchWidths_[0] = srcLeft_;                              // 左列: 固定
-        patchWidths_[2] = srcRight_;                             // 右列: 固定
+        patchWidths_[0] = static_cast<float>(srcLeft_);                              // 左列: 固定
+        patchWidths_[2] = static_cast<float>(srcRight_);                             // 右列: 固定
         patchWidths_[1] = outputWidth_ - srcLeft_ - srcRight_;   // 中央列: 伸縮
 
-        patchHeights_[0] = srcTop_;                              // 上段: 固定
-        patchHeights_[2] = srcBottom_;                           // 下段: 固定
+        patchHeights_[0] = static_cast<float>(srcTop_);                              // 上段: 固定
+        patchHeights_[2] = static_cast<float>(srcBottom_);                           // 下段: 固定
         patchHeights_[1] = outputHeight_ - srcTop_ - srcBottom_; // 中央段: 伸縮
 
         // 各区画の出力開始位置
-        patchOffsetX_[0] = 0;
-        patchOffsetX_[1] = srcLeft_;
+        patchOffsetX_[0] = 0.0f;
+        patchOffsetX_[1] = static_cast<float>(srcLeft_);
         patchOffsetX_[2] = outputWidth_ - srcRight_;
 
-        patchOffsetY_[0] = 0;
-        patchOffsetY_[1] = srcTop_;
+        patchOffsetY_[0] = 0.0f;
+        patchOffsetY_[1] = static_cast<float>(srcTop_);
         patchOffsetY_[2] = outputHeight_ - srcBottom_;
 
         // 各区画のスケール行列とoriginを計算
@@ -472,8 +472,11 @@ private:
                 // 平行移動はorigin相対座標で指定
                 // オーバーラップにより開始位置がずれる場合は dx, dy を加算
                 // positionX_/positionY_ を加算して配置位置を反映
-                float tx = static_cast<float>(patchOffsetX_[col] + dx) - from_fixed(originX_) + positionX_;
-                float ty = static_cast<float>(patchOffsetY_[row] + dy) - from_fixed(originY_) + positionY_;
+                // originX_/originY_ をfloatに変換（int_fixedは Q16.16 固定小数点）
+                float originXf = static_cast<float>(originX_) / INT_FIXED_ONE;
+                float originYf = static_cast<float>(originY_) / INT_FIXED_ONE;
+                float tx = patchOffsetX_[col] + dx - originXf + positionX_;
+                float ty = patchOffsetY_[row] + dy - originYf + positionY_;
 
                 // バイリニア時、伸縮部は端1pxが描画されないため位置を補正
                 // 固定部のオーバーラップと合わせて中央に配置するため、0.5*scale分ずらす
