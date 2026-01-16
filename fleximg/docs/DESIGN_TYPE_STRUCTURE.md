@@ -71,7 +71,7 @@ fleximg では、すべての座標を「基準点（origin）からの相対位
 ┌─────────────────────────────────────────────────────────┐
 │  RenderResult（パイプライン評価結果）                      │
 │  - ImageBuffer buffer                                   │
-│  - Point origin（バッファ内での基準点位置、int_fixed8）    │
+│  - Point origin（バッファ内での基準点位置、int_fixed Q16.16）│
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -191,7 +191,7 @@ ImageBuffer working = std::move(input.buffer).toFormat(PixelFormatIDs::RGBA8_Str
 ```cpp
 struct RenderResult {
     ImageBuffer buffer;
-    Point origin;  // バッファ内での基準点位置（int_fixed8）
+    Point origin;  // バッファ内での基準点位置（int_fixed Q16.16）
 
     // コンストラクタ
     RenderResult();
@@ -247,7 +247,7 @@ blend::onto(canvas, request.origin.x, request.origin.y,
 | blend::first | 透明キャンバスへの最初の描画（memcpy最適化）|
 | blend::onto | 2枚目以降の合成（ブレンド計算）|
 
-これらは固定小数点の基準点座標（`int_fixed8`）を使用し、フォーマット変換（RGBA8_Straight → RGBA16_Premultiplied）にも対応しています。
+これらは固定小数点の基準点座標（`int_fixed` Q16.16）を使用し、フォーマット変換（RGBA8_Straight → RGBA16_Premultiplied）にも対応しています。
 
 ## 設計の利点
 

@@ -63,21 +63,23 @@ ViewPort(void* d, PixelFormatID fmt, int32_t str,
 
 ```cpp
 // types.h で定義
-using int_fixed8 = int32_t;   // Q24.8 形式（座標用）
-using int_fixed16 = int32_t;  // Q16.16 形式（行列用）
+using int_fixed = int_fixed16;  // Q16.16 形式（統一型、座標・行列共通）
+using int_fixed16 = int32_t;    // Q16.16 形式
+using int_fixed8 = int32_t;     // Q24.8 形式 [DEPRECATED]
 ```
 
-**規約**: コード中では必ずこれらの型エイリアスを使用すること。
+**規約**: 新規コードでは `int_fixed`（Q16.16）を使用すること。
+`int_fixed8`（Q24.8）は後方互換性のため残されていますが、非推奨です。
 生の `int32_t` で固定小数点値を扱わない。型エイリアスにより意図が明確になり、
 将来の型変更にも対応しやすくなる。
 
 ```cpp
-// 良い例
-int_fixed8 posX = to_fixed8(100);
-int_fixed16 scale = to_fixed16(1.5f);
+// 良い例（Q16.16 統一型）
+int_fixed posX = to_fixed(100);
+int_fixed scale = float_to_fixed(1.5f);
 
 // 悪い例（意図が不明確）
-int32_t posX = 100 << 8;
+int32_t posX = 100 << 16;
 ```
 
 ### 例
