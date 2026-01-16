@@ -1,7 +1,9 @@
 #ifndef FLEXIMG_HORIZONTAL_BLUR_NODE_H
 #define FLEXIMG_HORIZONTAL_BLUR_NODE_H
 
-#include "filter_node_base.h"
+#include "../core/node.h"
+#include "../core/perf_metrics.h"
+#include "../image/image_buffer.h"
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
 #include <chrono>
 #endif
@@ -29,8 +31,12 @@ namespace FLEXIMG_NAMESPACE {
 //   src >> hblur >> vblur >> sink;  // HorizontalBlur → VerticalBlur の順が効率的
 //
 
-class HorizontalBlurNode : public FilterNodeBase {
+class HorizontalBlurNode : public Node {
 public:
+    HorizontalBlurNode() {
+        initPorts(1, 1);
+    }
+
     // ========================================
     // パラメータ設定
     // ========================================
@@ -46,9 +52,6 @@ public:
     const char* name() const override { return "HorizontalBlurNode"; }
 
 protected:
-    // FilterNodeBaseは使用しない（独自のprocess実装）
-    filters::LineFilterFunc getFilterFunc() const override { return nullptr; }
-    int computeInputMargin() const override { return radius_; }
     int nodeTypeForMetrics() const override { return NodeType::HorizontalBlur; }
 
     // ========================================
@@ -110,14 +113,25 @@ protected:
     }
 
     // ========================================
-    // process オーバーライド（push型用）
+    // pushProcess オーバーライド
     // ========================================
 
-    RenderResult process(RenderResult&& input,
-                        const RenderRequest& request) override {
+    void pushProcess(RenderResult&& input, const RenderRequest& request) override {
         // radius=0の場合はスルー
         if (radius_ == 0) {
-            return std::move(input);
+            Node* downstream = downstreamNode(0);
+            if (downstream) {
+                downstream->pushProcess(std::move(input), request);
+            }
+            return;
+        }
+
+        if (!input.isValid()) {
+            Node* downstream = downstreamNode(0);
+            if (downstream) {
+                downstream->pushProcess(std::move(input), request);
+            }
+            return;
         }
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
@@ -129,15 +143,16 @@ protected:
                                                PixelFormatIDs::RGBA8_Straight);
         ViewPort srcView = converted.view();
 
+        // 出力サイズ = 入力サイズ（push型では幅は変わらない）
+        int outputWidth = srcView.width;
+
         // 出力バッファを確保
-        ImageBuffer output(request.width, 1, PixelFormatIDs::RGBA8_Straight,
+        ImageBuffer output(outputWidth, 1, PixelFormatIDs::RGBA8_Straight,
                           InitPolicy::Uninitialized);
 
-        // オフセット計算（push型では通常0）
-        int srcOffsetX = 0;
-
         // 水平方向スライディングウィンドウでブラー処理
-        applyHorizontalBlur(srcView, srcOffsetX, output);
+        // push型では入力の中心をカーネル中心として処理
+        applyHorizontalBlurPush(srcView, output);
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         auto& metrics = PerfMetrics::instance().nodes[NodeType::HorizontalBlur];
@@ -146,14 +161,20 @@ protected:
         metrics.count++;
 #endif
 
-        return RenderResult(std::move(output), request.origin);
+        // 下流にpush（originはそのまま）
+        Node* downstream = downstreamNode(0);
+        if (downstream) {
+            RenderRequest outReq = request;
+            outReq.width = static_cast<int16_t>(outputWidth);
+            downstream->pushProcess(RenderResult(std::move(output), input.origin), outReq);
+        }
     }
 
 private:
     int radius_ = 5;
 
     // ========================================
-    // 水平方向ブラー処理
+    // 水平方向ブラー処理（pull型用）
     // ========================================
 
     void applyHorizontalBlur(const ViewPort& srcView, int srcOffsetX, ImageBuffer& output) {
@@ -163,10 +184,12 @@ private:
         int outputWidth = output.width();
 
         // 初期ウィンドウの合計（出力x=0に対応）
-        // カーネル範囲: 入力[srcOffsetX + radius_ - radius_, srcOffsetX + radius_ + radius_]
-        //             = 入力[srcOffsetX, srcOffsetX + 2*radius_]
         uint32_t sumR = 0, sumG = 0, sumB = 0, sumA = 0;
-        int inputOffset = srcOffsetX + radius_;  // 出力x=0に対応するカーネル中心
+        // srcOffsetX = inputReq.origin.x - input.origin.x
+        // 出力x=0のカーネル中心 = input.origin.x - request.origin.x
+        //                      = input.origin.x - (inputReq.origin.x - radius_)
+        //                      = radius_ - srcOffsetX
+        int inputOffset = radius_ - srcOffsetX;  // 出力x=0に対応するカーネル中心
 
         for (int kx = -radius_; kx <= radius_; kx++) {
             int srcX = inputOffset + kx;
@@ -197,6 +220,61 @@ private:
             // 入ってくるピクセル
             int newSrcX = inputOffset + x + radius_;
             if (newSrcX >= 0 && newSrcX < inputWidth) {
+                int off = newSrcX * 4;
+                uint32_t a = srcRow[off + 3];
+                sumR += srcRow[off] * a;
+                sumG += srcRow[off + 1] * a;
+                sumB += srcRow[off + 2] * a;
+                sumA += a;
+            }
+
+            writeBlurredPixel(dstRow, x, sumR, sumG, sumB, sumA);
+        }
+    }
+
+    // ========================================
+    // 水平方向ブラー処理（push型用）
+    // ========================================
+    // push型では入力と出力が同じ幅。エッジはゼロパディング扱い。
+
+    void applyHorizontalBlurPush(const ViewPort& srcView, ImageBuffer& output) {
+        const uint8_t* srcRow = static_cast<const uint8_t*>(srcView.data);
+        uint8_t* dstRow = static_cast<uint8_t*>(output.view().data);
+        int width = srcView.width;
+
+        // 初期ウィンドウの合計（出力x=0に対応）
+        // カーネル範囲: 入力[-radius_, +radius_] （負の部分はゼロ扱い）
+        uint32_t sumR = 0, sumG = 0, sumB = 0, sumA = 0;
+
+        for (int kx = -radius_; kx <= radius_; kx++) {
+            int srcX = kx;
+            if (srcX >= 0 && srcX < width) {
+                int off = srcX * 4;
+                uint32_t a = srcRow[off + 3];
+                sumR += srcRow[off] * a;
+                sumG += srcRow[off + 1] * a;
+                sumB += srcRow[off + 2] * a;
+                sumA += a;
+            }
+        }
+        writeBlurredPixel(dstRow, 0, sumR, sumG, sumB, sumA);
+
+        // スライディング: x = 1 to width-1
+        for (int x = 1; x < width; x++) {
+            // 出ていくピクセル: x - 1 - radius_
+            int oldSrcX = x - 1 - radius_;
+            if (oldSrcX >= 0 && oldSrcX < width) {
+                int off = oldSrcX * 4;
+                uint32_t a = srcRow[off + 3];
+                sumR -= srcRow[off] * a;
+                sumG -= srcRow[off + 1] * a;
+                sumB -= srcRow[off + 2] * a;
+                sumA -= a;
+            }
+
+            // 入ってくるピクセル: x + radius_
+            int newSrcX = x + radius_;
+            if (newSrcX >= 0 && newSrcX < width) {
                 int off = newSrcX * 4;
                 uint32_t a = srcRow[off + 3];
                 sumR += srcRow[off] * a;

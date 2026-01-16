@@ -120,9 +120,9 @@ public:
         pushOutputY_ = 0;
         pushInputWidth_ = request.width;
         pushInputHeight_ = request.height;
-        // 出力高さ = 入力高さ + radius*2
-        pushOutputHeight_ = pushInputHeight_ + radius_ * 2;
-        pushInputOriginX_ = request.origin.x;
+        // 出力高さ = 入力高さ（push型ではサイズを変えない、エッジはゼロパディング）
+        pushOutputHeight_ = pushInputHeight_;
+        baseOriginX_ = request.origin.x;  // 基準origin.x（BoxBlurNodeと同様）
         pushInputOriginY_ = request.origin.y;
         lastInputOriginY_ = request.origin.y;
 
@@ -152,8 +152,22 @@ public:
             return;
         }
 
+        // originを先に保存（bufferがムーブされる前に）
+        Point inputOrigin = input.origin;
+
         if (!input.isValid()) {
+            // 無効な入力でもキャッシュを更新（ゼロ行扱い）
+            int slot = pushInputY_ % kernelSize();
+            if (pushInputY_ >= kernelSize()) {
+                updateColSum(slot, false);
+            }
+            std::memset(rowCache_[slot].view().data, 0, cacheWidth_ * 4);
+            rowOriginX_[slot] = inputOrigin.x;  // origin.xを保存
+            updateColSum(slot, true);
+            lastInputOriginY_ = inputOrigin.y;
             pushInputY_++;
+
+            // radius行受け取った後から出力開始
             if (pushInputY_ > radius_) {
                 emitBlurredLine();
             }
@@ -172,19 +186,26 @@ public:
             updateColSum(slot, false);
         }
 
-        // 入力行をそのままキャッシュに格納（横方向処理なし）
-        storeInputRowToCache(converted, slot);
+        // X方向のオフセットを計算（基準origin.xからの差分）
+        // origin.xが大きいほど左にずれる → キャッシュ内で右にシフトして格納
+        int xOffset = from_fixed(inputOrigin.x - baseOriginX_);
+
+        // 入力行をキャッシュに格納（オフセット考慮）
+        storeInputRowToCache(converted, slot, xOffset);
+        rowOriginX_[slot] = inputOrigin.x;  // origin.xを保存
 
         // 新しい行を列合計に加算
         updateColSum(slot, true);
 
         // Y方向のorigin更新
-        lastInputOriginY_ = input.origin.y;
+        lastInputOriginY_ = inputOrigin.y;
 
         pushInputY_++;
 
-        // 各入力行に対して1行出力
-        emitBlurredLine();
+        // radius行受け取った後から出力開始（出力行 m は入力行 m を中心としたブラー）
+        if (pushInputY_ > radius_) {
+            emitBlurredLine();
+        }
     }
 
     void pushFinalize() override {
@@ -194,15 +215,18 @@ public:
             return;
         }
 
-        // 残りの行を出力
+        // 残りのradius行を出力（下端はゼロパディング扱い）
         while (pushOutputY_ < pushOutputHeight_) {
+            // ゼロ行をキャッシュに追加して列合計を更新
             int slot = pushInputY_ % kernelSize();
             if (pushInputY_ >= kernelSize()) {
                 updateColSum(slot, false);
             }
             // ゼロクリア済みのキャッシュ行を使用
             std::memset(rowCache_[slot].view().data, 0, cacheWidth_ * 4);
+            // updateColSum(slot, true) は不要（ゼロなので）
 
+            // 仮想的な入力行のorigin.yを更新（1行下に進むのでorigin.yは減少）
             lastInputOriginY_ -= to_fixed(1);
             pushInputY_++;
             emitBlurredLine();
@@ -273,6 +297,7 @@ private:
 
     // スキャンライン処理用キャッシュ
     std::vector<ImageBuffer> rowCache_;
+    std::vector<int_fixed> rowOriginX_;      // 各キャッシュ行のorigin.x（push型用）
     std::vector<uint32_t> colSumR_;
     std::vector<uint32_t> colSumG_;
     std::vector<uint32_t> colSumB_;
@@ -287,7 +312,7 @@ private:
     int pushInputWidth_ = 0;
     int pushInputHeight_ = 0;
     int pushOutputHeight_ = 0;
-    int_fixed pushInputOriginX_ = 0;
+    int_fixed baseOriginX_ = 0;              // 基準origin.x（pushPrepareで設定）
     int_fixed pushInputOriginY_ = 0;
     int_fixed lastInputOriginY_ = 0;
 
@@ -298,6 +323,7 @@ private:
     void initializeCache(int width) {
         cacheWidth_ = width;
         rowCache_.resize(kernelSize());
+        rowOriginX_.assign(kernelSize(), 0);  // 各行のorigin.xを初期化
         for (int i = 0; i < kernelSize(); i++) {
             rowCache_[i] = ImageBuffer(cacheWidth_, 1, PixelFormatIDs::RGBA8_Straight,
                                        InitPolicy::Zero);
@@ -403,18 +429,31 @@ private:
     // push型用ヘルパー関数
     // ========================================
 
-    // 入力行をそのままキャッシュに格納
-    void storeInputRowToCache(const ImageBuffer& input, int cacheIndex) {
+    // 入力行をキャッシュに格納（xOffsetで位置調整）
+    // xOffset = inputOrigin.x - baseOriginX_
+    // 入力pixel[N]のワールド座標 = N - inputOrigin.x
+    // 基準座標系でのバッファ位置 = N - inputOrigin.x + baseOriginX_ = N - xOffset
+    // つまり dstPos = srcPos - xOffset
+    void storeInputRowToCache(const ImageBuffer& input, int cacheIndex, int xOffset = 0) {
         ViewPort srcView = input.view();
         ViewPort dstView = rowCache_[cacheIndex].view();
-        int copyWidth = std::min(static_cast<int>(srcView.width), cacheWidth_);
-        if (copyWidth > 0) {
-            std::memcpy(dstView.data, srcView.data, copyWidth * 4);
-        }
-        // 残りの部分をゼロクリア
-        if (copyWidth < cacheWidth_) {
-            std::memset(static_cast<uint8_t*>(dstView.data) + copyWidth * 4, 0,
-                       (cacheWidth_ - copyWidth) * 4);
+        const uint8_t* srcData = static_cast<const uint8_t*>(srcView.data);
+        uint8_t* dstData = static_cast<uint8_t*>(dstView.data);
+        int srcWidth = static_cast<int>(srcView.width);
+
+        // キャッシュをゼロクリア
+        std::memset(dstData, 0, cacheWidth_ * 4);
+
+        // コピー範囲の計算
+        // dstPos = srcPos - xOffset
+        // srcPos = dstPos + xOffset
+        int dstStart = std::max(0, -xOffset);
+        int srcStart = std::max(0, xOffset);
+        int dstEnd = std::min(cacheWidth_, srcWidth - xOffset);
+        int copyWidth = dstEnd - dstStart;
+
+        if (copyWidth > 0 && srcStart < srcWidth) {
+            std::memcpy(dstData + dstStart * 4, srcData + srcStart * 4, copyWidth * 4);
         }
     }
 
@@ -437,12 +476,23 @@ private:
             }
         }
 
+        // origin.xの計算: キャッシュはbaseOriginX_に揃えてアライメントされているので
+        // 出力もbaseOriginX_を使用する
+        int_fixed originX = baseOriginX_;
+
+        // origin.yの計算（BoxBlurNodeと同様の方式）
+        // lastInputOriginY_は入力行(pushInputY_-1)のorigin.y
+        // 出力行pushOutputY_に対応する入力の中心行: pushOutputY_
+        // 最後の入力行: pushInputY_ - 1
+        // rowDiff = lastInputRow - centerInputRow = (pushInputY_ - 1) - pushOutputY_
+        int rowDiff = (pushInputY_ - 1) - pushOutputY_;
+        int_fixed originY = lastInputOriginY_ + to_fixed(rowDiff);
+
         RenderRequest outReq;
         outReq.width = static_cast<int16_t>(cacheWidth_);
         outReq.height = 1;
-        outReq.origin.x = pushInputOriginX_;
-        int rowDiff = (pushInputY_ - 1) - (pushOutputY_ - radius_);
-        outReq.origin.y = lastInputOriginY_ + to_fixed(rowDiff);
+        outReq.origin.x = originX;
+        outReq.origin.y = originY;
 
         pushOutputY_++;
 
