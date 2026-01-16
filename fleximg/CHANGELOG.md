@@ -1,5 +1,30 @@
 # Changelog
 
+## [2.33.0] - 2026-01-16
+
+### 修正
+
+- **SourceNode: position がアフィン変換に追従するように修正**
+  - CompositeNode 配下の複数ソースで position を設定した際、上流の AffineNode の変換（回転・拡縮・せん断）が各ソースの相対位置関係に正しく反映されるように修正
+  - 従来: position がアフィン行列の tx/ty に直接加算されていたため、位置関係がずれていた
+  - 修正後: position をアフィン行列の 2x2 部分で変換してから加算
+
+### 技術詳細
+
+- SourceNode の `pullPrepare()` での変換:
+  ```cpp
+  // 修正前: mat.tx += positionX_; mat.ty += positionY_;
+  // 修正後:
+  float transformedPosX = mat.a * positionX_ + mat.b * positionY_;
+  float transformedPosY = mat.c * positionX_ + mat.d * positionY_;
+  mat.tx += transformedPosX;
+  mat.ty += transformedPosY;
+  ```
+
+- NinePatchSourceNode は既に行列乗算 (`request.affineMatrix * patchScales_[i]`) で処理していたため修正不要
+
+---
+
 ## [2.32.0] - 2026-01-16
 
 ### 追加
