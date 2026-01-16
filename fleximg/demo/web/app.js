@@ -5203,7 +5203,8 @@ function getAppState() {
             compositeId: nextCompositeId,
             distributorId: nextDistributorId,
             independentFilterId: nextIndependentFilterId,
-            imageNodeId: nextImageNodeId
+            imageNodeId: nextImageNodeId,
+            ninePatchNodeId: nextNinePatchNodeId
         }
     };
 }
@@ -5383,6 +5384,7 @@ async function restoreAppState(state) {
     nextDistributorId = state.nextIds.distributorId || 1;
     nextIndependentFilterId = state.nextIds.independentFilterId;
     nextImageNodeId = state.nextIds.imageNodeId;
+    nextNinePatchNodeId = state.nextIds.ninePatchNodeId || 1;
 
     // コンテンツライブラリを復元
     // URLパラメータからの復元時は画像データがないため、LocalStorageから補完を試みる
