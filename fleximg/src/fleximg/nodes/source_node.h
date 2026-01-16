@@ -97,8 +97,12 @@ public:
             AffineMatrix mat = request.hasAffine
                 ? request.affineMatrix
                 : AffineMatrix{1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f};
-            mat.tx += positionX_;
-            mat.ty += positionY_;
+            // position をアフィン行列の 2x2 部分で変換してから加算
+            // これにより、各ソースの位置関係がアフィン変換後も維持される
+            float transformedPosX = mat.a * positionX_ + mat.b * positionY_;
+            float transformedPosY = mat.c * positionX_ + mat.d * positionY_;
+            mat.tx += transformedPosX;
+            mat.ty += transformedPosY;
 
             // 逆行列とピクセル中心オフセットを計算（共通処理）
             affine_ = precomputeInverseAffine(mat);
