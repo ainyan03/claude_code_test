@@ -451,6 +451,16 @@ public:
                 if (nodeObj["originY"].typeOf().as<std::string>() != "undefined") {
                     node.srcOriginY = nodeObj["originY"].as<double>();
                 }
+                // 配置位置（positionオブジェクト）
+                if (nodeObj["position"].typeOf().as<std::string>() != "undefined") {
+                    auto pos = nodeObj["position"];
+                    if (pos["x"].typeOf().as<std::string>() != "undefined") {
+                        node.positionX = pos["x"].as<double>();
+                    }
+                    if (pos["y"].typeOf().as<std::string>() != "undefined") {
+                        node.positionY = pos["y"].as<double>();
+                    }
+                }
             }
 
             graphNodes_.push_back(node);
@@ -741,6 +751,8 @@ private:
                 );
                 np->setOrigin(float_to_fixed(static_cast<float>(gnode.srcOriginX)),
                               float_to_fixed(static_cast<float>(gnode.srcOriginY)));
+                np->setPosition(static_cast<float>(gnode.positionX),
+                                static_cast<float>(gnode.positionY));
 
                 Node* result = np.get();
                 v2Nodes[nodeId] = std::move(np);

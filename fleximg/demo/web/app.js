@@ -3719,7 +3719,12 @@ function updatePreviewFromGraph() {
                     outputWidth: outW,
                     outputHeight: outH,
                     originX: ox,
-                    originY: oy
+                    originY: oy,
+                    // 配置位置（オブジェクト形式で渡す）
+                    position: {
+                        x: node.position?.x ?? 0,
+                        y: node.position?.y ?? 0
+                    }
                 };
             }
         }

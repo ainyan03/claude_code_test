@@ -127,6 +127,15 @@ public:
         }
     }
 
+    // 配置位置設定（アフィン行列のtx/tyに加算）
+    void setPosition(float x, float y) {
+        if (positionX_ != x || positionY_ != y) {
+            positionX_ = x;
+            positionY_ = y;
+            geometryValid_ = false;  // アフィン行列の再計算が必要
+        }
+    }
+
     // ========================================
     // アクセサ
     // ========================================
@@ -282,6 +291,10 @@ private:
     int_fixed originX_ = 0;
     int_fixed originY_ = 0;
 
+    // 配置位置（アフィン行列のtx/tyに加算）
+    float positionX_ = 0.0f;
+    float positionY_ = 0.0f;
+
     // ジオメトリ計算結果
     bool geometryValid_ = false;
     int16_t patchWidths_[3] = {0, 0, 0};   // [左固定, 中央伸縮, 右固定]
@@ -427,8 +440,9 @@ private:
                 // アフィン行列（S → P）: P = S * scale + patchOffset
                 // 平行移動はorigin相対座標で指定
                 // オーバーラップにより開始位置がずれる場合は dx, dy を加算
-                float tx = static_cast<float>(patchOffsetX_[col] + dx) - from_fixed(originX_);
-                float ty = static_cast<float>(patchOffsetY_[row] + dy) - from_fixed(originY_);
+                // positionX_/positionY_ を加算して配置位置を反映
+                float tx = static_cast<float>(patchOffsetX_[col] + dx) - from_fixed(originX_) + positionX_;
+                float ty = static_cast<float>(patchOffsetY_[row] + dy) - from_fixed(originY_) + positionY_;
                 patchScales_[idx] = AffineMatrix(scaleX, 0.0f, 0.0f, scaleY, tx, ty);
                 patchNeedsAffine_[idx] = true;  // 平行移動があるので常にtrue
 
