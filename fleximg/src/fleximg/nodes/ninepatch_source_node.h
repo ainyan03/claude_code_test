@@ -356,6 +356,7 @@ private:
     }
 
     // 1軸方向のクリッピング計算（横/縦共通）
+    // クリッピング時もソースビューは元のサイズを維持し、スケールで縮小
     void calcAxisClipping(float outputSize, int16_t srcFixed0, int16_t srcFixed2,
                           float& outWidth0, float& outWidth1, float& outWidth2,
                           int16_t& effSrc0, int16_t& effSrc2) {
@@ -365,8 +366,9 @@ private:
             outWidth0 = srcFixed0 * ratio;
             outWidth1 = 0.0f;
             outWidth2 = outputSize - outWidth0;
-            effSrc0 = static_cast<int16_t>(std::ceil(outWidth0));
-            effSrc2 = static_cast<int16_t>(std::ceil(outWidth2));
+            // ソースビューは元のサイズを維持（スケールで縮小して滑らかな描画を実現）
+            effSrc0 = srcFixed0;
+            effSrc2 = srcFixed2;
         } else {
             effSrc0 = srcFixed0;
             effSrc2 = srcFixed2;
@@ -402,11 +404,12 @@ private:
         int16_t srcX[3] = { 0, srcLeft_, static_cast<int16_t>(source_.width - effectiveSrcRight_) };
         int16_t srcY[3] = { 0, srcTop_, static_cast<int16_t>(source_.height - effectiveSrcBottom_) };
 
-        // 隣接パッチ存在判定（オーバーラップ用）
-        bool hasRight[3] = { effW[1] > 0 || effW[2] > 0, effW[2] > 0, false };
-        bool hasLeft[3] = { false, effW[0] > 0, effW[0] > 0 || effW[1] > 0 };
-        bool hasBelow[3] = { effH[1] > 0 || effH[2] > 0, effH[2] > 0, false };
-        bool hasAbove[3] = { false, effH[0] > 0, effH[0] > 0 || effH[1] > 0 };
+        // クリッピング状態を判定（出力サイズが固定部の合計より小さいか）
+        bool hClipping = outputWidth_ < static_cast<float>(srcLeft_ + srcRight_);
+        bool vClipping = outputHeight_ < static_cast<float>(srcTop_ + srcBottom_);
+
+        bool hasHStretch = effW[1] > 0 && !hClipping;  // 横方向伸縮部が存在かつクリッピングなし
+        bool hasVStretch = effH[1] > 0 && !vClipping;  // 縦方向伸縮部が存在かつクリッピングなし
 
         float originXf = static_cast<float>(originX_) / INT_FIXED_ONE;
         float originYf = static_cast<float>(originY_) / INT_FIXED_ONE;
@@ -415,11 +418,30 @@ private:
             for (int col = 0; col < 3; col++) {
                 int idx = row * 3 + col;
 
-                // オーバーラップ量（隣接パッチがあれば1px拡張）
-                int16_t dx = (hasLeft[col] && effW[col] > 0) ? -1 : 0;
-                int16_t dy = (hasAbove[row] && effH[row] > 0) ? -1 : 0;
-                int16_t dw = (hasRight[col] && effW[col] > 0) ? 1 - dx : -dx;
-                int16_t dh = (hasBelow[row] && effH[row] > 0) ? 1 - dy : -dy;
+                // オーバーラップ量（固定部→伸縮部方向に拡張）
+                int16_t dx = 0, dy = 0, dw = 0, dh = 0;
+
+                // 横方向オーバーラップ
+                if (hasHStretch) {
+                    // 通常時: 固定部 → 伸縮部方向の拡張
+                    if (col == 0 && effW[0] > 0) { dw = 1; }           // 左固定: 右に拡張
+                    else if (col == 2 && effW[2] > 0) { dx = -1; dw = 1; }  // 右固定: 左に拡張
+                } else if (hClipping) {
+                    // クリッピング時: 左固定と右固定が直接隣接
+                    if (col == 0 && effW[0] > 0 && effW[2] > 0) { dw = 1; }
+                    else if (col == 2 && effW[0] > 0 && effW[2] > 0) { dx = -1; dw = 1; }
+                }
+
+                // 縦方向オーバーラップ
+                if (hasVStretch) {
+                    // 通常時: 固定部 → 伸縮部方向の拡張
+                    if (row == 0 && effH[0] > 0) { dh = 1; }           // 上固定: 下に拡張
+                    else if (row == 2 && effH[2] > 0) { dy = -1; dh = 1; }  // 下固定: 上に拡張
+                } else if (vClipping) {
+                    // クリッピング時: 上固定と下固定が直接隣接
+                    if (row == 0 && effH[0] > 0 && effH[2] > 0) { dh = 1; }
+                    else if (row == 2 && effH[0] > 0 && effH[2] > 0) { dy = -1; dh = 1; }
+                }
 
                 // ソースビュー設定
                 if (effW[col] > 0 && effH[row] > 0) {
@@ -429,17 +451,29 @@ private:
                     patches_[idx].setOrigin(0, 0);
                 }
 
-                // スケール計算（伸縮部のみ）
+                // スケール計算
                 float scaleX = 1.0f, scaleY = 1.0f;
+
+                // 横方向スケール
                 if (col == 1 && srcPatchW_[1] > 0) {
+                    // 伸縮部
                     int16_t effSrcW = srcPatchW_[1];
                     if (interpolationMode_ == InterpolationMode::Bilinear && effSrcW > 1) effSrcW -= 1;
                     scaleX = patchWidths_[1] / effSrcW;
+                } else if (hClipping && effW[col] > 0) {
+                    // クリッピング時の固定部（出力幅/ソース幅）
+                    scaleX = patchWidths_[col] / effW[col];
                 }
+
+                // 縦方向スケール
                 if (row == 1 && srcPatchH_[1] > 0) {
+                    // 伸縮部
                     int16_t effSrcH = srcPatchH_[1];
                     if (interpolationMode_ == InterpolationMode::Bilinear && effSrcH > 1) effSrcH -= 1;
                     scaleY = patchHeights_[1] / effSrcH;
+                } else if (vClipping && effH[row] > 0) {
+                    // クリッピング時の固定部（出力高さ/ソース高さ）
+                    scaleY = patchHeights_[row] / effH[row];
                 }
 
                 // 平行移動量
