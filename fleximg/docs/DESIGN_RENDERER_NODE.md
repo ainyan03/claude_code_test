@@ -26,7 +26,7 @@ AffineNode           →      RendererNode
 
 // ノード作成
 SourceNode src(imageView);
-src.setOrigin(to_fixed8(imageView.width / 2), to_fixed8(imageView.height / 2));
+src.setOrigin(to_fixed(imageView.width / 2), to_fixed(imageView.height / 2));
 
 AffineNode affine;
 affine.setMatrix(AffineMatrix::rotate(0.5f));
@@ -93,13 +93,13 @@ SourceNode (100x100, origin: 50,50)     SinkNode (200x200, origin: 100,100)
 // 下流から上流への要求
 struct RenderRequest {
     int16_t width, height;  // 要求サイズ
-    Point origin;           // バッファ内での基準点位置（int_fixed8）
+    Point origin;           // バッファ内での基準点位置（int_fixed Q16.16）
 };
 
 // 上流から下流への応答
 struct RenderResult {
     ImageBuffer buffer;
-    Point origin;  // バッファ内での基準点位置（int_fixed8）
+    Point origin;  // バッファ内での基準点位置（int_fixed Q16.16）
 };
 ```
 

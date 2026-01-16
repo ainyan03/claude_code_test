@@ -182,7 +182,7 @@ renderer.exec();
 ┌─────────────────────────────────────────────────────────┐
 │  RenderResult（パイプライン評価結果）                      │
 │  - ImageBuffer buffer                                   │
-│  - Point origin（バッファ内での基準点位置、int_fixed8）    │
+│  - Point origin（バッファ内での基準点位置、int_fixed Q16.16）│
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -210,17 +210,17 @@ renderer.exec();
 // 下流からの要求
 struct RenderRequest {
     int16_t width, height;  // 要求サイズ
-    Point origin;           // バッファ内での基準点位置（int_fixed8）
+    Point origin;           // バッファ内での基準点位置（int_fixed Q16.16）
 };
 
 // 評価結果
 struct RenderResult {
     ImageBuffer buffer;
-    Point origin;  // バッファ内での基準点位置（int_fixed8）
+    Point origin;  // バッファ内での基準点位置（int_fixed Q16.16）
 };
 ```
 
-※ `Point` は固定小数点 Q24.8（`int_fixed8`）をメンバに持つ構造体です。
+※ `Point` は固定小数点 Q16.16（`int_fixed`）をメンバに持つ構造体です。
 
 ### 座標の意味
 
@@ -277,8 +277,8 @@ namespace filters {
 
 ```cpp
 namespace transform {
-    void affine(ViewPort& dst, int_fixed8 dstOriginX, int_fixed8 dstOriginY,
-                const ViewPort& src, int_fixed8 srcOriginX, int_fixed8 srcOriginY,
+    void affine(ViewPort& dst, int_fixed dstOriginX, int_fixed dstOriginY,
+                const ViewPort& src, int_fixed srcOriginX, int_fixed srcOriginY,
                 const FixedPointInverseMatrix& invMatrix);
 }
 ```
@@ -287,14 +287,14 @@ namespace transform {
 
 ```cpp
 namespace blend {
-    void first(ViewPort& canvas, int_fixed8 canvasOriginX, int_fixed8 canvasOriginY,
-               const ViewPort& src, int_fixed8 srcOriginX, int_fixed8 srcOriginY);
-    void onto(ViewPort& canvas, int_fixed8 canvasOriginX, int_fixed8 canvasOriginY,
-              const ViewPort& src, int_fixed8 srcOriginX, int_fixed8 srcOriginY);
+    void first(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canvasOriginY,
+               const ViewPort& src, int_fixed srcOriginX, int_fixed srcOriginY);
+    void onto(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canvasOriginY,
+              const ViewPort& src, int_fixed srcOriginX, int_fixed srcOriginY);
 }
 ```
 
-※ `int_fixed8` は Q24.8 固定小数点型です（`types.h` で定義）。
+※ `int_fixed` は Q16.16 固定小数点型です（`types.h` で定義）。
 
 ## ファイル構成
 
@@ -361,7 +361,7 @@ ViewPort outputView = outputBuffer.view();
 
 // ノード作成
 SourceNode source(inputView);
-source.setOrigin(to_fixed8(inputView.width / 2), to_fixed8(inputView.height / 2));
+source.setOrigin(to_fixed(inputView.width / 2), to_fixed(inputView.height / 2));
 
 AffineNode affine;
 affine.setMatrix(AffineMatrix::rotate(0.5f));  // 約30度回転

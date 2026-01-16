@@ -27,8 +27,9 @@ namespace FLEXIMG_NAMESPACE {
 // - 出力: 1ポート
 //
 // 特徴:
-// - tx/ty を Q24.8 固定小数点で保持し、サブピクセル精度の平行移動に対応
+// - tx/ty を Q16.16 固定小数点で保持し、サブピクセル精度の平行移動に対応
 // - 回転・拡縮時に tx/ty の小数成分が DDA に正しく反映される
+// - アフィン伝播により、実際のDDA処理はSourceNode/SinkNodeで実行される
 //
 // 使用例:
 //   AffineNode affine;

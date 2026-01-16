@@ -105,7 +105,7 @@ NodeA → NodeB → NodeC → NodeA
 1. **SourceNode の origin 設定**
    ```cpp
    // 画像中央を基準点にする場合
-   source.setOrigin(to_fixed8(imageWidth / 2), to_fixed8(imageHeight / 2));
+   source.setOrigin(to_fixed(imageWidth / 2), to_fixed(imageHeight / 2));
    ```
 
 2. **SinkNode の origin 設定**
