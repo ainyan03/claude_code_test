@@ -44,10 +44,12 @@ namespace NodeType {
     constexpr int Grayscale = 7;
     constexpr int BoxBlur = 8;
     constexpr int Alpha = 9;
+    constexpr int HorizontalBlur = 10;
+    constexpr int VerticalBlur = 11;
     // 特殊ソース系
-    constexpr int NinePatch = 10;  // 9patch画像
+    constexpr int NinePatch = 12;  // 9patch画像
 
-    constexpr int Count = 11;
+    constexpr int Count = 13;
 }
 
 // コンパイル時チェック: 最後のノードタイプ + 1 == Count
@@ -55,6 +57,8 @@ namespace NodeType {
 static_assert(NodeType::NinePatch + 1 == NodeType::Count,
               "NodeType::Count must equal last node type + 1. "
               "Also update demo/web/app.js NODE_TYPES.");
+static_assert(NodeType::VerticalBlur == 11,
+              "HorizontalBlur=10, VerticalBlur=11 must match app.js NODE_TYPES.");
 
 // ========================================================================
 // パフォーマンス計測構造体

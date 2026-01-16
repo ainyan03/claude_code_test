@@ -325,8 +325,8 @@ TEST_CASE("AffineNode computeInputRegion margin validation") {
         ActualAccessRange actual = simulateDDA(
             request,
             node.getInvMatrix(),
-            node.getTxFixed8(),
-            node.getTyFixed8(),
+            node.getTxFixed(),
+            node.getTyFixed(),
             inputWidth,
             inputHeight,
             srcOriginX,

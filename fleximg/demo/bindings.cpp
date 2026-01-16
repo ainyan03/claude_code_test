@@ -15,6 +15,8 @@
 #include "../src/fleximg/nodes/brightness_node.h"
 #include "../src/fleximg/nodes/grayscale_node.h"
 #include "../src/fleximg/nodes/box_blur_node.h"
+#include "../src/fleximg/nodes/horizontal_blur_node.h"
+#include "../src/fleximg/nodes/vertical_blur_node.h"
 #include "../src/fleximg/nodes/alpha_node.h"
 #include "../src/fleximg/nodes/composite_node.h"
 #include "../src/fleximg/nodes/distributor_node.h"
@@ -136,6 +138,16 @@ std::unique_ptr<Node> createFilterNode(const GraphNode& gnode) {
     else if ((gnode.filterType == "blur" || gnode.filterType == "boxBlur")
              && !gnode.filterParams.empty()) {
         auto node = std::make_unique<BoxBlurNode>();
+        node->setRadius(static_cast<int>(gnode.filterParams[0]));
+        return node;
+    }
+    else if (gnode.filterType == "horizontalBlur" && !gnode.filterParams.empty()) {
+        auto node = std::make_unique<HorizontalBlurNode>();
+        node->setRadius(static_cast<int>(gnode.filterParams[0]));
+        return node;
+    }
+    else if (gnode.filterType == "verticalBlur" && !gnode.filterParams.empty()) {
+        auto node = std::make_unique<VerticalBlurNode>();
         node->setRadius(static_cast<int>(gnode.filterParams[0]));
         return node;
     }

@@ -157,14 +157,15 @@ public:
                 }
 
                 // ドットバイドット判定（逆行列の増分値で判定）
-                // 整数オフセットのみの場合は DDA をスキップし、高速な非アフィンパスを使用
+                // 単位行列（変換なし）の場合のみ DDA をスキップし、高速な非アフィンパスを使用
                 // origin の小数部もチェック（アフィンパスでは整数部のみ使用するため）
                 // 注: invTxFixed/invTyFixed がゼロでない場合は、アフィン行列に平行移動が
                 // 含まれているため、非アフィンパスは使えない（NinePatch のパッチ位置など）
+                // 注: a == -one や d == -one（反転）の場合も非アフィンパスでは処理できない
                 constexpr int32_t one = 1 << INT_FIXED16_SHIFT;  // 65536 (Q16.16)
                 bool isDotByDot =
-                    (affine_.invMatrix.a == one || affine_.invMatrix.a == -one) &&
-                    (affine_.invMatrix.d == one || affine_.invMatrix.d == -one) &&
+                    affine_.invMatrix.a == one &&          // a == 1 のみ（-1は反転なので不可）
+                    affine_.invMatrix.d == one &&          // d == 1 のみ（-1は反転なので不可）
                     affine_.invMatrix.b == 0 &&
                     affine_.invMatrix.c == 0 &&
                     affine_.invTxFixed == 0 &&             // 平行移動がない（tx = 0）

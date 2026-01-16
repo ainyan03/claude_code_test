@@ -63,10 +63,12 @@ Node (基底クラス)
 ├── SinkNode          # 出力先を保持（出力端点）
 ├── AffineNode        # アフィン変換（プル/プッシュ両対応）
 ├── FilterNodeBase    # フィルタ共通基底
-│   ├── BrightnessNode   # 明るさ調整
-│   ├── GrayscaleNode    # グレースケール
-│   ├── BoxBlurNode      # ぼかし
-│   └── AlphaNode        # アルファ調整
+│   ├── BrightnessNode      # 明るさ調整
+│   ├── GrayscaleNode       # グレースケール
+│   ├── BoxBlurNode         # ぼかし（水平+垂直統合版）
+│   ├── HorizontalBlurNode  # 水平ぼかし
+│   └── AlphaNode           # アルファ調整
+├── VerticalBlurNode  # 垂直ぼかし（独自キャッシュ管理）
 ├── CompositeNode     # 複数画像を合成（N入力 → 1出力）
 ├── DistributorNode   # 画像を複数先に分配（1入力 → N出力）
 └── RendererNode      # パイプライン実行の発火点
@@ -325,13 +327,15 @@ src/fleximg/
 │   ├── sink_node.h           # SinkNode
 │   ├── affine_node.h         # AffineNode
 │   ├── distributor_node.h    # DistributorNode
-│   ├── filter_node_base.h    # FilterNodeBase（フィルタ共通基底）
-│   ├── brightness_node.h     # BrightnessNode
-│   ├── grayscale_node.h      # GrayscaleNode
-│   ├── box_blur_node.h       # BoxBlurNode
-│   ├── alpha_node.h          # AlphaNode
-│   ├── composite_node.h      # CompositeNode
-│   └── renderer_node.h       # RendererNode（発火点）
+│   ├── filter_node_base.h      # FilterNodeBase（フィルタ共通基底）
+│   ├── brightness_node.h       # BrightnessNode
+│   ├── grayscale_node.h        # GrayscaleNode
+│   ├── box_blur_node.h         # BoxBlurNode（水平+垂直統合版）
+│   ├── horizontal_blur_node.h  # HorizontalBlurNode（水平ぼかし）
+│   ├── vertical_blur_node.h    # VerticalBlurNode（垂直ぼかし）
+│   ├── alpha_node.h            # AlphaNode
+│   ├── composite_node.h        # CompositeNode
+│   └── renderer_node.h         # RendererNode（発火点）
 │
 └── operations/
     ├── transform.h/cpp       # アフィン変換

@@ -1,5 +1,53 @@
 # Changelog
 
+## [2.32.0] - 2026-01-16
+
+### 追加
+
+- **水平/垂直ブラーノードの分離**: BoxBlurを水平・垂直の独立したノードに分離
+  - `HorizontalBlurNode`: 水平方向のみのブラー処理（1行完結、キャッシュ不要）
+  - `VerticalBlurNode`: 垂直方向のみのブラー処理（列合計ベース）
+  - 組み合わせにより従来のBoxBlurと同等の結果を得られる
+  - モーションブラー的な効果（方向別ブラー）に対応
+
+### 修正
+
+- **HorizontalBlurNode**: pull型処理での`inputOffset`計算を修正（座標系の符号を訂正）
+- **HorizontalBlurNode**: push型処理で出力幅を`入力幅+radius*2`に拡張（BoxBlurNodeと同様）
+- **VerticalBlurNode**: push型処理での複数の問題を修正
+  - 出力タイミングを`radius`行遅延させて正しいブラー結果を得るように修正
+  - `origin.y`計算をBoxBlurNodeと同様の方式に修正
+  - アフィン変換された画像（行ごとにorigin.xが異なる）に対応
+  - キャッシュ格納時のX座標アライメントを修正（座標系の符号を訂正）
+- **SourceNode**: 180度回転が適用されない問題を修正
+  - `isDotByDot`判定を厳格化（単位行列のみ非アフィンパス使用）
+  - 反転を含む変換は正しくアフィンパスで処理されるように修正
+
+### リファクタリング
+
+- **HorizontalBlurNode**: `applyHorizontalBlur`と`applyHorizontalBlurPush`を統合
+- **VerticalBlurNode**: 列合計からの出力計算を`writeOutputRowFromColSum`に抽出
+
+### 使用例
+
+```cpp
+// 水平ブラーのみ
+src >> hblur >> renderer >> sink;
+
+// 垂直ブラーのみ
+src >> vblur >> renderer >> sink;
+
+// 組み合わせ（BoxBlur相当）- HorizontalBlur → VerticalBlur の順が効率的
+src >> hblur >> vblur >> renderer >> sink;
+```
+
+### WebUI
+
+- フィルタメニューに「水平ぼかし」「垂直ぼかし」を追加
+- 既存の「ぼかし」(BoxBlur) も引き続き利用可能
+
+---
+
 ## [2.31.0] - 2026-01-16
 
 ### 変更
