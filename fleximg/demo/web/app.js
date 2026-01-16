@@ -1689,6 +1689,149 @@ function generateTestPatterns() {
         });
     }
 
+    // パターン7: 9patch ファンタジー装飾枠（セリフ枠用）
+    // 外周1pxはメタデータ、内部62x62がコンテンツ
+    {
+        const totalSize = 64;  // メタデータ含む
+        const contentSize = 62;  // コンテンツサイズ
+        const cornerSize = 20;  // 角の固定サイズ（装飾含む）
+        const borderWidth = 4;  // 枠の太さ
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = totalSize;
+        tempCanvas.height = totalSize;
+        const tempCtx = tempCanvas.getContext('2d');
+
+        // 背景を透明に
+        tempCtx.clearRect(0, 0, totalSize, totalSize);
+
+        // コンテンツ領域の範囲
+        const contentLeft = 1;
+        const contentTop = 1;
+        const contentRight = totalSize - 1;
+        const contentBottom = totalSize - 1;
+
+        // ========================================
+        // 外枠（金属的な銀色グラデーション風）
+        // ========================================
+        // 外側の枠（濃いグレー）
+        tempCtx.fillStyle = '#505860';
+        tempCtx.fillRect(contentLeft, contentTop, contentSize, contentSize);
+
+        // 内側を削って枠にする（角丸風に角を残す）
+        const innerLeft = contentLeft + borderWidth;
+        const innerTop = contentTop + borderWidth;
+        const innerSize = contentSize - borderWidth * 2;
+
+        // 内側の背景（ダークブラウン木目調）
+        // グラデーション効果を出すため複数色で塗り分け
+        const woodColors = ['#2d1810', '#3d2415', '#2d1810'];
+        const bandHeight = Math.floor(innerSize / woodColors.length);
+        for (let i = 0; i < woodColors.length; i++) {
+            tempCtx.fillStyle = woodColors[i];
+            const y = innerTop + i * bandHeight;
+            const h = (i === woodColors.length - 1) ? (innerSize - i * bandHeight) : bandHeight;
+            tempCtx.fillRect(innerLeft, y, innerSize, h);
+        }
+
+        // 木目のテクスチャライン（微細な横線）
+        tempCtx.fillStyle = 'rgba(60, 40, 25, 0.3)';
+        for (let y = innerTop + 2; y < innerTop + innerSize; y += 4) {
+            tempCtx.fillRect(innerLeft, y, innerSize, 1);
+        }
+
+        // ========================================
+        // 枠の立体感（ハイライトとシャドウ）
+        // ========================================
+        // 上辺ハイライト
+        tempCtx.fillStyle = '#a0a8b0';
+        tempCtx.fillRect(contentLeft, contentTop, contentSize, 1);
+        tempCtx.fillStyle = '#808890';
+        tempCtx.fillRect(contentLeft, contentTop + 1, contentSize, 1);
+
+        // 左辺ハイライト
+        tempCtx.fillStyle = '#909098';
+        tempCtx.fillRect(contentLeft, contentTop, 1, contentSize);
+        tempCtx.fillStyle = '#707880';
+        tempCtx.fillRect(contentLeft + 1, contentTop, 1, contentSize);
+
+        // 下辺シャドウ
+        tempCtx.fillStyle = '#303840';
+        tempCtx.fillRect(contentLeft, contentBottom - 1, contentSize, 1);
+        tempCtx.fillStyle = '#404850';
+        tempCtx.fillRect(contentLeft, contentBottom - 2, contentSize, 1);
+
+        // 右辺シャドウ
+        tempCtx.fillStyle = '#384048';
+        tempCtx.fillRect(contentRight - 1, contentTop, 1, contentSize);
+        tempCtx.fillStyle = '#485058';
+        tempCtx.fillRect(contentRight - 2, contentTop, 1, contentSize);
+
+        // ========================================
+        // 内側の枠線（金色アクセント）
+        // ========================================
+        tempCtx.fillStyle = '#c9a227';  // ゴールド
+        // 上
+        tempCtx.fillRect(innerLeft, innerTop, innerSize, 1);
+        // 下
+        tempCtx.fillRect(innerLeft, innerTop + innerSize - 1, innerSize, 1);
+        // 左
+        tempCtx.fillRect(innerLeft, innerTop, 1, innerSize);
+        // 右
+        tempCtx.fillRect(innerLeft + innerSize - 1, innerTop, 1, innerSize);
+
+        // ========================================
+        // 四隅の装飾（ダイヤモンド型）
+        // ========================================
+        const decorSize = 5;  // 装飾のサイズ
+        const decorOffset = 2;  // 枠からのオフセット
+        const corners = [
+            { x: contentLeft + decorOffset + decorSize, y: contentTop + decorOffset + decorSize },      // 左上
+            { x: contentRight - decorOffset - decorSize, y: contentTop + decorOffset + decorSize },     // 右上
+            { x: contentLeft + decorOffset + decorSize, y: contentBottom - decorOffset - decorSize },   // 左下
+            { x: contentRight - decorOffset - decorSize, y: contentBottom - decorOffset - decorSize }   // 右下
+        ];
+
+        corners.forEach(corner => {
+            // ダイヤモンド型（菱形）を描画
+            tempCtx.fillStyle = '#ffd700';  // 明るいゴールド
+            tempCtx.beginPath();
+            tempCtx.moveTo(corner.x, corner.y - decorSize + 1);  // 上
+            tempCtx.lineTo(corner.x + decorSize - 1, corner.y);  // 右
+            tempCtx.lineTo(corner.x, corner.y + decorSize - 1);  // 下
+            tempCtx.lineTo(corner.x - decorSize + 1, corner.y);  // 左
+            tempCtx.closePath();
+            tempCtx.fill();
+
+            // 中心にハイライト
+            tempCtx.fillStyle = '#ffffff';
+            tempCtx.fillRect(corner.x, corner.y, 1, 1);
+        });
+
+        // ========================================
+        // メタデータ境界線（外周1px）
+        // ========================================
+        const stretchStart = 1 + cornerSize;  // 21
+        const stretchEnd = totalSize - 1 - cornerSize;  // 43
+        tempCtx.fillStyle = 'rgba(0, 0, 0, 1)';  // 黒（不透明）
+        // 上辺
+        for (let x = stretchStart; x < stretchEnd; x++) {
+            tempCtx.fillRect(x, 0, 1, 1);
+        }
+        // 左辺
+        for (let y = stretchStart; y < stretchEnd; y++) {
+            tempCtx.fillRect(0, y, 1, 1);
+        }
+
+        const imageData = tempCtx.getImageData(0, 0, totalSize, totalSize);
+        patterns.push({
+            name: '9patch-Fantasy',
+            data: new Uint8ClampedArray(imageData.data),
+            width: totalSize,
+            height: totalSize,
+            isNinePatch: true
+        });
+    }
+
     // 画像ライブラリに追加
     patterns.forEach(pattern => {
         addImageToLibrary(pattern);
