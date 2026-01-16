@@ -4,6 +4,11 @@
 
 ### 修正
 
+- **WebUI: NinePatchノードのID重複問題を修正**
+  - 状態復元後にNinePatchを追加すると、既存ノードとIDが重複する問題を修正
+  - `nextNinePatchNodeId` が状態の保存・復元から漏れていたことが原因
+  - 複数のNinePatchノードで同じポートが反応する現象が解消
+
 - **SourceNode: position がアフィン変換に追従するように修正**
   - CompositeNode 配下の複数ソースで position を設定した際、上流の AffineNode の変換（回転・拡縮・せん断）が各ソースの相対位置関係に正しく反映されるように修正
   - 従来: position がアフィン行列の tx/ty に直接加算されていたため、位置関係がずれていた
