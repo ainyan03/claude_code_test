@@ -411,8 +411,13 @@ private:
     // 縦方向の列合計から出力行を計算
     void computeOutputRow(ImageBuffer& output, const RenderRequest& request) {
         uint8_t* outRow = static_cast<uint8_t*>(output.view().data);
+        writeOutputRowFromColSum(outRow, request.width);
+    }
+
+    // 列合計から出力行に書き込み（共通ヘルパー）
+    void writeOutputRowFromColSum(uint8_t* outRow, int width) {
         int ks = kernelSize();
-        for (int x = 0; x < request.width; x++) {
+        for (int x = 0; x < width; x++) {
             int off = x * 4;
             if (colSumA_[x] > 0) {
                 outRow[off]     = static_cast<uint8_t>(colSumR_[x] / colSumA_[x]);
@@ -463,18 +468,7 @@ private:
                           InitPolicy::Uninitialized);
 
         uint8_t* outRow = static_cast<uint8_t*>(output.view().data);
-        int ks = kernelSize();
-        for (int x = 0; x < cacheWidth_; x++) {
-            int off = x * 4;
-            if (colSumA_[x] > 0) {
-                outRow[off]     = static_cast<uint8_t>(colSumR_[x] / colSumA_[x]);
-                outRow[off + 1] = static_cast<uint8_t>(colSumG_[x] / colSumA_[x]);
-                outRow[off + 2] = static_cast<uint8_t>(colSumB_[x] / colSumA_[x]);
-                outRow[off + 3] = static_cast<uint8_t>(colSumA_[x] / ks);
-            } else {
-                outRow[off] = outRow[off + 1] = outRow[off + 2] = outRow[off + 3] = 0;
-            }
-        }
+        writeOutputRowFromColSum(outRow, cacheWidth_);
 
         // origin.xの計算: キャッシュはbaseOriginX_に揃えてアライメントされているので
         // 出力もbaseOriginX_を使用する
