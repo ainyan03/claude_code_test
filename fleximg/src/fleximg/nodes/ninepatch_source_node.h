@@ -63,8 +63,8 @@ public:
         sourceValid_ = image.isValid();
         geometryValid_ = false;
 
-        // 各区画のSourceNodeを初期化
-        setupPatchSourceNodes();
+        // 各区画のソースサイズを計算
+        calcSrcPatchSizes();
     }
 
     // 9patch互換画像（外周1pxがメタデータ）を渡す（メインAPI）
@@ -145,10 +145,7 @@ public:
     void setInterpolationMode(InterpolationMode mode) {
         if (interpolationMode_ != mode) {
             interpolationMode_ = mode;
-            // バイリニア時はソースビューの拡張が必要なため再設定
-            if (sourceValid_) {
-                setupPatchSourceNodes();
-            }
+            geometryValid_ = false;  // ソースビュー再設定が必要
         }
         for (int i = 0; i < 9; i++) {
             patches_[i].setInterpolationMode(mode);
@@ -348,279 +345,115 @@ private:
         return row * 3 + col;
     }
 
-    // 基本オーバーラップ量を計算（ドット抜け対策、tx/tyにも適用）
-    // dx, dy: ソース/出力の開始位置オフセット（負値 = 左/上方向に拡張）
-    // dw, dh: ソース/出力のサイズ増分
-    void calculateBaseOverlap(int col, int row, int16_t& dx, int16_t& dy, int16_t& dw, int16_t& dh) const {
-        dx = dy = dw = dh = 0;
-
-        // クリッピング状態を判定
-        bool hClipping = (effectiveSrcLeft_ != srcLeft_) || (effectiveSrcRight_ != srcRight_);
-        bool vClipping = (effectiveSrcTop_ != srcTop_) || (effectiveSrcBottom_ != srcBottom_);
-
-        bool hasHStretch = srcPatchW_[1] > 0 && !hClipping;  // 横方向伸縮部が存在かつクリッピングなし
-        bool hasVStretch = srcPatchH_[1] > 0 && !vClipping;  // 縦方向伸縮部が存在かつクリッピングなし
-
-        // 通常時: 固定部 → 伸縮部方向の拡張（左列は右に、右列は左に）
-        if (hasHStretch) {
-            if (col == 0 && srcPatchW_[0] > 0) { dw = 1; }           // 左列: 右に拡張
-            else if (col == 2 && srcPatchW_[2] > 0) { dx = -1; dw = 1; }  // 右列: 左に拡張
-        }
-        // クリッピング時: 左固定と右固定が直接隣接するため、互いにオーバーラップ
-        else if (hClipping) {
-            if (col == 0 && effectiveSrcLeft_ > 0 && effectiveSrcRight_ > 0) {
-                dw = 1;  // 左固定: 右に拡張
-            } else if (col == 2 && effectiveSrcLeft_ > 0 && effectiveSrcRight_ > 0) {
-                dx = -1; dw = 1;  // 右固定: 左に拡張
-            }
-        }
-
-        // 通常時: 固定部 → 伸縮部方向の拡張（上行は下に、下行は上に）
-        if (hasVStretch) {
-            if (row == 0 && srcPatchH_[0] > 0) { dh = 1; }           // 上行: 下に拡張
-            else if (row == 2 && srcPatchH_[2] > 0) { dy = -1; dh = 1; }  // 下行: 上に拡張
-        }
-        // クリッピング時: 上固定と下固定が直接隣接するため、互いにオーバーラップ
-        else if (vClipping) {
-            if (row == 0 && effectiveSrcTop_ > 0 && effectiveSrcBottom_ > 0) {
-                dh = 1;  // 上固定: 下に拡張
-            } else if (row == 2 && effectiveSrcTop_ > 0 && effectiveSrcBottom_ > 0) {
-                dy = -1; dh = 1;  // 下固定: 上に拡張
-            }
-        }
-    }
-
-    // 各区画のSourceNodeを初期化
-    void setupPatchSourceNodes() {
-        if (!sourceValid_) return;
-
-        // ソース画像の中央領域サイズ
-        int16_t srcCenterW = source_.width - srcLeft_ - srcRight_;
-        int16_t srcCenterH = source_.height - srcTop_ - srcBottom_;
-
-        // 各列/行のソースサイズを保存（スケール計算用 - オーバーラップ前の値）
+    // 各区画のソースサイズを計算（初期化時に呼び出し）
+    void calcSrcPatchSizes() {
         srcPatchW_[0] = srcLeft_;
-        srcPatchW_[1] = srcCenterW;
+        srcPatchW_[1] = source_.width - srcLeft_ - srcRight_;
         srcPatchW_[2] = srcRight_;
-
         srcPatchH_[0] = srcTop_;
-        srcPatchH_[1] = srcCenterH;
+        srcPatchH_[1] = source_.height - srcTop_ - srcBottom_;
         srcPatchH_[2] = srcBottom_;
-
-        // 各列/行のソース開始位置
-        int16_t srcPatchX[3] = { 0, srcLeft_, static_cast<int16_t>(srcLeft_ + srcCenterW) };
-        int16_t srcPatchY[3] = { 0, srcTop_, static_cast<int16_t>(srcTop_ + srcCenterH) };
-
-        // 各区画のSourceNodeにsubViewを設定（オーバーラップ適用）
-        for (int row = 0; row < 3; row++) {
-            for (int col = 0; col < 3; col++) {
-                int idx = getPatchIndex(col, row);
-                int16_t w = srcPatchW_[col];
-                int16_t h = srcPatchH_[row];
-
-                if (w > 0 && h > 0) {
-                    // オーバーラップ量を計算
-                    int16_t dx, dy, dw, dh;
-                    calculateBaseOverlap(col, row, dx, dy, dw, dh);
-
-                    // ソースビューを拡張（オーバーラップ適用）
-                    int16_t sx = srcPatchX[col] + dx;
-                    int16_t sy = srcPatchY[row] + dy;
-                    int16_t sw = w + dw;
-                    int16_t sh = h + dh;
-
-                    ViewPort subView = view_ops::subView(source_, sx, sy, sw, sh);
-                    patches_[idx].setSource(subView);
-                    patches_[idx].setOrigin(0, 0);
-                }
-            }
-        }
     }
 
-    // クリッピング発生時にソースビューを更新
-    void updatePatchSourceViews() {
-        if (!sourceValid_) return;
-
-        // クリッピングが発生しているかチェック
-        bool hClip = (effectiveSrcLeft_ != srcLeft_) || (effectiveSrcRight_ != srcRight_);
-        bool vClip = (effectiveSrcTop_ != srcTop_) || (effectiveSrcBottom_ != srcBottom_);
-
-        // クリッピングなしの場合はソースビューの更新不要
-        // （setupPatchSourceNodes()で設定済み）
-        if (!hClip && !vClip) return;
-
-        // クリッピングされたソースビューを設定
-        // 左固定 (col=0): 左端から effectiveSrcLeft_ 幅
-        // 右固定 (col=2): 右端から effectiveSrcRight_ 幅
-        // 上固定 (row=0): 上端から effectiveSrcTop_ 高さ
-        // 下固定 (row=2): 下端から effectiveSrcBottom_ 高さ
-
-        // 各列/行の有効ソースサイズ
-        int16_t effSrcW[3] = { effectiveSrcLeft_, srcPatchW_[1], effectiveSrcRight_ };
-        int16_t effSrcH[3] = { effectiveSrcTop_, srcPatchH_[1], effectiveSrcBottom_ };
-
-        // 各列/行の有効ソース開始位置
-        // 右固定と下固定は内側からクリップするため、開始位置をずらす
-        int16_t effSrcX[3] = {
-            0,
-            srcLeft_,
-            static_cast<int16_t>(source_.width - effectiveSrcRight_)
-        };
-        int16_t effSrcY[3] = {
-            0,
-            srcTop_,
-            static_cast<int16_t>(source_.height - effectiveSrcBottom_)
-        };
-
-        for (int row = 0; row < 3; row++) {
-            for (int col = 0; col < 3; col++) {
-                int idx = getPatchIndex(col, row);
-                int16_t w = effSrcW[col];
-                int16_t h = effSrcH[row];
-
-                if (w > 0 && h > 0) {
-                    // オーバーラップ量を計算（setupPatchSourceNodes()と同様）
-                    int16_t dx, dy, dw, dh;
-                    calculateBaseOverlap(col, row, dx, dy, dw, dh);
-
-                    // ソースビューを拡張（オーバーラップ適用）
-                    int16_t sx = effSrcX[col] + dx;
-                    int16_t sy = effSrcY[row] + dy;
-                    int16_t sw = w + dw;
-                    int16_t sh = h + dh;
-
-                    ViewPort subView = view_ops::subView(source_, sx, sy, sw, sh);
-                    patches_[idx].setSource(subView);
-                    patches_[idx].setOrigin(0, 0);
-                }
-            }
+    // 1軸方向のクリッピング計算（横/縦共通）
+    void calcAxisClipping(float outputSize, int16_t srcFixed0, int16_t srcFixed2,
+                          float& outWidth0, float& outWidth1, float& outWidth2,
+                          int16_t& effSrc0, int16_t& effSrc2) {
+        float totalFixed = static_cast<float>(srcFixed0 + srcFixed2);
+        if (outputSize < totalFixed && totalFixed > 0) {
+            float ratio = outputSize / totalFixed;
+            outWidth0 = srcFixed0 * ratio;
+            outWidth1 = 0.0f;
+            outWidth2 = outputSize - outWidth0;
+            effSrc0 = static_cast<int16_t>(std::ceil(outWidth0));
+            effSrc2 = static_cast<int16_t>(std::ceil(outWidth2));
+        } else {
+            effSrc0 = srcFixed0;
+            effSrc2 = srcFixed2;
+            outWidth0 = static_cast<float>(srcFixed0);
+            outWidth1 = outputSize - srcFixed0 - srcFixed2;
+            outWidth2 = static_cast<float>(srcFixed2);
         }
     }
 
     // 出力サイズ変更時にジオメトリを再計算
     void updatePatchGeometry() {
-        // 出力サイズから各区画のサイズを計算
-        // 角: 固定サイズ（ただし出力サイズが小さい場合はクリッピング）
-        // 辺・中央: 伸縮サイズ
+        if (!sourceValid_) return;
 
-        // 横方向のクリッピング判定
-        float totalFixedW = static_cast<float>(srcLeft_ + srcRight_);
-        if (outputWidth_ < totalFixedW && totalFixedW > 0) {
-            // 比率維持でクリッピング
-            float ratio = outputWidth_ / totalFixedW;
-            // 出力幅は正確にfloatで計算（隙間防止）
-            patchWidths_[0] = srcLeft_ * ratio;
-            patchWidths_[1] = 0.0f;  // 伸縮部なし
-            patchWidths_[2] = outputWidth_ - patchWidths_[0];  // 残り全部
-            // ソースビューサイズは切り上げ（十分なピクセルを確保）
-            effectiveSrcLeft_ = static_cast<int16_t>(std::ceil(patchWidths_[0]));
-            effectiveSrcRight_ = static_cast<int16_t>(std::ceil(patchWidths_[2]));
-        } else {
-            // 通常処理
-            effectiveSrcLeft_ = srcLeft_;
-            effectiveSrcRight_ = srcRight_;
-            patchWidths_[0] = static_cast<float>(srcLeft_);
-            patchWidths_[1] = outputWidth_ - srcLeft_ - srcRight_;
-            patchWidths_[2] = static_cast<float>(srcRight_);
-        }
-
-        // 縦方向のクリッピング判定
-        float totalFixedH = static_cast<float>(srcTop_ + srcBottom_);
-        if (outputHeight_ < totalFixedH && totalFixedH > 0) {
-            // 比率維持でクリッピング
-            float ratio = outputHeight_ / totalFixedH;
-            // 出力高さは正確にfloatで計算（隙間防止）
-            patchHeights_[0] = srcTop_ * ratio;
-            patchHeights_[1] = 0.0f;  // 伸縮部なし
-            patchHeights_[2] = outputHeight_ - patchHeights_[0];  // 残り全部
-            // ソースビューサイズは切り上げ（十分なピクセルを確保）
-            effectiveSrcTop_ = static_cast<int16_t>(std::ceil(patchHeights_[0]));
-            effectiveSrcBottom_ = static_cast<int16_t>(std::ceil(patchHeights_[2]));
-        } else {
-            // 通常処理
-            effectiveSrcTop_ = srcTop_;
-            effectiveSrcBottom_ = srcBottom_;
-            patchHeights_[0] = static_cast<float>(srcTop_);
-            patchHeights_[1] = outputHeight_ - srcTop_ - srcBottom_;
-            patchHeights_[2] = static_cast<float>(srcBottom_);
-        }
+        // 横方向・縦方向のクリッピング計算
+        calcAxisClipping(outputWidth_, srcLeft_, srcRight_,
+                         patchWidths_[0], patchWidths_[1], patchWidths_[2],
+                         effectiveSrcLeft_, effectiveSrcRight_);
+        calcAxisClipping(outputHeight_, srcTop_, srcBottom_,
+                         patchHeights_[0], patchHeights_[1], patchHeights_[2],
+                         effectiveSrcTop_, effectiveSrcBottom_);
 
         // 各区画の出力開始位置
         patchOffsetX_[0] = 0.0f;
-        patchOffsetX_[1] = static_cast<float>(effectiveSrcLeft_);
-        patchOffsetX_[2] = outputWidth_ - effectiveSrcRight_;
-
+        patchOffsetX_[1] = patchWidths_[0];
+        patchOffsetX_[2] = outputWidth_ - patchWidths_[2];
         patchOffsetY_[0] = 0.0f;
-        patchOffsetY_[1] = static_cast<float>(effectiveSrcTop_);
-        patchOffsetY_[2] = outputHeight_ - effectiveSrcBottom_;
+        patchOffsetY_[1] = patchHeights_[0];
+        patchOffsetY_[2] = outputHeight_ - patchHeights_[2];
 
-        // クリッピング発生時はソースビューを更新
-        updatePatchSourceViews();
+        // 各列/行の有効ソースサイズと開始位置
+        int16_t effW[3] = { effectiveSrcLeft_, srcPatchW_[1], effectiveSrcRight_ };
+        int16_t effH[3] = { effectiveSrcTop_, srcPatchH_[1], effectiveSrcBottom_ };
+        int16_t srcX[3] = { 0, srcLeft_, static_cast<int16_t>(source_.width - effectiveSrcRight_) };
+        int16_t srcY[3] = { 0, srcTop_, static_cast<int16_t>(source_.height - effectiveSrcBottom_) };
 
-        // 各区画のスケール行列とoriginを計算
-        // 角（[0], [2], [6], [8]）: スケール = 1.0（固定サイズ）
-        // 横伸縮（[1], [7]）: scaleX のみ
-        // 縦伸縮（[3], [5]）: scaleY のみ
-        // 両方向（[4]）: scaleX と scaleY
+        // 隣接パッチ存在判定（オーバーラップ用）
+        bool hasRight[3] = { effW[1] > 0 || effW[2] > 0, effW[2] > 0, false };
+        bool hasLeft[3] = { false, effW[0] > 0, effW[0] > 0 || effW[1] > 0 };
+        bool hasBelow[3] = { effH[1] > 0 || effH[2] > 0, effH[2] > 0, false };
+        bool hasAbove[3] = { false, effH[0] > 0, effH[0] > 0 || effH[1] > 0 };
+
+        float originXf = static_cast<float>(originX_) / INT_FIXED_ONE;
+        float originYf = static_cast<float>(originY_) / INT_FIXED_ONE;
+
         for (int row = 0; row < 3; row++) {
             for (int col = 0; col < 3; col++) {
-                int idx = getPatchIndex(col, row);
-                float scaleX = 1.0f;
-                float scaleY = 1.0f;
+                int idx = row * 3 + col;
 
-                // 中央列（col=1）は横方向に伸縮
+                // オーバーラップ量（隣接パッチがあれば1px拡張）
+                int16_t dx = (hasLeft[col] && effW[col] > 0) ? -1 : 0;
+                int16_t dy = (hasAbove[row] && effH[row] > 0) ? -1 : 0;
+                int16_t dw = (hasRight[col] && effW[col] > 0) ? 1 - dx : -dx;
+                int16_t dh = (hasBelow[row] && effH[row] > 0) ? 1 - dy : -dy;
+
+                // ソースビュー設定
+                if (effW[col] > 0 && effH[row] > 0) {
+                    ViewPort subView = view_ops::subView(source_,
+                        srcX[col] + dx, srcY[row] + dy, effW[col] + dw, effH[row] + dh);
+                    patches_[idx].setSource(subView);
+                    patches_[idx].setOrigin(0, 0);
+                }
+
+                // スケール計算（伸縮部のみ）
+                float scaleX = 1.0f, scaleY = 1.0f;
                 if (col == 1 && srcPatchW_[1] > 0) {
-                    // バイリニア時は端1pxが描画されないため、有効ソース幅で割る
-                    // 固定部のオーバーラップが片側をカバーするため、1px分のみ補正
-                    int16_t effectiveSrcW = srcPatchW_[1];
-                    if (interpolationMode_ == InterpolationMode::Bilinear && effectiveSrcW > 1) {
-                        effectiveSrcW -= 1;
-                    }
-                    scaleX = static_cast<float>(patchWidths_[1]) / effectiveSrcW;
+                    int16_t effSrcW = srcPatchW_[1];
+                    if (interpolationMode_ == InterpolationMode::Bilinear && effSrcW > 1) effSrcW -= 1;
+                    scaleX = patchWidths_[1] / effSrcW;
                 }
-
-                // 中央行（row=1）は縦方向に伸縮
                 if (row == 1 && srcPatchH_[1] > 0) {
-                    // バイリニア時は端1pxが描画されないため、有効ソース高さで割る
-                    // 固定部のオーバーラップが片側をカバーするため、1px分のみ補正
-                    int16_t effectiveSrcH = srcPatchH_[1];
-                    if (interpolationMode_ == InterpolationMode::Bilinear && effectiveSrcH > 1) {
-                        effectiveSrcH -= 1;
-                    }
-                    scaleY = static_cast<float>(patchHeights_[1]) / effectiveSrcH;
+                    int16_t effSrcH = srcPatchH_[1];
+                    if (interpolationMode_ == InterpolationMode::Bilinear && effSrcH > 1) effSrcH -= 1;
+                    scaleY = patchHeights_[1] / effSrcH;
                 }
 
-                // オーバーラップ量を取得
-                int16_t dx, dy, dw, dh;
-                calculateBaseOverlap(col, row, dx, dy, dw, dh);
-
-                // アフィン行列を設定（スケール + 平行移動）
-                // 出力座標P → ソース座標S: S = (P - patchOffset) / scale
-                // アフィン行列（S → P）: P = S * scale + patchOffset
-                // 平行移動はorigin相対座標で指定
-                // オーバーラップにより開始位置がずれる場合は dx, dy を加算
-                // positionX_/positionY_ を加算して配置位置を反映
-                // originX_/originY_ をfloatに変換（int_fixedは Q16.16 固定小数点）
-                float originXf = static_cast<float>(originX_) / INT_FIXED_ONE;
-                float originYf = static_cast<float>(originY_) / INT_FIXED_ONE;
+                // 平行移動量
                 float tx = patchOffsetX_[col] + dx - originXf + positionX_;
                 float ty = patchOffsetY_[row] + dy - originYf + positionY_;
 
-                // バイリニア時、伸縮部は端1pxが描画されないため位置を補正
-                // 固定部のオーバーラップと合わせて中央に配置するため、0.5*scale分ずらす
+                // バイリニア時の伸縮部位置補正
                 if (interpolationMode_ == InterpolationMode::Bilinear) {
-                    if (col == 1 && srcPatchW_[1] > 1) {
-                        tx -= scaleX * 0.5f;  // 左に0.5ソースピクセル分ずらす
-                    }
-                    if (row == 1 && srcPatchH_[1] > 1) {
-                        ty -= scaleY * 0.5f;  // 上に0.5ソースピクセル分ずらす
-                    }
+                    if (col == 1 && srcPatchW_[1] > 1) tx -= scaleX * 0.5f;
+                    if (row == 1 && srcPatchH_[1] > 1) ty -= scaleY * 0.5f;
                 }
-                patchScales_[idx] = AffineMatrix(scaleX, 0.0f, 0.0f, scaleY, tx, ty);
-                patchNeedsAffine_[idx] = true;  // 平行移動があるので常にtrue
 
-                // 各区画のoriginは(0, 0)（平行移動で位置調整済み）
-                patches_[idx].setOrigin(0, 0);
+                patchScales_[idx] = AffineMatrix(scaleX, 0.0f, 0.0f, scaleY, tx, ty);
+                patchNeedsAffine_[idx] = true;
             }
         }
 
