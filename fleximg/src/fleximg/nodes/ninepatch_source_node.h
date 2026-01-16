@@ -356,6 +356,7 @@ private:
     }
 
     // 1軸方向のクリッピング計算（横/縦共通）
+    // クリッピング時もソースビューは元のサイズを維持し、スケールで縮小
     void calcAxisClipping(float outputSize, int16_t srcFixed0, int16_t srcFixed2,
                           float& outWidth0, float& outWidth1, float& outWidth2,
                           int16_t& effSrc0, int16_t& effSrc2) {
@@ -365,8 +366,9 @@ private:
             outWidth0 = srcFixed0 * ratio;
             outWidth1 = 0.0f;
             outWidth2 = outputSize - outWidth0;
-            effSrc0 = static_cast<int16_t>(std::ceil(outWidth0));
-            effSrc2 = static_cast<int16_t>(std::ceil(outWidth2));
+            // ソースビューは元のサイズを維持（スケールで縮小して滑らかな描画を実現）
+            effSrc0 = srcFixed0;
+            effSrc2 = srcFixed2;
         } else {
             effSrc0 = srcFixed0;
             effSrc2 = srcFixed2;
@@ -402,9 +404,9 @@ private:
         int16_t srcX[3] = { 0, srcLeft_, static_cast<int16_t>(source_.width - effectiveSrcRight_) };
         int16_t srcY[3] = { 0, srcTop_, static_cast<int16_t>(source_.height - effectiveSrcBottom_) };
 
-        // クリッピング状態を判定
-        bool hClipping = (effectiveSrcLeft_ != srcLeft_) || (effectiveSrcRight_ != srcRight_);
-        bool vClipping = (effectiveSrcTop_ != srcTop_) || (effectiveSrcBottom_ != srcBottom_);
+        // クリッピング状態を判定（出力サイズが固定部の合計より小さいか）
+        bool hClipping = outputWidth_ < static_cast<float>(srcLeft_ + srcRight_);
+        bool vClipping = outputHeight_ < static_cast<float>(srcTop_ + srcBottom_);
 
         bool hasHStretch = effW[1] > 0 && !hClipping;  // 横方向伸縮部が存在かつクリッピングなし
         bool hasVStretch = effH[1] > 0 && !vClipping;  // 縦方向伸縮部が存在かつクリッピングなし
@@ -449,17 +451,29 @@ private:
                     patches_[idx].setOrigin(0, 0);
                 }
 
-                // スケール計算（伸縮部のみ）
+                // スケール計算
                 float scaleX = 1.0f, scaleY = 1.0f;
+
+                // 横方向スケール
                 if (col == 1 && srcPatchW_[1] > 0) {
+                    // 伸縮部
                     int16_t effSrcW = srcPatchW_[1];
                     if (interpolationMode_ == InterpolationMode::Bilinear && effSrcW > 1) effSrcW -= 1;
                     scaleX = patchWidths_[1] / effSrcW;
+                } else if (hClipping && effW[col] > 0) {
+                    // クリッピング時の固定部（出力幅/ソース幅）
+                    scaleX = patchWidths_[col] / effW[col];
                 }
+
+                // 縦方向スケール
                 if (row == 1 && srcPatchH_[1] > 0) {
+                    // 伸縮部
                     int16_t effSrcH = srcPatchH_[1];
                     if (interpolationMode_ == InterpolationMode::Bilinear && effSrcH > 1) effSrcH -= 1;
                     scaleY = patchHeights_[1] / effSrcH;
+                } else if (vClipping && effH[row] > 0) {
+                    // クリッピング時の固定部（出力高さ/ソース高さ）
+                    scaleY = patchHeights_[row] / effH[row];
                 }
 
                 // 平行移動量
