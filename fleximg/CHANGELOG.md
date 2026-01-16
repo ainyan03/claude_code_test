@@ -13,11 +13,20 @@
 ### 修正
 
 - **HorizontalBlurNode**: pull型処理での`inputOffset`計算を修正（座標系の符号を訂正）
+- **HorizontalBlurNode**: push型処理で出力幅を`入力幅+radius*2`に拡張（BoxBlurNodeと同様）
 - **VerticalBlurNode**: push型処理での複数の問題を修正
   - 出力タイミングを`radius`行遅延させて正しいブラー結果を得るように修正
   - `origin.y`計算をBoxBlurNodeと同様の方式に修正
   - アフィン変換された画像（行ごとにorigin.xが異なる）に対応
   - キャッシュ格納時のX座標アライメントを修正（座標系の符号を訂正）
+- **SourceNode**: 180度回転が適用されない問題を修正
+  - `isDotByDot`判定を厳格化（単位行列のみ非アフィンパス使用）
+  - 反転を含む変換は正しくアフィンパスで処理されるように修正
+
+### リファクタリング
+
+- **HorizontalBlurNode**: `applyHorizontalBlur`と`applyHorizontalBlurPush`を統合
+- **VerticalBlurNode**: 列合計からの出力計算を`writeOutputRowFromColSum`に抽出
 
 ### 使用例
 
