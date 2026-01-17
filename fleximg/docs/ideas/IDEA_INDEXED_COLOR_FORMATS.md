@@ -321,6 +321,320 @@ private:
 
 ---
 
+### パレットフォーマットの柔軟性（重要な拡張提案）
+
+#### 動機
+
+現状の提案ではパレットを **RGBA16形式に固定** していたが、実用上は以下の問題がある：
+
+1. **既存データとの非互換性**
+   - GIFパレット: RGB888形式（3byte/色）
+   - レトロハードウェア: RGB565形式（2byte/色）
+   - PNGパレット: RGB888またはRGBA8形式
+   - ユーザーが既にRGB565配列でパレットデータを保持している場合、無駄な変換が発生
+
+2. **メモリオーバーヘッド**
+   - RGB565パレット（256色）: 512 bytes
+   - RGBA16パレット（256色）: 2,048 bytes（4倍）
+   - 組み込み環境では無視できない差
+
+3. **変換コスト**
+   - RGB565 → RGBA16 → RGB565 のような往復変換は非効率
+
+#### 提案：パレットもPixelFormatIDで管理
+
+パレット自体もピクセルフォーマットとして扱い、柔軟に形式を選択可能にする。
+
+##### ImageBuffer API拡張
+
+```cpp
+// image_buffer.h
+
+class ImageBuffer {
+public:
+    // ... 既存フィールド ...
+
+    // パレット情報（フォーマット指定版）
+    void setPalette(const void* paletteData, size_t colorCount,
+                    PixelFormatID paletteFormat);
+
+    const void* getPaletteData() const;
+    size_t getPaletteSize() const;
+    PixelFormatID getPaletteFormat() const;
+    bool hasPalette() const;
+
+    // 後方互換用（RGBA16固定版）
+    void setPaletteRGBA16(const uint16_t* palette, size_t colorCount) {
+        setPalette(palette, colorCount, PixelFormatIDs::RGBA16_Premultiplied);
+    }
+
+private:
+    PixelFormatID format_;
+    // ... 既存フィールド ...
+
+    // パレット情報
+    std::vector<uint8_t> paletteData_;  // 可変サイズ（フォーマット依存）
+    PixelFormatID paletteFormat_ = nullptr;
+    size_t paletteColorCount_ = 0;
+};
+```
+
+##### 実装例
+
+```cpp
+void ImageBuffer::setPalette(const void* paletteData, size_t colorCount,
+                             PixelFormatID paletteFormat) {
+    if (!format_->isIndexed) {
+        return;  // 警告: インデックスカラーではない
+    }
+
+    size_t maxColors = format_->maxPaletteSize;
+    if (colorCount > maxColors) {
+        colorCount = maxColors;
+    }
+
+    // パレットフォーマットに応じたバイト数を計算
+    int bytesPerColor = getBytesPerPixel(paletteFormat);
+    size_t totalBytes = colorCount * bytesPerColor;
+
+    paletteData_.resize(totalBytes);
+    std::memcpy(paletteData_.data(), paletteData, totalBytes);
+    paletteFormat_ = paletteFormat;
+    paletteColorCount_ = colorCount;
+}
+
+const void* ImageBuffer::getPaletteData() const {
+    return paletteData_.empty() ? nullptr : paletteData_.data();
+}
+
+PixelFormatID ImageBuffer::getPaletteFormat() const {
+    return paletteFormat_;
+}
+```
+
+##### 変換関数の拡張
+
+既存の変換インフラを活用してパレットを自動変換：
+
+```cpp
+// Index8 → RGBA8_Straight（パレットフォーマット対応版）
+static void index8_toStandardIndexed_v2(const void* src, uint8_t* dst,
+                                         int pixelCount,
+                                         const void* paletteData,
+                                         PixelFormatID paletteFormat) {
+    const uint8_t* s = static_cast<const uint8_t*>(src);
+
+    if (!paletteData || !paletteFormat) {
+        // パレットなし: フォールバック
+        return;
+    }
+
+    // パレットを標準フォーマット（RGBA8_Straight）に一時変換
+    thread_local std::vector<uint8_t> standardPalette;
+    int maxIndex = 256;  // Index8の場合
+    standardPalette.resize(maxIndex * 4);  // RGBA8
+
+    convertFormat(paletteData, paletteFormat,
+                  standardPalette.data(), PixelFormatIDs::RGBA8_Straight,
+                  maxIndex);
+
+    // インデックスでパレット参照
+    for (int i = 0; i < pixelCount; i++) {
+        uint8_t index = s[i];
+        const uint8_t* color = &standardPalette[index * 4];
+        dst[i*4 + 0] = color[0];  // R
+        dst[i*4 + 1] = color[1];  // G
+        dst[i*4 + 2] = color[2];  // B
+        dst[i*4 + 3] = color[3];  // A
+    }
+}
+```
+
+または、パフォーマンス重視の場合は直接変換：
+
+```cpp
+// RGB565パレット専用の最適化版
+static void index8_toStandardIndexed_RGB565(const void* src, uint8_t* dst,
+                                             int pixelCount,
+                                             const uint16_t* paletteRGB565) {
+    const uint8_t* s = static_cast<const uint8_t*>(src);
+
+    for (int i = 0; i < pixelCount; i++) {
+        uint8_t index = s[i];
+        uint16_t color565 = paletteRGB565[index];
+
+        // RGB565 → RGBA8 直接変換（最適化）
+        uint8_t r5 = (color565 >> 11) & 0x1F;
+        uint8_t g6 = (color565 >> 5) & 0x3F;
+        uint8_t b5 = color565 & 0x1F;
+
+        dst[i*4 + 0] = (r5 << 3) | (r5 >> 2);
+        dst[i*4 + 1] = (g6 << 2) | (g6 >> 4);
+        dst[i*4 + 2] = (b5 << 3) | (b5 >> 2);
+        dst[i*4 + 3] = 255;
+    }
+}
+```
+
+##### convertFormat() の拡張
+
+既存の `convertFormat()` にパレットフォーマット引数を追加：
+
+```cpp
+inline void convertFormat(const void* src, PixelFormatID srcFormat,
+                          void* dst, PixelFormatID dstFormat,
+                          int pixelCount,
+                          const void* srcPaletteData = nullptr,
+                          PixelFormatID srcPaletteFormat = nullptr,  // 新規追加
+                          const void* dstPaletteData = nullptr,
+                          PixelFormatID dstPaletteFormat = nullptr); // 新規追加
+```
+
+実装例：
+
+```cpp
+inline void convertFormat(...) {
+    // ... 既存のチェック ...
+
+    // インデックスカラー変換の場合
+    if (srcFormat->isIndexed && srcFormat->toStandardIndexed) {
+        // パレットを標準形式（RGBA8）に変換
+        thread_local std::vector<uint8_t> standardPalette;
+        size_t maxColors = srcFormat->maxPaletteSize;
+
+        if (srcPaletteFormat && srcPaletteData) {
+            standardPalette.resize(maxColors * 4);
+            convertFormat(srcPaletteData, srcPaletteFormat,
+                          standardPalette.data(), PixelFormatIDs::RGBA8_Straight,
+                          maxColors);
+
+            // RGBA8パレットとしてインデックス変換
+            srcFormat->toStandardIndexed(src, conversionBuffer.data(),
+                                        pixelCount,
+                                        reinterpret_cast<const uint16_t*>(standardPalette.data()));
+        }
+    }
+
+    // ... 残りの処理 ...
+}
+```
+
+#### 対応パレットフォーマット
+
+| フォーマット | サイズ/色 | 用途 |
+|-------------|----------|------|
+| RGB565_LE/BE | 2 bytes | GIF、レトロゲーム、組み込み |
+| RGB888 | 3 bytes | PNG、標準的なパレット |
+| BGR888 | 3 bytes | 一部のハードウェア |
+| RGBA8_Straight | 4 bytes | 透過GIF、PNG |
+| RGBA16_Premultiplied | 8 bytes | 内部高精度処理 |
+| RGB332 | 1 byte | 超低メモリ環境 |
+
+#### 使用例
+
+##### RGB565パレットでの運用
+
+```cpp
+// GIFデコーダ（RGB565パレット）
+ImageBuffer decodeGIF_RGB565(const uint8_t* gifData, size_t dataSize) {
+    // GIF解析
+    int width = ...;
+    int height = ...;
+    const uint8_t* indexData = ...;
+    const uint8_t* gifPalette = ...;  // RGB888
+    int paletteSize = ...;
+
+    // Index8バッファ作成
+    ImageBuffer buffer(width, height, PixelFormatIDs::Index8);
+    std::memcpy(buffer.pixels(), indexData, width * height);
+
+    // パレット変換（RGB888 → RGB565）
+    std::vector<uint16_t> paletteRGB565(paletteSize);
+    for (int i = 0; i < paletteSize; i++) {
+        uint8_t r = gifPalette[i*3 + 0];
+        uint8_t g = gifPalette[i*3 + 1];
+        uint8_t b = gifPalette[i*3 + 2];
+        paletteRGB565[i] = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
+    }
+
+    // RGB565形式でパレット設定
+    buffer.setPalette(paletteRGB565.data(), paletteSize,
+                      PixelFormatIDs::RGB565_LE);
+
+    return buffer;
+}
+```
+
+##### ユーザー既存データの活用
+
+```cpp
+// ユーザーが既にRGB565配列で保持しているパレット
+extern const uint16_t myCustomPaletteRGB565[256];
+
+ImageBuffer applyCustomPalette(const ImageBuffer& indexBuffer) {
+    ImageBuffer result = indexBuffer;  // コピー
+
+    // ユーザーのRGB565パレットをそのまま使用（変換なし）
+    result.setPalette(myCustomPaletteRGB565, 256,
+                      PixelFormatIDs::RGB565_LE);
+
+    return result;
+}
+```
+
+##### メモリ効率の比較
+
+```
+256色パレット:
+- RGB565:  512 bytes
+- RGB888:  768 bytes
+- RGBA8:  1,024 bytes
+- RGBA16: 2,048 bytes
+
+RGB565採用で RGBA16比で 75% メモリ削減
+```
+
+#### メリット
+
+- ✅ **ゼロコピー**: ユーザー既存のパレットデータをそのまま使用可能
+- ✅ **メモリ効率**: 必要最小限のパレットフォーマットを選択
+- ✅ **変換コスト削減**: 不要な往復変換を回避
+- ✅ **既存インフラ活用**: `PixelFormatDescriptor` と `convertFormat()` を再利用
+- ✅ **拡張性**: 将来的な新フォーマット追加が容易
+
+#### デメリットと対策
+
+| デメリット | 対策 |
+|-----------|------|
+| API複雑化 | 後方互換用の簡易版APIも提供 |
+| 変換オーバーヘッド | よく使う組み合わせは最適化版を実装 |
+| パレット形式の検証 | `isValidPaletteFormat()` でチェック |
+
+#### 実装戦略
+
+##### Phase 1: RGBA16固定版（既存提案）
+
+```cpp
+void setPalette(const uint16_t* palette, size_t colorCount);
+```
+
+最小実装で動作確認。
+
+##### Phase 2: パレットフォーマット対応（本提案）
+
+```cpp
+void setPalette(const void* paletteData, size_t colorCount,
+                PixelFormatID paletteFormat);
+```
+
+汎用的なパレット管理に拡張。
+
+##### Phase 3: 最適化パス（オプション）
+
+よく使われる組み合わせ（Index8 + RGB565パレット）の直接変換を実装。
+
+---
+
 ## 色量子化アルゴリズム
 
 RGBA → Index8 変換には色量子化が必要。複数のアルゴリズムが存在：
