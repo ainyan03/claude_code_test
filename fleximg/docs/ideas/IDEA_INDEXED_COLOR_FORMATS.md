@@ -55,11 +55,11 @@ struct PixelFormatDescriptor {
     bool isIndexed;                // パレット形式かどうか
     uint16_t maxPaletteSize;       // 最大パレットサイズ
 
-    // パレット付き変換関数
+    // パレット付き変換関数（パレットはRGBA8_Straight形式）
     using ToStandardIndexedFunc = void(*)(const void* src, uint8_t* dst,
-                                          int pixelCount, const uint16_t* palette);
+                                          int pixelCount, const uint8_t* palette);
     using FromStandardIndexedFunc = void(*)(const uint8_t* src, void* dst,
-                                            int pixelCount, const uint16_t* palette);
+                                            int pixelCount, const uint8_t* palette);
 
     ToStandardIndexedFunc toStandardIndexed;
     FromStandardIndexedFunc fromStandardIndexed;
@@ -108,7 +108,7 @@ const PixelFormatDescriptor Index8 = {
 ```cpp
 // Index8 → RGBA8_Straight（パレット参照）
 static void index8_toStandardIndexed(const void* src, uint8_t* dst,
-                                      int pixelCount, const uint16_t* palette) {
+                                      int pixelCount, const uint8_t* palette) {
     const uint8_t* s = static_cast<const uint8_t*>(src);
 
     if (!palette) {
@@ -123,22 +123,22 @@ static void index8_toStandardIndexed(const void* src, uint8_t* dst,
         return;
     }
 
-    // パレット参照（palette: RGBA16形式と仮定）
+    // パレット参照（palette: RGBA8_Straight形式）
     for (int i = 0; i < pixelCount; i++) {
         uint8_t index = s[i];
-        const uint16_t* color = &palette[index * 4];
+        const uint8_t* color = &palette[index * 4];
 
-        // RGBA16 → RGBA8変換
-        dst[i*4 + 0] = color[0] >> 8;  // R
-        dst[i*4 + 1] = color[1] >> 8;  // G
-        dst[i*4 + 2] = color[2] >> 8;  // B
-        dst[i*4 + 3] = color[3] >> 8;  // A
+        // RGBA8 → RGBA8（単純コピー）
+        dst[i*4 + 0] = color[0];  // R
+        dst[i*4 + 1] = color[1];  // G
+        dst[i*4 + 2] = color[2];  // B
+        dst[i*4 + 3] = color[3];  // A
     }
 }
 
 // RGBA8_Straight → Index8（色量子化）
 static void index8_fromStandardIndexed(const uint8_t* src, void* dst,
-                                        int pixelCount, const uint16_t* palette) {
+                                        int pixelCount, const uint8_t* palette) {
     uint8_t* d = static_cast<uint8_t*>(dst);
 
     if (!palette) {
@@ -163,10 +163,10 @@ static void index8_fromStandardIndexed(const uint8_t* src, void* dst,
         int minDistance = INT_MAX;
 
         for (int p = 0; p < 256; p++) {
-            const uint16_t* color = &palette[p * 4];
-            int pr = color[0] >> 8;
-            int pg = color[1] >> 8;
-            int pb = color[2] >> 8;
+            const uint8_t* color = &palette[p * 4];
+            int pr = color[0];
+            int pg = color[1];
+            int pb = color[2];
 
             int dr = r - pr;
             int dg = g - pg;
@@ -194,8 +194,8 @@ static void index8_fromStandardIndexed(const uint8_t* src, void* dst,
 inline void convertFormat(const void* src, PixelFormatID srcFormat,
                           void* dst, PixelFormatID dstFormat,
                           int pixelCount,
-                          const uint16_t* srcPalette = nullptr,  // どこから来る？
-                          const uint16_t* dstPalette = nullptr);
+                          const uint8_t* srcPalette = nullptr,  // どこから来る？
+                          const uint8_t* dstPalette = nullptr);
 ```
 
 #### 提案：ImageBufferの拡張
@@ -210,8 +210,8 @@ public:
     // ... 既存フィールド ...
 
     // パレット情報（オプション）
-    void setPalette(const uint16_t* palette, size_t colorCount);
-    const uint16_t* getPalette() const;
+    void setPalette(const uint8_t* palette, size_t colorCount);
+    const uint8_t* getPalette() const;
     size_t getPaletteSize() const;
     bool hasPalette() const;
 
@@ -219,15 +219,15 @@ private:
     PixelFormatID format_;
     // ... 既存フィールド ...
 
-    // パレット（RGBA16形式、最大256色）
-    std::vector<uint16_t> palette_;  // 新規追加
+    // パレット（RGBA8_Straight形式、最大256色）
+    std::vector<uint8_t> palette_;  // 新規追加
 };
 ```
 
 実装例：
 
 ```cpp
-void ImageBuffer::setPalette(const uint16_t* palette, size_t colorCount) {
+void ImageBuffer::setPalette(const uint8_t* palette, size_t colorCount) {
     if (!format_->isIndexed) {
         // 警告: インデックスカラーではないフォーマット
         return;
@@ -238,11 +238,11 @@ void ImageBuffer::setPalette(const uint16_t* palette, size_t colorCount) {
         colorCount = maxColors;
     }
 
-    palette_.resize(colorCount * 4);  // RGBA16
-    std::memcpy(palette_.data(), palette, colorCount * 4 * sizeof(uint16_t));
+    palette_.resize(colorCount * 4);  // RGBA8
+    std::memcpy(palette_.data(), palette, colorCount * 4 * sizeof(uint8_t));
 }
 
-const uint16_t* ImageBuffer::getPalette() const {
+const uint8_t* ImageBuffer::getPalette() const {
     return palette_.empty() ? nullptr : palette_.data();
 }
 ```
@@ -269,7 +269,7 @@ RenderResult processIndexedImage(ImageBuffer& buffer) {
 - ✅ SourceNodeでGIF/PNG読み込み時に自然にパレット設定可能
 
 **デメリット**:
-- ⚠️ ImageBufferのメモリフットプリント増加（最大2KB/画像）
+- ⚠️ ImageBufferのメモリフットプリント増加（最大1KB/画像）
 - ⚠️ ダイレクトカラー画像には不要なメモリ
 
 ##### 案B: 専用のPaletteクラス
@@ -282,13 +282,12 @@ public:
     Palette(size_t maxColors = 256);
 
     void setColor(size_t index, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
-    void setColorRGBA16(size_t index, const uint16_t* rgba16);
 
-    const uint16_t* data() const;
+    const uint8_t* data() const;
     size_t size() const;
 
 private:
-    std::vector<uint16_t> colors_;  // RGBA16形式
+    std::vector<uint8_t> colors_;  // RGBA8_Straight形式
 };
 ```
 
@@ -363,9 +362,9 @@ public:
     PixelFormatID getPaletteFormat() const;
     bool hasPalette() const;
 
-    // 後方互換用（RGBA16固定版）
-    void setPaletteRGBA16(const uint16_t* palette, size_t colorCount) {
-        setPalette(palette, colorCount, PixelFormatIDs::RGBA16_Premultiplied);
+    // 後方互換用（RGBA8固定版）
+    void setPaletteRGBA8(const uint8_t* palette, size_t colorCount) {
+        setPalette(palette, colorCount, PixelFormatIDs::RGBA8_Straight);
     }
 
 private:
@@ -511,7 +510,7 @@ inline void convertFormat(...) {
             // RGBA8パレットとしてインデックス変換
             srcFormat->toStandardIndexed(src, conversionBuffer.data(),
                                         pixelCount,
-                                        reinterpret_cast<const uint16_t*>(standardPalette.data()));
+                                        standardPalette.data());
         }
     }
 
@@ -523,11 +522,11 @@ inline void convertFormat(...) {
 
 | フォーマット | サイズ/色 | 用途 |
 |-------------|----------|------|
-| RGB565_LE/BE | 2 bytes | GIF、レトロゲーム、組み込み |
+| RGBA8_Straight | 4 bytes | **基本形式（推奨）** 透過GIF、PNG、パイプライン標準 |
+| RGB565_LE/BE | 2 bytes | GIF、レトロゲーム、組み込み、メモリ効率重視 |
 | RGB888 | 3 bytes | PNG、標準的なパレット |
 | BGR888 | 3 bytes | 一部のハードウェア |
-| RGBA8_Straight | 4 bytes | 透過GIF、PNG |
-| RGBA16_Premultiplied | 8 bytes | 内部高精度処理 |
+| RGBA16_Premultiplied | 8 bytes | 合成処理が必要な場合のみ |
 | RGB332 | 1 byte | 超低メモリ環境 |
 
 #### 使用例
@@ -586,12 +585,14 @@ ImageBuffer applyCustomPalette(const ImageBuffer& indexBuffer) {
 
 ```
 256色パレット:
+- RGB332:  256 bytes
 - RGB565:  512 bytes
 - RGB888:  768 bytes
-- RGBA8:  1,024 bytes
+- RGBA8:  1,024 bytes（基本形式）
 - RGBA16: 2,048 bytes
 
-RGB565採用で RGBA16比で 75% メモリ削減
+RGB565採用で RGBA8比で 50% メモリ削減
+RGBA16は合成処理が必要な場合のみ使用（通常は不要）
 ```
 
 #### メリット
@@ -612,13 +613,13 @@ RGB565採用で RGBA16比で 75% メモリ削減
 
 #### 実装戦略
 
-##### Phase 1: RGBA16固定版（既存提案）
+##### Phase 1: RGBA8固定版（基本実装）
 
 ```cpp
-void setPalette(const uint16_t* palette, size_t colorCount);
+void setPalette(const uint8_t* palette, size_t colorCount);
 ```
 
-最小実装で動作確認。
+パイプライン標準のRGBA8_Straightで最小実装。動作確認。
 
 ##### Phase 2: パレットフォーマット対応（本提案）
 
@@ -627,7 +628,7 @@ void setPalette(const void* paletteData, size_t colorCount,
                 PixelFormatID paletteFormat);
 ```
 
-汎用的なパレット管理に拡張。
+汎用的なパレット管理に拡張。RGB565等の他フォーマットにも対応。
 
 ##### Phase 3: 最適化パス（オプション）
 
@@ -714,14 +715,14 @@ GIF/PNGデコード用途に限定し、パレットは外部から与える。
 // palette_generation.h/cpp (新規ファイル)
 
 namespace PaletteGeneration {
-    // Median Cut アルゴリズム
-    std::vector<uint16_t> generateMedianCut(const uint8_t* rgba8Pixels,
-                                            int pixelCount,
-                                            int targetColors);
+    // Median Cut アルゴリズム（パレットはRGBA8_Straight形式で返す）
+    std::vector<uint8_t> generateMedianCut(const uint8_t* rgba8Pixels,
+                                           int pixelCount,
+                                           int targetColors);
 
     // ユーティリティ
-    std::vector<uint16_t> generateFromImage(const ImageBuffer& buffer,
-                                            int targetColors);
+    std::vector<uint8_t> generateFromImage(const ImageBuffer& buffer,
+                                           int targetColors);
 }
 ```
 
@@ -731,15 +732,15 @@ namespace PaletteGeneration {
 
 ```cpp
 namespace Dithering {
-    // Floyd-Steinberg ディザリング
+    // Floyd-Steinberg ディザリング（パレットはRGBA8_Straight形式）
     void floydSteinberg(const uint8_t* src, uint8_t* dst,
                         int width, int height,
-                        const uint16_t* palette, int paletteSize);
+                        const uint8_t* palette, int paletteSize);
 
     // Ordered ディザリング（Bayer matrix）
     void orderedDither(const uint8_t* src, uint8_t* dst,
                        int width, int height,
-                       const uint16_t* palette, int paletteSize);
+                       const uint8_t* palette, int paletteSize);
 }
 ```
 
@@ -772,7 +773,7 @@ const PixelFormatDescriptor Index4 = {
 
 ```cpp
 static void index4_toStandardIndexed(const void* src, uint8_t* dst,
-                                      int pixelCount, const uint16_t* palette) {
+                                      int pixelCount, const uint8_t* palette) {
     const uint8_t* s = static_cast<const uint8_t*>(src);
 
     for (int i = 0; i < pixelCount; i++) {
@@ -780,11 +781,11 @@ static void index4_toStandardIndexed(const void* src, uint8_t* dst,
         uint8_t byte = s[i / 2];
         uint8_t index = (i % 2 == 0) ? (byte >> 4) : (byte & 0x0F);
 
-        const uint16_t* color = &palette[index * 4];
-        dst[i*4 + 0] = color[0] >> 8;
-        dst[i*4 + 1] = color[1] >> 8;
-        dst[i*4 + 2] = color[2] >> 8;
-        dst[i*4 + 3] = color[3] >> 8;
+        const uint8_t* color = &palette[index * 4];
+        dst[i*4 + 0] = color[0];
+        dst[i*4 + 1] = color[1];
+        dst[i*4 + 2] = color[2];
+        dst[i*4 + 3] = color[3];
     }
 }
 ```
@@ -846,15 +847,14 @@ const PixelFormatDescriptor Index1 = {
 グレースケールパレットを生成：
 
 ```cpp
-// グレースケールパレット（256階調）を生成
-std::vector<uint16_t> createGrayscalePalette() {
-    std::vector<uint16_t> palette(256 * 4);
+// グレースケールパレット（256階調）を生成（RGBA8_Straight形式）
+std::vector<uint8_t> createGrayscalePalette() {
+    std::vector<uint8_t> palette(256 * 4);
     for (int i = 0; i < 256; i++) {
-        uint16_t gray16 = i << 8;
-        palette[i*4 + 0] = gray16;  // R
-        palette[i*4 + 1] = gray16;  // G
-        palette[i*4 + 2] = gray16;  // B
-        palette[i*4 + 3] = 0xFFFF;  // A
+        palette[i*4 + 0] = i;    // R
+        palette[i*4 + 1] = i;    // G
+        palette[i*4 + 2] = i;    // B
+        palette[i*4 + 3] = 255;  // A
     }
     return palette;
 }
@@ -883,7 +883,7 @@ ImageBuffer gray8ToIndex8(const ImageBuffer& gray8Buffer) {
 ```cpp
 // Index8 → Gray8 変換（パレットから輝度計算）
 ImageBuffer index8ToGray8(const ImageBuffer& index8Buffer) {
-    const uint16_t* palette = index8Buffer.getPalette();
+    const uint8_t* palette = index8Buffer.getPalette();
     if (!palette) {
         // パレットなし: そのままコピー
         // ...
@@ -898,13 +898,13 @@ ImageBuffer index8ToGray8(const ImageBuffer& index8Buffer) {
 
     for (int i = 0; i < pixelCount; i++) {
         uint8_t index = src[i];
-        const uint16_t* color = &palette[index * 4];
+        const uint8_t* color = &palette[index * 4];
 
-        // RGB16 → Gray8（輝度変換）
+        // RGBA8 → Gray8（輝度変換）
         uint16_t r = color[0];
         uint16_t g = color[1];
         uint16_t b = color[2];
-        dst[i] = static_cast<uint8_t>((77*r + 150*g + 29*b) >> 16);  // 16bit版
+        dst[i] = static_cast<uint8_t>((77*r + 150*g + 29*b) >> 8);
     }
 
     return gray8Buffer;
@@ -931,13 +931,13 @@ ImageBuffer decodeGIF(const uint8_t* gifData, size_t dataSize) {
     ImageBuffer buffer(width, height, PixelFormatIDs::Index8);
     std::memcpy(buffer.pixels(), indexData, width * height);
 
-    // パレット変換（RGB888 → RGBA16）
-    std::vector<uint16_t> palette(paletteSize * 4);
+    // パレット変換（RGB888 → RGBA8_Straight）
+    std::vector<uint8_t> palette(paletteSize * 4);
     for (int i = 0; i < paletteSize; i++) {
-        palette[i*4 + 0] = gifPalette[i*3 + 0] << 8;  // R
-        palette[i*4 + 1] = gifPalette[i*3 + 1] << 8;  // G
-        palette[i*4 + 2] = gifPalette[i*3 + 2] << 8;  // B
-        palette[i*4 + 3] = 0xFFFF;                     // A
+        palette[i*4 + 0] = gifPalette[i*3 + 0];  // R
+        palette[i*4 + 1] = gifPalette[i*3 + 1];  // G
+        palette[i*4 + 2] = gifPalette[i*3 + 2];  // B
+        palette[i*4 + 3] = 255;                   // A
     }
     buffer.setPalette(palette.data(), paletteSize);
 
@@ -998,21 +998,21 @@ private:
 ### 3. レトロゲーム風エフェクト
 
 ```cpp
-// Game Boy風（4色）パレット
-std::vector<uint16_t> createGameBoyPalette() {
-    std::vector<uint16_t> palette(4 * 4);
+// Game Boy風（4色）パレット（RGBA8_Straight形式）
+std::vector<uint8_t> createGameBoyPalette() {
+    std::vector<uint8_t> palette(4 * 4);
     // 色0: 暗緑 (0x0F, 0x38, 0x0F)
-    palette[0*4 + 0] = 0x0F00; palette[0*4 + 1] = 0x3800;
-    palette[0*4 + 2] = 0x0F00; palette[0*4 + 3] = 0xFFFF;
+    palette[0*4 + 0] = 0x0F; palette[0*4 + 1] = 0x38;
+    palette[0*4 + 2] = 0x0F; palette[0*4 + 3] = 255;
     // 色1: 中緑 (0x30, 0x62, 0x30)
-    palette[1*4 + 0] = 0x3000; palette[1*4 + 1] = 0x6200;
-    palette[1*4 + 2] = 0x3000; palette[1*4 + 3] = 0xFFFF;
+    palette[1*4 + 0] = 0x30; palette[1*4 + 1] = 0x62;
+    palette[1*4 + 2] = 0x30; palette[1*4 + 3] = 255;
     // 色2: 薄緑 (0x8B, 0xAC, 0x0F)
-    palette[2*4 + 0] = 0x8B00; palette[2*4 + 1] = 0xAC00;
-    palette[2*4 + 2] = 0x0F00; palette[2*4 + 3] = 0xFFFF;
+    palette[2*4 + 0] = 0x8B; palette[2*4 + 1] = 0xAC;
+    palette[2*4 + 2] = 0x0F; palette[2*4 + 3] = 255;
     // 色3: 黄緑 (0x9B, 0xBC, 0x0F)
-    palette[3*4 + 0] = 0x9B00; palette[3*4 + 1] = 0xBC00;
-    palette[3*4 + 2] = 0x0F00; palette[3*4 + 3] = 0xFFFF;
+    palette[3*4 + 0] = 0x9B; palette[3*4 + 1] = 0xBC;
+    palette[3*4 + 2] = 0x0F; palette[3*4 + 3] = 255;
     return palette;
 }
 
@@ -1038,11 +1038,12 @@ ImageBuffer toGameBoyStyle(const ImageBuffer& rgba8Buffer) {
 
 ### 1. パレット形式の標準化
 
-パレットは **RGBA16形式** を内部標準とする理由：
+パレットは **RGBA8_Straight形式** を内部標準とする理由：
 
-- 既存のRGBA16_Premultiplied形式と親和性が高い
-- 8bitパレットより精度が高い（必要に応じて量子化）
+- パイプライン標準のRGBA8_Straightと統一
+- メモリ効率（RGBA16の1/2）
 - アルファチャンネル対応（透過GIF等）
+- 合成処理が必要な場合のみRGBA16_Premultipliedに変換
 
 ### 2. アルファ対応パレット
 
@@ -1062,7 +1063,7 @@ const PixelFormatDescriptor Index8_WithAlpha = {
 ```cpp
 bool Palette::hasTransparency() const {
     for (size_t i = 0; i < size(); i++) {
-        if (colors_[i*4 + 3] < 0xFFFF) {  // A < 1.0
+        if (colors_[i*4 + 3] < 255) {  // A < 1.0
             return true;
         }
     }
@@ -1076,15 +1077,15 @@ bool Palette::hasTransparency() const {
 
 ```cpp
 // 実際に使用されているインデックスのみを抽出
-std::vector<uint16_t> optimizePalette(const uint8_t* indexData, int pixelCount,
-                                      const uint16_t* originalPalette) {
+std::vector<uint8_t> optimizePalette(const uint8_t* indexData, int pixelCount,
+                                     const uint8_t* originalPalette) {
     std::set<uint8_t> usedIndices;
     for (int i = 0; i < pixelCount; i++) {
         usedIndices.insert(indexData[i]);
     }
 
     // 使用されているエントリのみを新パレットに
-    std::vector<uint16_t> optimizedPalette(usedIndices.size() * 4);
+    std::vector<uint8_t> optimizedPalette(usedIndices.size() * 4);
     // ...
 }
 ```
