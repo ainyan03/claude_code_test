@@ -17,7 +17,11 @@ body {
     border-radius: 12px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
     overflow: hidden;
-    height: calc(100vh - 20px);
+    /* モバイルブラウザのアドレスバー等を考慮した高さ設定 */
+    height: calc(100vh - 20px);                 /* フォールバック（古いブラウザ用） */
+    height: calc(100dvh - 20px);                /* Dynamic Viewport Height（推奨） */
+    height: -webkit-fill-available;             /* iOS Safari対応 */
+    max-height: calc(100dvh - 20px);            /* はみ出し防止 */
     display: flex;
     flex-direction: column;
 }
@@ -1570,5 +1574,10 @@ body {
 }
 
 .container {
-    height: calc(100vh - 20px - 24px);
+    /* モバイルブラウザのアドレスバー等を考慮した高さ設定 */
+    height: calc(100vh - 20px - 24px);              /* フォールバック（古いブラウザ用） */
+    height: calc(100dvh - 20px - 24px);             /* Dynamic Viewport Height（推奨） */
+    height: -webkit-fill-available;                 /* iOS Safari対応 */
+    /* bodyのpadding上10px + 下24px = 34pxだが、念のため44px引く設定を維持 */
+    max-height: calc(100dvh - 20px - 24px);         /* はみ出し防止 */
 }

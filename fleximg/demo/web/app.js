@@ -3071,19 +3071,39 @@ function stopDraggingConnection() {
 }
 
 function setupGlobalNodeDrag(nodeBox, foreignObject, node) {
+    // ドラッグ判定の閾値（ピクセル）
+    const DRAG_THRESHOLD = 10;
+
     let isDragging = false;
+    let touchMoved = false;  // タッチ移動フラグ
     let startX, startY;
     let initialX, initialY;
 
     const handleMove = (e) => {
-        if (!isDragging) return;
-
         // タッチとマウスの両方に対応
         const clientX = e.clientX || (e.touches && e.touches[0].clientX);
         const clientY = e.clientY || (e.touches && e.touches[0].clientY);
 
         const dx = clientX - startX;
         const dy = clientY - startY;
+
+        // 移動距離を計算
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        // 閾値以上移動したらドラッグ開始
+        if (!isDragging && distance > DRAG_THRESHOLD) {
+            touchMoved = true;
+            isDragging = true;
+            nodeBox.classList.add('dragging');
+
+            // 長押しタイマーをキャンセル
+            if (longPressTimer) {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+            }
+        }
+
+        if (!isDragging) return;
 
         const newX = Math.max(0, initialX + dx);
         const newY = Math.max(0, initialY + dy);
@@ -3104,16 +3124,26 @@ function setupGlobalNodeDrag(nodeBox, foreignObject, node) {
     };
 
     const handleEnd = () => {
+        // 長押しタイマーをクリア
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+
+        // ドラッグ中の場合はクリーンアップ
         if (isDragging) {
             isDragging = false;
             nodeBox.classList.remove('dragging');
-            // リスナーを削除
-            document.removeEventListener('mousemove', handleMove);
-            document.removeEventListener('mouseup', handleEnd);
-            document.removeEventListener('touchmove', handleMove);
-            document.removeEventListener('touchend', handleEnd);
-            // 再描画不要：ポートと接続線はhandleMove内で既に更新済み
         }
+
+        // イベントリスナーを必ず削除（isDraggingの状態に関わらず）
+        document.removeEventListener('mousemove', handleMove);
+        document.removeEventListener('mouseup', handleEnd);
+        document.removeEventListener('touchmove', handleMove);
+        document.removeEventListener('touchend', handleEnd);
+
+        // タッチ移動フラグをリセット
+        touchMoved = false;
     };
 
     const handleStart = (e) => {
@@ -3122,8 +3152,8 @@ function setupGlobalNodeDrag(nodeBox, foreignObject, node) {
             return;
         }
 
-        isDragging = true;
-        nodeBox.classList.add('dragging');
+        // ドラッグフラグは移動距離で判定するため、ここでは設定しない
+        touchMoved = false;
 
         // タッチとマウスの両方に対応
         const clientX = e.clientX || (e.touches && e.touches[0].clientX);
@@ -3133,6 +3163,17 @@ function setupGlobalNodeDrag(nodeBox, foreignObject, node) {
         startY = clientY;
         initialX = parseFloat(foreignObject.getAttribute('x'));
         initialY = parseFloat(foreignObject.getAttribute('y'));
+
+        // タッチイベントの場合、長押し検出タイマーを開始
+        if (e.touches && e.touches[0]) {
+            longPressTimer = setTimeout(() => {
+                // 移動していなければコンテキストメニューを表示
+                if (!touchMoved) {
+                    const touch = e.touches[0];
+                    showContextMenu(touch.clientX, touch.clientY, node);
+                }
+            }, 500); // 500msの長押し
+        }
 
         // マウスとタッチの両方のリスナーを追加
         document.addEventListener('mousemove', handleMove);
@@ -3162,35 +3203,8 @@ function setupGlobalNodeDrag(nodeBox, foreignObject, node) {
         showNodeDetailPanel(node);
     });
 
-    // 長押し検出（スマートフォン用）
+    // 長押し検出用タイマー（スマートフォン用）
     let longPressTimer = null;
-    nodeBox.addEventListener('touchstart', (e) => {
-        // スライダーやボタンの場合はスキップ
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') {
-            return;
-        }
-
-        longPressTimer = setTimeout(() => {
-            if (!isDragging) {
-                const touch = e.touches[0];
-                showContextMenu(touch.clientX, touch.clientY, node);
-            }
-        }, 500); // 500msの長押し
-    }, { passive: true });
-
-    nodeBox.addEventListener('touchend', () => {
-        if (longPressTimer) {
-            clearTimeout(longPressTimer);
-            longPressTimer = null;
-        }
-    });
-
-    nodeBox.addEventListener('touchmove', () => {
-        if (longPressTimer) {
-            clearTimeout(longPressTimer);
-            longPressTimer = null;
-        }
-    });
 
     // マウスとタッチの両方のイベントを登録
     nodeBox.addEventListener('mousedown', handleStart);

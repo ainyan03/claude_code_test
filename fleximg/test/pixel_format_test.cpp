@@ -2,6 +2,7 @@
 // ピクセルフォーマットDescriptor、変換のテスト
 
 #include "doctest.h"
+#include <string>
 
 #define FLEXIMG_NAMESPACE fleximg
 #include "fleximg/image/pixel_format.h"
