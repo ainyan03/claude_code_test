@@ -1,5 +1,51 @@
 # Changelog
 
+## [2.33.1] - 2026-01-17
+
+### 修正
+
+- **WebUI: スマートフォンでの操作性を改善**
+  - 長押しコンテキストメニューが確実に表示されるように修正
+    - 移動距離の閾値判定（10px）を導入
+    - タッチ移動フラグで長押しとドラッグを明確に区別
+    - 移動していない場合は500ms後にコンテキストメニューを表示
+  - タップ後にノードが意図せず移動する問題を修正
+    - handleEnd内でisDraggingの状態に関わらず、常にイベントリスナーを削除
+    - タップ後のリスナーが残り続けることによるメモリリークも防止
+  - メインコンテンツが画面下部にはみ出る問題を修正
+    - 100vhを100dvh（Dynamic Viewport Height）に変更
+    - -webkit-fill-availableでiOS Safari対応
+    - モバイルブラウザのアドレスバー等を考慮した高さ設定
+
+- **テスト: pixel_format_test.cppのコンパイルエラーを修正**
+  - std::string使用時に<string>ヘッダーが不足していた問題を解決
+
+### 技術詳細
+
+- setupGlobalNodeDrag関数の改善 (app.js:3073-3198):
+  ```javascript
+  const DRAG_THRESHOLD = 10; // ドラッグ判定閾値
+  let touchMoved = false;    // タッチ移動フラグ
+
+  // 移動距離を計算して閾値以上ならドラッグ開始
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  if (!isDragging && distance > DRAG_THRESHOLD) {
+      touchMoved = true;
+      isDragging = true;
+      // 長押しタイマーをキャンセル
+  }
+  ```
+
+- .containerの高さ設定 (style.css:20, 1573):
+  ```css
+  height: calc(100vh - Xpx);                /* フォールバック */
+  height: calc(100dvh - Xpx);               /* Dynamic Viewport Height */
+  height: -webkit-fill-available;           /* iOS Safari対応 */
+  max-height: calc(100dvh - Xpx);           /* はみ出し防止 */
+  ```
+
+---
+
 ## [2.33.0] - 2026-01-16
 
 ### 修正
