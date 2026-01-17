@@ -7,6 +7,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <algorithm>
 
 #include "../src/fleximg/nodes/source_node.h"
 #include "../src/fleximg/nodes/sink_node.h"
@@ -805,16 +806,27 @@ private:
 
                 auto compositeNode = std::make_unique<CompositeNode>(inputCount);
 
-                // 各入力を接続
-                auto connIt = inputConnections.find(nodeId);
-                if (connIt != inputConnections.end()) {
-                    int portIndex = 0;
-                    for (const auto& inputId : connIt->second) {
-                        Node* upstream = buildNode(inputId);
-                        if (upstream && portIndex < inputCount) {
-                            upstream->connectTo(*compositeNode, portIndex);
-                            portIndex++;
-                        }
+                // 各入力を接続（toPortIdの順序でソート）
+                std::vector<const GraphConnection*> compositeConns;
+                for (const auto& conn : graphConnections_) {
+                    if (conn.toNodeId == nodeId) {
+                        compositeConns.push_back(&conn);
+                    }
+                }
+
+                // toPortId（in1, in2, in3, ...）の順序でソート
+                std::sort(compositeConns.begin(), compositeConns.end(),
+                    [](const GraphConnection* a, const GraphConnection* b) {
+                        return a->toPortId < b->toPortId;
+                    });
+
+                // ソート済みの順序で接続
+                int portIndex = 0;
+                for (const auto* conn : compositeConns) {
+                    Node* upstream = buildNode(conn->fromNodeId);
+                    if (upstream && portIndex < inputCount) {
+                        upstream->connectTo(*compositeNode, portIndex);
+                        portIndex++;
                     }
                 }
 
