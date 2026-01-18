@@ -5,6 +5,7 @@
 #include "../core/perf_metrics.h"
 #include "../image/image_buffer.h"
 #include <algorithm>  // for std::clamp
+#include <cstring>    // for std::memcpy
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
 #include <chrono>
 #endif
@@ -21,8 +22,17 @@ namespace FLEXIMG_NAMESPACE {
 //
 // マルチパス処理:
 // - passes=3で3回水平ブラーを適用（ガウシアン近似）
-// - 出力拡張: width + radius * 2 * passes
-// - origin拡張: origin.x + radius * passes
+// - pull型: 上流にマージン付き要求、下流には元サイズで返却
+// - push型: 入力を拡張して下流に配布
+//
+// pull型の動作:
+// - 上流への要求: width + radius*2*passes（マージン確保）
+// - 処理後に中央部分をクロップ
+// - 下流への返却: 要求されたwidthそのまま
+//
+// push型の動作:
+// - 入力を passes 回ブラー（各パスで width + radius*2 ずつ拡張）
+// - 拡張された結果を下流に配布
 //
 // スキャンライン処理:
 // - 1行完結の処理（キャッシュ不要）
@@ -77,9 +87,10 @@ protected:
             return upstream->pullProcess(request);
         }
 
-        // 上流への要求（サイズはそのまま、拡張なし）
+        // マージンを計算して上流への要求を拡大
+        int totalMargin = radius_ * passes_;  // 片側のマージン
         RenderRequest inputReq;
-        inputReq.width = request.width;
+        inputReq.width = request.width + totalMargin * 2;  // 両側にマージンを追加
         inputReq.height = 1;
         inputReq.origin.x = request.origin.x;
         inputReq.origin.y = request.origin.y;
@@ -91,13 +102,12 @@ protected:
         auto start = std::chrono::high_resolution_clock::now();
         auto& metrics = PerfMetrics::instance().nodes[NodeType::HorizontalBlur];
         metrics.requestedPixels += static_cast<uint64_t>(request.width) * 1;
-        metrics.usedPixels += static_cast<uint64_t>(request.width) * 1;
+        metrics.usedPixels += static_cast<uint64_t>(inputReq.width) * 1;
 #endif
 
         // RGBA8_Straightに変換
         ImageBuffer buffer = convertFormat(std::move(input.buffer),
                                            PixelFormatIDs::RGBA8_Straight);
-        Point currentOrigin = input.origin;
 
         // passes回、水平ブラーを適用（各パスで拡張）
         for (int pass = 0; pass < passes_; pass++) {
@@ -119,11 +129,21 @@ protected:
             // inputOffset = -radius (出力を左に拡張)
             applyHorizontalBlur(srcView, -radius_, output);
 
-            // origin.xをradius分増やす（左に拡張するため）
-            currentOrigin.x = currentOrigin.x + to_fixed(radius_);
-
             buffer = std::move(output);
         }
+
+        // 最終サイズ = (request.width + totalMargin*2) + radius*2*passes
+        //            = request.width + totalMargin*4
+        // これを request.width にクロップする
+        int finalWidth = buffer.width();
+        int cropOffset = totalMargin * 2;  // 左右から totalMargin*2 ずつ削る
+
+        // 中央部分を切り出し
+        ImageBuffer output(request.width, 1, PixelFormatIDs::RGBA8_Straight,
+                          InitPolicy::Uninitialized);
+        const uint8_t* srcRow = static_cast<const uint8_t*>(buffer.view().data);
+        uint8_t* dstRow = static_cast<uint8_t*>(output.view().data);
+        std::memcpy(dstRow, srcRow + cropOffset * 4, request.width * 4);
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         metrics.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
@@ -131,7 +151,7 @@ protected:
         metrics.count++;
 #endif
 
-        return RenderResult(std::move(buffer), currentOrigin);
+        return RenderResult(std::move(output), request.origin);
     }
 
     // ========================================

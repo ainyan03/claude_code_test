@@ -143,18 +143,27 @@ class HorizontalBlurNode : public Node {
     int passes_ = 1;  // 1〜5
 
 protected:
+    // pull型: マージンを確保して上流に要求、下流には元サイズで返却
     RenderResult pullProcess(const RenderRequest& request) override {
-        // 上流への要求（サイズはそのまま）
-        RenderResult input = upstream->pullProcess(request);
+        // 上流への要求（マージン付き）
+        int totalMargin = radius_ * passes_;
+        RenderRequest inputReq;
+        inputReq.width = request.width + totalMargin * 2;
+        RenderResult input = upstream->pullProcess(inputReq);
 
-        // passes回、水平ブラーを適用（各パスで拡張）
+        // passes回、水平ブラーを適用（内部で拡張）
         for (int pass = 0; pass < passes_; pass++) {
-            int outputWidth = inputWidth + radius_ * 2;
             applyHorizontalBlur(srcView, -radius_, output);
-            currentOrigin.x += to_fixed(radius_);
         }
 
-        return RenderResult(std::move(buffer), currentOrigin);
+        // 中央部分をクロップして元のサイズで返却
+        return RenderResult(cropToCenter(buffer, request.width), request.origin);
+    }
+
+    // push型: 入力を拡張して下流に配布
+    void pushProcess(RenderResult&& input, const RenderRequest& request) override {
+        // passes回ブラーを適用（各パスで拡張）
+        // 拡張された結果を下流に配布
     }
 };
 ```
@@ -162,7 +171,8 @@ protected:
 **特徴**:
 - **マルチパス対応**: passes=3で3回ブラーを適用し、ガウシアン分布に近似
 - **中心極限定理**: 複数回のボックスブラーでガウシアンに収束
-- **出力拡張**: width → width + radius*2*passes, origin.x → origin.x + radius*passes
+- **pull型**: マージン付き要求、元サイズで返却（FilterNodeBaseパターン準拠）
+- **push型**: 入力拡張、拡張結果を配布（width → width + radius*2*passes）
 - **pull/push両対応**: RendererNodeの上流・下流どちらでも使用可能
 - **スキャンライン最適化**: 1行ずつ処理、キャッシュ不要（HorizontalBlurNode）
 
