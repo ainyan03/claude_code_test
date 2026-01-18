@@ -2735,42 +2735,66 @@ function drawGlobalNode(node) {
         nodeBox.appendChild(controls);
     }
 
-    // 独立フィルタノードの場合、主要パラメータ1つのみ表示（コンパクト）
+    // 独立フィルタノードの場合、全パラメータを表示
     if (node.type === 'filter' && node.independent) {
         const filterDef = FILTER_DEFINITIONS[node.filterType];
         if (filterDef && filterDef.params.length > 0) {
-            const paramDef = filterDef.params[0]; // 最初のパラメータのみ
-            const currentValue = node.param ?? paramDef.default;
+            // paramsオブジェクトを初期化（存在しない場合）
+            if (!node.params) {
+                node.params = {};
+                // 古い形式（node.param）からの移行
+                if (node.param !== undefined && filterDef.params.length > 0) {
+                    node.params[filterDef.params[0].name] = node.param;
+                    delete node.param;
+                }
+                // デフォルト値で初期化
+                filterDef.params.forEach(paramDef => {
+                    if (node.params[paramDef.name] === undefined) {
+                        node.params[paramDef.name] = paramDef.default;
+                    }
+                });
+            }
 
             const controls = document.createElement('div');
             controls.className = 'node-box-controls';
-            controls.style.cssText = 'padding: 4px;';
+            controls.style.cssText = 'padding: 4px; display: flex; flex-direction: column; gap: 4px;';
 
-            const label = document.createElement('label');
-            label.style.cssText = 'font-size: 10px; display: flex; align-items: center; gap: 4px;';
+            // 各パラメータに対してスライダーを生成
+            filterDef.params.forEach(paramDef => {
+                const currentValue = node.params[paramDef.name] ?? paramDef.default;
 
-            const slider = document.createElement('input');
-            slider.type = 'range';
-            slider.min = String(paramDef.min);
-            slider.max = String(paramDef.max);
-            slider.step = String(paramDef.step);
-            slider.value = String(currentValue);
-            slider.style.cssText = 'flex: 1; min-width: 60px;';
+                const paramRow = document.createElement('div');
+                paramRow.style.cssText = 'display: flex; align-items: center; gap: 4px;';
 
-            const display = document.createElement('span');
-            display.style.cssText = 'min-width: 30px; text-align: right;';
-            display.textContent = paramDef.format ? paramDef.format(currentValue) : String(currentValue);
+                const paramLabel = document.createElement('span');
+                paramLabel.style.cssText = 'font-size: 9px; min-width: 35px; color: #666;';
+                paramLabel.textContent = paramDef.label;
 
-            slider.addEventListener('input', (e) => {
-                const value = parseFloat(e.target.value);
-                node.param = value;
-                display.textContent = paramDef.format ? paramDef.format(value) : String(value);
-                throttledUpdatePreview();
+                const slider = document.createElement('input');
+                slider.type = 'range';
+                slider.min = String(paramDef.min);
+                slider.max = String(paramDef.max);
+                slider.step = String(paramDef.step);
+                slider.value = String(currentValue);
+                slider.style.cssText = 'flex: 1; min-width: 50px;';
+
+                const display = document.createElement('span');
+                display.style.cssText = 'min-width: 30px; text-align: right; font-size: 10px;';
+                display.textContent = paramDef.format ? paramDef.format(currentValue) : String(currentValue);
+
+                slider.addEventListener('input', (e) => {
+                    const value = parseFloat(e.target.value);
+                    node.params[paramDef.name] = value;
+                    display.textContent = paramDef.format ? paramDef.format(value) : String(value);
+                    throttledUpdatePreview();
+                });
+
+                paramRow.appendChild(paramLabel);
+                paramRow.appendChild(slider);
+                paramRow.appendChild(display);
+                controls.appendChild(paramRow);
             });
 
-            label.appendChild(slider);
-            label.appendChild(display);
-            controls.appendChild(label);
             nodeBox.appendChild(controls);
         }
     }
@@ -3757,12 +3781,17 @@ function updatePreviewFromGraph() {
                 };
             }
         }
-        // フィルタノード: paramをfilterParams配列に変換
+        // フィルタノード: paramsをfilterParams配列に変換
         if (node.type === 'filter' && node.independent) {
             const filterDef = FILTER_DEFINITIONS[node.filterType];
-            // 現在のパラメータを配列形式に変換
-            // 将来的に複数パラメータ対応する際はnode.paramsを使用
-            const filterParams = node.param !== undefined ? [node.param] : [];
+            // 全パラメータを定義順に配列に変換
+            const filterParams = [];
+            if (filterDef && filterDef.params) {
+                filterDef.params.forEach(paramDef => {
+                    const value = node.params?.[paramDef.name] ?? paramDef.default;
+                    filterParams.push(value);
+                });
+            }
             return {
                 ...node,
                 filterParams: filterParams
