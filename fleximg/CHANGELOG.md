@@ -1,5 +1,81 @@
 # Changelog
 
+## [2.34.0] - 2026-01-18
+
+### 追加
+
+- **ブラーフィルタ: ガウシアンブラー近似機能**
+  - HorizontalBlurNode と VerticalBlurNode に `passes` パラメータを追加（1-5回、デフォルト1）
+  - passes=3で3回ボックスブラーを適用し、ガウシアン分布に近似
+  - 中心極限定理により、複数回のボックスブラーでガウシアンブラーを近似
+  - Stack Blur（以前の試み）と比較して4倍高速、アルゴリズムも安定
+
+- **WebUI: 複数フィルタパラメータ対応**
+  - ノードボックスに複数のスライダーを表示（radius + passes）
+  - 詳細ダイアログでも複数パラメータを編集可能
+  - 古い形式（node.param）からの自動移行処理を実装
+
+### 修正
+
+- **HorizontalBlurNode: pull型の正しいorigin処理**
+  - DESIGN_RENDERER_NODE.mdの仕様に準拠し、出力拡張方式に変更
+  - 上流への要求サイズを変更せず、各パスで拡張
+  - 出力: width = 入力 + radius*2*passes, origin.x = 入力origin.x + radius*passes
+  - inputOffset = -radius に修正し、描画内容のずれを解消
+
+- **VerticalBlurNode: マルチパス処理の実装**
+  - passes > 1 の場合、重み付きカーネルを使用
+  - 畳み込みカーネルを事前計算し、ガウシアン近似を実現
+  - pull型とpush型の両方に対応
+
+### 技術詳細
+
+- **ガウシアン近似の理論**:
+  ```
+  radius=5, passes=3の場合:
+  - 1パス: ボックスフィルタ [1,1,1,1,1,1,1,1,1,1,1]
+  - 2パス: 三角分布に近い重み
+  - 3パス: ガウシアン分布に近似（中心極限定理）
+
+  最終カーネルサイズ: 2*radius*passes + 1 = 31
+  ```
+
+- **pull型origin処理** (horizontal_blur_node.h:79-133):
+  ```cpp
+  // 各パスで拡張
+  for (int pass = 0; pass < passes_; pass++) {
+      int outputWidth = inputWidth + radius_ * 2;
+      applyHorizontalBlur(srcView, -radius_, output);
+      currentOrigin.x = currentOrigin.x + to_fixed(radius_);
+  }
+  return RenderResult(std::move(buffer), currentOrigin);
+  ```
+
+- **マルチパスカーネル計算** (vertical_blur_node.h:367-388):
+  ```cpp
+  std::vector<int> computeMultiPassKernel(int radius, int passes) {
+      std::vector<int> kernel(2 * radius + 1, 1);
+      for (int p = 1; p < passes; p++) {
+          // 畳み込みを繰り返してガウシアン近似
+          std::vector<int> newKernel(kernel.size() + singleSize - 1, 0);
+          for (size_t i = 0; i < kernel.size(); i++) {
+              for (int j = 0; j < singleSize; j++) {
+                  newKernel[i + j] += kernel[i];
+              }
+          }
+          kernel = std::move(newKernel);
+      }
+      return kernel;
+  }
+  ```
+
+### 参考資料
+
+- [docs/ideas/IDEA_GAUSSIAN_BLUR_UPGRADE.md](docs/ideas/IDEA_GAUSSIAN_BLUR_UPGRADE.md) - 提案と分析
+- [.work/plans/gaussian-blur-upgrade.md](.work/plans/gaussian-blur-upgrade.md) - 実装計画
+
+---
+
 ## [2.33.1] - 2026-01-17
 
 ### 修正
