@@ -92,7 +92,7 @@ protected:
         RenderRequest inputReq;
         inputReq.width = request.width + totalMargin * 2;  // 両側にマージンを追加
         inputReq.height = 1;
-        inputReq.origin.x = request.origin.x;
+        inputReq.origin.x = request.origin.x + to_fixed(totalMargin);  // 左側にマージン分拡張
         inputReq.origin.y = request.origin.y;
 
         RenderResult input = upstream->pullProcess(inputReq);
@@ -139,9 +139,10 @@ protected:
         }
 
         // origin座標を基準にクロップ位置を計算
-        // request.origin.x が欲しい位置、currentOrigin.x が現在のbufferの左端
-        // cropOffset = request.origin.x - currentOrigin.x（固定小数点での差分）
-        int_fixed offsetX = request.origin.x - currentOrigin.x;
+        // currentOrigin.x が現在のbufferの左端、request.origin.x が欲しい位置
+        // cropOffset = currentOrigin.x - request.origin.x（固定小数点での差分）
+        // cropOffset > 0: bufferは左側にある → buffer[cropOffset]がrequest.origin.xに対応
+        int_fixed offsetX = currentOrigin.x - request.origin.x;
         int cropOffset = from_fixed(offsetX);
 
         // 出力バッファを確保（ゼロ初期化）
