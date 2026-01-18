@@ -19,6 +19,31 @@ static void rgba8Straight_fromStandard(const uint8_t* src, void* dst, int pixelC
 }
 
 // ========================================================================
+// Alpha8: 単一アルファチャンネル ↔ RGBA8_Straight 変換
+// ========================================================================
+
+// Alpha8 → RGBA8_Straight（可視化のため全チャンネルにアルファ値を展開）
+static void alpha8_toStandard(const void* src, uint8_t* dst, int pixelCount) {
+    const uint8_t* s = static_cast<const uint8_t*>(src);
+    for (int i = 0; i < pixelCount; i++) {
+        uint8_t alpha = s[i];
+        dst[i*4 + 0] = alpha;  // R
+        dst[i*4 + 1] = alpha;  // G
+        dst[i*4 + 2] = alpha;  // B
+        dst[i*4 + 3] = alpha;  // A
+    }
+}
+
+// RGBA8_Straight → Alpha8（Aチャンネルのみ抽出）
+static void alpha8_fromStandard(const uint8_t* src, void* dst, int pixelCount) {
+    const uint8_t* s = src;
+    uint8_t* d = static_cast<uint8_t*>(dst);
+    for (int i = 0; i < pixelCount; i++) {
+        d[i] = s[i*4 + 3];  // Aチャンネル抽出
+    }
+}
+
+// ========================================================================
 // RGBA16_Premultiplied: 16bit Premultiplied ↔ 8bit Straight 変換
 // ========================================================================
 // 変換方式: A_tmp = A8 + 1 を使用
@@ -266,8 +291,11 @@ const PixelFormatDescriptor RGBA16_Premultiplied = {
     64,  // bitsPerPixel
     1,   // pixelsPerUnit
     8,   // bytesPerUnit
-    { ChannelDescriptor(16, 0), ChannelDescriptor(16, 0),
-      ChannelDescriptor(16, 0), ChannelDescriptor(16, 0) },  // R, G, B, A
+    4,   // channelCount
+    { ChannelDescriptor(ChannelType::Red, 16, 0),
+      ChannelDescriptor(ChannelType::Green, 16, 0),
+      ChannelDescriptor(ChannelType::Blue, 16, 0),
+      ChannelDescriptor(ChannelType::Alpha, 16, 0) },  // R, G, B, A
     true,   // hasAlpha
     true,   // isPremultiplied
     false,  // isIndexed
@@ -285,8 +313,11 @@ const PixelFormatDescriptor RGBA8_Straight = {
     32,  // bitsPerPixel
     1,   // pixelsPerUnit
     4,   // bytesPerUnit
-    { ChannelDescriptor(8, 0), ChannelDescriptor(8, 0),
-      ChannelDescriptor(8, 0), ChannelDescriptor(8, 0) },  // R, G, B, A
+    4,   // channelCount
+    { ChannelDescriptor(ChannelType::Red, 8, 0),
+      ChannelDescriptor(ChannelType::Green, 8, 0),
+      ChannelDescriptor(ChannelType::Blue, 8, 0),
+      ChannelDescriptor(ChannelType::Alpha, 8, 0) },  // R, G, B, A
     true,   // hasAlpha
     false,  // isPremultiplied
     false,  // isIndexed
@@ -304,8 +335,11 @@ const PixelFormatDescriptor RGB565_LE = {
     16,  // bitsPerPixel
     1,   // pixelsPerUnit
     2,   // bytesPerUnit
-    { ChannelDescriptor(5, 11), ChannelDescriptor(6, 5),
-      ChannelDescriptor(5, 0), ChannelDescriptor(0, 0) },  // R, G, B, (no A)
+    3,   // channelCount
+    { ChannelDescriptor(ChannelType::Red, 5, 11),
+      ChannelDescriptor(ChannelType::Green, 6, 5),
+      ChannelDescriptor(ChannelType::Blue, 5, 0),
+      ChannelDescriptor() },  // R, G, B, (no A)
     false,  // hasAlpha
     false,  // isPremultiplied
     false,  // isIndexed
@@ -323,8 +357,11 @@ const PixelFormatDescriptor RGB565_BE = {
     16,  // bitsPerPixel
     1,   // pixelsPerUnit
     2,   // bytesPerUnit
-    { ChannelDescriptor(5, 11), ChannelDescriptor(6, 5),
-      ChannelDescriptor(5, 0), ChannelDescriptor(0, 0) },  // R, G, B, (no A)
+    3,   // channelCount
+    { ChannelDescriptor(ChannelType::Red, 5, 11),
+      ChannelDescriptor(ChannelType::Green, 6, 5),
+      ChannelDescriptor(ChannelType::Blue, 5, 0),
+      ChannelDescriptor() },  // R, G, B, (no A)
     false,  // hasAlpha
     false,  // isPremultiplied
     false,  // isIndexed
@@ -342,8 +379,11 @@ const PixelFormatDescriptor RGB332 = {
     8,   // bitsPerPixel
     1,   // pixelsPerUnit
     1,   // bytesPerUnit
-    { ChannelDescriptor(3, 5), ChannelDescriptor(3, 2),
-      ChannelDescriptor(2, 0), ChannelDescriptor(0, 0) },  // R, G, B, (no A)
+    3,   // channelCount
+    { ChannelDescriptor(ChannelType::Red, 3, 5),
+      ChannelDescriptor(ChannelType::Green, 3, 2),
+      ChannelDescriptor(ChannelType::Blue, 2, 0),
+      ChannelDescriptor() },  // R, G, B, (no A)
     false,  // hasAlpha
     false,  // isPremultiplied
     false,  // isIndexed
@@ -361,8 +401,11 @@ const PixelFormatDescriptor RGB888 = {
     24,  // bitsPerPixel
     1,   // pixelsPerUnit
     3,   // bytesPerUnit
-    { ChannelDescriptor(8, 16), ChannelDescriptor(8, 8),
-      ChannelDescriptor(8, 0), ChannelDescriptor(0, 0) },  // R, G, B, (no A)
+    3,   // channelCount
+    { ChannelDescriptor(ChannelType::Red, 8, 16),
+      ChannelDescriptor(ChannelType::Green, 8, 8),
+      ChannelDescriptor(ChannelType::Blue, 8, 0),
+      ChannelDescriptor() },  // R, G, B, (no A)
     false,  // hasAlpha
     false,  // isPremultiplied
     false,  // isIndexed
@@ -380,8 +423,11 @@ const PixelFormatDescriptor BGR888 = {
     24,  // bitsPerPixel
     1,   // pixelsPerUnit
     3,   // bytesPerUnit
-    { ChannelDescriptor(8, 0), ChannelDescriptor(8, 8),
-      ChannelDescriptor(8, 16), ChannelDescriptor(0, 0) },  // R, G, B, (no A)
+    3,   // channelCount
+    { ChannelDescriptor(ChannelType::Blue, 8, 0),
+      ChannelDescriptor(ChannelType::Green, 8, 8),
+      ChannelDescriptor(ChannelType::Red, 8, 16),
+      ChannelDescriptor() },  // B, G, R (メモリ順序)
     false,  // hasAlpha
     false,  // isPremultiplied
     false,  // isIndexed
@@ -390,6 +436,26 @@ const PixelFormatDescriptor BGR888 = {
     ByteOrder::Native,
     bgr888_toStandard,
     bgr888_fromStandard,
+    nullptr,  // toStandardIndexed
+    nullptr   // fromStandardIndexed
+};
+
+const PixelFormatDescriptor Alpha8 = {
+    "Alpha8",
+    8,   // bitsPerPixel
+    1,   // pixelsPerUnit
+    1,   // bytesPerUnit
+    1,   // channelCount
+    { ChannelDescriptor(ChannelType::Alpha, 8, 0),
+      ChannelDescriptor(), ChannelDescriptor(), ChannelDescriptor() },  // Alpha only
+    true,   // hasAlpha
+    false,  // isPremultiplied
+    false,  // isIndexed
+    0,      // maxPaletteSize
+    BitOrder::MSBFirst,
+    ByteOrder::Native,
+    alpha8_toStandard,
+    alpha8_fromStandard,
     nullptr,  // toStandardIndexed
     nullptr   // fromStandardIndexed
 };
