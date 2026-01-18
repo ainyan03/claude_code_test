@@ -383,9 +383,9 @@ private:
 #endif
 
         // マルチパスカーネルの重みを計算
-        std::vector<int> kernel = computeMultiPassKernel(radius_, passes_);
-        int kernelSum = 0;
-        for (int w : kernel) kernelSum += w;
+        std::vector<int64_t> kernel = computeMultiPassKernel(radius_, passes_);
+        int64_t kernelSum = 0;
+        for (int64_t w : kernel) kernelSum += w;
 
         // 重み付きカーネルを使って出力行を計算
         computeOutputRowWeighted(output, request, kernel, kernelSum, effectiveRadius);
@@ -419,15 +419,15 @@ private:
 
     // マルチパスボックスブラーの畳み込みカーネルを計算
     // passes回のボックスブラー (サイズ2*radius+1) の畳み込み結果
-    std::vector<int> computeMultiPassKernel(int radius, int passes) {
+    std::vector<int64_t> computeMultiPassKernel(int radius, int passes) {
         int singleSize = 2 * radius + 1;
 
         // 1パス目: ボックスフィルタ [1,1,1,...,1]
-        std::vector<int> kernel(singleSize, 1);
+        std::vector<int64_t> kernel(singleSize, 1);
 
         // 2パス目以降: 畳み込みを繰り返す
         for (int p = 1; p < passes; p++) {
-            std::vector<int> newKernel(kernel.size() + singleSize - 1, 0);
+            std::vector<int64_t> newKernel(kernel.size() + singleSize - 1, 0);
 
             // 畳み込み: kernel * box
             for (size_t i = 0; i < kernel.size(); i++) {
@@ -444,7 +444,7 @@ private:
 
     // 重み付きカーネルを使って出力行を計算
     void computeOutputRowWeighted(ImageBuffer& output, const RenderRequest& request,
-                                   const std::vector<int>& kernel, int kernelSum,
+                                   const std::vector<int64_t>& kernel, int64_t kernelSum,
                                    int effectiveRadius) {
         uint8_t* outRow = static_cast<uint8_t*>(output.view().data);
         int kernelSize = kernel.size();
@@ -460,7 +460,7 @@ private:
 
                 const uint8_t* rowData = static_cast<const uint8_t*>(rowCache_[slot].view().data);
                 int off = x * 4;
-                int weight = kernel[k];
+                int64_t weight = kernel[k];
 
                 int a = rowData[off + 3];
                 sumR += rowData[off] * a * weight;
@@ -640,9 +640,9 @@ private:
             writeOutputRowFromColSum(outRow, cacheWidth_);
         } else {
             // マルチパス: 重み付きカーネルを使用
-            std::vector<int> kernel = computeMultiPassKernel(radius_, passes_);
-            int kernelSum = 0;
-            for (int w : kernel) kernelSum += w;
+            std::vector<int64_t> kernel = computeMultiPassKernel(radius_, passes_);
+            int64_t kernelSum = 0;
+            for (int64_t w : kernel) kernelSum += w;
             writeOutputRowWeightedPush(outRow, cacheWidth_, kernel, kernelSum);
         }
 
@@ -674,7 +674,7 @@ private:
 
     // push型用: 重み付きカーネルから出力行を計算
     void writeOutputRowWeightedPush(uint8_t* outRow, int width,
-                                     const std::vector<int>& kernel, int kernelSum) {
+                                     const std::vector<int64_t>& kernel, int64_t kernelSum) {
         int kernelSize = kernel.size();
         int effectiveRadius = radius_ * passes_;
 
@@ -691,7 +691,7 @@ private:
 
                 const uint8_t* rowData = static_cast<const uint8_t*>(rowCache_[slot].view().data);
                 int off = x * 4;
-                int weight = kernel[k];
+                int64_t weight = kernel[k];
 
                 int a = rowData[off + 3];
                 sumR += rowData[off] * a * weight;
