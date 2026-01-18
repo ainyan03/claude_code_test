@@ -21,7 +21,8 @@ namespace FLEXIMG_NAMESPACE {
 //
 // マルチパス処理:
 // - passes=3で3回水平ブラーを適用（ガウシアン近似）
-// - 入力マージン: radius * 2 * passes
+// - 出力拡張: width + radius * 2 * passes
+// - origin拡張: origin.x + radius * passes
 //
 // スキャンライン処理:
 // - 1行完結の処理（キャッシュ不要）
@@ -76,12 +77,11 @@ protected:
             return upstream->pullProcess(request);
         }
 
-        // 上流への要求（passes回分のマージン含む）
-        int totalMargin = radius_ * 2 * passes_;
+        // 上流への要求（サイズはそのまま、拡張なし）
         RenderRequest inputReq;
-        inputReq.width = request.width + totalMargin;
+        inputReq.width = request.width;
         inputReq.height = 1;
-        inputReq.origin.x = request.origin.x + to_fixed(radius_ * passes_);
+        inputReq.origin.x = request.origin.x;
         inputReq.origin.y = request.origin.y;
 
         RenderResult input = upstream->pullProcess(inputReq);
@@ -90,42 +90,20 @@ protected:
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         auto start = std::chrono::high_resolution_clock::now();
         auto& metrics = PerfMetrics::instance().nodes[NodeType::HorizontalBlur];
-        metrics.requestedPixels += static_cast<uint64_t>(request.width + totalMargin) * 1;
+        metrics.requestedPixels += static_cast<uint64_t>(request.width) * 1;
         metrics.usedPixels += static_cast<uint64_t>(request.width) * 1;
 #endif
 
         // RGBA8_Straightに変換
         ImageBuffer buffer = convertFormat(std::move(input.buffer),
                                            PixelFormatIDs::RGBA8_Straight);
+        Point currentOrigin = input.origin;
 
-        // 実際に返ってきた入力サイズ
-        int actualInputWidth = buffer.width();
-
-        // 最初のパスのinputOffset計算（元の実装を参照）
-        int srcOffsetX = from_fixed(inputReq.origin.x - input.origin.x);
-        int firstInputOffset = radius_ * passes_ - srcOffsetX;
-
-        // 最終的な出力幅を計算（実際の入力サイズに基づく）
-        int finalOutputWidth = actualInputWidth - radius_ * 2 * passes_;
-        if (finalOutputWidth <= 0) {
-            // 処理できない
-            return RenderResult();
-        }
-
-        // passes回、水平ブラーを適用
+        // passes回、水平ブラーを適用（各パスで拡張）
         for (int pass = 0; pass < passes_; pass++) {
             ViewPort srcView = buffer.view();
             int inputWidth = srcView.width;
-
-            // 出力幅を計算
-            int outputWidth;
-            if (pass == passes_ - 1) {
-                // 最終パス：実際に処理可能な幅を使用
-                outputWidth = finalOutputWidth;
-            } else {
-                // 中間パス：次のパスのために2*radiusを残す
-                outputWidth = inputWidth - radius_ * 2;
-            }
+            int outputWidth = inputWidth + radius_ * 2;
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
             if (pass == 0) {
@@ -137,11 +115,12 @@ protected:
             ImageBuffer output(outputWidth, 1, PixelFormatIDs::RGBA8_Straight,
                               InitPolicy::Uninitialized);
 
-            // オフセット計算（最初のパスは調整、2パス目以降は固定）
-            int inputOffset = (pass == 0) ? firstInputOffset : radius_;
-
             // 水平方向スライディングウィンドウでブラー処理
-            applyHorizontalBlur(srcView, inputOffset, output);
+            // pull型: inputOffset = radius (カーネル中心が入力の左端に来るように)
+            applyHorizontalBlur(srcView, radius_, output);
+
+            // origin.xをradius分増やす（左に拡張するため）
+            currentOrigin.x = currentOrigin.x + to_fixed(radius_);
 
             buffer = std::move(output);
         }
@@ -152,7 +131,7 @@ protected:
         metrics.count++;
 #endif
 
-        return RenderResult(std::move(buffer), request.origin);
+        return RenderResult(std::move(buffer), currentOrigin);
     }
 
     // ========================================
