@@ -116,8 +116,8 @@ protected:
                               InitPolicy::Uninitialized);
 
             // 水平方向スライディングウィンドウでブラー処理
-            // pull型: inputOffset = radius (カーネル中心が入力の左端に来るように)
-            applyHorizontalBlur(srcView, radius_, output);
+            // inputOffset = -radius (出力を左に拡張)
+            applyHorizontalBlur(srcView, -radius_, output);
 
             // origin.xをradius分増やす（左に拡張するため）
             currentOrigin.x = currentOrigin.x + to_fixed(radius_);
