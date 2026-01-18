@@ -232,10 +232,20 @@ const FILTER_DEFINITIONS = {
                 name: 'radius',
                 label: '半径',
                 min: 0,
-                max: 20,
+                max: 32,
                 step: 1,
-                default: 3,
+                default: 5,
                 format: v => `${Math.round(v)}px`
+            },
+            {
+                name: 'passes',
+                label: 'パス数',
+                min: 1,
+                max: 5,
+                step: 1,
+                default: 1,
+                format: v => `${Math.round(v)}回`,
+                description: '3回でガウシアン近似'
             }
         ]
     },
@@ -248,10 +258,20 @@ const FILTER_DEFINITIONS = {
                 name: 'radius',
                 label: '半径',
                 min: 0,
-                max: 20,
+                max: 32,
                 step: 1,
-                default: 3,
+                default: 5,
                 format: v => `${Math.round(v)}px`
+            },
+            {
+                name: 'passes',
+                label: 'パス数',
+                min: 1,
+                max: 5,
+                step: 1,
+                default: 1,
+                format: v => `${Math.round(v)}回`,
+                description: '3回でガウシアン近似'
             }
         ]
     }

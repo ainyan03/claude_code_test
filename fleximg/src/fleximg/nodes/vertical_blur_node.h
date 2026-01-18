@@ -19,20 +19,25 @@ namespace FLEXIMG_NAMESPACE {
 //
 // 入力画像に垂直方向のボックスブラー（平均化フィルタ）を適用します。
 // - radius: ブラー半径（カーネルサイズ = 2 * radius + 1）
+// - passes: ブラー適用回数（1-5、デフォルト1）
+//
+// マルチパス処理:
+// - passes=3で3回垂直ブラーを適用（ガウシアン近似）
+// - キャッシュサイズ: radius * 2 * passes + 1
 //
 // スキャンライン処理:
 // - prepare()でキャッシュを確保
 // - pullProcess()で行キャッシュと列合計を使用したスライディングウィンドウ処理
 // - finalize()でキャッシュを破棄
-// - 入力マージン: 0（幅方向は拡張不要）
 //
 // 使用例:
 //   VerticalBlurNode vblur;
-//   vblur.setRadius(5);
+//   vblur.setRadius(6);
+//   vblur.setPasses(3);  // ガウシアン近似
 //   src >> vblur >> sink;
 //
-// HorizontalBlurNodeと組み合わせてボックスブラーを実現:
-//   src >> hblur >> vblur >> sink;  // HorizontalBlur → VerticalBlur の順が効率的
+// HorizontalBlurNodeと組み合わせて2次元ガウシアン近似:
+//   src >> hblur(r=6, p=3) >> vblur(r=6, p=3) >> sink;
 //
 
 class VerticalBlurNode : public Node {
@@ -46,8 +51,12 @@ public:
     // ========================================
 
     void setRadius(int radius) { radius_ = radius; }
+    void setPasses(int passes) { passes_ = std::clamp(passes, 1, 5); }
+
     int radius() const { return radius_; }
+    int passes() const { return passes_; }
     int kernelSize() const { return radius_ * 2 + 1; }
+    int totalKernelSize() const { return radius_ * 2 * passes_ + 1; }
 
     // ========================================
     // Node インターフェース
@@ -64,19 +73,19 @@ public:
         screenHeight_ = screenInfo.height;
         screenOrigin_ = screenInfo.origin;
 
-        // radius=0の場合はキャッシュ不要
-        if (radius_ == 0) return;
+        // radius=0またはpasses=0の場合はキャッシュ不要
+        if (radius_ == 0 || passes_ == 0) return;
 
-        // キャッシュを初期化（幅は出力幅 = 入力幅）
+        // キャッシュを初期化（passes回分のキャッシュが必要）
         initializeCache(screenWidth_);
 
         currentY_ = 0;
         cacheReady_ = false;
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
-        size_t cacheBytes = kernelSize() * cacheWidth_ * 4 + cacheWidth_ * 4 * sizeof(uint32_t);
+        size_t cacheBytes = totalKernelSize() * cacheWidth_ * 4 + cacheWidth_ * 4 * sizeof(uint32_t);
         PerfMetrics::instance().nodes[NodeType::VerticalBlur].recordAlloc(
-            cacheBytes, cacheWidth_, kernelSize());
+            cacheBytes, cacheWidth_, totalKernelSize());
 #endif
     }
 
@@ -290,6 +299,8 @@ protected:
 
 private:
     int radius_ = 5;
+    int passes_ = 1;  // 1-5の範囲、デフォルト1（従来互換）
+                      // 注: 現在はキャッシュサイズ計算にのみ使用
 
     // スクリーン情報
     int screenWidth_ = 0;
@@ -323,9 +334,10 @@ private:
 
     void initializeCache(int width) {
         cacheWidth_ = width;
-        rowCache_.resize(kernelSize());
-        rowOriginX_.assign(kernelSize(), 0);  // 各行のorigin.xを初期化
-        for (int i = 0; i < kernelSize(); i++) {
+        int cacheRows = totalKernelSize();  // passes回分のキャッシュ
+        rowCache_.resize(cacheRows);
+        rowOriginX_.assign(cacheRows, 0);  // 各行のorigin.xを初期化
+        for (int i = 0; i < cacheRows; i++) {
             rowCache_[i] = ImageBuffer(cacheWidth_, 1, PixelFormatIDs::RGBA8_Straight,
                                        InitPolicy::Zero);
         }
