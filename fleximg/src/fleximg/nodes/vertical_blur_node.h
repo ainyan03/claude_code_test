@@ -7,6 +7,7 @@
 #include <vector>
 #include <algorithm>
 #include <cstring>
+#include <cstdint>  // for uint64_t
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
 #include <chrono>
 #endif
@@ -449,7 +450,7 @@ private:
         int kernelSize = kernel.size();
 
         for (int x = 0; x < request.width; x++) {
-            uint32_t sumR = 0, sumG = 0, sumB = 0, sumA = 0;
+            uint64_t sumR = 0, sumG = 0, sumB = 0, sumA = 0;
 
             // カーネルの各位置に対応する行から加重和を計算
             for (int k = 0; k < kernelSize; k++) {
@@ -678,7 +679,7 @@ private:
         int effectiveRadius = radius_ * passes_;
 
         for (int x = 0; x < width; x++) {
-            uint32_t sumR = 0, sumG = 0, sumB = 0, sumA = 0;
+            uint64_t sumR = 0, sumG = 0, sumB = 0, sumA = 0;
 
             // カーネルの各位置に対応する行から加重和を計算
             // 中心行は pushOutputY_, キャッシュされている最新の入力行は pushInputY_ - 1
