@@ -109,7 +109,10 @@ protected:
         ImageBuffer buffer = convertFormat(std::move(input.buffer),
                                            PixelFormatIDs::RGBA8_Straight);
 
-        // passes回、水平ブラーを適用（各パスで拡張）
+        // 上流から返されたoriginを保存
+        Point currentOrigin = input.origin;
+
+        // passes回、水平ブラーを適用（各パスで拡張＋origin調整）
         for (int pass = 0; pass < passes_; pass++) {
             ViewPort srcView = buffer.view();
             int inputWidth = srcView.width;
@@ -129,21 +132,36 @@ protected:
             // inputOffset = -radius (出力を左に拡張)
             applyHorizontalBlur(srcView, -radius_, output);
 
+            // origin.xを左に拡張した分だけ増やす（固定小数点）
+            currentOrigin.x = currentOrigin.x + to_fixed(radius_);
+
             buffer = std::move(output);
         }
 
-        // 最終サイズ = (request.width + totalMargin*2) + radius*2*passes
-        //            = request.width + totalMargin*4
-        // これを request.width にクロップする
-        int finalWidth = buffer.width();
-        int cropOffset = totalMargin * 2;  // 左右から totalMargin*2 ずつ削る
+        // origin座標を基準にクロップ位置を計算
+        // request.origin.x が欲しい位置、currentOrigin.x が現在のbufferの左端
+        // cropOffset = request.origin.x - currentOrigin.x（固定小数点での差分）
+        int_fixed offsetX = request.origin.x - currentOrigin.x;
+        int cropOffset = from_fixed(offsetX);
 
-        // 中央部分を切り出し
+        // 出力バッファを確保（ゼロ初期化）
         ImageBuffer output(request.width, 1, PixelFormatIDs::RGBA8_Straight,
-                          InitPolicy::Uninitialized);
+                          InitPolicy::Zero);
         const uint8_t* srcRow = static_cast<const uint8_t*>(buffer.view().data);
         uint8_t* dstRow = static_cast<uint8_t*>(output.view().data);
-        std::memcpy(dstRow, srcRow + cropOffset * 4, request.width * 4);
+
+        // クロップ範囲を計算（境界チェック付き）
+        int srcStartX = std::max(0, cropOffset);
+        int dstStartX = std::max(0, -cropOffset);
+        int copyWidth = std::min(static_cast<int>(buffer.width()) - srcStartX,
+                                 request.width - dstStartX);
+
+        // 有効な範囲をコピー（範囲外は既にゼロ初期化済み）
+        if (copyWidth > 0) {
+            std::memcpy(dstRow + dstStartX * 4,
+                       srcRow + srcStartX * 4,
+                       copyWidth * 4);
+        }
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         metrics.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
