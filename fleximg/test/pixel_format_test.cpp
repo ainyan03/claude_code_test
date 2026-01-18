@@ -279,4 +279,133 @@ TEST_CASE("ChannelDescriptor") {
         CHECK(ch.shift == 11);
         CHECK(ch.mask == 0xF800);
     }
+
+    SUBCASE("ChannelType construction") {
+        ChannelDescriptor ch(ChannelType::Alpha, 8, 0);
+        CHECK(ch.type == ChannelType::Alpha);
+        CHECK(ch.bits == 8);
+        CHECK(ch.shift == 0);
+        CHECK(ch.mask == 0x00FF);
+    }
+
+    SUBCASE("default ChannelType is Unused") {
+        ChannelDescriptor ch(8, 0);  // 旧コンストラクタ
+        CHECK(ch.type == ChannelType::Unused);
+    }
+}
+
+// =============================================================================
+// PixelFormatDescriptor Channel Methods Tests
+// =============================================================================
+
+TEST_CASE("PixelFormatDescriptor channel methods") {
+    SUBCASE("Alpha8 - single channel") {
+        const auto* fmt = PixelFormatIDs::Alpha8;
+
+        CHECK(fmt->channelCount == 1);
+        CHECK(fmt->getChannel(0).type == ChannelType::Alpha);
+        CHECK(fmt->getChannel(0).bits == 8);
+        CHECK(fmt->getChannel(1).type == ChannelType::Unused);
+
+        CHECK(fmt->hasChannelType(ChannelType::Alpha) == true);
+        CHECK(fmt->hasChannelType(ChannelType::Red) == false);
+
+        CHECK(fmt->getChannelIndex(ChannelType::Alpha) == 0);
+        CHECK(fmt->getChannelIndex(ChannelType::Red) == -1);
+
+        auto alphaCh = fmt->getChannelByType(ChannelType::Alpha);
+        CHECK(alphaCh.type == ChannelType::Alpha);
+        CHECK(alphaCh.bits == 8);
+    }
+
+    SUBCASE("RGBA8 - four channels") {
+        const auto* fmt = PixelFormatIDs::RGBA8_Straight;
+
+        CHECK(fmt->channelCount == 4);
+        CHECK(fmt->getChannelIndex(ChannelType::Red) == 0);
+        CHECK(fmt->getChannelIndex(ChannelType::Green) == 1);
+        CHECK(fmt->getChannelIndex(ChannelType::Blue) == 2);
+        CHECK(fmt->getChannelIndex(ChannelType::Alpha) == 3);
+
+        auto alphaCh = fmt->getChannelByType(ChannelType::Alpha);
+        CHECK(alphaCh.type == ChannelType::Alpha);
+        CHECK(alphaCh.bits == 8);
+    }
+
+    SUBCASE("RGB565 - packed format") {
+        const auto* fmt = PixelFormatIDs::RGB565_LE;
+
+        CHECK(fmt->channelCount == 3);
+        CHECK(fmt->hasChannelType(ChannelType::Red) == true);
+        CHECK(fmt->hasChannelType(ChannelType::Alpha) == false);
+
+        auto redCh = fmt->getChannelByType(ChannelType::Red);
+        CHECK(redCh.type == ChannelType::Red);
+        CHECK(redCh.bits == 5);
+        CHECK(redCh.shift == 11);
+    }
+}
+
+// =============================================================================
+// Alpha8 Conversion Tests
+// =============================================================================
+
+TEST_CASE("Alpha8 pixel format conversion") {
+    SUBCASE("Alpha8 to RGBA8_Straight") {
+        uint8_t src[3] = {0, 128, 255};
+        uint8_t dst[12] = {0};
+
+        convertFormat(src, PixelFormatIDs::Alpha8,
+                      dst, PixelFormatIDs::RGBA8_Straight, 3);
+
+        // Pixel 0: alpha=0
+        CHECK(dst[0] == 0);   // R
+        CHECK(dst[1] == 0);   // G
+        CHECK(dst[2] == 0);   // B
+        CHECK(dst[3] == 0);   // A
+
+        // Pixel 1: alpha=128
+        CHECK(dst[4] == 128);
+        CHECK(dst[5] == 128);
+        CHECK(dst[6] == 128);
+        CHECK(dst[7] == 128);
+
+        // Pixel 2: alpha=255
+        CHECK(dst[8] == 255);
+        CHECK(dst[9] == 255);
+        CHECK(dst[10] == 255);
+        CHECK(dst[11] == 255);
+    }
+
+    SUBCASE("RGBA8_Straight to Alpha8") {
+        uint8_t src[12] = {
+            100, 100, 100, 50,   // R,G,B,A (alpha=50)
+            200, 200, 200, 150,  // alpha=150
+            255, 255, 255, 255   // alpha=255
+        };
+        uint8_t dst[3] = {0};
+
+        convertFormat(src, PixelFormatIDs::RGBA8_Straight,
+                      dst, PixelFormatIDs::Alpha8, 3);
+
+        CHECK(dst[0] == 50);
+        CHECK(dst[1] == 150);
+        CHECK(dst[2] == 255);
+    }
+
+    SUBCASE("round-trip conversion") {
+        uint8_t original[4] = {0, 64, 192, 255};
+        uint8_t intermediate[16];
+        uint8_t result[4];
+
+        // Alpha8 → RGBA8 → Alpha8
+        convertFormat(original, PixelFormatIDs::Alpha8,
+                      intermediate, PixelFormatIDs::RGBA8_Straight, 4);
+        convertFormat(intermediate, PixelFormatIDs::RGBA8_Straight,
+                      result, PixelFormatIDs::Alpha8, 4);
+
+        for (int i = 0; i < 4; ++i) {
+            CHECK(result[i] == original[i]);
+        }
+    }
 }
