@@ -17,13 +17,8 @@ namespace FLEXIMG_NAMESPACE {
 // VerticalBlurNode - 垂直方向ブラーフィルタノード（スキャンライン対応）
 // ========================================================================
 //
-// 入力画像に垂直方向のStack Blur（三角形重み分布フィルタ）を適用します。
+// 入力画像に垂直方向のボックスブラー（平均化フィルタ）を適用します。
 // - radius: ブラー半径（カーネルサイズ = 2 * radius + 1）
-//
-// Stack Blurアルゴリズム:
-// - 三角形の重み分布を使用（中心が最も重く、端に向かって線形減衰）
-// - ガウシアンブラーに近い自然な仕上がり
-// - O(n)の計算量（半径に依存しない高速処理）
 //
 // スキャンライン処理:
 // - prepare()でキャッシュを確保
@@ -36,7 +31,7 @@ namespace FLEXIMG_NAMESPACE {
 //   vblur.setRadius(5);
 //   src >> vblur >> sink;
 //
-// HorizontalBlurNodeと組み合わせて2Dブラーを実現:
+// HorizontalBlurNodeと組み合わせてボックスブラーを実現:
 //   src >> hblur >> vblur >> sink;  // HorizontalBlur → VerticalBlur の順が効率的
 //
 
@@ -91,14 +86,6 @@ public:
         colSumG_.clear();
         colSumB_.clear();
         colSumA_.clear();
-        colSumInR_.clear();
-        colSumInG_.clear();
-        colSumInB_.clear();
-        colSumInA_.clear();
-        colSumOutR_.clear();
-        colSumOutG_.clear();
-        colSumOutB_.clear();
-        colSumOutA_.clear();
         cacheReady_ = false;
     }
 
@@ -312,21 +299,10 @@ private:
     // スキャンライン処理用キャッシュ
     std::vector<ImageBuffer> rowCache_;
     std::vector<int_fixed> rowOriginX_;      // 各キャッシュ行のorigin.x（push型用）
-
-    // Stack Blur用の列合計（各列ごとに3つのスタックを管理）
-    std::vector<uint64_t> colSumR_;          // 現在の重み付き合計
-    std::vector<uint64_t> colSumG_;
-    std::vector<uint64_t> colSumB_;
-    std::vector<uint64_t> colSumA_;
-    std::vector<uint64_t> colSumInR_;        // 入ってくる行の合計
-    std::vector<uint64_t> colSumInG_;
-    std::vector<uint64_t> colSumInB_;
-    std::vector<uint64_t> colSumInA_;
-    std::vector<uint64_t> colSumOutR_;       // 出ていく行の合計
-    std::vector<uint64_t> colSumOutG_;
-    std::vector<uint64_t> colSumOutB_;
-    std::vector<uint64_t> colSumOutA_;
-
+    std::vector<uint32_t> colSumR_;
+    std::vector<uint32_t> colSumG_;
+    std::vector<uint32_t> colSumB_;
+    std::vector<uint32_t> colSumA_;
     int cacheWidth_ = 0;
     int currentY_ = 0;
     bool cacheReady_ = false;
@@ -353,97 +329,30 @@ private:
             rowCache_[i] = ImageBuffer(cacheWidth_, 1, PixelFormatIDs::RGBA8_Straight,
                                        InitPolicy::Zero);
         }
-
-        // Stack Blur用の列合計を初期化
         colSumR_.assign(cacheWidth_, 0);
         colSumG_.assign(cacheWidth_, 0);
         colSumB_.assign(cacheWidth_, 0);
         colSumA_.assign(cacheWidth_, 0);
-        colSumInR_.assign(cacheWidth_, 0);
-        colSumInG_.assign(cacheWidth_, 0);
-        colSumInB_.assign(cacheWidth_, 0);
-        colSumInA_.assign(cacheWidth_, 0);
-        colSumOutR_.assign(cacheWidth_, 0);
-        colSumOutG_.assign(cacheWidth_, 0);
-        colSumOutB_.assign(cacheWidth_, 0);
-        colSumOutA_.assign(cacheWidth_, 0);
     }
 
     void updateCache(Node* upstream, const RenderRequest& request, int newY) {
         if (currentY_ == newY) return;
 
-        // 初回呼び出し時：Stack Blurの初期化
-        if (currentY_ + 1 == newY && !cacheReady_) {
-            // 全カーネル範囲の行をロードしてStack Blurを初期化
-            for (int ky = -radius_; ky <= radius_; ky++) {
-                int srcY = newY + ky;
-                int slot = srcY % kernelSize();
-                if (slot < 0) slot += kernelSize();
-
-                // 行を取得してキャッシュに格納
-                fetchRowToCache(upstream, request, srcY, slot);
-
-                // Stack Blurの重み計算
-                int weight = radius_ + 1 - std::abs(ky);
-
-                // 各行をスタックに追加
-                if (ky < 0) {
-                    addRowToColSumOut(slot);
-                }
-                if (ky > 0) {
-                    addRowToColSumIn(slot);
-                }
-
-                // 重み付きで列合計に加算
-                addRowToColSum(slot, weight);
-            }
-
-            cacheReady_ = true;
-            currentY_ = newY;
-            return;
-        }
-
-        // スライディング処理
         int step = (currentY_ < newY) ? 1 : -1;
 
         while (currentY_ != newY) {
-            // Stack Blur スライディング更新
-            // sum = sum - sumOut + sumIn
-            for (int x = 0; x < cacheWidth_; x++) {
-                colSumR_[x] = colSumR_[x] - colSumOutR_[x] + colSumInR_[x];
-                colSumG_[x] = colSumG_[x] - colSumOutG_[x] + colSumInG_[x];
-                colSumB_[x] = colSumB_[x] - colSumOutB_[x] + colSumInB_[x];
-                colSumA_[x] = colSumA_[x] - colSumOutA_[x] + colSumInA_[x];
-            }
-
-            // 古い行（最も遠い行）
-            int oldSrcY = currentY_ + step * (-radius_ - 1);
-            int oldSlot = oldSrcY % kernelSize();
-            if (oldSlot < 0) oldSlot += kernelSize();
-
-            // 前の中心行
-            int prevCenterY = currentY_;
-            int prevCenterSlot = prevCenterY % kernelSize();
-            if (prevCenterSlot < 0) prevCenterSlot += kernelSize();
-
-            // sumOutから古い行を削除
-            removeRowFromColSum(oldSlot, colSumOutR_, colSumOutG_, colSumOutB_, colSumOutA_);
-
-            // 前の中心行をsumOutに追加
-            addRowToColSum(prevCenterSlot, colSumOutR_, colSumOutG_, colSumOutB_, colSumOutA_);
-
-            // sumInから前の中心行を削除
-            removeRowFromColSum(prevCenterSlot, colSumInR_, colSumInG_, colSumInB_, colSumInA_);
-
-            // 新しい行を取得
             int newSrcY = currentY_ + step * (radius_ + 1);
-            int newSlot = newSrcY % kernelSize();
-            if (newSlot < 0) newSlot += kernelSize();
+            int slot = newSrcY % kernelSize();
+            if (slot < 0) slot += kernelSize();
 
-            fetchRowToCache(upstream, request, newSrcY, newSlot);
+            // 古い行を列合計から減算
+            updateColSum(slot, false);
 
-            // sumInに新しい行を追加
-            addRowToColSum(newSlot, colSumInR_, colSumInG_, colSumInB_, colSumInA_);
+            // 新しい行を取得して格納
+            fetchRowToCache(upstream, request, newSrcY, slot);
+
+            // 新しい行を列合計に加算
+            updateColSum(slot, true);
 
             currentY_ += step;
         }
@@ -483,76 +392,20 @@ private:
         }
     }
 
-    // ========================================
-    // Stack Blur用ヘルパー関数
-    // ========================================
-
-    // 指定行をsumOutに加算
-    void addRowToColSumOut(int cacheIndex) {
+    // 指定行を列合計に加算/減算
+    void updateColSum(int cacheIndex, bool add) {
         const uint8_t* row = static_cast<const uint8_t*>(rowCache_[cacheIndex].view().data);
+        int sign = add ? 1 : -1;
         for (int x = 0; x < cacheWidth_; x++) {
             int off = x * 4;
-            uint32_t a = row[off + 3];
-            colSumOutR_[x] += row[off] * a;
-            colSumOutG_[x] += row[off + 1] * a;
-            colSumOutB_[x] += row[off + 2] * a;
-            colSumOutA_[x] += a;
-        }
-    }
-
-    // 指定行をsumInに加算
-    void addRowToColSumIn(int cacheIndex) {
-        const uint8_t* row = static_cast<const uint8_t*>(rowCache_[cacheIndex].view().data);
-        for (int x = 0; x < cacheWidth_; x++) {
-            int off = x * 4;
-            uint32_t a = row[off + 3];
-            colSumInR_[x] += row[off] * a;
-            colSumInG_[x] += row[off + 1] * a;
-            colSumInB_[x] += row[off + 2] * a;
-            colSumInA_[x] += a;
-        }
-    }
-
-    // 指定行を重み付きでsumに加算
-    void addRowToColSum(int cacheIndex, int weight) {
-        const uint8_t* row = static_cast<const uint8_t*>(rowCache_[cacheIndex].view().data);
-        for (int x = 0; x < cacheWidth_; x++) {
-            int off = x * 4;
-            uint32_t a = row[off + 3];
-            colSumR_[x] += row[off] * a * weight;
-            colSumG_[x] += row[off + 1] * a * weight;
-            colSumB_[x] += row[off + 2] * a * weight;
-            colSumA_[x] += a * weight;
-        }
-    }
-
-    // 指定行を指定したスタックから削除
-    void removeRowFromColSum(int cacheIndex,
-                             std::vector<uint64_t>& sumR, std::vector<uint64_t>& sumG,
-                             std::vector<uint64_t>& sumB, std::vector<uint64_t>& sumA) {
-        const uint8_t* row = static_cast<const uint8_t*>(rowCache_[cacheIndex].view().data);
-        for (int x = 0; x < cacheWidth_; x++) {
-            int off = x * 4;
-            uint32_t a = row[off + 3];
-            sumR[x] -= row[off] * a;
-            sumG[x] -= row[off + 1] * a;
-            sumB[x] -= row[off + 2] * a;
-            sumA[x] -= a;
-        }
-    }
-
-    // 指定行を指定したスタックに加算
-    void addRowToColSum(int cacheIndex,
-                        std::vector<uint64_t>& sumR, std::vector<uint64_t>& sumG,
-                        std::vector<uint64_t>& sumB, std::vector<uint64_t>& sumA) {
-        const uint8_t* row = static_cast<const uint8_t*>(rowCache_[cacheIndex].view().data);
-        for (int x = 0; x < cacheWidth_; x++) {
-            int off = x * 4;
-            uint32_t a = row[off + 3];
-            sumR[x] += row[off] * a;
-            sumG[x] += row[off + 1] * a;
-            sumB[x] += row[off + 2] * a;
-            sumA[x] += a;
+            int32_t a = row[off + 3] * sign;
+            int32_t ra = row[off] * a;
+            int32_t ga = row[off + 1] * a;
+            int32_t ba = row[off + 2] * a;
+            colSumR_[x] += ra;
+            colSumG_[x] += ga;
+            colSumB_[x] += ba;
+            colSumA_[x] += a;
         }
     }
 
@@ -562,39 +415,19 @@ private:
         writeOutputRowFromColSum(outRow, request.width);
     }
 
-    // 列合計から出力行に書き込み（Stack Blur用）
+    // 列合計から出力行に書き込み（共通ヘルパー）
     void writeOutputRowFromColSum(uint8_t* outRow, int width) {
-        // Stack Blur: 重みの合計 = (radius+1)^2
-        int div = (radius_ + 1) * (radius_ + 1);
+        int ks = kernelSize();
         for (int x = 0; x < width; x++) {
             int off = x * 4;
             if (colSumA_[x] > 0) {
                 outRow[off]     = static_cast<uint8_t>(colSumR_[x] / colSumA_[x]);
                 outRow[off + 1] = static_cast<uint8_t>(colSumG_[x] / colSumA_[x]);
                 outRow[off + 2] = static_cast<uint8_t>(colSumB_[x] / colSumA_[x]);
-                outRow[off + 3] = static_cast<uint8_t>(colSumA_[x] / div);
+                outRow[off + 3] = static_cast<uint8_t>(colSumA_[x] / ks);
             } else {
                 outRow[off] = outRow[off + 1] = outRow[off + 2] = outRow[off + 3] = 0;
             }
-        }
-    }
-
-    // push型用の簡易版updateColSum（Stack Blur非対応、互換性維持のため）
-    // TODO: push型もStack Blurに完全対応させる
-    void updateColSum(int cacheIndex, bool add) {
-        const uint8_t* row = static_cast<const uint8_t*>(rowCache_[cacheIndex].view().data);
-        int sign = add ? 1 : -1;
-        int weight = radius_ + 1;  // 暫定的に最大重みを使用
-        for (int x = 0; x < cacheWidth_; x++) {
-            int off = x * 4;
-            int64_t a = row[off + 3] * sign * weight;
-            int64_t ra = row[off] * a;
-            int64_t ga = row[off + 1] * a;
-            int64_t ba = row[off + 2] * a;
-            colSumR_[x] += ra;
-            colSumG_[x] += ga;
-            colSumB_[x] += ba;
-            colSumA_[x] += a;
         }
     }
 
