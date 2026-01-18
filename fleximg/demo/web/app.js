@@ -4537,6 +4537,22 @@ function buildFilterDetailContent(node) {
     const filterDef = FILTER_DEFINITIONS[node.filterType];
     if (!filterDef) return;
 
+    // paramsオブジェクトを初期化（存在しない場合）
+    if (!node.params) {
+        node.params = {};
+        // 古い形式（node.param）からの移行
+        if (node.param !== undefined && filterDef.params.length > 0) {
+            node.params[filterDef.params[0].name] = node.param;
+            delete node.param;
+        }
+        // デフォルト値で初期化
+        filterDef.params.forEach(paramDef => {
+            if (node.params[paramDef.name] === undefined) {
+                node.params[paramDef.name] = paramDef.default;
+            }
+        });
+    }
+
     const section = document.createElement('div');
     section.className = 'node-detail-section';
 
@@ -4546,7 +4562,7 @@ function buildFilterDetailContent(node) {
     section.appendChild(label);
 
     filterDef.params.forEach((paramDef, index) => {
-        const currentValue = node.param ?? paramDef.default;
+        const currentValue = node.params[paramDef.name] ?? paramDef.default;
 
         const row = document.createElement('div');
         row.className = 'node-detail-row';
@@ -4567,7 +4583,7 @@ function buildFilterDetailContent(node) {
 
         slider.addEventListener('input', (e) => {
             const value = parseFloat(e.target.value);
-            node.param = value;
+            node.params[paramDef.name] = value;
             display.textContent = paramDef.format ? paramDef.format(value) : String(value);
             renderNodeGraph();
             throttledUpdatePreview();

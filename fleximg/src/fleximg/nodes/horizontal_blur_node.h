@@ -98,25 +98,44 @@ protected:
         ImageBuffer buffer = convertFormat(std::move(input.buffer),
                                            PixelFormatIDs::RGBA8_Straight);
 
+        // 実際に返ってきた入力サイズ
+        int actualInputWidth = buffer.width();
+
         // 最初のパスのinputOffset計算（元の実装を参照）
         int srcOffsetX = from_fixed(inputReq.origin.x - input.origin.x);
         int firstInputOffset = radius_ * passes_ - srcOffsetX;
+
+        // 最終的な出力幅を計算（実際の入力サイズに基づく）
+        int finalOutputWidth = actualInputWidth - radius_ * 2 * passes_;
+        if (finalOutputWidth <= 0) {
+            // 処理できない
+            return RenderResult();
+        }
 
         // passes回、水平ブラーを適用
         for (int pass = 0; pass < passes_; pass++) {
             ViewPort srcView = buffer.view();
             int inputWidth = srcView.width;
-            int outputWidth = (pass == passes_ - 1) ? request.width : (inputWidth - radius_ * 2);
+
+            // 出力幅を計算
+            int outputWidth;
+            if (pass == passes_ - 1) {
+                // 最終パス：実際に処理可能な幅を使用
+                outputWidth = finalOutputWidth;
+            } else {
+                // 中間パス：次のパスのために2*radiusを残す
+                outputWidth = inputWidth - radius_ * 2;
+            }
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+            if (pass == 0) {
+                metrics.recordAlloc(outputWidth * 4, outputWidth, 1);
+            }
+#endif
 
             // 出力バッファを確保
             ImageBuffer output(outputWidth, 1, PixelFormatIDs::RGBA8_Straight,
                               InitPolicy::Uninitialized);
-
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-            if (pass == 0) {
-                metrics.recordAlloc(output.totalBytes(), output.width(), output.height());
-            }
-#endif
 
             // オフセット計算（最初のパスは調整、2パス目以降は固定）
             int inputOffset = (pass == 0) ? firstInputOffset : radius_;
