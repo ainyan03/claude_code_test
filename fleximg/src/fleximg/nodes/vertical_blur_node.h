@@ -161,23 +161,28 @@ public:
             return;
         }
 
+        int effectiveRadius = (passes_ == 1) ? radius_ : (radius_ * passes_);
+        int cacheSize = (passes_ == 1) ? kernelSize() : totalKernelSize();
+
         // originを先に保存（bufferがムーブされる前に）
         Point inputOrigin = input.origin;
 
         if (!input.isValid()) {
             // 無効な入力でもキャッシュを更新（ゼロ行扱い）
-            int slot = pushInputY_ % kernelSize();
-            if (pushInputY_ >= kernelSize()) {
+            int slot = pushInputY_ % cacheSize;
+            if (passes_ == 1 && pushInputY_ >= kernelSize()) {
                 updateColSum(slot, false);
             }
             std::memset(rowCache_[slot].view().data, 0, cacheWidth_ * 4);
             rowOriginX_[slot] = inputOrigin.x;  // origin.xを保存
-            updateColSum(slot, true);
+            if (passes_ == 1) {
+                updateColSum(slot, true);
+            }
             lastInputOriginY_ = inputOrigin.y;
             pushInputY_++;
 
-            // radius行受け取った後から出力開始
-            if (pushInputY_ > radius_) {
+            // effectiveRadius行受け取った後から出力開始
+            if (pushInputY_ > effectiveRadius) {
                 emitBlurredLine();
             }
             return;
@@ -188,10 +193,10 @@ public:
                                                PixelFormatIDs::RGBA8_Straight);
 
         // キャッシュスロットを決定（リングバッファ）
-        int slot = pushInputY_ % kernelSize();
+        int slot = pushInputY_ % cacheSize;
 
-        // 古い行を列合計から減算
-        if (pushInputY_ >= kernelSize()) {
+        // 古い行を列合計から減算（単一パスのみ）
+        if (passes_ == 1 && pushInputY_ >= kernelSize()) {
             updateColSum(slot, false);
         }
 
@@ -203,16 +208,18 @@ public:
         storeInputRowToCache(converted, slot, xOffset);
         rowOriginX_[slot] = inputOrigin.x;  // origin.xを保存
 
-        // 新しい行を列合計に加算
-        updateColSum(slot, true);
+        // 新しい行を列合計に加算（単一パスのみ）
+        if (passes_ == 1) {
+            updateColSum(slot, true);
+        }
 
         // Y方向のorigin更新
         lastInputOriginY_ = inputOrigin.y;
 
         pushInputY_++;
 
-        // radius行受け取った後から出力開始（出力行 m は入力行 m を中心としたブラー）
-        if (pushInputY_ > radius_) {
+        // effectiveRadius行受け取った後から出力開始（出力行 m は入力行 m を中心としたブラー）
+        if (pushInputY_ > effectiveRadius) {
             emitBlurredLine();
         }
     }
@@ -224,11 +231,13 @@ public:
             return;
         }
 
-        // 残りのradius行を出力（下端はゼロパディング扱い）
+        int cacheSize = (passes_ == 1) ? kernelSize() : totalKernelSize();
+
+        // 残りの行を出力（下端はゼロパディング扱い）
         while (pushOutputY_ < pushOutputHeight_) {
-            // ゼロ行をキャッシュに追加して列合計を更新
-            int slot = pushInputY_ % kernelSize();
-            if (pushInputY_ >= kernelSize()) {
+            // ゼロ行をキャッシュに追加
+            int slot = pushInputY_ % cacheSize;
+            if (passes_ == 1 && pushInputY_ >= kernelSize()) {
                 updateColSum(slot, false);
             }
             // ゼロクリア済みのキャッシュ行を使用
@@ -260,6 +269,51 @@ protected:
             return upstream->pullProcess(request);
         }
 
+        // passes=1の場合は従来の単一パス処理
+        if (passes_ == 1) {
+            return pullProcessSinglePass(upstream, request);
+        }
+
+        // passes>1の場合は複数パス処理（マルチパスカーネルを使用）
+        return pullProcessMultiPass(upstream, request);
+    }
+
+private:
+    int radius_ = 5;
+    int passes_ = 1;  // 1-5の範囲、デフォルト1（従来互換）
+
+    // スクリーン情報
+    int screenWidth_ = 0;
+    int screenHeight_ = 0;
+    Point screenOrigin_;
+
+    // スキャンライン処理用キャッシュ
+    std::vector<ImageBuffer> rowCache_;
+    std::vector<int_fixed> rowOriginX_;      // 各キャッシュ行のorigin.x（push型用）
+    std::vector<uint32_t> colSumR_;
+    std::vector<uint32_t> colSumG_;
+    std::vector<uint32_t> colSumB_;
+    std::vector<uint32_t> colSumA_;
+    int cacheWidth_ = 0;
+    int currentY_ = 0;
+    bool cacheReady_ = false;
+
+    // push型処理用の状態
+    int pushInputY_ = 0;
+    int pushOutputY_ = 0;
+    int pushInputWidth_ = 0;
+    int pushInputHeight_ = 0;
+    int pushOutputHeight_ = 0;
+    int_fixed baseOriginX_ = 0;              // 基準origin.x（pushPrepareで設定）
+    int_fixed pushInputOriginY_ = 0;
+    int_fixed lastInputOriginY_ = 0;
+
+    // ========================================
+    // マルチパス処理用ヘルパー
+    // ========================================
+
+    // 単一パス処理（従来の実装）
+    RenderResult pullProcessSinglePass(Node* upstream, const RenderRequest& request) {
         int requestY = from_fixed(request.origin.y);
 
         // 最初の呼び出し: キャッシュ初期化のためcurrentY_を設定
@@ -297,36 +351,134 @@ protected:
         return RenderResult(std::move(output), request.origin);
     }
 
-private:
-    int radius_ = 5;
-    int passes_ = 1;  // 1-5の範囲、デフォルト1（従来互換）
-                      // 注: 現在はキャッシュサイズ計算にのみ使用
+    // マルチパス処理（重み付きカーネルを使用）
+    RenderResult pullProcessMultiPass(Node* upstream, const RenderRequest& request) {
+        int requestY = from_fixed(request.origin.y);
+        int totalKernelRows = totalKernelSize();
+        int effectiveRadius = radius_ * passes_;
 
-    // スクリーン情報
-    int screenWidth_ = 0;
-    int screenHeight_ = 0;
-    Point screenOrigin_;
+        // 最初の呼び出し: キャッシュ初期化のためcurrentY_を設定
+        if (!cacheReady_) {
+            currentY_ = requestY - effectiveRadius;
+            cacheReady_ = true;
+        }
 
-    // スキャンライン処理用キャッシュ
-    std::vector<ImageBuffer> rowCache_;
-    std::vector<int_fixed> rowOriginX_;      // 各キャッシュ行のorigin.x（push型用）
-    std::vector<uint32_t> colSumR_;
-    std::vector<uint32_t> colSumG_;
-    std::vector<uint32_t> colSumB_;
-    std::vector<uint32_t> colSumA_;
-    int cacheWidth_ = 0;
-    int currentY_ = 0;
-    bool cacheReady_ = false;
+        // 必要な行範囲をキャッシュに読み込む
+        updateCacheMultiPass(upstream, request, requestY, effectiveRadius);
 
-    // push型処理用の状態
-    int pushInputY_ = 0;
-    int pushOutputY_ = 0;
-    int pushInputWidth_ = 0;
-    int pushInputHeight_ = 0;
-    int pushOutputHeight_ = 0;
-    int_fixed baseOriginX_ = 0;              // 基準origin.x（pushPrepareで設定）
-    int_fixed pushInputOriginY_ = 0;
-    int_fixed lastInputOriginY_ = 0;
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        auto start = std::chrono::high_resolution_clock::now();
+        auto& metrics = PerfMetrics::instance().nodes[NodeType::VerticalBlur];
+        metrics.requestedPixels += static_cast<uint64_t>(request.width) * 1;
+        metrics.usedPixels += static_cast<uint64_t>(request.width) * 1;
+#endif
+
+        // 出力バッファを確保
+        ImageBuffer output(request.width, 1, PixelFormatIDs::RGBA8_Straight,
+                          InitPolicy::Uninitialized);
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        metrics.recordAlloc(output.totalBytes(), output.width(), output.height());
+#endif
+
+        // マルチパスカーネルの重みを計算
+        std::vector<int> kernel = computeMultiPassKernel(radius_, passes_);
+        int kernelSum = 0;
+        for (int w : kernel) kernelSum += w;
+
+        // 重み付きカーネルを使って出力行を計算
+        computeOutputRowWeighted(output, request, kernel, kernelSum, effectiveRadius);
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        metrics.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::high_resolution_clock::now() - start).count();
+        metrics.count++;
+#endif
+
+        return RenderResult(std::move(output), request.origin);
+    }
+
+    // マルチパス用キャッシュ更新
+    void updateCacheMultiPass(Node* upstream, const RenderRequest& request, int newY, int effectiveRadius) {
+        if (currentY_ == newY) return;
+
+        int step = (currentY_ < newY) ? 1 : -1;
+
+        while (currentY_ != newY) {
+            int newSrcY = currentY_ + step * (effectiveRadius + 1);
+            int slot = newSrcY % totalKernelSize();
+            if (slot < 0) slot += totalKernelSize();
+
+            // 新しい行を取得して格納
+            fetchRowToCache(upstream, request, newSrcY, slot);
+
+            currentY_ += step;
+        }
+    }
+
+    // マルチパスボックスブラーの畳み込みカーネルを計算
+    // passes回のボックスブラー (サイズ2*radius+1) の畳み込み結果
+    std::vector<int> computeMultiPassKernel(int radius, int passes) {
+        int singleSize = 2 * radius + 1;
+
+        // 1パス目: ボックスフィルタ [1,1,1,...,1]
+        std::vector<int> kernel(singleSize, 1);
+
+        // 2パス目以降: 畳み込みを繰り返す
+        for (int p = 1; p < passes; p++) {
+            std::vector<int> newKernel(kernel.size() + singleSize - 1, 0);
+
+            // 畳み込み: kernel * box
+            for (size_t i = 0; i < kernel.size(); i++) {
+                for (int j = 0; j < singleSize; j++) {
+                    newKernel[i + j] += kernel[i];
+                }
+            }
+
+            kernel = std::move(newKernel);
+        }
+
+        return kernel;
+    }
+
+    // 重み付きカーネルを使って出力行を計算
+    void computeOutputRowWeighted(ImageBuffer& output, const RenderRequest& request,
+                                   const std::vector<int>& kernel, int kernelSum,
+                                   int effectiveRadius) {
+        uint8_t* outRow = static_cast<uint8_t*>(output.view().data);
+        int kernelSize = kernel.size();
+
+        for (int x = 0; x < request.width; x++) {
+            uint32_t sumR = 0, sumG = 0, sumB = 0, sumA = 0;
+
+            // カーネルの各位置に対応する行から加重和を計算
+            for (int k = 0; k < kernelSize; k++) {
+                int srcY = currentY_ - effectiveRadius + k;
+                int slot = srcY % totalKernelSize();
+                if (slot < 0) slot += totalKernelSize();
+
+                const uint8_t* rowData = static_cast<const uint8_t*>(rowCache_[slot].view().data);
+                int off = x * 4;
+                int weight = kernel[k];
+
+                int a = rowData[off + 3];
+                sumR += rowData[off] * a * weight;
+                sumG += rowData[off + 1] * a * weight;
+                sumB += rowData[off + 2] * a * weight;
+                sumA += a * weight;
+            }
+
+            int off = x * 4;
+            if (sumA > 0) {
+                outRow[off]     = static_cast<uint8_t>(sumR / sumA);
+                outRow[off + 1] = static_cast<uint8_t>(sumG / sumA);
+                outRow[off + 2] = static_cast<uint8_t>(sumB / sumA);
+                outRow[off + 3] = static_cast<uint8_t>(sumA / kernelSum);
+            } else {
+                outRow[off] = outRow[off + 1] = outRow[off + 2] = outRow[off + 3] = 0;
+            }
+        }
+    }
 
     // ========================================
     // キャッシュ管理
@@ -481,7 +633,17 @@ private:
                           InitPolicy::Uninitialized);
 
         uint8_t* outRow = static_cast<uint8_t*>(output.view().data);
-        writeOutputRowFromColSum(outRow, cacheWidth_);
+
+        if (passes_ == 1) {
+            // 単一パス: 列合計から計算
+            writeOutputRowFromColSum(outRow, cacheWidth_);
+        } else {
+            // マルチパス: 重み付きカーネルを使用
+            std::vector<int> kernel = computeMultiPassKernel(radius_, passes_);
+            int kernelSum = 0;
+            for (int w : kernel) kernelSum += w;
+            writeOutputRowWeightedPush(outRow, cacheWidth_, kernel, kernelSum);
+        }
 
         // origin.xの計算: キャッシュはbaseOriginX_に揃えてアライメントされているので
         // 出力もbaseOriginX_を使用する
@@ -506,6 +668,46 @@ private:
         Node* downstream = downstreamNode(0);
         if (downstream) {
             downstream->pushProcess(RenderResult(std::move(output), outReq.origin), outReq);
+        }
+    }
+
+    // push型用: 重み付きカーネルから出力行を計算
+    void writeOutputRowWeightedPush(uint8_t* outRow, int width,
+                                     const std::vector<int>& kernel, int kernelSum) {
+        int kernelSize = kernel.size();
+        int effectiveRadius = radius_ * passes_;
+
+        for (int x = 0; x < width; x++) {
+            uint32_t sumR = 0, sumG = 0, sumB = 0, sumA = 0;
+
+            // カーネルの各位置に対応する行から加重和を計算
+            // 中心行は pushOutputY_, キャッシュされている最新の入力行は pushInputY_ - 1
+            int centerInputRow = pushOutputY_;
+            for (int k = 0; k < kernelSize; k++) {
+                int srcRow = centerInputRow - effectiveRadius + k;
+                int slot = srcRow % totalKernelSize();
+                if (slot < 0) slot += totalKernelSize();
+
+                const uint8_t* rowData = static_cast<const uint8_t*>(rowCache_[slot].view().data);
+                int off = x * 4;
+                int weight = kernel[k];
+
+                int a = rowData[off + 3];
+                sumR += rowData[off] * a * weight;
+                sumG += rowData[off + 1] * a * weight;
+                sumB += rowData[off + 2] * a * weight;
+                sumA += a * weight;
+            }
+
+            int off = x * 4;
+            if (sumA > 0) {
+                outRow[off]     = static_cast<uint8_t>(sumR / sumA);
+                outRow[off + 1] = static_cast<uint8_t>(sumG / sumA);
+                outRow[off + 2] = static_cast<uint8_t>(sumB / sumA);
+                outRow[off + 3] = static_cast<uint8_t>(sumA / kernelSum);
+            } else {
+                outRow[off] = outRow[off + 1] = outRow[off + 2] = outRow[off + 3] = 0;
+            }
         }
     }
 };

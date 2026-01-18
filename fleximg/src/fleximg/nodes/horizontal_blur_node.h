@@ -81,7 +81,7 @@ protected:
         RenderRequest inputReq;
         inputReq.width = request.width + totalMargin;
         inputReq.height = 1;
-        inputReq.origin.x = request.origin.x + to_fixed(totalMargin / 2);
+        inputReq.origin.x = request.origin.x + to_fixed(radius_ * passes_);
         inputReq.origin.y = request.origin.y;
 
         RenderResult input = upstream->pullProcess(inputReq);
@@ -97,6 +97,10 @@ protected:
         // RGBA8_Straightに変換
         ImageBuffer buffer = convertFormat(std::move(input.buffer),
                                            PixelFormatIDs::RGBA8_Straight);
+
+        // 最初のパスのinputOffset計算（元の実装を参照）
+        int srcOffsetX = from_fixed(inputReq.origin.x - input.origin.x);
+        int firstInputOffset = radius_ * passes_ - srcOffsetX;
 
         // passes回、水平ブラーを適用
         for (int pass = 0; pass < passes_; pass++) {
@@ -114,8 +118,8 @@ protected:
             }
 #endif
 
-            // オフセット計算
-            int inputOffset = radius_;
+            // オフセット計算（最初のパスは調整、2パス目以降は固定）
+            int inputOffset = (pass == 0) ? firstInputOffset : radius_;
 
             // 水平方向スライディングウィンドウでブラー処理
             applyHorizontalBlur(srcView, inputOffset, output);
