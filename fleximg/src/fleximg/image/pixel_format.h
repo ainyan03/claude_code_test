@@ -45,16 +45,41 @@ enum class ByteOrder {
 };
 
 // ========================================================================
+// チャンネル種別
+// ========================================================================
+
+enum class ChannelType : uint8_t {
+    Unused = 0,      // チャンネルなし
+    Red,             // 赤チャンネル
+    Green,           // 緑チャンネル
+    Blue,            // 青チャンネル
+    Alpha,           // アルファチャンネル
+    Luminance,       // 輝度（グレースケール）
+    Index            // パレットインデックス
+};
+
+// ========================================================================
 // チャンネル記述子
 // ========================================================================
 
 struct ChannelDescriptor {
+    ChannelType type;   // チャンネル種別
     uint8_t bits;       // ビット数（0なら存在しない）
     uint8_t shift;      // ビットシフト量
     uint16_t mask;      // ビットマスク
 
-    ChannelDescriptor(uint8_t b = 0, uint8_t s = 0)
-        : bits(b), shift(s)
+    // デフォルトコンストラクタ（Unusedチャンネル）
+    constexpr ChannelDescriptor()
+        : type(ChannelType::Unused), bits(0), shift(0), mask(0) {}
+
+    // 旧コンストラクタ（後方互換性維持、typeはUnusedに設定）
+    constexpr ChannelDescriptor(uint8_t b, uint8_t s)
+        : type(ChannelType::Unused), bits(b), shift(s)
+        , mask(b > 0 ? static_cast<uint16_t>(((1u << b) - 1) << s) : 0) {}
+
+    // 新コンストラクタ（チャンネル種別を指定）
+    constexpr ChannelDescriptor(ChannelType t, uint8_t b, uint8_t s = 0)
+        : type(t), bits(b), shift(s)
         , mask(b > 0 ? static_cast<uint16_t>(((1u << b) - 1) << s) : 0) {}
 };
 
@@ -71,7 +96,8 @@ struct PixelFormatDescriptor {
     uint8_t bytesPerUnit;       // 1ユニットあたりのバイト数
 
     // チャンネル情報（ダイレクトカラーの場合）
-    ChannelDescriptor channels[4];  // R, G, B, A の順
+    uint8_t channelCount;           // チャンネル総数（Phase 2で追加、Phase 4で使用開始）
+    ChannelDescriptor channels[4];  // R, G, B, A の順（Phase 5で削除予定）
 
     // アルファ情報
     bool hasAlpha;
@@ -98,6 +124,39 @@ struct PixelFormatDescriptor {
     // 変換関数ポインタ（インデックスカラー用）
     ToStandardIndexedFunc toStandardIndexed;
     FromStandardIndexedFunc fromStandardIndexed;
+
+    // ========================================================================
+    // チャンネルアクセスメソッド（Phase 2で追加）
+    // ========================================================================
+
+    // 指定インデックスのチャンネル記述子を取得
+    // index >= channelCount の場合はUnusedチャンネルを返す
+    constexpr ChannelDescriptor getChannel(uint8_t index) const {
+        return (index < channelCount) ? channels[index] : ChannelDescriptor();
+    }
+
+    // 指定タイプのチャンネルインデックスを取得
+    // 見つからない場合は-1を返す
+    constexpr int8_t getChannelIndex(ChannelType type) const {
+        for (uint8_t i = 0; i < channelCount; ++i) {
+            if (channels[i].type == type) {
+                return static_cast<int8_t>(i);
+            }
+        }
+        return -1;
+    }
+
+    // 指定タイプのチャンネルを持つか判定
+    constexpr bool hasChannelType(ChannelType type) const {
+        return getChannelIndex(type) >= 0;
+    }
+
+    // 指定タイプのチャンネル記述子を取得
+    // 見つからない場合はUnusedチャンネルを返す
+    constexpr ChannelDescriptor getChannelByType(ChannelType type) const {
+        int8_t idx = getChannelIndex(type);
+        return (idx >= 0) ? channels[idx] : ChannelDescriptor();
+    }
 };
 
 // ========================================================================
@@ -113,6 +172,7 @@ namespace BuiltinFormats {
     extern const PixelFormatDescriptor RGB332;
     extern const PixelFormatDescriptor RGB888;
     extern const PixelFormatDescriptor BGR888;
+    extern const PixelFormatDescriptor Alpha8;
 }
 
 // ========================================================================
@@ -134,6 +194,9 @@ namespace PixelFormatIDs {
     // 24bit RGB系
     inline const PixelFormatID RGB888                = &BuiltinFormats::RGB888;
     inline const PixelFormatID BGR888                = &BuiltinFormats::BGR888;
+
+    // 単一チャンネル系
+    inline const PixelFormatID Alpha8                = &BuiltinFormats::Alpha8;
 }
 
 // ========================================================================
@@ -197,6 +260,7 @@ inline const PixelFormatID builtinFormats[] = {
     PixelFormatIDs::RGB332,
     PixelFormatIDs::RGB888,
     PixelFormatIDs::BGR888,
+    PixelFormatIDs::Alpha8,
 };
 
 inline constexpr size_t builtinFormatsCount = sizeof(builtinFormats) / sizeof(builtinFormats[0]);
