@@ -115,12 +115,14 @@ public:
         auto startTime = std::chrono::high_resolution_clock::now();
 #endif
 
-        // 各入力から画像を取得
-        RenderResult img1Result, img2Result, maskResult;
-
         Node* upstream0 = upstreamNode(0);  // 前景
         Node* upstream1 = upstreamNode(1);  // 背景
         Node* upstream2 = upstreamNode(2);  // マスク
+
+        // ========================================
+        // Step 1: 元画像1と元画像2を先に評価
+        // ========================================
+        RenderResult img1Result, img2Result;
 
         if (upstream0) {
             img1Result = upstream0->pullProcess(request);
@@ -128,25 +130,13 @@ public:
         if (upstream1) {
             img2Result = upstream1->pullProcess(request);
         }
-        if (upstream2) {
-            maskResult = upstream2->pullProcess(request);
-        }
 
-        // すべて空なら空を返す
-        if (!img1Result.isValid() && !img2Result.isValid() && !maskResult.isValid()) {
+        // 両方空ならマスクも評価せず空を返す
+        if (!img1Result.isValid() && !img2Result.isValid()) {
             return RenderResult();
         }
 
-        // 出力バッファを確保（RGBA8_Straightで作成）
-        ImageBuffer outputBuf(request.width, request.height, PixelFormatIDs::RGBA8_Straight);
-
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        PerfMetrics::instance().nodes[NodeType::Matte].recordAlloc(
-            outputBuf.totalBytes(), outputBuf.width(), outputBuf.height());
-#endif
-
-        // フォーマット変換（RGBA8_StraightまたはAlpha8）
-        // 元画像はRGBA8_Straightに変換
+        // フォーマット変換（RGBA8_Straight）
         if (img1Result.isValid()) {
             img1Result.buffer = convertFormat(std::move(img1Result.buffer),
                                               PixelFormatIDs::RGBA8_Straight);
@@ -155,14 +145,85 @@ public:
             img2Result.buffer = convertFormat(std::move(img2Result.buffer),
                                               PixelFormatIDs::RGBA8_Straight);
         }
-        // マスクはAlpha8に変換
-        if (maskResult.isValid()) {
-            maskResult.buffer = convertFormat(std::move(maskResult.buffer),
-                                              PixelFormatIDs::Alpha8);
+
+        // ========================================
+        // Step 2: Union領域を計算
+        // ========================================
+        // img1とimg2の有効領域のUnion（和集合）を求める
+        // 座標系: 基準点からの相対座標（ワールド座標）
+
+        int_fixed unionMinX, unionMinY, unionMaxX, unionMaxY;
+        bool hasUnion = false;
+
+        auto updateUnion = [&](const RenderResult& result) {
+            if (!result.isValid()) return;
+            ViewPort v = result.view();
+            // ワールド座標での領域（基準点相対）
+            int_fixed minX = result.origin.x - to_fixed(v.width);
+            int_fixed minY = result.origin.y - to_fixed(v.height);
+            int_fixed maxX = result.origin.x;
+            int_fixed maxY = result.origin.y;
+
+            if (!hasUnion) {
+                unionMinX = minX;
+                unionMinY = minY;
+                unionMaxX = maxX;
+                unionMaxY = maxY;
+                hasUnion = true;
+            } else {
+                // Union: 両方を含む最小矩形
+                if (minX < unionMinX) unionMinX = minX;
+                if (minY < unionMinY) unionMinY = minY;
+                if (maxX > unionMaxX) unionMaxX = maxX;
+                if (maxY > unionMaxY) unionMaxY = maxY;
+            }
+        };
+
+        updateUnion(img1Result);
+        updateUnion(img2Result);
+
+        // Unionサイズを計算
+        int unionWidth = from_fixed(unionMaxX - unionMinX);
+        int unionHeight = from_fixed(unionMaxY - unionMinY);
+        int_fixed unionOriginX = unionMaxX;
+        int_fixed unionOriginY = unionMaxY;
+
+        // ========================================
+        // Step 3: マスクを取得（Union領域で要求）
+        // ========================================
+        RenderResult maskResult;
+        if (upstream2) {
+            RenderRequest unionRequest;
+            unionRequest.width = unionWidth;
+            unionRequest.height = unionHeight;
+            unionRequest.origin = Point{unionOriginX, unionOriginY};
+
+            maskResult = upstream2->pullProcess(unionRequest);
+
+            // マスクはAlpha8に変換
+            if (maskResult.isValid()) {
+                maskResult.buffer = convertFormat(std::move(maskResult.buffer),
+                                                  PixelFormatIDs::Alpha8);
+            }
         }
 
-        // マット合成処理
-        applyMatteComposite(outputBuf, request,
+        // ========================================
+        // Step 4: 出力バッファを確保（Union領域サイズ）
+        // ========================================
+        ImageBuffer outputBuf(unionWidth, unionHeight, PixelFormatIDs::RGBA8_Straight);
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        PerfMetrics::instance().nodes[NodeType::Matte].recordAlloc(
+            outputBuf.totalBytes(), outputBuf.width(), outputBuf.height());
+#endif
+
+        // マット合成処理（Union領域で実行）
+        RenderRequest unionRequest;
+        unionRequest.width = unionWidth;
+        unionRequest.height = unionHeight;
+        unionRequest.origin = Point{unionOriginX, unionOriginY};
+
+        applyMatteComposite(outputBuf, unionRequest,
                            img1Result, img2Result, maskResult);
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
@@ -172,7 +233,7 @@ public:
         metrics.count++;
 #endif
 
-        return RenderResult(std::move(outputBuf), request.origin);
+        return RenderResult(std::move(outputBuf), Point{unionOriginX, unionOriginY});
     }
 
 private:
@@ -439,6 +500,38 @@ private:
                 std::memset(outRow + xEnd * 4, 0, (outWidth - xEnd) * 4);
             }
         }
+    }
+
+    // Union領域にクリッピングした結果を作成（マスクなし時の高速パス）
+    RenderResult createClippedResult(const RenderResult& src,
+                                     int_fixed unionOriginX, int_fixed unionOriginY,
+                                     int unionWidth, int unionHeight) {
+        ImageBuffer outputBuf(unionWidth, unionHeight, PixelFormatIDs::RGBA8_Straight);
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        PerfMetrics::instance().nodes[NodeType::Matte].recordAlloc(
+            outputBuf.totalBytes(), outputBuf.width(), outputBuf.height());
+#endif
+
+        ViewPort srcView = src.view();
+        const uint8_t* srcPtr = static_cast<const uint8_t*>(srcView.data);
+        const int srcStride = srcView.stride;
+        const int srcWidth = srcView.width;
+        const int srcHeight = srcView.height;
+
+        ViewPort outView = outputBuf.view();
+        uint8_t* outPtr = static_cast<uint8_t*>(outView.data);
+        const int outStride = outView.stride;
+
+        // オフセット計算
+        const int offsetX = from_fixed(src.origin.x - unionOriginX);
+        const int offsetY = from_fixed(src.origin.y - unionOriginY);
+
+        copyImageToOutput(outPtr, outStride, unionWidth, unionHeight,
+                          srcPtr, srcStride, srcWidth, srcHeight,
+                          offsetX, offsetY);
+
+        return RenderResult(std::move(outputBuf), Point{unionOriginX, unionOriginY});
     }
 };
 
