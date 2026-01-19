@@ -18,10 +18,19 @@ namespace FLEXIMG_NAMESPACE {
 // InitPolicy - ImageBuffer初期化ポリシー
 // ========================================================================
 enum class InitPolicy : uint8_t {
-    Zero,          // ゼロクリア（デフォルト）
+    Zero,          // ゼロクリア
     Uninitialized, // 初期化スキップ（全ピクセル上書き時に使用）
     DebugPattern   // デバッグ用パターン値で埋める（未初期化使用の検出用）
 };
+
+// デフォルト初期化ポリシー
+// - リリースビルド: Uninitialized（パフォーマンス優先）
+// - デバッグビルド: DebugPattern（未初期化使用のバグ検出）
+#ifdef NDEBUG
+constexpr InitPolicy DefaultInitPolicy = InitPolicy::Uninitialized;
+#else
+constexpr InitPolicy DefaultInitPolicy = InitPolicy::DebugPattern;
+#endif
 
 // ========================================================================
 // FormatConversion - toFormat()の変換モード
@@ -51,11 +60,11 @@ public:
     ImageBuffer()
         : view_(), capacity_(0),
           allocator_(&core::memory::DefaultAllocator::instance()),
-          initPolicy_(InitPolicy::Zero) {}
+          initPolicy_(DefaultInitPolicy) {}
 
     // サイズ指定コンストラクタ
     ImageBuffer(int w, int h, PixelFormatID fmt = PixelFormatIDs::RGBA8_Straight,
-                InitPolicy init = InitPolicy::Zero,
+                InitPolicy init = DefaultInitPolicy,
                 core::memory::IAllocator* alloc = &core::memory::DefaultAllocator::instance())
         : view_(nullptr, fmt, 0, static_cast<int16_t>(w), static_cast<int16_t>(h))
         , capacity_(0), allocator_(alloc), initPolicy_(init) {
