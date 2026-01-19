@@ -72,20 +72,35 @@ ImageBuffer::deallocate() {
 
 ## 計測ポイント
 
-### 時間計測（全9ノードタイプ）
+### 時間計測
 
 | ノード | 計測範囲 |
 |--------|----------|
-| Renderer | パイプライン全体の実行時間 |
+| Renderer | `exec()` 全体時間（タイルループ、オーバーヘッド含む） |
 | Source | `pullProcess()` 全体（画像データコピー含む） |
 | Sink | 出力バッファへの書き込み |
 | Affine | アフィン変換処理のみ（上流評価除外） |
 | Composite | ブレンド処理のみ（上流評価除外） |
+| Matte | マット合成処理のみ（上流評価除外） |
 | Brightness | 明るさ調整処理 |
 | Grayscale | グレースケール変換処理 |
 | Alpha | アルファ調整処理 |
 | HorizontalBlur | 水平ぼかし処理 |
 | VerticalBlur | 垂直ぼかし処理 |
+
+### Renderer時間とオーバーヘッド
+
+`totalTime()` は **Rendererを除外** した各ノードの処理時間合計を返します。
+
+```
+オーバーヘッド = Renderer.time_us - totalTime()
+```
+
+オーバーヘッドには以下が含まれます：
+- タイルループの制御
+- RenderRequest の生成
+- ノード間のデータ受け渡し
+- RenderResult の移動/コピー
 
 ### ピクセル効率計測
 
@@ -116,6 +131,7 @@ ImageBuffer のコンストラクタ/デストラクタで自動的に記録：
 | Source | 交差領域コピー用バッファ |
 | Affine | 出力バッファ |
 | Composite | キャンバスバッファ |
+| Matte | 出力バッファ |
 | Brightness | 作業バッファ、出力バッファ |
 | Grayscale | 作業バッファ、出力バッファ |
 | Alpha | 作業バッファ、出力バッファ |

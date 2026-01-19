@@ -32,7 +32,7 @@ namespace core {
 
 namespace NodeType {
     // システム系
-    constexpr int Renderer = 0;    // パイプライン発火点
+    constexpr int Renderer = 0;    // パイプライン発火点（exec()全体時間を記録）
     constexpr int Source = 1;      // 画像入力
     constexpr int Sink = 2;        // 画像出力
     constexpr int Distributor = 3; // 分配（1入力→N出力）
@@ -143,10 +143,14 @@ struct PerfMetrics {
         maxAllocHeight = 0;
     }
 
-    // 全ノード合計の処理時間
+    // 全ノード合計の処理時間（Renderer除外）
+    // Rendererはexec()全体時間を記録するため、合計から除外
     uint32_t totalTime() const {
         uint32_t sum = 0;
-        for (const auto& n : nodes) sum += n.time_us;
+        for (int i = 0; i < NodeType::Count; ++i) {
+            if (i == NodeType::Renderer) continue;  // exec()全体時間は除外
+            sum += nodes[i].time_us;
+        }
         return sum;
     }
 
