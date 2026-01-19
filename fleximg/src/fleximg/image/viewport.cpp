@@ -22,11 +22,11 @@ void copy(ViewPort& dst, int dstX, int dstY,
 
     // 同一フォーマットならmemcpy
     if (src.formatID == dst.formatID) {
-        size_t bpp = dst.bytesPerPixel();
+        size_t bpp = static_cast<size_t>(dst.bytesPerPixel());
         for (int y = 0; y < height; ++y) {
             const uint8_t* srcRow = static_cast<const uint8_t*>(src.pixelAt(srcX, srcY + y));
             uint8_t* dstRow = static_cast<uint8_t*>(dst.pixelAt(dstX, dstY + y));
-            std::memcpy(dstRow, srcRow, width * bpp);
+            std::memcpy(dstRow, srcRow, static_cast<size_t>(width) * bpp);
         }
         return;
     }
@@ -42,12 +42,12 @@ void copy(ViewPort& dst, int dstX, int dstY,
 void clear(ViewPort& dst, int x, int y, int width, int height) {
     if (!dst.isValid()) return;
 
-    size_t bpp = dst.bytesPerPixel();
+    size_t bpp = static_cast<size_t>(dst.bytesPerPixel());
     for (int row = 0; row < height; ++row) {
         int dy = y + row;
         if (dy < 0 || dy >= dst.height) continue;
         uint8_t* dstRow = static_cast<uint8_t*>(dst.pixelAt(x, dy));
-        std::memset(dstRow, 0, width * bpp);
+        std::memset(dstRow, 0, static_cast<size_t>(width) * bpp);
     }
 }
 
