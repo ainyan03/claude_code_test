@@ -42,3 +42,12 @@ source /path/to/emsdk/emsdk_env.sh  # Emscripten環境を読み込み
 - 変更前に必ずビルドが通ることを確認
 - TODO.md で課題を管理
 - コミットメッセージは変更内容を明確に記載
+
+## コーディング規約
+
+詳細は `fleximg/docs/CODING_STYLE.md` を参照。以下は特に重要なポイント:
+
+- **警告オプション**: `-Wall -Wextra -Wpedantic` でクリーンビルドを維持
+- **memcpy/memset**: サイズ引数は `static_cast<size_t>(...)` でキャスト
+- **ループカウンタ**: 終端変数と型を一致させる
+- **配列インデックス**: 型が異なる場合は明示的キャスト
