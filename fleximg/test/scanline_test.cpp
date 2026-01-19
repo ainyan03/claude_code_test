@@ -59,10 +59,10 @@ TEST_CASE("Scanline: basic rendering") {
     ImageBuffer srcImg = createSolidImage(imgSize, imgSize, 255, 0, 0);
     ImageBuffer dstImg(canvasSize, canvasSize, PixelFormatIDs::RGBA8_Straight);
 
-    SourceNode src(srcImg.view(), imgSize / 2.0f, imgSize / 2.0f);
+    SourceNode src(srcImg.view(), float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
     AffineNode affine;
     RendererNode renderer;
-    SinkNode sink(dstImg.view(), canvasSize / 2.0f, canvasSize / 2.0f);
+    SinkNode sink(dstImg.view(), float_to_fixed(canvasSize / 2.0f), float_to_fixed(canvasSize / 2.0f));
 
     src >> affine >> renderer >> sink;
     renderer.setVirtualScreen(canvasSize, canvasSize);
@@ -78,12 +78,12 @@ TEST_CASE("Scanline: with rotation") {
     ImageBuffer srcImg = createSolidImage(imgSize, imgSize, 0, 255, 0);
     ImageBuffer dstImg(canvasSize, canvasSize, PixelFormatIDs::RGBA8_Straight);
 
-    SourceNode src(srcImg.view(), imgSize / 2.0f, imgSize / 2.0f);
+    SourceNode src(srcImg.view(), float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
     AffineNode affine;
     float angle = 45.0f * static_cast<float>(M_PI) / 180.0f;
     affine.setRotation(angle);
     RendererNode renderer;
-    SinkNode sink(dstImg.view(), canvasSize / 2.0f, canvasSize / 2.0f);
+    SinkNode sink(dstImg.view(), float_to_fixed(canvasSize / 2.0f), float_to_fixed(canvasSize / 2.0f));
 
     src >> affine >> renderer >> sink;
     renderer.setVirtualScreen(canvasSize, canvasSize);
@@ -99,11 +99,11 @@ TEST_CASE("Scanline: with scale") {
     ImageBuffer srcImg = createSolidImage(imgSize, imgSize, 0, 0, 255);
     ImageBuffer dstImg(canvasSize, canvasSize, PixelFormatIDs::RGBA8_Straight);
 
-    SourceNode src(srcImg.view(), imgSize / 2.0f, imgSize / 2.0f);
+    SourceNode src(srcImg.view(), float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
     AffineNode affine;
     affine.setScale(2.0f, 2.0f);
     RendererNode renderer;
-    SinkNode sink(dstImg.view(), canvasSize / 2.0f, canvasSize / 2.0f);
+    SinkNode sink(dstImg.view(), float_to_fixed(canvasSize / 2.0f), float_to_fixed(canvasSize / 2.0f));
 
     src >> affine >> renderer >> sink;
     renderer.setVirtualScreen(canvasSize, canvasSize);
@@ -125,13 +125,13 @@ TEST_CASE("Scanline: tiled vs non-tiled consistency") {
     // 非タイル
     ImageBuffer dstImg1(canvasSize, canvasSize, PixelFormatIDs::RGBA8_Straight);
     {
-        SourceNode src(srcImg.view(), imgSize / 2.0f, imgSize / 2.0f);
+        SourceNode src(srcImg.view(), float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
         AffineNode affine;
         float angle = 60.0f * static_cast<float>(M_PI) / 180.0f;
         affine.setRotation(angle);
         affine.setScale(1.5f, 1.5f);
         RendererNode renderer;
-        SinkNode sink(dstImg1.view(), canvasSize / 2.0f, canvasSize / 2.0f);
+        SinkNode sink(dstImg1.view(), float_to_fixed(canvasSize / 2.0f), float_to_fixed(canvasSize / 2.0f));
 
         src >> affine >> renderer >> sink;
         renderer.setVirtualScreen(canvasSize, canvasSize);
@@ -141,13 +141,13 @@ TEST_CASE("Scanline: tiled vs non-tiled consistency") {
     // 25x25タイル
     ImageBuffer dstImg2(canvasSize, canvasSize, PixelFormatIDs::RGBA8_Straight);
     {
-        SourceNode src(srcImg.view(), imgSize / 2.0f, imgSize / 2.0f);
+        SourceNode src(srcImg.view(), float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
         AffineNode affine;
         float angle = 60.0f * static_cast<float>(M_PI) / 180.0f;
         affine.setRotation(angle);
         affine.setScale(1.5f, 1.5f);
         RendererNode renderer;
-        SinkNode sink(dstImg2.view(), canvasSize / 2.0f, canvasSize / 2.0f);
+        SinkNode sink(dstImg2.view(), float_to_fixed(canvasSize / 2.0f), float_to_fixed(canvasSize / 2.0f));
 
         src >> affine >> renderer >> sink;
         renderer.setVirtualScreen(canvasSize, canvasSize);

@@ -264,12 +264,12 @@ public:
 
         // 交差領域のサブビューを参照モードで返す（コピーなし）
         // 開始位置は floor、終端位置は ceil で計算（タイル境界でのピクセル欠落を防ぐ）
-        int srcX = from_fixed_floor(interLeft - imgLeft);
-        int srcY = from_fixed_floor(interTop - imgTop);
-        int srcEndX = from_fixed_ceil(interRight - imgLeft);
-        int srcEndY = from_fixed_ceil(interBottom - imgTop);
-        int interW = srcEndX - srcX;
-        int interH = srcEndY - srcY;
+        int_fast16_t srcX = static_cast<int_fast16_t>(from_fixed_floor(interLeft - imgLeft));
+        int_fast16_t srcY = static_cast<int_fast16_t>(from_fixed_floor(interTop - imgTop));
+        int_fast16_t srcEndX = static_cast<int_fast16_t>(from_fixed_ceil(interRight - imgLeft));
+        int_fast16_t srcEndY = static_cast<int_fast16_t>(from_fixed_ceil(interBottom - imgTop));
+        int_fast16_t interW = static_cast<int_fast16_t>(srcEndX - srcX);
+        int_fast16_t interH = static_cast<int_fast16_t>(srcEndY - srcY);
 
         // サブビューの参照モードImageBufferを作成（メモリ確保なし）
         ImageBuffer result(view_ops::subView(source_, srcX, srcY, interW, interH));

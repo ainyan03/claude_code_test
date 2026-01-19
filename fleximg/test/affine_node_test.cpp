@@ -385,10 +385,10 @@ TEST_CASE("AffineNode pull mode translation only") {
     ImageBuffer dstImg(canvasW, canvasH, PixelFormatIDs::RGBA8_Straight);
     ViewPort dstView = dstImg.view();
 
-    SourceNode src(srcView, imgW / 2.0f, imgH / 2.0f);
+    SourceNode src(srcView, float_to_fixed(imgW / 2.0f), float_to_fixed(imgH / 2.0f));
     AffineNode affine;
     RendererNode renderer;
-    SinkNode sink(dstView, canvasW / 2.0f, canvasH / 2.0f);
+    SinkNode sink(dstView, float_to_fixed(canvasW / 2.0f), float_to_fixed(canvasH / 2.0f));
 
     src >> affine >> renderer >> sink;
 
@@ -417,10 +417,10 @@ TEST_CASE("AffineNode pull mode translation with rotation") {
     ImageBuffer dstImg(canvasW, canvasH, PixelFormatIDs::RGBA8_Straight);
     ViewPort dstView = dstImg.view();
 
-    SourceNode src(srcView, imgW / 2.0f, imgH / 2.0f);
+    SourceNode src(srcView, float_to_fixed(imgW / 2.0f), float_to_fixed(imgH / 2.0f));
     AffineNode affine;
     RendererNode renderer;
-    SinkNode sink(dstView, canvasW / 2.0f, canvasH / 2.0f);
+    SinkNode sink(dstView, float_to_fixed(canvasW / 2.0f), float_to_fixed(canvasH / 2.0f));
 
     src >> affine >> renderer >> sink;
 
@@ -456,10 +456,10 @@ TEST_CASE("AffineNode pull mode with tile splitting") {
     ImageBuffer dstImg(canvasW, canvasH, PixelFormatIDs::RGBA8_Straight);
     ViewPort dstView = dstImg.view();
 
-    SourceNode src(srcView, imgW / 2.0f, imgH / 2.0f);
+    SourceNode src(srcView, float_to_fixed(imgW / 2.0f), float_to_fixed(imgH / 2.0f));
     AffineNode affine;
     RendererNode renderer;
-    SinkNode sink(dstView, canvasW / 2.0f, canvasH / 2.0f);
+    SinkNode sink(dstView, float_to_fixed(canvasW / 2.0f), float_to_fixed(canvasH / 2.0f));
 
     src >> affine >> renderer >> sink;
 
@@ -490,7 +490,7 @@ TEST_CASE("AffineNode translation smoothness") {
     ImageBuffer srcImg = createTestImage(imgW, imgH);
     ViewPort srcView = srcImg.view();
 
-    SourceNode src(srcView, imgW / 2.0f, imgH / 2.0f);
+    SourceNode src(srcView, float_to_fixed(imgW / 2.0f), float_to_fixed(imgH / 2.0f));
     AffineNode affine;
     RendererNode renderer;
 
@@ -506,7 +506,7 @@ TEST_CASE("AffineNode translation smoothness") {
 
         ImageBuffer dstImg(canvasW, canvasH, PixelFormatIDs::RGBA8_Straight);
         ViewPort dstView = dstImg.view();
-        SinkNode sink(dstView, canvasW / 2.0f, canvasH / 2.0f);
+        SinkNode sink(dstView, float_to_fixed(canvasW / 2.0f), float_to_fixed(canvasH / 2.0f));
 
         renderer.outputPort(0)->disconnect();
         renderer >> sink;

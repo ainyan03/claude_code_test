@@ -104,12 +104,12 @@ TEST_CASE("MatteNode alpha=255 shows foreground only") {
     ViewPort dstView = dstImg.view();
 
     // ノード構築
-    SourceNode fgSrc(fgView, imgSize / 2.0f, imgSize / 2.0f);
-    SourceNode bgSrc(bgView, imgSize / 2.0f, imgSize / 2.0f);
-    SourceNode maskSrc(maskView, imgSize / 2.0f, imgSize / 2.0f);
+    SourceNode fgSrc(fgView, float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
+    SourceNode bgSrc(bgView, float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
+    SourceNode maskSrc(maskView, float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
     MatteNode matte;
     RendererNode renderer;
-    SinkNode sink(dstView, canvasSize / 2.0f, canvasSize / 2.0f);
+    SinkNode sink(dstView, float_to_fixed(canvasSize / 2.0f), float_to_fixed(canvasSize / 2.0f));
 
     // 接続: fg >> matte(0), bg >> matte(1), mask >> matte(2)
     fgSrc >> matte;
@@ -158,12 +158,12 @@ TEST_CASE("MatteNode alpha=0 shows background only") {
     ViewPort dstView = dstImg.view();
 
     // ノード構築
-    SourceNode fgSrc(fgView, imgSize / 2.0f, imgSize / 2.0f);
-    SourceNode bgSrc(bgView, imgSize / 2.0f, imgSize / 2.0f);
-    SourceNode maskSrc(maskView, imgSize / 2.0f, imgSize / 2.0f);
+    SourceNode fgSrc(fgView, float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
+    SourceNode bgSrc(bgView, float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
+    SourceNode maskSrc(maskView, float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
     MatteNode matte;
     RendererNode renderer;
-    SinkNode sink(dstView, canvasSize / 2.0f, canvasSize / 2.0f);
+    SinkNode sink(dstView, float_to_fixed(canvasSize / 2.0f), float_to_fixed(canvasSize / 2.0f));
 
     fgSrc >> matte;
     bgSrc.connectTo(matte, 1);
@@ -211,12 +211,12 @@ TEST_CASE("MatteNode alpha=128 blends both images") {
     ViewPort dstView = dstImg.view();
 
     // ノード構築
-    SourceNode fgSrc(fgView, imgSize / 2.0f, imgSize / 2.0f);
-    SourceNode bgSrc(bgView, imgSize / 2.0f, imgSize / 2.0f);
-    SourceNode maskSrc(maskView, imgSize / 2.0f, imgSize / 2.0f);
+    SourceNode fgSrc(fgView, float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
+    SourceNode bgSrc(bgView, float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
+    SourceNode maskSrc(maskView, float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
     MatteNode matte;
     RendererNode renderer;
-    SinkNode sink(dstView, canvasSize / 2.0f, canvasSize / 2.0f);
+    SinkNode sink(dstView, float_to_fixed(canvasSize / 2.0f), float_to_fixed(canvasSize / 2.0f));
 
     fgSrc >> matte;
     bgSrc.connectTo(matte, 1);
@@ -264,11 +264,11 @@ TEST_CASE("MatteNode without background (foreground + mask only)") {
     ViewPort dstView = dstImg.view();
 
     // ノード構築（背景なし）
-    SourceNode fgSrc(fgView, imgSize / 2.0f, imgSize / 2.0f);
-    SourceNode maskSrc(maskView, imgSize / 2.0f, imgSize / 2.0f);
+    SourceNode fgSrc(fgView, float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
+    SourceNode maskSrc(maskView, float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
     MatteNode matte;
     RendererNode renderer;
-    SinkNode sink(dstView, canvasSize / 2.0f, canvasSize / 2.0f);
+    SinkNode sink(dstView, float_to_fixed(canvasSize / 2.0f), float_to_fixed(canvasSize / 2.0f));
 
     fgSrc >> matte;
     // bgは未接続
@@ -299,11 +299,11 @@ TEST_CASE("MatteNode without mask (default alpha=0)") {
     ViewPort dstView = dstImg.view();
 
     // ノード構築（マスクなし）
-    SourceNode fgSrc(fgView, imgSize / 2.0f, imgSize / 2.0f);
-    SourceNode bgSrc(bgView, imgSize / 2.0f, imgSize / 2.0f);
+    SourceNode fgSrc(fgView, float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
+    SourceNode bgSrc(bgView, float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
     MatteNode matte;
     RendererNode renderer;
-    SinkNode sink(dstView, canvasSize / 2.0f, canvasSize / 2.0f);
+    SinkNode sink(dstView, float_to_fixed(canvasSize / 2.0f), float_to_fixed(canvasSize / 2.0f));
 
     fgSrc >> matte;
     bgSrc.connectTo(matte, 1);
@@ -339,7 +339,7 @@ TEST_CASE("MatteNode all inputs empty") {
     // ノード構築（入力なし）
     MatteNode matte;
     RendererNode renderer;
-    SinkNode sink(dstView, canvasSize / 2.0f, canvasSize / 2.0f);
+    SinkNode sink(dstView, float_to_fixed(canvasSize / 2.0f), float_to_fixed(canvasSize / 2.0f));
 
     matte >> renderer >> sink;
 

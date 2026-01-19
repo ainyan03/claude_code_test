@@ -94,9 +94,9 @@ TEST_CASE("Pipeline: with centered origin") {
     ImageBuffer srcImg = createGradientImage(imgSize, imgSize);
     ImageBuffer dstImg(imgSize, imgSize, PixelFormatIDs::RGBA8_Straight);
 
-    SourceNode src(srcImg.view(), imgSize / 2.0f, imgSize / 2.0f);
+    SourceNode src(srcImg.view(), float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
     RendererNode renderer;
-    SinkNode sink(dstImg.view(), imgSize / 2.0f, imgSize / 2.0f);
+    SinkNode sink(dstImg.view(), float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
 
     src >> renderer >> sink;
     renderer.setVirtualScreen(imgSize, imgSize);
@@ -197,10 +197,10 @@ TEST_CASE("Pipeline: source -> grayscale -> sink") {
     ImageBuffer srcImg = createGradientImage(imgSize, imgSize);
     ImageBuffer dstImg(imgSize, imgSize, PixelFormatIDs::RGBA8_Straight);
 
-    SourceNode src(srcImg.view(), imgSize / 2.0f, imgSize / 2.0f);
+    SourceNode src(srcImg.view(), float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
     GrayscaleNode grayscale;
     RendererNode renderer;
-    SinkNode sink(dstImg.view(), imgSize / 2.0f, imgSize / 2.0f);
+    SinkNode sink(dstImg.view(), float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
 
     src >> grayscale >> renderer >> sink;
     renderer.setVirtualScreen(imgSize, imgSize);
@@ -215,11 +215,11 @@ TEST_CASE("Pipeline: source -> affine -> sink") {
     ImageBuffer srcImg = createGradientImage(imgSize, imgSize);
     ImageBuffer dstImg(imgSize, imgSize, PixelFormatIDs::RGBA8_Straight);
 
-    SourceNode src(srcImg.view(), imgSize / 2.0f, imgSize / 2.0f);
+    SourceNode src(srcImg.view(), float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
     AffineNode affine;
     affine.setRotation(0.0f);  // 回転なし
     RendererNode renderer;
-    SinkNode sink(dstImg.view(), imgSize / 2.0f, imgSize / 2.0f);
+    SinkNode sink(dstImg.view(), float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
 
     src >> affine >> renderer >> sink;
     renderer.setVirtualScreen(imgSize, imgSize);
@@ -236,11 +236,11 @@ TEST_CASE("Pipeline: affine rotation 30 degrees") {
     ImageBuffer srcImg = createGradientImage(imgSize, imgSize);
     ImageBuffer dstImg(canvasSize, canvasSize, PixelFormatIDs::RGBA8_Straight);
 
-    SourceNode src(srcImg.view(), imgSize / 2.0f, imgSize / 2.0f);
+    SourceNode src(srcImg.view(), float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
     AffineNode affine;
     affine.setRotation(static_cast<float>(M_PI / 6.0));  // 30度
     RendererNode renderer;
-    SinkNode sink(dstImg.view(), canvasSize / 2.0f, canvasSize / 2.0f);
+    SinkNode sink(dstImg.view(), float_to_fixed(canvasSize / 2.0f), float_to_fixed(canvasSize / 2.0f));
 
     src >> affine >> renderer >> sink;
     renderer.setVirtualScreen(canvasSize, canvasSize);
@@ -260,11 +260,11 @@ TEST_CASE("Pipeline: composite two sources") {
     ImageBuffer srcImg2 = createGradientImage(imgSize, imgSize);
     ImageBuffer dstImg(imgSize, imgSize, PixelFormatIDs::RGBA8_Straight);
 
-    SourceNode src1(srcImg1.view(), imgSize / 2.0f, imgSize / 2.0f);
-    SourceNode src2(srcImg2.view(), imgSize / 2.0f, imgSize / 2.0f);
+    SourceNode src1(srcImg1.view(), float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
+    SourceNode src2(srcImg2.view(), float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
     CompositeNode composite(2);
     RendererNode renderer;
-    SinkNode sink(dstImg.view(), imgSize / 2.0f, imgSize / 2.0f);
+    SinkNode sink(dstImg.view(), float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
 
     src1 >> composite;
     src2.connectTo(composite, 1);
@@ -285,12 +285,12 @@ TEST_CASE("Pipeline: source -> affine -> grayscale -> sink") {
     ImageBuffer srcImg = createGradientImage(imgSize, imgSize);
     ImageBuffer dstImg(imgSize, imgSize, PixelFormatIDs::RGBA8_Straight);
 
-    SourceNode src(srcImg.view(), imgSize / 2.0f, imgSize / 2.0f);
+    SourceNode src(srcImg.view(), float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
     AffineNode affine;
     affine.setRotation(static_cast<float>(M_PI / 6.0));  // 30度
     GrayscaleNode grayscale;
     RendererNode renderer;
-    SinkNode sink(dstImg.view(), imgSize / 2.0f, imgSize / 2.0f);
+    SinkNode sink(dstImg.view(), float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
 
     src >> affine >> grayscale >> renderer >> sink;
     renderer.setVirtualScreen(imgSize, imgSize);
@@ -307,12 +307,12 @@ TEST_CASE("Pipeline: complex with tiled rendering") {
 
     // タイルなし
     {
-        SourceNode src(srcImg.view(), imgSize / 2.0f, imgSize / 2.0f);
+        SourceNode src(srcImg.view(), float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
         AffineNode affine;
         affine.setRotation(static_cast<float>(M_PI / 4.0));  // 45度
         GrayscaleNode grayscale;
         RendererNode renderer;
-        SinkNode sink(dstImg1.view(), imgSize / 2.0f, imgSize / 2.0f);
+        SinkNode sink(dstImg1.view(), float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
 
         src >> affine >> grayscale >> renderer >> sink;
         renderer.setVirtualScreen(imgSize, imgSize);
@@ -321,12 +321,12 @@ TEST_CASE("Pipeline: complex with tiled rendering") {
 
     // 25x25タイル
     {
-        SourceNode src(srcImg.view(), imgSize / 2.0f, imgSize / 2.0f);
+        SourceNode src(srcImg.view(), float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
         AffineNode affine;
         affine.setRotation(static_cast<float>(M_PI / 4.0));  // 45度
         GrayscaleNode grayscale;
         RendererNode renderer;
-        SinkNode sink(dstImg2.view(), imgSize / 2.0f, imgSize / 2.0f);
+        SinkNode sink(dstImg2.view(), float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
 
         src >> affine >> grayscale >> renderer >> sink;
         renderer.setVirtualScreen(imgSize, imgSize);

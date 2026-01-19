@@ -13,7 +13,10 @@
 #   ./all_tests -s                    成功テストも表示
 
 CXX = g++
-CXXFLAGS = -std=c++17 -Wall -Wextra -I../src -I../third_party/doctest
+CXXFLAGS = -std=c++17 -Wall -Wextra -Wpedantic \
+           -Wconversion -Wsign-conversion -Wshadow -Wcast-qual -Wdouble-promotion \
+           -Wformat=2 -Wnull-dereference -Wunused \
+           -I../src -I../third_party/doctest
 
 # ソースディレクトリ
 SRC_DIR = ../src/fleximg

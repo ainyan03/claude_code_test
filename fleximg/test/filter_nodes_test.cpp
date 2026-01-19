@@ -97,10 +97,10 @@ TEST_CASE("BrightnessNode positive brightness") {
     ImageBuffer dstImg(canvasSize, canvasSize, PixelFormatIDs::RGBA8_Straight);
     ViewPort dstView = dstImg.view();
 
-    SourceNode src(srcView, imgSize / 2.0f, imgSize / 2.0f);
+    SourceNode src(srcView, float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
     BrightnessNode brightness;
     RendererNode renderer;
-    SinkNode sink(dstView, canvasSize / 2.0f, canvasSize / 2.0f);
+    SinkNode sink(dstView, float_to_fixed(canvasSize / 2.0f), float_to_fixed(canvasSize / 2.0f));
 
     src >> brightness >> renderer >> sink;
 
@@ -138,10 +138,10 @@ TEST_CASE("GrayscaleNode converts to grayscale") {
     ImageBuffer dstImg(canvasSize, canvasSize, PixelFormatIDs::RGBA8_Straight);
     ViewPort dstView = dstImg.view();
 
-    SourceNode src(srcView, imgSize / 2.0f, imgSize / 2.0f);
+    SourceNode src(srcView, float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
     GrayscaleNode grayscale;
     RendererNode renderer;
-    SinkNode sink(dstView, canvasSize / 2.0f, canvasSize / 2.0f);
+    SinkNode sink(dstView, float_to_fixed(canvasSize / 2.0f), float_to_fixed(canvasSize / 2.0f));
 
     src >> grayscale >> renderer >> sink;
 
@@ -189,10 +189,10 @@ TEST_CASE("AlphaNode reduces alpha") {
     ImageBuffer dstImg(canvasSize, canvasSize, PixelFormatIDs::RGBA8_Straight);
     ViewPort dstView = dstImg.view();
 
-    SourceNode src(srcView, imgSize / 2.0f, imgSize / 2.0f);
+    SourceNode src(srcView, float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
     AlphaNode alpha;
     RendererNode renderer;
-    SinkNode sink(dstView, canvasSize / 2.0f, canvasSize / 2.0f);
+    SinkNode sink(dstView, float_to_fixed(canvasSize / 2.0f), float_to_fixed(canvasSize / 2.0f));
 
     src >> alpha >> renderer >> sink;
 
@@ -239,10 +239,10 @@ TEST_CASE("HorizontalBlurNode blurs image horizontally") {
     ImageBuffer dstImg(canvasSize, canvasSize, PixelFormatIDs::RGBA8_Straight);
     ViewPort dstView = dstImg.view();
 
-    SourceNode src(srcView, imgSize / 2.0f, imgSize / 2.0f);
+    SourceNode src(srcView, float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
     HorizontalBlurNode hblur;
     RendererNode renderer;
-    SinkNode sink(dstView, canvasSize / 2.0f, canvasSize / 2.0f);
+    SinkNode sink(dstView, float_to_fixed(canvasSize / 2.0f), float_to_fixed(canvasSize / 2.0f));
 
     src >> hblur >> renderer >> sink;
 
@@ -288,10 +288,10 @@ TEST_CASE("VerticalBlurNode blurs image vertically") {
     ImageBuffer dstImg(canvasSize, canvasSize, PixelFormatIDs::RGBA8_Straight);
     ViewPort dstView = dstImg.view();
 
-    SourceNode src(srcView, imgSize / 2.0f, imgSize / 2.0f);
+    SourceNode src(srcView, float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
     VerticalBlurNode vblur;
     RendererNode renderer;
-    SinkNode sink(dstView, canvasSize / 2.0f, canvasSize / 2.0f);
+    SinkNode sink(dstView, float_to_fixed(canvasSize / 2.0f), float_to_fixed(canvasSize / 2.0f));
 
     src >> vblur >> renderer >> sink;
 
@@ -321,11 +321,11 @@ TEST_CASE("HorizontalBlur + VerticalBlur combination") {
     ImageBuffer dstImg(canvasSize, canvasSize, PixelFormatIDs::RGBA8_Straight);
     ViewPort dstView = dstImg.view();
 
-    SourceNode src(srcView, imgSize / 2.0f, imgSize / 2.0f);
+    SourceNode src(srcView, float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
     HorizontalBlurNode hblur;
     VerticalBlurNode vblur;
     RendererNode renderer;
-    SinkNode sink(dstView, canvasSize / 2.0f, canvasSize / 2.0f);
+    SinkNode sink(dstView, float_to_fixed(canvasSize / 2.0f), float_to_fixed(canvasSize / 2.0f));
 
     // HorizontalBlur -> VerticalBlur の順で接続
     src >> hblur >> vblur >> renderer >> sink;
@@ -354,11 +354,11 @@ TEST_CASE("Filter chain: brightness -> grayscale") {
     ImageBuffer dstImg(canvasSize, canvasSize, PixelFormatIDs::RGBA8_Straight);
     ViewPort dstView = dstImg.view();
 
-    SourceNode src(srcView, imgSize / 2.0f, imgSize / 2.0f);
+    SourceNode src(srcView, float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
     BrightnessNode brightness;
     GrayscaleNode grayscale;
     RendererNode renderer;
-    SinkNode sink(dstView, canvasSize / 2.0f, canvasSize / 2.0f);
+    SinkNode sink(dstView, float_to_fixed(canvasSize / 2.0f), float_to_fixed(canvasSize / 2.0f));
 
     src >> brightness >> grayscale >> renderer >> sink;
 
