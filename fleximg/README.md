@@ -108,6 +108,8 @@ python3 -m http.server 8080
 
 ```
 fleximg/
+├── examples/                     # 実機サンプル
+│   └── m5stack_basic/            # M5Stack回転矩形デモ
 ├── src/fleximg/                  # C++コアライブラリ
 │   ├── common.h                  # 共通定義
 │   ├── render_types.h            # レンダリング型
@@ -193,6 +195,20 @@ C++コアは以下の特徴により組込み環境への移植が容易です�
 1. `src/fleximg/`フォルダをプロジェクトにコピー
 2. `#include "fleximg/common.h"` でインクルード
 3. ノードを作成し、RendererNode で実行
+
+### M5Stack サンプル
+
+`examples/m5stack_basic/` に M5Stack Core2/CoreS3 向けのサンプルがあります。
+
+```bash
+cd examples/m5stack_basic
+pio run -e m5stack_core2 -t upload  # Core2に書き込み
+pio run -e native                    # macOS/Linux/Windowsでテスト（SDL使用）
+```
+
+- LcdSinkNode: M5GFX経由でLCDにスキャンライン転送するカスタムSinkNode
+- RGBA8_Straight → RGB565_BE変換
+- 回転する矩形のデモ
 
 ## 開発
 

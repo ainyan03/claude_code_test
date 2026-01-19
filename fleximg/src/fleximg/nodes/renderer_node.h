@@ -195,9 +195,9 @@ protected:
 
         RenderResult result = upstream->pullProcess(request);
 
-        // 下流へプッシュ
+        // 下流へプッシュ（有効なデータがなくても常に転送）
         Node* downstream = downstreamNode(0);
-        if (downstream && result.isValid()) {
+        if (downstream) {
             downstream->pushProcess(std::move(result), request);
         }
     }
