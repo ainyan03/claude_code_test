@@ -155,7 +155,11 @@ public:
             img2Result.buffer = convertFormat(std::move(img2Result.buffer),
                                               PixelFormatIDs::RGBA8_Straight);
         }
-        // マスクはフォーマット変換せず、applyMatteComposite内でフォーマットに応じて処理
+        // マスクはAlpha8に変換
+        if (maskResult.isValid()) {
+            maskResult.buffer = convertFormat(std::move(maskResult.buffer),
+                                              PixelFormatIDs::Alpha8);
+        }
 
         // マット合成処理
         applyMatteComposite(outputBuf, request,
@@ -194,7 +198,6 @@ private:
         int_fixed img1OriginX = 0, img1OriginY = 0;
         int_fixed img2OriginX = 0, img2OriginY = 0;
         int_fixed maskOriginX = 0, maskOriginY = 0;
-        int maskBpp = 1;  // マスクのバイト/ピクセル（デフォルトAlpha8）
 
         if (img1.isValid()) {
             ViewPort v = img1.view();
@@ -222,8 +225,6 @@ private:
             maskStride = v.stride;
             maskOriginX = mask.origin.x;
             maskOriginY = mask.origin.y;
-            // フォーマットに応じてbppを設定
-            maskBpp = getBytesPerPixel(v.formatID);
         }
 
         // ピクセル単位で合成
@@ -264,24 +265,12 @@ private:
                     }
                 }
 
-                // マスクから取得（フォーマットに応じて処理）
+                // マスクから取得（Alpha8: 1バイト/ピクセル）
                 if (maskPtr) {
                     int sx = from_fixed(to_fixed(x) - outOriginX + maskOriginX);
                     int sy = from_fixed(to_fixed(y) - outOriginY + maskOriginY);
                     if (sx >= 0 && sx < maskWidth && sy >= 0 && sy < maskHeight) {
-                        if (maskBpp == 1) {
-                            // Alpha8: 1バイト/ピクセル
-                            alpha = maskPtr[sy * maskStride + sx];
-                        } else if (maskBpp >= 4) {
-                            // RGBA系: Aチャンネル（4バイト目）を使用
-                            const uint8_t* p = maskPtr + sy * maskStride + sx * maskBpp;
-                            alpha = p[3];
-                        } else {
-                            // その他（RGB等）: 輝度をアルファとして使用
-                            const uint8_t* p = maskPtr + sy * maskStride + sx * maskBpp;
-                            // 簡易輝度計算: (R + G + B) / 3
-                            alpha = (p[0] + p[1] + p[2]) / 3;
-                        }
+                        alpha = maskPtr[sy * maskStride + sx];
                     }
                 }
 
