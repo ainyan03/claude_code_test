@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.35.0] - 2026-01-19
+
+### 追加
+
+- **M5Stack サンプル** (`examples/m5stack_basic/`)
+  - M5Stack Core2/CoreS3 向けの回転矩形デモ
+  - PlatformIO プロジェクト（native/Core2/CoreS3 ターゲット）
+  - `LcdSinkNode`: M5GFX経由でLCDにスキャンライン転送するカスタムSinkNode
+  - RGBA8_Straight → RGB565_BE (swap565_t) フォーマット変換
+  - マージンクリア機能（画像部分を避けて左右余白のみ消去）
+
+### 変更
+
+- **RendererNode**: 有効なデータがない場合でも常に下流にpushProcessを呼び出すように変更
+  - 空のスキャンラインでもSinkNodeで適切な背景消去が可能に
+
+---
+
 ## [2.34.0] - 2026-01-18
 
 ### 追加
