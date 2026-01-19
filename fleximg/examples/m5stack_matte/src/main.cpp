@@ -1,0 +1,305 @@
+// fleximg M5Stack Matte Composite Example
+// マット合成（アルファマスク合成）デモ
+
+#include <M5Unified.h>
+
+// fleximg
+#define FLEXIMG_NAMESPACE fleximg
+#include "fleximg/core/common.h"
+#include "fleximg/core/types.h"
+#include "fleximg/image/image_buffer.h"
+#include "fleximg/nodes/source_node.h"
+#include "fleximg/nodes/affine_node.h"
+#include "fleximg/nodes/matte_node.h"
+#include "fleximg/nodes/renderer_node.h"
+
+// fleximg implementation files (header-only style inclusion for simplicity)
+#include "fleximg/image/pixel_format.cpp"
+#include "fleximg/image/viewport.cpp"
+#include "fleximg/operations/blend.cpp"
+#include "fleximg/operations/filters.cpp"
+#include "fleximg/core/memory/platform.cpp"
+#include "fleximg/core/memory/pool_allocator.cpp"
+
+// カスタムSinkNode
+#include "lcd_sink_node.h"
+
+#include <cmath>
+
+using namespace fleximg;
+
+// チェッカーボード画像を作成（前景用）
+static ImageBuffer createForegroundImage(int width, int height) {
+    ImageBuffer img(width, height, PixelFormatIDs::RGBA8_Straight);
+
+    const int cellSize = 16;  // チェッカーボードのセルサイズ
+
+    for (int y = 0; y < height; ++y) {
+        uint8_t* row = static_cast<uint8_t*>(img.pixelAt(0, y));
+        for (int x = 0; x < width; ++x) {
+            // チェッカーボードパターン（赤/黄）
+            bool isEven = ((x / cellSize) + (y / cellSize)) % 2 == 0;
+            if (isEven) {
+                // 赤
+                row[x * 4 + 0] = 255;
+                row[x * 4 + 1] = 50;
+                row[x * 4 + 2] = 50;
+            } else {
+                // 黄
+                row[x * 4 + 0] = 255;
+                row[x * 4 + 1] = 220;
+                row[x * 4 + 2] = 50;
+            }
+            row[x * 4 + 3] = 255;  // A
+        }
+    }
+
+    return img;
+}
+
+// 縦ストライプ + 横グラデーション画像を作成（背景用）
+static ImageBuffer createBackgroundImage(int width, int height) {
+    ImageBuffer img(width, height, PixelFormatIDs::RGBA8_Straight);
+
+    const int stripeWidth = 12;  // ストライプの幅
+
+    for (int y = 0; y < height; ++y) {
+        uint8_t* row = static_cast<uint8_t*>(img.pixelAt(0, y));
+        // 横グラデーション係数（左:暗い → 右:明るい）
+        float gradientFactor = static_cast<float>(y) / static_cast<float>(height);
+
+        for (int x = 0; x < width; ++x) {
+            // 縦ストライプパターン
+            bool isStripe = (x / stripeWidth) % 2 == 0;
+
+            if (isStripe) {
+                // 青系（グラデーション適用）
+                row[x * 4 + 0] = static_cast<uint8_t>(30 + 50 * gradientFactor);
+                row[x * 4 + 1] = static_cast<uint8_t>(80 + 100 * gradientFactor);
+                row[x * 4 + 2] = static_cast<uint8_t>(180 + 75 * gradientFactor);
+            } else {
+                // シアン系（グラデーション適用）
+                row[x * 4 + 0] = static_cast<uint8_t>(30 + 70 * gradientFactor);
+                row[x * 4 + 1] = static_cast<uint8_t>(150 + 105 * gradientFactor);
+                row[x * 4 + 2] = static_cast<uint8_t>(180 + 75 * gradientFactor);
+            }
+            row[x * 4 + 3] = 255;  // A
+        }
+    }
+
+    return img;
+}
+
+// 点が三角形の内部にあるかチェック（符号付き面積法）
+static bool pointInTriangle(float px, float py,
+                            float x1, float y1, float x2, float y2, float x3, float y3) {
+    auto sign = [](float p1x, float p1y, float p2x, float p2y, float p3x, float p3y) {
+        return (p1x - p3x) * (p2y - p3y) - (p2x - p3x) * (p1y - p3y);
+    };
+
+    float d1 = sign(px, py, x1, y1, x2, y2);
+    float d2 = sign(px, py, x2, y2, x3, y3);
+    float d3 = sign(px, py, x3, y3, x1, y1);
+
+    bool hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+    bool hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+
+    return !(hasNeg && hasPos);
+}
+
+// 六芒星マスクを作成（くっきり）
+static ImageBuffer createHexagramMask(int width, int height) {
+    ImageBuffer img(width, height, PixelFormatIDs::Alpha8);
+
+    float centerX = static_cast<float>(width) / 2.0f;
+    float centerY = static_cast<float>(height) / 2.0f;
+    float radius = std::min(centerX, centerY) * 0.85f;
+
+    // 上向き三角形の頂点
+    float t1_x1 = centerX;
+    float t1_y1 = centerY - radius;
+    float t1_x2 = centerX - radius * 0.866f;  // cos(30°) ≈ 0.866
+    float t1_y2 = centerY + radius * 0.5f;
+    float t1_x3 = centerX + radius * 0.866f;
+    float t1_y3 = centerY + radius * 0.5f;
+
+    // 下向き三角形の頂点
+    float t2_x1 = centerX;
+    float t2_y1 = centerY + radius;
+    float t2_x2 = centerX - radius * 0.866f;
+    float t2_y2 = centerY - radius * 0.5f;
+    float t2_x3 = centerX + radius * 0.866f;
+    float t2_y3 = centerY - radius * 0.5f;
+
+    for (int y = 0; y < height; ++y) {
+        uint8_t* row = static_cast<uint8_t*>(img.pixelAt(0, y));
+        for (int x = 0; x < width; ++x) {
+            float px = static_cast<float>(x);
+            float py = static_cast<float>(y);
+
+            // どちらかの三角形の内部にあれば白
+            bool inStar = pointInTriangle(px, py, t1_x1, t1_y1, t1_x2, t1_y2, t1_x3, t1_y3) ||
+                          pointInTriangle(px, py, t2_x1, t2_y1, t2_x2, t2_y2, t2_x3, t2_y3);
+
+            row[x] = inStar ? 255 : 0;
+        }
+    }
+
+    return img;
+}
+
+// グローバル変数
+static ImageBuffer foregroundImage;
+static ImageBuffer backgroundImage;
+static ImageBuffer maskImage;
+static float rotationAngle = 0.0f;
+
+static SourceNode foregroundSource;
+static SourceNode backgroundSource;
+static SourceNode maskSource;
+static AffineNode affine;
+static AffineNode bgAffine;
+static AffineNode maskAffine;
+static MatteNode matte;
+static RendererNode renderer;
+static LcdSinkNode lcdSink;
+
+// アニメーション用
+static float animationTime = 0.0f;
+
+void setup() {
+    auto cfg = M5.config();
+    M5.begin(cfg);
+
+    M5.Display.setRotation(1);
+    M5.Display.fillScreen(TFT_BLACK);
+
+    // 画像を作成
+    foregroundImage = createForegroundImage(60, 60);
+    backgroundImage = createBackgroundImage(80, 80);
+    maskImage = createHexagramMask(70, 70);
+
+    M5.Display.setCursor(0, 0);
+    M5.Display.println("fleximg Matte Demo");
+    M5.Display.println("Hexagram mask blend");
+
+    // 画面サイズ取得
+    int16_t screenW = static_cast<int16_t>(M5.Display.width());
+    int16_t screenH = static_cast<int16_t>(M5.Display.height());
+
+    // 描画領域（画面中央に配置）
+    int16_t drawW = 320;
+    int16_t drawH = 240;
+    int16_t drawX = (screenW - drawW) / 2;
+    int16_t drawY = (screenH - drawH) / 2;
+
+    // fleximg パイプライン構築
+
+    // 前景ソース（回転する画像）
+    foregroundSource.setSource(foregroundImage.view());
+    foregroundSource.setOrigin(
+        float_to_fixed(foregroundImage.width() / 2.0f),
+        float_to_fixed(foregroundImage.height() / 2.0f)
+    );
+
+    // 背景ソース（静止画像）
+    backgroundSource.setSource(backgroundImage.view());
+    backgroundSource.setOrigin(
+        float_to_fixed(backgroundImage.width() / 2.0f),
+        float_to_fixed(backgroundImage.height() / 2.0f)
+    );
+
+    // マスクソース
+    maskSource.setSource(maskImage.view());
+    maskSource.setOrigin(
+        float_to_fixed(maskImage.width() / 2.0f),
+        float_to_fixed(maskImage.height() / 2.0f)
+    );
+
+    // レンダラー設定
+    renderer.setVirtualScreen(drawW, drawH);
+
+    // LCD出力設定
+    lcdSink.setTarget(&M5.Display, drawX, drawY, drawW, drawH);
+    lcdSink.setOrigin(
+        float_to_fixed(drawW / 2.0f),
+        float_to_fixed(drawH / 2.0f)
+    );
+
+    // パイプライン接続
+    // 前景 → Affine → MatteNode入力0
+    foregroundSource >> affine;
+    affine.connectTo(matte, 0);
+
+    // 背景 → BgAffine → MatteNode入力1
+    backgroundSource >> bgAffine;
+    bgAffine.connectTo(matte, 1);
+
+    // マスク → MaskAffine → MatteNode入力2
+    maskSource >> maskAffine;
+    maskAffine.connectTo(matte, 2);
+
+    // Matte → Renderer → LCD
+    matte >> renderer >> lcdSink;
+
+    M5.Display.startWrite();
+}
+
+void loop() {
+#if defined ( M5UNIFIED_PC_BUILD )
+    // フレームレート制限（約60fps）
+    lgfx::delay(16);
+#endif
+    M5.update();
+
+    // アニメーション時間を更新
+    animationTime += 0.02f;
+    if (animationTime > 2.0f * static_cast<float>(M_PI)) {
+        animationTime -= 2.0f * static_cast<float>(M_PI);
+    }
+
+    // 前景の回転（速い）
+    rotationAngle += 0.05f;
+    if (rotationAngle > 2.0f * static_cast<float>(M_PI)) {
+        rotationAngle -= 2.0f * static_cast<float>(M_PI);
+    }
+    affine.setRotationScale(rotationAngle, 3.0f, 3.0f);
+
+    // 背景のアニメーション（3倍拡大 + 緩やかな回転）
+    float bgRotation = animationTime * 0.5f;  // 回転
+    float bgScale = 4.0f;
+    bgAffine.setRotationScale(bgRotation, bgScale, bgScale);
+
+    // マスクのアニメーション（回転・スケール・移動）
+    float maskRotation = -animationTime * 0.5f;
+    float maskScale = 1.5f + 1.0f * std::sinf(animationTime * 1.5f);
+    float moveRadius = 30.0f;
+    float offsetX = moveRadius * std::cosf(animationTime);
+    float offsetY = moveRadius * std::sinf(animationTime);
+
+    // 新しいセッターで簡潔に設定
+    maskAffine.setRotationScale(maskRotation, maskScale, maskScale);
+    maskAffine.setTranslation(offsetX, offsetY);
+
+    // レンダリング実行
+    renderer.exec();
+
+    // FPS表示
+    static unsigned long lastTime = 0;
+    static int frameCount = 0;
+    static float fps = 0.0f;
+
+    frameCount++;
+    unsigned long now = lgfx::millis();
+    if (now - lastTime >= 1000) {
+        fps = static_cast<float>(frameCount) * 1000.0f / static_cast<float>(now - lastTime);
+        frameCount = 0;
+        lastTime = now;
+
+        // FPS表示更新
+        int16_t dispH = static_cast<int16_t>(M5.Display.height());
+        M5.Display.fillRect(0, dispH - 20, 100, 20, TFT_BLACK);
+        M5.Display.setCursor(0, dispH - 20);
+        M5.Display.printf("FPS: %.1f", static_cast<double>(fps));
+    }
+}
