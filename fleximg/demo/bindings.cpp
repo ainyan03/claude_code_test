@@ -22,6 +22,7 @@
 #include "../src/fleximg/nodes/distributor_node.h"
 #include "../src/fleximg/nodes/renderer_node.h"
 #include "../src/fleximg/nodes/ninepatch_source_node.h"
+#include "../src/fleximg/nodes/matte_node.h"
 
 using namespace emscripten;
 using namespace FLEXIMG_NAMESPACE;
@@ -829,6 +830,38 @@ private:
 
                 Node* result = compositeNode.get();
                 v2Nodes[nodeId] = std::move(compositeNode);
+                return result;
+            }
+            else if (gnode.type == "matte") {
+                // MatteNode: 3入力（前景, 背景, マスク）→1出力
+                auto matteNode = std::make_unique<MatteNode>();
+
+                // 各入力を接続（toPortIdの順序でソート）
+                std::vector<const GraphConnection*> matteConns;
+                for (const auto& conn : graphConnections_) {
+                    if (conn.toNodeId == nodeId) {
+                        matteConns.push_back(&conn);
+                    }
+                }
+
+                // toPortId（in1, in2, in3）の順序でソート
+                std::sort(matteConns.begin(), matteConns.end(),
+                    [](const GraphConnection* a, const GraphConnection* b) {
+                        return a->toPortId < b->toPortId;
+                    });
+
+                // ソート済みの順序で接続（最大3入力）
+                int portIndex = 0;
+                for (const auto* conn : matteConns) {
+                    Node* upstream = buildNode(conn->fromNodeId);
+                    if (upstream && portIndex < 3) {
+                        upstream->connectTo(*matteNode, portIndex);
+                        portIndex++;
+                    }
+                }
+
+                Node* result = matteNode.get();
+                v2Nodes[nodeId] = std::move(matteNode);
                 return result;
             }
             else if (gnode.type == "filter" && !gnode.independent) {

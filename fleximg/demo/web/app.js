@@ -40,6 +40,7 @@ const NODE_TYPES = {
     // 構造系（変換・合成）
     affine:      { index: 4, name: 'Affine',      nameJa: 'アフィン',     category: 'structure', showEfficiency: true },
     composite:   { index: 5, name: 'Composite',   nameJa: '合成',         category: 'structure', showEfficiency: false },
+    matte:       { index: 13, name: 'Matte',      nameJa: 'マット合成',   category: 'structure', showEfficiency: false },
     // フィルタ系
     brightness:  { index: 6, name: 'Brightness',  nameJa: '明るさ',       category: 'filter',    showEfficiency: true },
     grayscale:   { index: 7, name: 'Grayscale',   nameJa: 'グレースケール', category: 'filter',  showEfficiency: true },
@@ -62,6 +63,7 @@ const PIXEL_FORMATS = [
     { formatName: 'RGB565_LE',             displayName: 'RGB565_LE',  bpp: 2, description: 'Little Endian' },
     { formatName: 'RGB565_BE',             displayName: 'RGB565_BE',  bpp: 2, description: 'Big Endian' },
     { formatName: 'RGB332',                displayName: 'RGB332',     bpp: 1, description: '8-bit color' },
+    { formatName: 'Alpha8',                displayName: 'Alpha8',     bpp: 1, description: 'Alpha only (for matte)' },
 ];
 
 // デフォルトピクセルフォーマット
@@ -978,6 +980,7 @@ function buildNodeAddMenu(menu) {
         transform: [{ id: 'affine', name: 'アフィン変換', icon: '🔄' }],
         composite: [
             { id: 'composite', name: '合成', icon: '📑' },
+            { id: 'matte', name: 'マット合成', icon: '🎭' },
             { id: 'distributor', name: '分配', icon: '📤' }
         ],
         special: []
@@ -1036,6 +1039,8 @@ function handleNodeAdd(nodeType) {
         addAffineNode();
     } else if (nodeType === 'composite') {
         addCompositeNode();
+    } else if (nodeType === 'matte') {
+        addMatteNode();
     } else if (nodeType === 'distributor') {
         addDistributorNode();
     } else if (nodeType === 'ninepatch') {
@@ -1846,7 +1851,72 @@ function generateTestPatterns() {
         });
     }
 
-    // パターン6: 9patch テスト画像（八角形 + タイルパターン背景）
+    // パターン6: 星型マスク（128x128、マット合成用）
+    // 背景透明、中央に不透明の星、輪郭部が半透明
+    {
+        const size = 128;
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = size;
+        tempCanvas.height = size;
+        const tempCtx = tempCanvas.getContext('2d');
+
+        // 背景を透明にクリア
+        tempCtx.clearRect(0, 0, size, size);
+
+        const cx = size / 2;
+        const cy = size / 2;
+        const outerRadius = size * 0.45;  // 外側の頂点
+        const innerRadius = size * 0.18;  // 内側の頂点
+        const points = 5;
+
+        // 星型のパスを作成
+        function createStarPath(ctx, x, y, outerR, innerR, numPoints) {
+            ctx.beginPath();
+            for (let i = 0; i < numPoints * 2; i++) {
+                const radius = i % 2 === 0 ? outerR : innerR;
+                const angle = (Math.PI / numPoints) * i - Math.PI / 2;
+                const px = x + radius * Math.cos(angle);
+                const py = y + radius * Math.sin(angle);
+                if (i === 0) {
+                    ctx.moveTo(px, py);
+                } else {
+                    ctx.lineTo(px, py);
+                }
+            }
+            ctx.closePath();
+        }
+
+        // 外側のぼかし効果（半透明の大きな星）
+        tempCtx.save();
+        tempCtx.shadowColor = 'rgba(255, 255, 255, 0.8)';
+        tempCtx.shadowBlur = 8;
+        tempCtx.shadowOffsetX = 0;
+        tempCtx.shadowOffsetY = 0;
+        createStarPath(tempCtx, cx, cy, outerRadius, innerRadius, points);
+        tempCtx.fillStyle = 'rgba(255, 255, 255, 1.0)';
+        tempCtx.fill();
+        tempCtx.restore();
+
+        // 内側の不透明な星（グラデーション付き）
+        const gradient = tempCtx.createRadialGradient(cx, cy, 0, cx, cy, outerRadius);
+        gradient.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
+        gradient.addColorStop(0.7, 'rgba(255, 255, 255, 1.0)');
+        gradient.addColorStop(1, 'rgba(255, 255, 255, 0.8)');
+
+        createStarPath(tempCtx, cx, cy, outerRadius * 0.92, innerRadius * 0.92, points);
+        tempCtx.fillStyle = gradient;
+        tempCtx.fill();
+
+        const starImageData = tempCtx.getImageData(0, 0, size, size);
+        patterns.push({
+            name: 'Star',
+            data: new Uint8ClampedArray(starImageData.data),
+            width: size,
+            height: size
+        });
+    }
+
+    // パターン7: 9patch テスト画像（八角形 + タイルパターン背景）
     // 外周1pxはメタデータ、内部48x48がコンテンツ
     {
         const totalSize = 50;  // メタデータ含む
@@ -1973,7 +2043,7 @@ function generateTestPatterns() {
         });
     }
 
-    // パターン7: 9patch ファンタジー装飾枠（セリフ枠用）
+    // パターン8: 9patch ファンタジー装飾枠（セリフ枠用）
     // 外周1pxはメタデータ、内部62x62がコンテンツ
     {
         const totalSize = 64;  // メタデータ含む
@@ -2586,8 +2656,8 @@ function calculateMatrixFromParams(translateX, translateY, rotation, scaleX, sca
 function getNodeHeight(node) {
     if (node.type === 'image') {
         return 120; // 画像ノード: サムネイル + X,Yスライダー
-    } else if (node.type === 'composite') {
-        // 合成ノード: 入力数に応じて可変高さ（ポート間隔を最低15px確保）
+    } else if (node.type === 'composite' || node.type === 'matte') {
+        // 合成ノード/マット合成ノード: 入力数に応じて可変高さ（ポート間隔を最低15px確保）
         const inputCount = node.inputs ? node.inputs.length : 2;
         const minPortSpacing = 15;
         const minHeight = 60;
@@ -2782,8 +2852,8 @@ function drawGlobalNode(node) {
         }
     }
 
-    // 合成ノードの場合、入力数のみ表示（コンパクト）
-    if (node.type === 'composite') {
+    // 合成ノード/マット合成ノードの場合、入力数のみ表示（コンパクト）
+    if (node.type === 'composite' || node.type === 'matte') {
         const controls = document.createElement('div');
         controls.className = 'node-box-controls';
         controls.style.cssText = 'padding: 4px; font-size: 11px; color: #666;';
@@ -3354,6 +3424,21 @@ function getNodePorts(node) {
             ports.outputs.push({ id: 'out', label: '出力', type: 'image' });
             break;
 
+        case 'matte':
+            // マット合成ノード: 3入力固定（前景、背景、マスク）、出力1つ
+            if (node.inputs && node.inputs.length > 0) {
+                node.inputs.forEach((input, index) => {
+                    const labels = ['前景', '背景', 'マスク'];
+                    ports.inputs.push({
+                        id: input.id,
+                        label: input.label || labels[index] || `入力${index + 1}`,
+                        type: 'image'
+                    });
+                });
+            }
+            ports.outputs.push({ id: 'out', label: '出力', type: 'image' });
+            break;
+
         case 'distributor':
             // 分配ノード: 入力1つ、動的な出力数
             ports.inputs.push({ id: 'in', label: '入力', type: 'image' });
@@ -3476,6 +3561,37 @@ function addCompositeNode() {
     };
 
     globalNodes.push(compositeNode);
+    renderNodeGraph();
+    scheduleAutoSave();
+}
+
+// マット合成ノードを追加
+function addMatteNode() {
+    // 表示範囲の中央に固定配置 + ランダムオフセット
+    const center = getVisibleNodeGraphCenter();
+    const nodeWidth = 160;
+    const nodeHeight = 110;  // 3入力分
+    const posX = center.x - nodeWidth / 2 + randomOffset();
+    const posY = center.y - nodeHeight / 2 + randomOffset();
+
+    // 既存ノードを押し出す
+    pushExistingNodes(posX, posY, nodeWidth, nodeHeight);
+
+    const matteNode = {
+        id: `matte-${Date.now()}`,
+        type: 'matte',
+        title: 'マット合成',
+        posX: posX,
+        posY: posY,
+        // 3入力固定（前景, 背景, マスク）
+        inputs: [
+            { id: 'in1', label: '前景' },
+            { id: 'in2', label: '背景' },
+            { id: 'in3', label: 'マスク' }
+        ]
+    };
+
+    globalNodes.push(matteNode);
     renderNodeGraph();
     scheduleAutoSave();
 }
@@ -4399,6 +4515,8 @@ function buildDetailPanelContent(node) {
         buildFilterDetailContent(node);
     } else if (node.type === 'composite') {
         buildCompositeDetailContent(node);
+    } else if (node.type === 'matte') {
+        buildMatteDetailContent(node);
     } else if (node.type === 'distributor') {
         buildDistributorDetailContent(node);
     } else if (node.type === 'affine') {
@@ -4606,6 +4724,41 @@ function buildCompositeDetailContent(node) {
     const hint = document.createElement('div');
     hint.style.cssText = 'margin-top: 12px; font-size: 11px; color: #888;';
     hint.textContent = '💡 アルファ調整はAlphaフィルタノードを使用してください';
+    section.appendChild(hint);
+
+    detailPanelContent.appendChild(section);
+}
+
+// マット合成ノードの詳細コンテンツ
+function buildMatteDetailContent(node) {
+    const section = document.createElement('div');
+    section.className = 'node-detail-section';
+
+    const label = document.createElement('div');
+    label.className = 'node-detail-label';
+    label.textContent = 'マット合成（3入力固定）';
+    section.appendChild(label);
+
+    // 入力説明
+    const inputDesc = document.createElement('div');
+    inputDesc.style.cssText = 'margin-top: 8px; font-size: 11px; color: #666;';
+    inputDesc.innerHTML = `
+        <div style="margin-bottom: 4px;"><b>入力1:</b> 前景（マスク白部分）</div>
+        <div style="margin-bottom: 4px;"><b>入力2:</b> 背景（マスク黒部分）</div>
+        <div><b>入力3:</b> アルファマスク</div>
+    `;
+    section.appendChild(inputDesc);
+
+    // 計算式
+    const formula = document.createElement('div');
+    formula.style.cssText = 'margin-top: 12px; font-size: 11px; color: #888; font-family: monospace;';
+    formula.textContent = 'Out = Fg × α + Bg × (1-α)';
+    section.appendChild(formula);
+
+    // ヒントテキスト
+    const hint = document.createElement('div');
+    hint.style.cssText = 'margin-top: 12px; font-size: 11px; color: #888;';
+    hint.textContent = '💡 マスク画像はAlpha8フォーマット推奨';
     section.appendChild(hint);
 
     detailPanelContent.appendChild(section);

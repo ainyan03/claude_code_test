@@ -48,13 +48,15 @@ namespace NodeType {
     constexpr int VerticalBlur = 11;
     // 特殊ソース系
     constexpr int NinePatch = 12;  // 9patch画像
+    // 合成系
+    constexpr int Matte = 13;      // マット合成（3入力）
 
-    constexpr int Count = 13;
+    constexpr int Count = 14;
 }
 
 // コンパイル時チェック: 最後のノードタイプ + 1 == Count
 // ノード追加時に Count の更新を忘れるとここでエラーになる
-static_assert(NodeType::NinePatch + 1 == NodeType::Count,
+static_assert(NodeType::Matte + 1 == NodeType::Count,
               "NodeType::Count must equal last node type + 1. "
               "Also update demo/web/app.js NODE_TYPES.");
 static_assert(NodeType::VerticalBlur == 11,
