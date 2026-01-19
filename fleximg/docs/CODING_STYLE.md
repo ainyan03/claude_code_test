@@ -23,10 +23,33 @@ fleximg は組み込み環境への移植を見据えて設計されています
 | 構造体メンバ（座標等） | `int16_t`, `int32_t` | サイズが明確、メモリ効率重視 |
 | 関数引数（座標等） | `int_fast16_t`, `int_fast32_t` | 32bitマイコンでのビット切り詰め回避 |
 | ローカル変数（演算用） | `int_fast16_t`, `int_fast32_t` | 演算速度優先の場面で使用 |
-| ループカウンタ | `int`, `size_t` | 単純なループはそのまま |
+| ループカウンタ | `int`, `size_t` | 終端変数と型を一致させる |
 | 固定小数点 | `int32_t` | `int_fixed8`, `int_fixed16` として定義済み |
 | 配列サイズ/インデックス | `size_t` | 標準ライブラリとの互換性 |
 | バッファサイズ | `size_t` | `memcpy` 等の引数に適合 |
+
+### ループカウンタと配列インデックス
+
+1. **ループカウンタと終端変数の型は一致させる**
+   ```cpp
+   // 良い例：型が一致
+   for (int y = 0; y < height; ++y)           // height が int
+   for (size_t i = 0; i < vec.size(); ++i)    // size() が size_t
+
+   // 避けるべき例：型不一致
+   for (int i = 0; i < vec.size(); ++i)       // 警告の原因
+   ```
+
+2. **配列インデックスに使用する際、型が異なる場合は明示的キャスト**
+   ```cpp
+   // 範囲チェック済みの値を配列インデックスに使用
+   buffer[static_cast<size_t>(x)] = value;
+   ```
+
+3. **符号あり演算が必要な場面では符号あり型を許容**
+   - 逆順ループ（`for (int i = n-1; i >= 0; --i)`）
+   - 差分計算（`end - start`）
+   - 負の座標を扱う処理
 
 ### 最速型 (`int_fast*_t`) の使用
 
@@ -58,6 +81,11 @@ ViewPort(void* d, PixelFormatID fmt, int32_t str,
     , width(static_cast<int16_t>(w))
     , height(static_cast<int16_t>(h)) {}
 ```
+
+**プラットフォーム依存性に関する注意**:
+`int_fast*_t` の効果はプラットフォームにより異なります。
+- ESP32等の32bitマイコン: 16bit引数のビット切り詰め回避で効果あり
+- WASM/x64: 通常 `int32_t` と同等、効果は限定的
 
 ### 固定小数点型
 
@@ -106,11 +134,48 @@ void processPixels(const ViewPort& src) {
 std::memcpy(dst, src, static_cast<size_t>(width * bpp));
 ```
 
+### 座標値と配列インデックス
+
+画像処理では座標値（`int16_t`, `int32_t`, `int_fixed`）を配列インデックスとして使用することが多い。
+座標は負になり得る（基準点相対座標）ため、以下のルールに従う。
+
+1. **座標値は符号あり型を維持**
+   - 負の座標（基準点より左/上）を扱う必要があるため
+   - 計算途中での符号反転を正しく検出するため
+
+2. **アクセサ関数でキャストを吸収**
+   ```cpp
+   // ViewPort::pixelAt() 等の内部でキャストを行う
+   void* pixelAt(int x, int y) {
+       // 範囲チェック後、内部で size_t にキャスト
+       return static_cast<uint8_t*>(data) +
+              static_cast<size_t>(y) * stride +
+              static_cast<size_t>(x) * bpp;
+   }
+   ```
+
+3. **直接アクセス時は明示的キャスト**
+   ```cpp
+   // 範囲チェック済みの座標を直接使用する場合
+   row[static_cast<size_t>(x * 4 + 0)] = r;
+
+   // または一時変数に格納
+   size_t offset = static_cast<size_t>(x * 4);
+   row[offset + 0] = r;
+   ```
+
 ---
 
 ## コンパイルオプション
 
-### 推奨警告オプション
+### 警告オプションのロードマップ
+
+| フェーズ | オプション | 状態 |
+|---------|-----------|------|
+| 現在 | `-Wall -Wextra -Wpedantic` | 必須（クリーンビルド維持） |
+| 目標 | `-Wconversion -Wsign-conversion` | 段階的に対応中 |
+
+### 現在の必須オプション
 
 ```bash
 -Wall -Wextra -Wpedantic
@@ -118,13 +183,23 @@ std::memcpy(dst, src, static_cast<size_t>(width * bpp));
 
 これらのオプションでクリーンビルドを維持すること。
 
-### 追加の厳格オプション（参考）
+### 段階的対応オプション
 
-以下のオプションは多数の警告が発生するため、必要に応じて個別対応:
+以下のオプションは完全対応を目指して段階的に修正中:
 
 ```bash
 -Wconversion        # 暗黙の型変換
 -Wsign-conversion   # 符号付き/符号なし変換
+```
+
+**対応方針**:
+1. 新規コードは本ガイドラインに従い、警告が出ないように記述
+2. 既存コードは優先度の高い箇所（`memcpy`等）から順次修正
+3. 定期的に厳格オプションでビルドし、警告数を削減
+
+### その他の厳格オプション（参考）
+
+```bash
 -Wshadow            # 変数シャドウイング
 ```
 
@@ -168,6 +243,34 @@ if (static_cast<uint_fast32_t>(x) >= static_cast<uint_fast32_t>(width)) {
 
 ---
 
+## 将来予定
+
+### 型エイリアスによる検証モード
+
+`int_fast*_t` を直接使用せず、fleximg 固有の型エイリアスを導入し、
+ビルドオプションで厳密な型と最速型を切り替え可能にする構想。
+
+```cpp
+// types.h（構想）
+#ifdef FLEXIMG_STRICT_TYPES  // テスト・検証用
+using flex_int16 = int16_t;
+using flex_int32 = int32_t;
+#else  // リリース・パフォーマンス重視
+using flex_int16 = int_fast16_t;
+using flex_int32 = int_fast32_t;
+#endif
+```
+
+**目的**:
+- テスト時に厳密な型（`int16_t`）でビルドし、オーバーフローを検出
+- リリース時は最速型でパフォーマンスを確保
+- 環境依存の桁不足バグを早期発見
+
+**状態**: 検討中（影響範囲が大きいため、詳細は後日決定）
+
+---
+
 ## 変更履歴
 
+- 2026-01-19: ループカウンタ/配列インデックス、座標値、警告オプションのルールを明確化
 - 2026-01-12: 初版作成
