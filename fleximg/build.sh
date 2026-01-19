@@ -69,6 +69,8 @@ emcc src/fleximg/core/memory/platform.cpp \
     -o demo/web/fleximg.js \
     -std=c++17 \
     -Wall -Wextra -Wpedantic \
+    -Wconversion -Wsign-conversion -Wshadow -Wcast-qual -Wdouble-promotion \
+    -Wformat=2 -Wnull-dereference -Wunused \
     -O3 \
     $DEBUG_FLAGS \
     -s WASM=1 \

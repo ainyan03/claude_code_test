@@ -134,7 +134,7 @@ inline void copyRowDDA(
         uint32_t sx = static_cast<uint32_t>(srcX_fixed) >> INT_FIXED16_SHIFT;
         uint32_t sy = static_cast<uint32_t>(srcY_fixed) >> INT_FIXED16_SHIFT;
 
-        const uint8_t* srcPixel = srcData + sy * srcStride + sx * BytesPerPixel;
+        const uint8_t* srcPixel = srcData + static_cast<size_t>(sy) * static_cast<size_t>(srcStride) + static_cast<size_t>(sx) * BytesPerPixel;
 
         if constexpr (BytesPerPixel == 8) {
             reinterpret_cast<uint32_t*>(dstRow)[0] =
@@ -210,7 +210,7 @@ inline void copyRowDDABilinear_RGBA8888(
 
         // 4点のポインタを取得
         // 境界ピクセルでは隣接ピクセルへのアクセスを回避（範囲外アクセス防止）
-        const uint8_t* p00 = srcData + sy * srcStride + sx * BPP;
+        const uint8_t* p00 = srcData + static_cast<size_t>(sy) * static_cast<size_t>(srcStride) + static_cast<size_t>(sx) * BPP;
         const uint8_t* p10 = (sx >= srcLastX) ? p00 : p00 + BPP;
         const uint8_t* p01 = (sy >= srcLastY) ? p00 : p00 + srcStride;
         const uint8_t* p11 = (sx >= srcLastX) ? p01 : p01 + BPP;

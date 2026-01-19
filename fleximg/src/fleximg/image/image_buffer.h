@@ -242,7 +242,7 @@ private:
     void allocate() {
         auto bpp = getBytesPerPixel(view_.formatID);
         view_.stride = static_cast<int32_t>(view_.width * bpp);
-        capacity_ = static_cast<size_t>(view_.stride) * view_.height;
+        capacity_ = static_cast<size_t>(view_.stride) * static_cast<size_t>(view_.height);
         if (capacity_ > 0 && allocator_) {
             view_.data = allocator_->allocate(capacity_);
             assert(view_.data != nullptr && "Memory allocation failed");

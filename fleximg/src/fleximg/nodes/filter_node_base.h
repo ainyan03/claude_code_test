@@ -66,8 +66,8 @@ public:
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         // ピクセル効率計測
         auto& metrics = PerfMetrics::instance().nodes[nodeTypeForMetrics()];
-        metrics.requestedPixels += static_cast<uint64_t>(inputReq.width) * inputReq.height;
-        metrics.usedPixels += static_cast<uint64_t>(request.width) * request.height;
+        metrics.requestedPixels += static_cast<uint64_t>(inputReq.width) * static_cast<uint64_t>(inputReq.height);
+        metrics.usedPixels += static_cast<uint64_t>(request.width) * static_cast<uint64_t>(request.height);
 #endif
 
         RenderResult input = upstream->pullProcess(inputReq);

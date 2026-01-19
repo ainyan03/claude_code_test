@@ -297,7 +297,7 @@ inline void convertFormat(const void* src, PixelFormatID srcFormat,
     // 同じフォーマットの場合はコピー
     if (srcFormat == dstFormat) {
         if (srcFormat) {
-            int units = (pixelCount + srcFormat->pixelsPerUnit - 1) / srcFormat->pixelsPerUnit;
+            size_t units = static_cast<size_t>((pixelCount + srcFormat->pixelsPerUnit - 1) / srcFormat->pixelsPerUnit);
             std::memcpy(dst, src, units * srcFormat->bytesPerUnit);
         }
         return;
@@ -315,7 +315,7 @@ inline void convertFormat(const void* src, PixelFormatID srcFormat,
 
     // 一時バッファを確保（スレッドローカル）
     thread_local std::vector<uint8_t> conversionBuffer;
-    conversionBuffer.resize(pixelCount * 4);
+    conversionBuffer.resize(static_cast<size_t>(pixelCount) * 4);
 
     // src → RGBA8_Straight
     if (srcFormat->isIndexed && srcFormat->toStandardIndexed && srcPalette) {

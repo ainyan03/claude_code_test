@@ -168,40 +168,41 @@ std::memcpy(dst, src, static_cast<size_t>(width * bpp));
 
 ## コンパイルオプション
 
-### 警告オプションのロードマップ
-
-| フェーズ | オプション | 状態 |
-|---------|-----------|------|
-| 現在 | `-Wall -Wextra -Wpedantic` | 必須（クリーンビルド維持） |
-| 目標 | `-Wconversion -Wsign-conversion` | 段階的に対応中 |
-
-### 現在の必須オプション
+### 必須警告オプション
 
 ```bash
 -Wall -Wextra -Wpedantic
+-Wconversion -Wsign-conversion -Wshadow -Wcast-qual -Wdouble-promotion
+-Wformat=2 -Wnull-dereference -Wunused
 ```
 
 これらのオプションでクリーンビルドを維持すること。
 
-### 段階的対応オプション
+### 各オプションの説明
 
-以下のオプションは完全対応を目指して段階的に修正中:
+| オプション | 説明 |
+|-----------|------|
+| `-Wall -Wextra -Wpedantic` | 基本的な警告セット |
+| `-Wconversion` | 暗黙の型変換（精度喪失の可能性） |
+| `-Wsign-conversion` | 符号付き↔符号なし変換 |
+| `-Wshadow` | 変数シャドウイング |
+| `-Wcast-qual` | const修飾の削除キャスト |
+| `-Wdouble-promotion` | float→double暗黙昇格 |
+| `-Wformat=2` | printf系フォーマット文字列の厳密チェック |
+| `-Wnull-dereference` | NULLポインタ参照の検出 |
+| `-Wunused` | 未使用変数・関数の検出 |
 
-```bash
--Wconversion        # 暗黙の型変換
--Wsign-conversion   # 符号付き/符号なし変換
-```
+### 警告対応の基本方針
 
-**対応方針**:
-1. 新規コードは本ガイドラインに従い、警告が出ないように記述
-2. 既存コードは優先度の高い箇所（`memcpy`等）から順次修正
-3. 定期的に厳格オプションでビルドし、警告数を削減
-
-### その他の厳格オプション（参考）
-
-```bash
--Wshadow            # 変数シャドウイング
-```
+1. **新規コードは本ガイドラインに従い、警告が出ないように記述**
+2. **型変換は明示的キャストで行う**
+   - `int` → `size_t`: `static_cast<size_t>(value)`
+   - `int64_t` → `float`: 両辺を `static_cast<float>()` でキャスト
+   - `int` → `int16_t`: `static_cast<int16_t>(value)`
+3. **memcpy/memsetのサイズ引数は `size_t` にキャスト**
+   ```cpp
+   std::memcpy(dst, src, static_cast<size_t>(width) * 4);
+   ```
 
 ---
 
@@ -272,5 +273,6 @@ using flex_int32 = int_fast32_t;
 
 ## 変更履歴
 
+- 2026-01-19: 追加警告オプション（-Wconversion等）を必須化、全警告を解消
 - 2026-01-19: ループカウンタ/配列インデックス、座標値、警告オプションのルールを明確化
 - 2026-01-12: 初版作成

@@ -45,10 +45,10 @@ public:
     // 入力数を変更（既存接続は維持）
     void setInputCount(int count) {
         if (count < 1) count = 1;
-        inputs_.resize(count);
+        inputs_.resize(static_cast<size_t>(count));
         for (int i = 0; i < count; ++i) {
-            if (inputs_[i].owner == nullptr) {
-                inputs_[i] = Port(this, i);
+            if (inputs_[static_cast<size_t>(i)].owner == nullptr) {
+                inputs_[static_cast<size_t>(i)] = Port(this, i);
             }
         }
     }
