@@ -128,7 +128,7 @@ void boxBlur(ViewPort& dst, const ViewPort& src, int radius,
         // まず全体を透明に
         for (int y = 0; y < dst.height; y++) {
             uint8_t* dstRow = static_cast<uint8_t*>(dst.pixelAt(0, y));
-            std::memset(dstRow, 0, dst.width * 4);
+            std::memset(dstRow, 0, static_cast<size_t>(dst.width) * 4);
         }
         if (src.isValid()) {
             // srcの範囲をコピー
@@ -165,7 +165,7 @@ void boxBlur(ViewPort& dst, const ViewPort& src, int radius,
 
         // src範囲外の行は全透明
         if (srcY < 0 || srcY >= srcH || !src.isValid()) {
-            std::memset(tempRow, 0, dstW * 4);
+            std::memset(tempRow, 0, static_cast<size_t>(dstW) * 4);
             continue;
         }
 

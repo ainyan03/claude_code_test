@@ -11,11 +11,11 @@ namespace FLEXIMG_NAMESPACE {
 
 // RGBA8_Straight: 標準フォーマットなのでコピー
 static void rgba8Straight_toStandard(const void* src, uint8_t* dst, int pixelCount) {
-    std::memcpy(dst, src, pixelCount * 4);
+    std::memcpy(dst, src, static_cast<size_t>(pixelCount) * 4);
 }
 
 static void rgba8Straight_fromStandard(const uint8_t* src, void* dst, int pixelCount) {
-    std::memcpy(dst, src, pixelCount * 4);
+    std::memcpy(dst, src, static_cast<size_t>(pixelCount) * 4);
 }
 
 // ========================================================================
@@ -154,9 +154,9 @@ static void rgb565le_toStandard(const void* src, uint8_t* dst, int pixelCount) {
         uint8_t b5 = pixel & 0x1F;
 
         // ビット拡張（5bit/6bit → 8bit）
-        dst[i*4 + 0] = (r5 << 3) | (r5 >> 2);
-        dst[i*4 + 1] = (g6 << 2) | (g6 >> 4);
-        dst[i*4 + 2] = (b5 << 3) | (b5 >> 2);
+        dst[i*4 + 0] = static_cast<uint8_t>((r5 << 3) | (r5 >> 2));
+        dst[i*4 + 1] = static_cast<uint8_t>((g6 << 2) | (g6 >> 4));
+        dst[i*4 + 2] = static_cast<uint8_t>((b5 << 3) | (b5 >> 2));
         dst[i*4 + 3] = 255;
     }
 }
@@ -167,7 +167,7 @@ static void rgb565le_fromStandard(const uint8_t* src, void* dst, int pixelCount)
         uint8_t r = src[i*4 + 0];
         uint8_t g = src[i*4 + 1];
         uint8_t b = src[i*4 + 2];
-        d[i] = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
+        d[i] = static_cast<uint16_t>(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
     }
 }
 
@@ -179,14 +179,14 @@ static void rgb565be_toStandard(const void* src, uint8_t* dst, int pixelCount) {
     const uint8_t* s = static_cast<const uint8_t*>(src);
     for (int i = 0; i < pixelCount; i++) {
         // ビッグエンディアン: 上位バイトが先
-        uint16_t pixel = (static_cast<uint16_t>(s[i*2]) << 8) | s[i*2 + 1];
+        uint16_t pixel = static_cast<uint16_t>((static_cast<uint16_t>(s[i*2]) << 8) | s[i*2 + 1]);
         uint8_t r5 = (pixel >> 11) & 0x1F;
         uint8_t g6 = (pixel >> 5) & 0x3F;
         uint8_t b5 = pixel & 0x1F;
 
-        dst[i*4 + 0] = (r5 << 3) | (r5 >> 2);
-        dst[i*4 + 1] = (g6 << 2) | (g6 >> 4);
-        dst[i*4 + 2] = (b5 << 3) | (b5 >> 2);
+        dst[i*4 + 0] = static_cast<uint8_t>((r5 << 3) | (r5 >> 2));
+        dst[i*4 + 1] = static_cast<uint8_t>((g6 << 2) | (g6 >> 4));
+        dst[i*4 + 2] = static_cast<uint8_t>((b5 << 3) | (b5 >> 2));
         dst[i*4 + 3] = 255;
     }
 }
@@ -197,10 +197,10 @@ static void rgb565be_fromStandard(const uint8_t* src, void* dst, int pixelCount)
         uint8_t r = src[i*4 + 0];
         uint8_t g = src[i*4 + 1];
         uint8_t b = src[i*4 + 2];
-        uint16_t pixel = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
+        uint16_t pixel = static_cast<uint16_t>(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
         // ビッグエンディアン: 上位バイトを先に
-        d[i*2] = pixel >> 8;
-        d[i*2 + 1] = pixel & 0xFF;
+        d[i*2] = static_cast<uint8_t>(pixel >> 8);
+        d[i*2 + 1] = static_cast<uint8_t>(pixel & 0xFF);
     }
 }
 
@@ -230,7 +230,7 @@ static void rgb332_fromStandard(const uint8_t* src, void* dst, int pixelCount) {
         uint8_t r = src[i*4 + 0];
         uint8_t g = src[i*4 + 1];
         uint8_t b = src[i*4 + 2];
-        d[i] = (r & 0xE0) | ((g >> 5) << 2) | (b >> 6);
+        d[i] = static_cast<uint8_t>((r & 0xE0) | ((g >> 5) << 2) | (b >> 6));
     }
 }
 
