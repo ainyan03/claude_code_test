@@ -106,26 +106,14 @@ public:
         // radius=0またはpasses=0の場合はキャッシュ不要
         if (radius_ == 0 || passes_ == 0) return;
 
-        // passes>1の場合はパイプライン方式を使用
-        if (passes_ > 1) {
-            initializeStages(screenWidth_);
-        } else {
-            // passes=1の場合は従来方式
-            initializeCache(screenWidth_);
-            currentY_ = 0;
-            cacheReady_ = false;
-        }
+        // パイプライン方式でキャッシュを初期化（passes=1でもstages_[0]を使用）
+        initializeStages(screenWidth_);
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
-        size_t cacheBytes;
-        if (passes_ > 1) {
-            // パイプライン方式: 各ステージ (radius*2+1)*width*4 + width*16
-            cacheBytes = passes_ * (kernelSize() * cacheWidth_ * 4 + cacheWidth_ * 4 * sizeof(uint32_t));
-        } else {
-            cacheBytes = totalKernelSize() * cacheWidth_ * 4 + cacheWidth_ * 4 * sizeof(uint32_t);
-        }
+        // パイプライン方式: 各ステージ (radius*2+1)*width*4 + width*16
+        size_t cacheBytes = passes_ * (kernelSize() * cacheWidth_ * 4 + cacheWidth_ * 4 * sizeof(uint32_t));
         PerfMetrics::instance().nodes[NodeType::VerticalBlur].recordAlloc(
-            cacheBytes, cacheWidth_, passes_ > 1 ? kernelSize() * passes_ : totalKernelSize());
+            cacheBytes, cacheWidth_, kernelSize() * passes_);
 #endif
     }
 
@@ -135,15 +123,6 @@ public:
             stage.clear();
         }
         stages_.clear();
-
-        // 従来方式のキャッシュもクリア
-        rowCache_.clear();
-        rowOriginX_.clear();
-        colSumR_.clear();
-        colSumG_.clear();
-        colSumB_.clear();
-        colSumA_.clear();
-        cacheReady_ = false;
     }
 
     // ========================================
@@ -183,18 +162,12 @@ public:
         pushInputOriginY_ = request.origin.y;
         lastInputOriginY_ = request.origin.y;
 
-        // キャッシュを初期化
-        if (passes_ > 1) {
-            // パイプライン方式: 各ステージのキャッシュを初期化
-            initializeStages(pushInputWidth_);
-            // 各ステージのpush状態をリセット
-            for (auto& stage : stages_) {
-                stage.pushInputY = 0;
-                stage.pushOutputY = 0;
-            }
-        } else {
-            // 従来方式
-            initializeCache(pushInputWidth_);
+        // パイプライン方式でキャッシュを初期化（passes=1でもstages_[0]を使用）
+        initializeStages(pushInputWidth_);
+        // 各ステージのpush状態をリセット
+        for (auto& stage : stages_) {
+            stage.pushInputY = 0;
+            stage.pushOutputY = 0;
         }
 
         // 下流へ伝播
@@ -210,82 +183,17 @@ public:
         return true;
     }
 
-    void pushProcess(RenderResult&& input, const RenderRequest& request) override {
+    void pushProcess(RenderResult&& input, const RenderRequest& /* request */) override {
         // radius=0の場合はスルー
         if (radius_ == 0) {
             Node* downstream = downstreamNode(0);
             if (downstream) {
-                downstream->pushProcess(std::move(input), request);
+                downstream->pushProcess(std::move(input), RenderRequest());
             }
             return;
         }
 
-        // passes>1の場合はパイプライン方式
-        if (passes_ > 1) {
-            pushProcessPipeline(std::move(input), request);
-            return;
-        }
-
-        // passes=1: 従来方式
-        int cacheSize = kernelSize();
-
-        // originを先に保存（bufferがムーブされる前に）
-        Point inputOrigin = input.origin;
-
-        if (!input.isValid()) {
-            // 無効な入力でもキャッシュを更新（ゼロ行扱い）
-            int slot = pushInputY_ % cacheSize;
-            if (pushInputY_ >= kernelSize()) {
-                updateColSum(slot, false);
-            }
-            std::memset(rowCache_[slot].view().data, 0, cacheWidth_ * 4);
-            rowOriginX_[slot] = inputOrigin.x;
-            updateColSum(slot, true);
-            lastInputOriginY_ = inputOrigin.y;
-            pushInputY_++;
-
-            // radius行受け取った後から出力開始
-            if (pushInputY_ > radius_) {
-                emitBlurredLineSinglePass();
-            }
-            return;
-        }
-
-        // 入力をRGBA8_Straightに変換
-        ImageBuffer converted = convertFormat(std::move(input.buffer),
-                                               PixelFormatIDs::RGBA8_Straight);
-
-        // キャッシュスロットを決定（リングバッファ）
-        int slot = pushInputY_ % cacheSize;
-
-        // 古い行を列合計から減算
-        if (pushInputY_ >= kernelSize()) {
-            updateColSum(slot, false);
-        }
-
-        // X方向のオフセットを計算
-        int xOffset = from_fixed(inputOrigin.x - baseOriginX_);
-
-        // 入力行をキャッシュに格納（オフセット考慮）
-        storeInputRowToCache(converted, slot, xOffset);
-        rowOriginX_[slot] = inputOrigin.x;
-
-        // 新しい行を列合計に加算
-        updateColSum(slot, true);
-
-        // Y方向のorigin更新
-        lastInputOriginY_ = inputOrigin.y;
-
-        pushInputY_++;
-
-        // radius行受け取った後から出力開始
-        if (pushInputY_ > radius_) {
-            emitBlurredLineSinglePass();
-        }
-    }
-
-    // パイプライン方式のpush処理（passes>1用）
-    void pushProcessPipeline(RenderResult&& input, const RenderRequest& /* request */) {
+        // パイプライン方式で処理（passes=1でもstages_[0]を使用）
         Point inputOrigin = input.origin;
         int ks = kernelSize();
 
@@ -327,35 +235,7 @@ public:
             return;
         }
 
-        if (passes_ > 1) {
-            pushFinalizePipeline();
-        } else {
-            pushFinalizeSinglePass();
-        }
-
-        Node::pushFinalize();
-    }
-
-    // 単一パスのpushFinalize
-    void pushFinalizeSinglePass() {
-        int cacheSize = kernelSize();
-
-        // 残りの行を出力（下端はゼロパディング扱い）
-        while (pushOutputY_ < pushOutputHeight_) {
-            int slot = pushInputY_ % cacheSize;
-            if (pushInputY_ >= kernelSize()) {
-                updateColSum(slot, false);
-            }
-            std::memset(rowCache_[slot].view().data, 0, cacheWidth_ * 4);
-
-            lastInputOriginY_ -= to_fixed(1);
-            pushInputY_++;
-            emitBlurredLineSinglePass();
-        }
-    }
-
-    // パイプライン方式のpushFinalize
-    void pushFinalizePipeline() {
+        // パイプライン方式で残りの行を出力（passes=1でもstages_[0]を使用）
         int ks = kernelSize();
 
         // 残りの行を出力（下端はゼロパディング扱い）
@@ -375,6 +255,8 @@ public:
             // 後続ステージに伝播
             propagatePipelineStages();
         }
+
+        Node::pushFinalize();
     }
 
 protected:
@@ -393,13 +275,8 @@ protected:
             return upstream->pullProcess(request);
         }
 
-        // passes=1の場合は従来の単一パス処理
-        if (passes_ == 1) {
-            return pullProcessSinglePass(upstream, request);
-        }
-
-        // passes>1の場合は複数パス処理（マルチパスカーネルを使用）
-        return pullProcessMultiPass(upstream, request);
+        // パイプライン方式で処理（passes=1でもstages_[0]を使用）
+        return pullProcessPipeline(upstream, request);
     }
 
 private:
@@ -444,19 +321,9 @@ private:
         }
     };
 
-    // パイプラインステージ（passes個）
+    // パイプラインステージ（passes個、passes=1でもstages_[0]を使用）
     std::vector<BlurStage> stages_;
     int cacheWidth_ = 0;
-
-    // 後方互換用（単一パス用変数、段階的に移行）
-    std::vector<ImageBuffer> rowCache_;
-    std::vector<int_fixed> rowOriginX_;      // 各キャッシュ行のorigin.x（push型用）
-    std::vector<uint32_t> colSumR_;
-    std::vector<uint32_t> colSumG_;
-    std::vector<uint32_t> colSumB_;
-    std::vector<uint32_t> colSumA_;
-    int currentY_ = 0;
-    bool cacheReady_ = false;
 
     // push型処理用の状態
     int pushInputY_ = 0;
@@ -469,64 +336,25 @@ private:
     int_fixed lastInputOriginY_ = 0;
 
     // ========================================
-    // マルチパス処理用ヘルパー
+    // パイプライン処理
     // ========================================
-
-    // 単一パス処理（従来の実装）
-    RenderResult pullProcessSinglePass(Node* upstream, const RenderRequest& request) {
-        int requestY = from_fixed(request.origin.y);
-
-        // 最初の呼び出し: キャッシュ初期化のためcurrentY_を設定
-        if (!cacheReady_) {
-            currentY_ = requestY - kernelSize();
-            cacheReady_ = true;
-        }
-        // updateCache内で上流をpullするため、計測はこの後から開始
-        updateCache(upstream, request, requestY);
-
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto start = std::chrono::high_resolution_clock::now();
-        auto& metrics = PerfMetrics::instance().nodes[NodeType::VerticalBlur];
-        metrics.requestedPixels += static_cast<uint64_t>(request.width) * 1;
-        metrics.usedPixels += static_cast<uint64_t>(request.width) * 1;
-#endif
-
-        // 出力バッファを確保
-        ImageBuffer output(request.width, 1, PixelFormatIDs::RGBA8_Straight,
-                          InitPolicy::Uninitialized);
-
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        metrics.recordAlloc(output.totalBytes(), output.width(), output.height());
-#endif
-
-        // 縦方向の列合計から出力行を計算
-        computeOutputRow(output, request);
-
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        metrics.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::high_resolution_clock::now() - start).count();
-        metrics.count++;
-#endif
-
-        return RenderResult(std::move(output), request.origin);
-    }
-
-    // マルチパス処理（パイプライン方式）
     // 各ステージが独立してボックスブラーを適用し、境界処理も独立に行う
     // これにより「3パス×1ノード」と「1パス×3ノード直列」が同等の結果になる
-    RenderResult pullProcessMultiPass(Node* upstream, const RenderRequest& request) {
+    // passes=1の場合もstages_[0]を使用して処理を統一
+    RenderResult pullProcessPipeline(Node* upstream, const RenderRequest& request) {
         int requestY = from_fixed(request.origin.y);
         // 注: 各ステージの初期化はupdateStageCache内で行われる
 
+        // 最終ステージのキャッシュを更新（再帰的に前段ステージも更新される）
+        // updateStageCache内で上流をpullするため、計測はこの後から開始
+        updateStageCache(passes_ - 1, upstream, request, requestY);
+
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         auto start = std::chrono::high_resolution_clock::now();
         auto& metrics = PerfMetrics::instance().nodes[NodeType::VerticalBlur];
         metrics.requestedPixels += static_cast<uint64_t>(request.width) * 1;
         metrics.usedPixels += static_cast<uint64_t>(request.width) * 1;
 #endif
-
-        // 最終ステージのキャッシュを更新（再帰的に前段ステージも更新される）
-        updateStageCache(passes_ - 1, upstream, request, requestY);
 
         // 出力バッファを確保
         ImageBuffer output(request.width, 1, PixelFormatIDs::RGBA8_Straight,
@@ -704,7 +532,7 @@ private:
         stage.cacheReady = false;
     }
 
-    // 全ステージを初期化（パイプライン方式用）
+    // 全ステージを初期化
     void initializeStages(int width) {
         cacheWidth_ = width;
         stages_.resize(passes_);
@@ -713,178 +541,11 @@ private:
         }
     }
 
-    // 後方互換: 従来のキャッシュ初期化（passes=1または従来方式用）
-    void initializeCache(int width) {
-        cacheWidth_ = width;
-        int cacheRows = totalKernelSize();  // passes回分のキャッシュ
-        rowCache_.resize(cacheRows);
-        rowOriginX_.assign(cacheRows, 0);  // 各行のorigin.xを初期化
-        for (int i = 0; i < cacheRows; i++) {
-            rowCache_[i] = ImageBuffer(cacheWidth_, 1, PixelFormatIDs::RGBA8_Straight,
-                                       InitPolicy::Zero);
-        }
-        colSumR_.assign(cacheWidth_, 0);
-        colSumG_.assign(cacheWidth_, 0);
-        colSumB_.assign(cacheWidth_, 0);
-        colSumA_.assign(cacheWidth_, 0);
-    }
-
-    void updateCache(Node* upstream, const RenderRequest& request, int newY) {
-        if (currentY_ == newY) return;
-
-        int step = (currentY_ < newY) ? 1 : -1;
-
-        while (currentY_ != newY) {
-            int newSrcY = currentY_ + step * (radius_ + 1);
-            int slot = newSrcY % kernelSize();
-            if (slot < 0) slot += kernelSize();
-
-            // 古い行を列合計から減算
-            updateColSum(slot, false);
-
-            // 新しい行を取得して格納
-            fetchRowToCache(upstream, request, newSrcY, slot);
-
-            // 新しい行を列合計に加算
-            updateColSum(slot, true);
-
-            currentY_ += step;
-        }
-    }
-
-    // 上流から1行取得してキャッシュに格納（横方向処理なし）
-    void fetchRowToCache(Node* upstream, const RenderRequest& request, int srcY, int cacheIndex) {
-        // 上流への要求（幅はそのまま、横方向拡張なし）
-        RenderRequest upstreamReq;
-        upstreamReq.width = request.width;
-        upstreamReq.height = 1;
-        upstreamReq.origin.x = request.origin.x;
-        upstreamReq.origin.y = to_fixed(srcY);
-
-        RenderResult result = upstream->pullProcess(upstreamReq);
-
-        // キャッシュ行をゼロクリア
-        ViewPort dstView = rowCache_[cacheIndex].view();
-        std::memset(dstView.data, 0, cacheWidth_ * 4);
-
-        if (!result.isValid()) {
-            return;
-        }
-
-        ImageBuffer converted = convertFormat(std::move(result.buffer),
-                                               PixelFormatIDs::RGBA8_Straight);
-        ViewPort srcView = converted.view();
-
-        // 入力データをキャッシュにコピー（オフセット考慮）
-        int srcOffsetX = from_fixed(upstreamReq.origin.x - result.origin.x);
-        int dstStartX = std::max(0, srcOffsetX);
-        int srcStartX = std::max(0, -srcOffsetX);
-        int copyWidth = std::min(static_cast<int>(srcView.width) - srcStartX, cacheWidth_ - dstStartX);
-        if (copyWidth > 0) {
-            const uint8_t* srcPtr = static_cast<const uint8_t*>(srcView.data) + srcStartX * 4;
-            std::memcpy(static_cast<uint8_t*>(dstView.data) + dstStartX * 4, srcPtr, copyWidth * 4);
-        }
-    }
-
-    // 指定行を列合計に加算/減算
-    void updateColSum(int cacheIndex, bool add) {
-        const uint8_t* row = static_cast<const uint8_t*>(rowCache_[cacheIndex].view().data);
-        int sign = add ? 1 : -1;
-        for (int x = 0; x < cacheWidth_; x++) {
-            int off = x * 4;
-            int32_t a = row[off + 3] * sign;
-            int32_t ra = row[off] * a;
-            int32_t ga = row[off + 1] * a;
-            int32_t ba = row[off + 2] * a;
-            colSumR_[x] += ra;
-            colSumG_[x] += ga;
-            colSumB_[x] += ba;
-            colSumA_[x] += a;
-        }
-    }
-
-    // 縦方向の列合計から出力行を計算
-    void computeOutputRow(ImageBuffer& output, const RenderRequest& request) {
-        uint8_t* outRow = static_cast<uint8_t*>(output.view().data);
-        writeOutputRowFromColSum(outRow, request.width);
-    }
-
-    // 列合計から出力行に書き込み（共通ヘルパー）
-    void writeOutputRowFromColSum(uint8_t* outRow, int width) {
-        int ks = kernelSize();
-        for (int x = 0; x < width; x++) {
-            int off = x * 4;
-            if (colSumA_[x] > 0) {
-                outRow[off]     = static_cast<uint8_t>(colSumR_[x] / colSumA_[x]);
-                outRow[off + 1] = static_cast<uint8_t>(colSumG_[x] / colSumA_[x]);
-                outRow[off + 2] = static_cast<uint8_t>(colSumB_[x] / colSumA_[x]);
-                outRow[off + 3] = static_cast<uint8_t>(colSumA_[x] / ks);
-            } else {
-                outRow[off] = outRow[off + 1] = outRow[off + 2] = outRow[off + 3] = 0;
-            }
-        }
-    }
-
     // ========================================
     // push型用ヘルパー関数
     // ========================================
 
-    // 入力行をキャッシュに格納（xOffsetで位置調整）
-    // xOffset = inputOrigin.x - baseOriginX_
-    // 入力pixel[N]のワールド座標 = N - inputOrigin.x
-    // 基準座標系でのバッファ位置 = N - inputOrigin.x + baseOriginX_ = N - xOffset
-    // つまり dstPos = srcPos - xOffset
-    void storeInputRowToCache(const ImageBuffer& input, int cacheIndex, int xOffset = 0) {
-        ViewPort srcView = input.view();
-        ViewPort dstView = rowCache_[cacheIndex].view();
-        const uint8_t* srcData = static_cast<const uint8_t*>(srcView.data);
-        uint8_t* dstData = static_cast<uint8_t*>(dstView.data);
-        int srcWidth = static_cast<int>(srcView.width);
-
-        // キャッシュをゼロクリア
-        std::memset(dstData, 0, cacheWidth_ * 4);
-
-        // コピー範囲の計算
-        // dstPos = srcPos - xOffset
-        // srcPos = dstPos + xOffset
-        int dstStart = std::max(0, -xOffset);
-        int srcStart = std::max(0, xOffset);
-        int dstEnd = std::min(cacheWidth_, srcWidth - xOffset);
-        int copyWidth = dstEnd - dstStart;
-
-        if (copyWidth > 0 && srcStart < srcWidth) {
-            std::memcpy(dstData + dstStart * 4, srcData + srcStart * 4, copyWidth * 4);
-        }
-    }
-
-    // 出力行を計算して下流にpush（単一パス用）
-    void emitBlurredLineSinglePass() {
-        ImageBuffer output(cacheWidth_, 1, PixelFormatIDs::RGBA8_Straight,
-                          InitPolicy::Uninitialized);
-
-        uint8_t* outRow = static_cast<uint8_t*>(output.view().data);
-        writeOutputRowFromColSum(outRow, cacheWidth_);
-
-        // origin計算
-        int_fixed originX = baseOriginX_;
-        int rowDiff = (pushInputY_ - 1) - pushOutputY_;
-        int_fixed originY = lastInputOriginY_ + to_fixed(rowDiff);
-
-        RenderRequest outReq;
-        outReq.width = static_cast<int16_t>(cacheWidth_);
-        outReq.height = 1;
-        outReq.origin.x = originX;
-        outReq.origin.y = originY;
-
-        pushOutputY_++;
-
-        Node* downstream = downstreamNode(0);
-        if (downstream) {
-            downstream->pushProcess(RenderResult(std::move(output), outReq.origin), outReq);
-        }
-    }
-
-    // パイプラインステージの伝播処理（passes>1用）
+    // パイプラインステージの伝播処理
     void propagatePipelineStages() {
         int ks = kernelSize();
 
