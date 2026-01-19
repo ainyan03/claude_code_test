@@ -399,7 +399,7 @@ private:
                        int xStart, int xEnd) {
         if (!srcRow) {
             // ソースがない場合は透明黒
-            std::memset(outRow + xStart * 4, 0, (xEnd - xStart) * 4);
+            std::memset(outRow + xStart * 4, 0, static_cast<size_t>(xEnd - xStart) * 4);
             return;
         }
 
@@ -409,19 +409,21 @@ private:
 
         // 左側の透明部分
         if (srcXStart > xStart) {
-            std::memset(outRow + xStart * 4, 0, (srcXStart - xStart) * 4);
+            std::memset(outRow + xStart * 4, 0, static_cast<size_t>(srcXStart - xStart) * 4);
         }
 
         // 有効部分をコピー
         if (srcXEnd > srcXStart) {
             std::memcpy(outRow + srcXStart * 4,
                         srcRow + (srcXStart + srcOffsetX) * 4,
-                        (srcXEnd - srcXStart) * 4);
+                        static_cast<size_t>(srcXEnd - srcXStart) * 4);
         }
 
         // 右側の透明部分
-        if (srcXEnd < xEnd) {
-            std::memset(outRow + srcXEnd * 4, 0, (xEnd - srcXEnd) * 4);
+        // 担当範囲[xStart, xEnd)の外には触らないようにする
+        const int clearStart = std::max(srcXEnd, xStart);
+        if (clearStart < xEnd) {
+            std::memset(outRow + clearStart * 4, 0, static_cast<size_t>(xEnd - clearStart) * 4);
         }
     }
 
