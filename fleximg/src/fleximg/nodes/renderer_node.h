@@ -91,6 +91,9 @@ public:
     // 簡易API（prepare → execute → finalize）
     // 戻り値: ExecResult（Success = 0、エラー = 非0）
     ExecResult exec() {
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        auto startTime = std::chrono::high_resolution_clock::now();
+#endif
         ExecResult result = execPrepare();
         if (result != ExecResult::Success) {
             // エラー時も状態をリセット
@@ -99,6 +102,12 @@ public:
         }
         execProcess();
         execFinalize();
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        auto endTime = std::chrono::high_resolution_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime).count();
+        PerfMetrics::instance().nodes[NodeType::Renderer].time_us += static_cast<uint32_t>(elapsed);
+        PerfMetrics::instance().nodes[NodeType::Renderer].count++;
+#endif
         return ExecResult::Success;
     }
 
@@ -175,7 +184,8 @@ public:
 
 protected:
     // タイル処理（派生クラスでカスタマイズ可能）
-    // 注: Rendererの処理時間は計測しない（上流/下流の時間と重複するため）
+    // 注: exec()全体の時間はnodes[NodeType::Renderer]に記録される
+    //     各ノードの合計との差分がオーバーヘッド（タイル管理、データ受け渡し等）
     virtual void processTile(int tileX, int tileY) {
         RenderRequest request = createTileRequest(tileX, tileY);
 

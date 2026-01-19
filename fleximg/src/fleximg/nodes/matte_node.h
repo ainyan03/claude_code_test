@@ -111,10 +111,6 @@ public:
             return RenderResult();
         }
 
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto startTime = std::chrono::high_resolution_clock::now();
-#endif
-
         Node* upstream0 = upstreamNode(0);  // 前景
         Node* upstream1 = upstreamNode(1);  // 背景
         Node* upstream2 = upstreamNode(2);  // マスク
@@ -210,6 +206,10 @@ public:
         // ========================================
         // Step 4: 出力バッファを確保（Union領域サイズ）
         // ========================================
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        // 計測開始: 上流のpullProcess呼び出しを除外し、マット合成処理のみを計測
+        auto startTime = std::chrono::high_resolution_clock::now();
+#endif
         ImageBuffer outputBuf(unionWidth, unionHeight, PixelFormatIDs::RGBA8_Straight);
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS

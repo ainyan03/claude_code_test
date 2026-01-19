@@ -4101,9 +4101,10 @@ function initDebugDetailsSection() {
     const structureTypes = NodeTypeHelper.byCategory('structure');
     const filterTypes = NodeTypeHelper.byCategory('filter');
 
-    // システム系ノード（Distributor/Sink、Rendererは計測しない）
+    // システム系ノード（Distributor/Sink）
+    // 注: Rendererは別途「Renderer全体」として表示
     for (const [key, def] of systemTypes) {
-        if (key === 'renderer') continue;
+        if (key === 'renderer') continue;  // Rendererは下部に専用行で表示
         timeHtml += `
                 <div class="debug-metric-row">
                     <span class="debug-metric-label">${getDisplayName(def)}</span>
@@ -4147,11 +4148,19 @@ function initDebugDetailsSection() {
         }
     }
 
-    // 合計
+    // 合計（ノード別処理の合計）
     timeHtml += `
                 <div class="debug-metric-row debug-metric-total">
-                    <span class="debug-metric-label">合計</span>
+                    <span class="debug-metric-label">ノード合計</span>
                     <span class="debug-metric-value" id="debug-total-time">--</span>
+                </div>
+                <div class="debug-metric-row debug-metric-total">
+                    <span class="debug-metric-label">Renderer全体</span>
+                    <span class="debug-metric-value" id="debug-renderer-time">--</span>
+                </div>
+                <div class="debug-metric-row debug-metric-sub">
+                    <span class="debug-metric-label">└ オーバーヘッド</span>
+                    <span class="debug-metric-value" id="debug-overhead-time">--</span>
                 </div>
             </div>
         </div>`;
@@ -4267,10 +4276,24 @@ function updateDebugDetails(metrics) {
         }
     }
 
-    // 合計時間
+    // ノード合計時間
     const totalEl = document.getElementById('debug-total-time');
     if (totalEl && metrics.totalTime !== undefined) {
         totalEl.textContent = `${usToMs(metrics.totalTime)}ms`;
+    }
+
+    // オーバーヘッド計算と表示
+    const overheadEl = document.getElementById('debug-overhead-time');
+    if (overheadEl && metrics.nodes) {
+        const rendererMetrics = metrics.nodes[NODE_TYPES.renderer.index];
+        if (rendererMetrics && rendererMetrics.time_us > 0 && metrics.totalTime !== undefined) {
+            const overhead = rendererMetrics.time_us - metrics.totalTime;
+            const overheadMs = usToMs(overhead);
+            const overheadPercent = ((overhead / rendererMetrics.time_us) * 100).toFixed(1);
+            overheadEl.textContent = `${overheadMs}ms (${overheadPercent}%)`;
+        } else {
+            overheadEl.textContent = '--';
+        }
     }
 
     // メモリ確保量（累計）
