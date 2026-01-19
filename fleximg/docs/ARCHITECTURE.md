@@ -69,6 +69,7 @@ Node (基底クラス)
 ├── HorizontalBlurNode  # 水平ぼかし（ガウシアン近似対応）
 ├── VerticalBlurNode    # 垂直ぼかし（ガウシアン近似対応）
 ├── CompositeNode     # 複数画像を合成（N入力 → 1出力）
+├── MatteNode         # マット合成（3入力: 前景/背景/マスク → 1出力）
 ├── DistributorNode   # 画像を複数先に分配（1入力 → N出力）
 └── RendererNode      # パイプライン実行の発火点
 ```
@@ -104,6 +105,29 @@ DistributorNode distributor(2);       // 2出力
 renderer >> distributor;
 distributor.connectTo(sinkMain, 0, 0);     // 出力0 → メイン出力
 distributor.connectTo(sinkPreview, 0, 1);  // 出力1 → プレビュー
+```
+
+### MatteNode（マット合成）
+
+外部のアルファマスクを使って2つの画像を合成するノードです。
+
+```
+Output = Image1 × Alpha + Image2 × (1 - Alpha)
+```
+
+| 入力ポート | 役割 | 未接続時 |
+|-----------|------|---------|
+| 0 | 前景（マスク白部分） | 透明の黒 |
+| 1 | 背景（マスク黒部分） | 透明の黒 |
+| 2 | アルファマスク | alpha=0（全面背景） |
+
+使用例:
+```cpp
+MatteNode matte;
+foreground >> matte;               // ポート0（前景）
+background.connectTo(matte, 1);    // ポート1（背景）
+alphaMask.connectTo(matte, 2);     // ポート2（マスク）
+matte >> renderer >> sink;
 ```
 
 ### 接続方式
@@ -333,6 +357,7 @@ src/fleximg/
 │   ├── vertical_blur_node.h    # VerticalBlurNode（垂直ぼかし）
 │   ├── alpha_node.h            # AlphaNode
 │   ├── composite_node.h        # CompositeNode
+│   ├── matte_node.h            # MatteNode（マット合成）
 │   └── renderer_node.h         # RendererNode（発火点）
 │
 └── operations/
