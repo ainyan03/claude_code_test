@@ -19,13 +19,8 @@ namespace FLEXIMG_NAMESPACE {
 // ========================================================================
 //
 // 入力画像に垂直方向のボックスブラー（平均化フィルタ）を適用します。
-// - radius: ブラー半径（カーネルサイズ = 2 * radius + 1）
+// - radius: ブラー半径（0-127、カーネルサイズ = 2 * radius + 1）
 // - passes: ブラー適用回数（1-3、デフォルト1）
-//
-// パラメータ上限（32bit演算でのオーバーフロー防止）:
-// - passes=1: radius上限なし（実用上問題なし）
-// - passes=2: radius上限128
-// - passes=3: radius上限19
 //
 // マルチパス処理（パイプライン方式）:
 // - passes=3で3回垂直ブラーを適用（ガウシアン近似）
@@ -34,9 +29,8 @@ namespace FLEXIMG_NAMESPACE {
 //
 // メモリ消費量（概算）:
 // - 各ステージ: (radius * 2 + 1) * width * 4 bytes + width * 16 bytes（列合計）
-// - passes=3の場合: 3ステージ分のキャッシュが必要
-// - 例: radius=19, passes=3, width=640 → 約192KB
-// - 例: radius=19, passes=3, width=2048 → 約614KB
+// - 例: radius=50, passes=3, width=640 → 約500KB
+// - 例: radius=127, passes=3, width=2048 → 約4MB
 //
 // スキャンライン処理:
 // - prepare()でキャッシュを確保
@@ -63,24 +57,16 @@ public:
     // パラメータ設定
     // ========================================
 
-    // passes別のradius上限（32bit演算オーバーフロー防止）
-    // kernelSum = (2*radius+1)^passes
-    // maxSumRGB = 65025 * kernelSum < 2^32
-    // passes=1: 199+, passes=2: 128, passes=3: 19
-    static int maxRadiusForPasses(int passes) {
-        return (passes <= 1) ? 199 : (passes == 2) ? 128 : 19;
-    }
+    // パラメータ上限
+    static constexpr int kMaxRadius = 127;  // 実用上十分、メモリ消費も許容範囲
+    static constexpr int kMaxPasses = 3;    // ガウシアン近似に十分
 
     void setRadius(int radius) {
-        int maxR = maxRadiusForPasses(passes_);
-        radius_ = (radius < 0) ? 0 : (radius > maxR) ? maxR : radius;
+        radius_ = (radius < 0) ? 0 : (radius > kMaxRadius) ? kMaxRadius : radius;
     }
 
     void setPasses(int passes) {
-        passes_ = (passes < 1) ? 1 : (passes > 3) ? 3 : passes;
-        // passesが変わるとradius上限も変わるので再適用
-        int maxR = maxRadiusForPasses(passes_);
-        if (radius_ > maxR) radius_ = maxR;
+        passes_ = (passes < 1) ? 1 : (passes > kMaxPasses) ? kMaxPasses : passes;
     }
 
     int radius() const { return radius_; }

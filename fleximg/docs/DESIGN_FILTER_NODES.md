@@ -71,10 +71,10 @@ public:
 | GrayscaleNode | - | - | - | - | パラメータなし |
 | BoxBlurNode | radius | int | 0以上 | 5 | ブラー半径。0でスルー出力 |
 | AlphaNode | scale | float | 0.0〜1.0 | 1.0 | アルファスケール。0.5で50%の不透明度 |
-| HorizontalBlurNode | radius | int | 0以上 | 5 | ブラー半径。0でスルー出力 |
-|  | passes | int | 1〜5 | 1 | ブラー適用回数。3でガウシアン近似 |
-| VerticalBlurNode | radius | int | 0以上 | 5 | ブラー半径。0でスルー出力 |
-|  | passes | int | 1〜5 | 1 | ブラー適用回数。3でガウシアン近似 |
+| HorizontalBlurNode | radius | int | 0〜127 | 5 | ブラー半径。0でスルー出力 |
+|  | passes | int | 1〜3 | 1 | ブラー適用回数。3でガウシアン近似 |
+| VerticalBlurNode | radius | int | 0〜127 | 5 | ブラー半径。0でスルー出力 |
+|  | passes | int | 1〜3 | 1 | ブラー適用回数。3でガウシアン近似 |
 
 ### 設定例
 

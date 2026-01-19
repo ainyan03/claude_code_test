@@ -17,35 +17,18 @@ namespace FLEXIMG_NAMESPACE {
 // ========================================================================
 //
 // 入力画像に水平方向のボックスブラー（平均化フィルタ）を適用します。
-// - radius: ブラー半径（カーネルサイズ = 2 * radius + 1）
+// - radius: ブラー半径（0-127、カーネルサイズ = 2 * radius + 1）
 // - passes: ブラー適用回数（1-3、デフォルト1）
-//
-// パラメータ上限（32bit演算でのオーバーフロー防止）:
-// - passes=1: radius上限なし（実用上問題なし）
-// - passes=2: radius上限128
-// - passes=3: radius上限19
 //
 // マルチパス処理:
 // - passes=3で3回水平ブラーを適用（ガウシアン近似）
+// - 各パスは独立してブラー処理を行う（パイプライン方式）
 // - pull型: 上流にマージン付き要求、下流には元サイズで返却
 // - push型: 入力を拡張して下流に配布
 //
-// メモリ消費量（概算）:
+// メモリ消費量:
 // - 水平ブラーはスキャンライン処理のため、メモリ消費は少ない
-// - 1行分のバッファ: width * 4 bytes（各パスで width + radius*2 ずつ拡張）
-//
-// pull型の動作:
-// - 上流への要求: width + radius*2*passes（マージン確保）
-// - 処理後に中央部分をクロップ
-// - 下流への返却: 要求されたwidthそのまま
-//
-// push型の動作:
-// - 入力を passes 回ブラー（各パスで width + radius*2 ずつ拡張）
-// - 拡張された結果を下流に配布
-//
-// スキャンライン処理:
-// - 1行完結の処理（キャッシュ不要）
-// - スライディングウィンドウで水平方向のみブラー
+// - 1行分のバッファ: width * 4 bytes 程度
 //
 // 使用例:
 //   HorizontalBlurNode hblur;
@@ -67,24 +50,16 @@ public:
     // パラメータ設定
     // ========================================
 
-    // passes別のradius上限（32bit演算オーバーフロー防止）
-    // kernelSum = (2*radius+1)^passes
-    // maxSumRGB = 65025 * kernelSum < 2^32
-    // passes=1: 199+, passes=2: 128, passes=3: 19
-    static int maxRadiusForPasses(int passes) {
-        return (passes <= 1) ? 199 : (passes == 2) ? 128 : 19;
-    }
+    // パラメータ上限
+    static constexpr int kMaxRadius = 127;  // 実用上十分、メモリ消費も許容範囲
+    static constexpr int kMaxPasses = 3;    // ガウシアン近似に十分
 
     void setRadius(int radius) {
-        int maxR = maxRadiusForPasses(passes_);
-        radius_ = (radius < 0) ? 0 : (radius > maxR) ? maxR : radius;
+        radius_ = (radius < 0) ? 0 : (radius > kMaxRadius) ? kMaxRadius : radius;
     }
 
     void setPasses(int passes) {
-        passes_ = (passes < 1) ? 1 : (passes > 3) ? 3 : passes;
-        // passesが変わるとradius上限も変わるので再適用
-        int maxR = maxRadiusForPasses(passes_);
-        if (radius_ > maxR) radius_ = maxR;
+        passes_ = (passes < 1) ? 1 : (passes > kMaxPasses) ? kMaxPasses : passes;
     }
 
     int radius() const { return radius_; }
