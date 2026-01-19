@@ -155,7 +155,11 @@ public:
             img2Result.buffer = convertFormat(std::move(img2Result.buffer),
                                               PixelFormatIDs::RGBA8_Straight);
         }
-        // マスクはフォーマット変換せず、applyMatteComposite内でフォーマットに応じて処理
+        // マスクはAlpha8に変換
+        if (maskResult.isValid()) {
+            maskResult.buffer = convertFormat(std::move(maskResult.buffer),
+                                              PixelFormatIDs::Alpha8);
+        }
 
         // マット合成処理
         applyMatteComposite(outputBuf, request,
@@ -172,29 +176,40 @@ public:
     }
 
 private:
-    // マット合成の実処理
+    // 255での除算を高速化するマクロ（誤差なし）
+    // (x * 257 + 256) >> 16 は x / 255 と等価（0-65025の範囲で）
+    static inline uint8_t div255(uint32_t x) {
+        return static_cast<uint8_t>((x * 257 + 256) >> 16);
+    }
+
+    // マット合成の実処理（最適化版）
     void applyMatteComposite(ImageBuffer& output, const RenderRequest& request,
                              const RenderResult& img1, const RenderResult& img2,
                              const RenderResult& mask) {
         ViewPort outView = output.view();
         uint8_t* outPtr = static_cast<uint8_t*>(outView.data);
-        int outStride = outView.stride;
+        const int outStride = outView.stride;
+        const int outWidth = request.width;
+        const int outHeight = request.height;
 
-        // 出力の原点（固定小数点）
-        int_fixed outOriginX = request.origin.x;
-        int_fixed outOriginY = request.origin.y;
+        // ========================================
+        // 最適化1: 座標オフセットの事前計算
+        // ========================================
+        // 入力座標 = 出力ピクセル - from_fixed(outOrigin) + from_fixed(inputOrigin)
+        // オフセット = from_fixed(inputOrigin - outOrigin)
+        const int_fixed outOriginX = request.origin.x;
+        const int_fixed outOriginY = request.origin.y;
 
-        // 各入力のビュー情報（nullチェック付き）
+        // 各入力のビュー情報
         const uint8_t* img1Ptr = nullptr;
         const uint8_t* img2Ptr = nullptr;
         const uint8_t* maskPtr = nullptr;
         int img1Width = 0, img1Height = 0, img1Stride = 0;
         int img2Width = 0, img2Height = 0, img2Stride = 0;
         int maskWidth = 0, maskHeight = 0, maskStride = 0;
-        int_fixed img1OriginX = 0, img1OriginY = 0;
-        int_fixed img2OriginX = 0, img2OriginY = 0;
-        int_fixed maskOriginX = 0, maskOriginY = 0;
-        int maskBpp = 1;  // マスクのバイト/ピクセル（デフォルトAlpha8）
+        int img1OffsetX = 0, img1OffsetY = 0;
+        int img2OffsetX = 0, img2OffsetY = 0;
+        int maskOffsetX = 0, maskOffsetY = 0;
 
         if (img1.isValid()) {
             ViewPort v = img1.view();
@@ -202,8 +217,8 @@ private:
             img1Width = v.width;
             img1Height = v.height;
             img1Stride = v.stride;
-            img1OriginX = img1.origin.x;
-            img1OriginY = img1.origin.y;
+            img1OffsetX = from_fixed(img1.origin.x - outOriginX);
+            img1OffsetY = from_fixed(img1.origin.y - outOriginY);
         }
         if (img2.isValid()) {
             ViewPort v = img2.view();
@@ -211,8 +226,8 @@ private:
             img2Width = v.width;
             img2Height = v.height;
             img2Stride = v.stride;
-            img2OriginX = img2.origin.x;
-            img2OriginY = img2.origin.y;
+            img2OffsetX = from_fixed(img2.origin.x - outOriginX);
+            img2OffsetY = from_fixed(img2.origin.y - outOriginY);
         }
         if (mask.isValid()) {
             ViewPort v = mask.view();
@@ -220,79 +235,208 @@ private:
             maskWidth = v.width;
             maskHeight = v.height;
             maskStride = v.stride;
-            maskOriginX = mask.origin.x;
-            maskOriginY = mask.origin.y;
-            // フォーマットに応じてbppを設定
-            maskBpp = getBytesPerPixel(v.formatID);
+            maskOffsetX = from_fixed(mask.origin.x - outOriginX);
+            maskOffsetY = from_fixed(mask.origin.y - outOriginY);
         }
 
-        // ピクセル単位で合成
-        // 座標変換: 出力ピクセル(x,y) → 世界座標 → 入力ピクセル
-        // 世界座標 = 出力ピクセル - 出力origin
-        // 入力ピクセル = 世界座標 + 入力origin
-        for (int y = 0; y < request.height; ++y) {
-            for (int x = 0; x < request.width; ++x) {
-                // 各入力からピクセル値を取得
-                uint8_t r1 = 0, g1 = 0, b1 = 0, a1 = 0;  // 前景（デフォルト透明黒）
-                uint8_t r2 = 0, g2 = 0, b2 = 0, a2 = 0;  // 背景（デフォルト透明黒）
-                uint8_t alpha = 0;                        // マスク（デフォルト0=全面背景）
+        // ========================================
+        // 最適化2: 特殊ケースの高速パス
+        // ========================================
 
-                // 前景から取得（RGBA8_Straight: 4バイト/ピクセル）
-                if (img1Ptr) {
-                    // 入力座標 = (出力ピクセル - 出力origin) + 入力origin
-                    int sx = from_fixed(to_fixed(x) - outOriginX + img1OriginX);
-                    int sy = from_fixed(to_fixed(y) - outOriginY + img1OriginY);
-                    if (sx >= 0 && sx < img1Width && sy >= 0 && sy < img1Height) {
-                        const uint8_t* p = img1Ptr + sy * img1Stride + sx * 4;
-                        r1 = p[0];
-                        g1 = p[1];
-                        b1 = p[2];
-                        a1 = p[3];
+        // ケース: マスクがない → 全面背景（alpha=0）
+        if (!maskPtr) {
+            if (!img2Ptr) {
+                // 背景もない → 全面透明黒
+                std::memset(outPtr, 0, outHeight * outStride);
+                return;
+            }
+            // 背景のみコピー
+            copyImageToOutput(outPtr, outStride, outWidth, outHeight,
+                              img2Ptr, img2Stride, img2Width, img2Height,
+                              img2OffsetX, img2OffsetY);
+            return;
+        }
+
+        // ========================================
+        // 最適化3: ランレングス処理
+        // ========================================
+        // マスク値の連続領域を検出し、0/255の連続はmemcpyで高速処理
+
+        for (int y = 0; y < outHeight; ++y) {
+            uint8_t* outRow = outPtr + y * outStride;
+
+            // 各入力の現在行のY座標と有効性チェック
+            const int img1Y = y + img1OffsetY;
+            const int img2Y = y + img2OffsetY;
+            const int maskY = y + maskOffsetY;
+
+            // 行ポインタ（Y範囲外ならnullptr）
+            const uint8_t* img1Row = (static_cast<unsigned>(img1Y) < static_cast<unsigned>(img1Height))
+                                     ? img1Ptr + img1Y * img1Stride : nullptr;
+            const uint8_t* img2Row = (static_cast<unsigned>(img2Y) < static_cast<unsigned>(img2Height))
+                                     ? img2Ptr + img2Y * img2Stride : nullptr;
+            const uint8_t* maskRow = (static_cast<unsigned>(maskY) < static_cast<unsigned>(maskHeight))
+                                     ? maskPtr + maskY * maskStride : nullptr;
+
+            // マスク行が無効な場合は全面alpha=0（背景のみ）
+            if (!maskRow) {
+                copyRowRegion(outRow, img2Row, img2OffsetX, img2Width, 0, outWidth);
+                continue;
+            }
+
+            // マスクの有効X範囲
+            const int maskXStart = std::max(0, -maskOffsetX);
+            const int maskXEnd = std::min(outWidth, maskWidth - maskOffsetX);
+
+            // マスク範囲外の左側（alpha=0）
+            if (maskXStart > 0) {
+                copyRowRegion(outRow, img2Row, img2OffsetX, img2Width, 0, maskXStart);
+            }
+
+            // マスク有効範囲内をランレングス処理
+            int x = maskXStart;
+            uint8_t currentAlpha = (x < maskXEnd) ? maskRow[x + maskOffsetX] : 0;
+
+            while (x < maskXEnd) {
+                const uint8_t runAlpha = currentAlpha;
+                const int runStart = x;
+
+                // 同じalpha値が続く限り進む
+                while (x < maskXEnd) {
+                    x++;
+                    if (x < maskXEnd) {
+                        currentAlpha = maskRow[x + maskOffsetX];
+                        if (currentAlpha != runAlpha) break;
                     }
                 }
+                const int runLength = x - runStart;
 
-                // 背景から取得（RGBA8_Straight: 4バイト/ピクセル）
-                if (img2Ptr) {
-                    int sx = from_fixed(to_fixed(x) - outOriginX + img2OriginX);
-                    int sy = from_fixed(to_fixed(y) - outOriginY + img2OriginY);
-                    if (sx >= 0 && sx < img2Width && sy >= 0 && sy < img2Height) {
-                        const uint8_t* p = img2Ptr + sy * img2Stride + sx * 4;
-                        r2 = p[0];
-                        g2 = p[1];
-                        b2 = p[2];
-                        a2 = p[3];
-                    }
+                if (runAlpha == 0) {
+                    // 背景のみコピー
+                    copyRowRegion(outRow, img2Row, img2OffsetX, img2Width, runStart, runStart + runLength);
+                } else if (runAlpha == 255) {
+                    // 前景のみコピー
+                    copyRowRegion(outRow, img1Row, img1OffsetX, img1Width, runStart, runStart + runLength);
+                } else {
+                    // 中間値: 同じalpha値で複数ピクセルを一括ブレンド
+                    blendPixels(outRow, runStart, runLength, runAlpha,
+                                img1Row, img1OffsetX, img1Width,
+                                img2Row, img2OffsetX, img2Width);
                 }
+            }
 
-                // マスクから取得（フォーマットに応じて処理）
-                if (maskPtr) {
-                    int sx = from_fixed(to_fixed(x) - outOriginX + maskOriginX);
-                    int sy = from_fixed(to_fixed(y) - outOriginY + maskOriginY);
-                    if (sx >= 0 && sx < maskWidth && sy >= 0 && sy < maskHeight) {
-                        if (maskBpp == 1) {
-                            // Alpha8: 1バイト/ピクセル
-                            alpha = maskPtr[sy * maskStride + sx];
-                        } else if (maskBpp >= 4) {
-                            // RGBA系: Aチャンネル（4バイト目）を使用
-                            const uint8_t* p = maskPtr + sy * maskStride + sx * maskBpp;
-                            alpha = p[3];
-                        } else {
-                            // その他（RGB等）: 輝度をアルファとして使用
-                            const uint8_t* p = maskPtr + sy * maskStride + sx * maskBpp;
-                            // 簡易輝度計算: (R + G + B) / 3
-                            alpha = (p[0] + p[1] + p[2]) / 3;
-                        }
-                    }
-                }
+            // マスク範囲外の右側（alpha=0）
+            if (maskXEnd < outWidth) {
+                copyRowRegion(outRow, img2Row, img2OffsetX, img2Width, maskXEnd, outWidth);
+            }
+        }
+    }
 
-                // マット合成: Out = Img1 * alpha + Img2 * (1 - alpha)
-                uint8_t inv_alpha = 255 - alpha;
-                uint8_t* outP = outPtr + y * outStride + x * 4;
+    // 行の一部領域をコピー（alpha=0またはalpha=255用）
+    void copyRowRegion(uint8_t* outRow,
+                       const uint8_t* srcRow, int srcOffsetX, int srcWidth,
+                       int xStart, int xEnd) {
+        if (!srcRow) {
+            // ソースがない場合は透明黒
+            std::memset(outRow + xStart * 4, 0, (xEnd - xStart) * 4);
+            return;
+        }
 
-                outP[0] = static_cast<uint8_t>((r1 * alpha + r2 * inv_alpha) / 255);
-                outP[1] = static_cast<uint8_t>((g1 * alpha + g2 * inv_alpha) / 255);
-                outP[2] = static_cast<uint8_t>((b1 * alpha + b2 * inv_alpha) / 255);
-                outP[3] = static_cast<uint8_t>((a1 * alpha + a2 * inv_alpha) / 255);
+        // ソースの有効X範囲と出力範囲の交差を計算
+        const int srcXStart = std::max(xStart, -srcOffsetX);
+        const int srcXEnd = std::min(xEnd, srcWidth - srcOffsetX);
+
+        // 左側の透明部分
+        if (srcXStart > xStart) {
+            std::memset(outRow + xStart * 4, 0, (srcXStart - xStart) * 4);
+        }
+
+        // 有効部分をコピー
+        if (srcXEnd > srcXStart) {
+            std::memcpy(outRow + srcXStart * 4,
+                        srcRow + (srcXStart + srcOffsetX) * 4,
+                        (srcXEnd - srcXStart) * 4);
+        }
+
+        // 右側の透明部分
+        if (srcXEnd < xEnd) {
+            std::memset(outRow + srcXEnd * 4, 0, (xEnd - srcXEnd) * 4);
+        }
+    }
+
+    // 複数ピクセルの一括ブレンド処理（同一alpha値）
+    void blendPixels(uint8_t* outRow, int xStart, int length, uint8_t alpha,
+                     const uint8_t* img1Row, int img1OffsetX, int img1Width,
+                     const uint8_t* img2Row, int img2OffsetX, int img2Width) {
+        // alpha/inv_alphaを1回だけ計算
+        const uint32_t a = alpha;
+        const uint32_t inv_a = 255 - alpha;
+
+        for (int i = 0; i < length; ++i) {
+            const int x = xStart + i;
+            uint8_t* outP = outRow + x * 4;
+
+            // 読み出し時にalpha適用（範囲外は乗算スキップ）
+            uint32_t r1a = 0, g1a = 0, b1a = 0, a1a = 0;
+            uint32_t r2a = 0, g2a = 0, b2a = 0, a2a = 0;
+
+            // 前景から取得（alpha適用済み）
+            const int img1X = x + img1OffsetX;
+            if (img1Row && static_cast<unsigned>(img1X) < static_cast<unsigned>(img1Width)) {
+                const uint8_t* p = img1Row + img1X * 4;
+                r1a = p[0] * a; g1a = p[1] * a; b1a = p[2] * a; a1a = p[3] * a;
+            }
+
+            // 背景から取得（inv_alpha適用済み）
+            const int img2X = x + img2OffsetX;
+            if (img2Row && static_cast<unsigned>(img2X) < static_cast<unsigned>(img2Width)) {
+                const uint8_t* p = img2Row + img2X * 4;
+                r2a = p[0] * inv_a; g2a = p[1] * inv_a; b2a = p[2] * inv_a; a2a = p[3] * inv_a;
+            }
+
+            // ブレンド（加算のみ）
+            outP[0] = div255(r1a + r2a);
+            outP[1] = div255(g1a + g2a);
+            outP[2] = div255(b1a + b2a);
+            outP[3] = div255(a1a + a2a);
+        }
+    }
+
+    // 画像を出力バッファにコピー（高速パス用）
+    void copyImageToOutput(uint8_t* outPtr, int outStride, int outWidth, int outHeight,
+                           const uint8_t* srcPtr, int srcStride, int srcWidth, int srcHeight,
+                           int offsetX, int offsetY) {
+        for (int y = 0; y < outHeight; ++y) {
+            uint8_t* outRow = outPtr + y * outStride;
+            const int srcY = y + offsetY;
+
+            if (srcY < 0 || srcY >= srcHeight) {
+                // 範囲外 → 透明黒
+                std::memset(outRow, 0, outWidth * 4);
+                continue;
+            }
+
+            const uint8_t* srcRow = srcPtr + srcY * srcStride;
+
+            // X範囲を計算
+            const int xStart = std::max(0, -offsetX);
+            const int xEnd = std::min(outWidth, srcWidth - offsetX);
+
+            // 左側の透明部分
+            if (xStart > 0) {
+                std::memset(outRow, 0, xStart * 4);
+            }
+
+            // 有効部分をコピー
+            if (xEnd > xStart) {
+                std::memcpy(outRow + xStart * 4,
+                            srcRow + (xStart + offsetX) * 4,
+                            (xEnd - xStart) * 4);
+            }
+
+            // 右側の透明部分
+            if (xEnd < outWidth) {
+                std::memset(outRow + xEnd * 4, 0, (outWidth - xEnd) * 4);
             }
         }
     }
