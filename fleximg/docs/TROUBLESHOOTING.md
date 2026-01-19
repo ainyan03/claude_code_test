@@ -6,23 +6,23 @@ fleximg を使用する際によくある問題と解決方法です。
 
 ## フィルタ関連
 
-### Q: BoxBlur をRenderer下流に配置すると、タイル境界で縦線が入る
+### Q: ブラーフィルタをRenderer下流に配置すると、タイル境界で縦線が入る
 
-**原因**: BoxBlur（およびカーネルベースフィルタ）は隣接ピクセルを参照するため、Renderer下流のPush処理では隣接タイルの情報を参照できません。
+**原因**: ブラーフィルタ（およびカーネルベースフィルタ）は隣接ピクセルを参照するため、Renderer下流のPush処理では隣接タイルの情報を参照できません。
 
-**解決方法**: BoxBlur を Renderer の **上流（Pull処理側）** に配置してください。
+**解決方法**: ブラーフィルタを Renderer の **上流（Pull処理側）** に配置してください。
 
 ```
 【NG】タイル境界で乱れる
-SourceNode → Renderer → BoxBlur → SinkNode
+SourceNode → Renderer → HBlur → VBlur → SinkNode
                           ↑ Push処理では隣接タイル参照不可
 
 【OK】正常に動作
-SourceNode → BoxBlur → Renderer → SinkNode
+SourceNode → HBlur → VBlur → Renderer → SinkNode
                ↑ Pull処理では必要な範囲を要求可能
 ```
 
-**技術的背景**: Pull処理では、BoxBlurNode が上流に対して `radius` 分拡大した範囲を要求できます。Push処理では、受け取ったデータのみで処理するため、タイル境界の情報が不足します。
+**技術的背景**: Pull処理では、ブラーノードが上流に対して `radius` 分拡大した範囲を要求できます。Push処理では、受け取ったデータのみで処理するため、タイル境界の情報が不足します。
 
 ---
 
@@ -43,10 +43,10 @@ SourceNode → BoxBlur → Renderer → SinkNode
    // ↑ brightness が接続されていない
    ```
 
-3. **radius = 0 のBoxBlur**
+3. **radius = 0 のブラーフィルタ**
    ```cpp
-   BoxBlurNode blur;
-   blur.setRadius(0);  // スルー出力になる
+   HorizontalBlurNode hblur;
+   hblur.setRadius(0);  // スルー出力になる
    ```
 
 ---

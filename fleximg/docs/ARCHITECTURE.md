@@ -50,7 +50,7 @@ renderer.exec();
 > **Note**: `TileConfig` の `tileHeight` は無視され、常に高さ1で処理されます。
 > 後方互換性のため設定APIは維持されていますが、指定値は効果を持ちません。
 
-**既知の制限**: Renderer下流に配置したBoxBlurフィルタはタイル境界で正しく動作しません。これはPush処理フローでは隣接タイルの情報を参照できないためです。BoxBlurを使用する場合は、Renderer上流（Pull処理）に配置してください。
+**既知の制限**: Renderer下流に配置したブラーフィルタはタイル境界で正しく動作しません。これはPush処理フローでは隣接タイルの情報を参照できないためです。ブラーフィルタを使用する場合は、Renderer上流（Pull処理）に配置してください。
 
 ## ノードシステム
 
@@ -65,10 +65,9 @@ Node (基底クラス)
 ├── FilterNodeBase    # フィルタ共通基底
 │   ├── BrightnessNode      # 明るさ調整
 │   ├── GrayscaleNode       # グレースケール
-│   ├── BoxBlurNode         # ぼかし（水平+垂直統合版）
-│   ├── HorizontalBlurNode  # 水平ぼかし
 │   └── AlphaNode           # アルファ調整
-├── VerticalBlurNode  # 垂直ぼかし（独自キャッシュ管理）
+├── HorizontalBlurNode  # 水平ぼかし（ガウシアン近似対応）
+├── VerticalBlurNode    # 垂直ぼかし（ガウシアン近似対応）
 ├── CompositeNode     # 複数画像を合成（N入力 → 1出力）
 ├── DistributorNode   # 画像を複数先に分配（1入力 → N出力）
 └── RendererNode      # パイプライン実行の発火点
@@ -330,7 +329,6 @@ src/fleximg/
 │   ├── filter_node_base.h      # FilterNodeBase（フィルタ共通基底）
 │   ├── brightness_node.h       # BrightnessNode
 │   ├── grayscale_node.h        # GrayscaleNode
-│   ├── box_blur_node.h         # BoxBlurNode（水平+垂直統合版）
 │   ├── horizontal_blur_node.h  # HorizontalBlurNode（水平ぼかし）
 │   ├── vertical_blur_node.h    # VerticalBlurNode（垂直ぼかし）
 │   ├── alpha_node.h            # AlphaNode

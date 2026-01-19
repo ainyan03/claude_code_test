@@ -15,7 +15,6 @@
 #include "../src/fleximg/nodes/filter_node_base.h"
 #include "../src/fleximg/nodes/brightness_node.h"
 #include "../src/fleximg/nodes/grayscale_node.h"
-#include "../src/fleximg/nodes/box_blur_node.h"
 #include "../src/fleximg/nodes/horizontal_blur_node.h"
 #include "../src/fleximg/nodes/vertical_blur_node.h"
 #include "../src/fleximg/nodes/alpha_node.h"
@@ -135,12 +134,6 @@ std::unique_ptr<Node> createFilterNode(const GraphNode& gnode) {
     }
     else if (gnode.filterType == "grayscale") {
         return std::make_unique<GrayscaleNode>();
-    }
-    else if ((gnode.filterType == "blur" || gnode.filterType == "boxBlur")
-             && !gnode.filterParams.empty()) {
-        auto node = std::make_unique<BoxBlurNode>();
-        node->setRadius(static_cast<int>(gnode.filterParams[0]));
-        return node;
     }
     else if (gnode.filterType == "horizontalBlur" && !gnode.filterParams.empty()) {
         auto node = std::make_unique<HorizontalBlurNode>();
@@ -545,14 +538,12 @@ public:
 
         // 後方互換用フラットキー（主要な時間とカウント）
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
-        // フィルタ4種の合計
+        // フィルタ3種の合計
         uint32_t filterTimeSum = lastPerfMetrics_.nodes[NodeType::Brightness].time_us
                                + lastPerfMetrics_.nodes[NodeType::Grayscale].time_us
-                               + lastPerfMetrics_.nodes[NodeType::BoxBlur].time_us
                                + lastPerfMetrics_.nodes[NodeType::Alpha].time_us;
         int filterCountSum = lastPerfMetrics_.nodes[NodeType::Brightness].count
                            + lastPerfMetrics_.nodes[NodeType::Grayscale].count
-                           + lastPerfMetrics_.nodes[NodeType::BoxBlur].count
                            + lastPerfMetrics_.nodes[NodeType::Alpha].count;
         result.set("filterTime", filterTimeSum);
         result.set("affineTime", lastPerfMetrics_.nodes[NodeType::Affine].time_us);

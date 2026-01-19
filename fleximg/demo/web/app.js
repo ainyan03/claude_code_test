@@ -43,7 +43,6 @@ const NODE_TYPES = {
     // フィルタ系
     brightness:  { index: 6, name: 'Brightness',  nameJa: '明るさ',       category: 'filter',    showEfficiency: true },
     grayscale:   { index: 7, name: 'Grayscale',   nameJa: 'グレースケール', category: 'filter',  showEfficiency: true },
-    boxBlur:     { index: 8, name: 'BoxBlur',     nameJa: 'ぼかし',       category: 'filter',    showEfficiency: true },
     alpha:       { index: 9, name: 'Alpha',       nameJa: '透明度',       category: 'filter',    showEfficiency: true },
     horizontalBlur: { index: 10, name: 'HBlur',   nameJa: '水平ぼかし',   category: 'filter',    showEfficiency: true },
     verticalBlur:   { index: 11, name: 'VBlur',   nameJa: '垂直ぼかし',   category: 'filter',    showEfficiency: true },
@@ -188,22 +187,6 @@ const FILTER_DEFINITIONS = {
                 step: 0.01,
                 default: 0,
                 format: v => v.toFixed(2)
-            }
-        ]
-    },
-    blur: {
-        id: 'blur',
-        name: 'ぼかし',
-        category: 'blur',
-        params: [
-            {
-                name: 'radius',
-                label: '半径',
-                min: 0,
-                max: 20,
-                step: 1,
-                default: 3,
-                format: v => `${Math.round(v)}px`
             }
         ]
     },

@@ -11,7 +11,6 @@
 #include "fleximg/nodes/brightness_node.h"
 #include "fleximg/nodes/grayscale_node.h"
 #include "fleximg/nodes/alpha_node.h"
-#include "fleximg/nodes/box_blur_node.h"
 #include "fleximg/nodes/horizontal_blur_node.h"
 #include "fleximg/nodes/vertical_blur_node.h"
 #include "fleximg/nodes/source_node.h"
@@ -208,56 +207,6 @@ TEST_CASE("AlphaNode reduces alpha") {
 }
 
 // =============================================================================
-// BoxBlurNode Tests
-// =============================================================================
-
-TEST_CASE("BoxBlurNode basic construction") {
-    BoxBlurNode node;
-    CHECK(node.name() != nullptr);
-    CHECK(node.radius() == 5);  // デフォルト半径
-}
-
-TEST_CASE("BoxBlurNode setRadius") {
-    BoxBlurNode node;
-
-    node.setRadius(3);
-    CHECK(node.radius() == 3);
-
-    node.setRadius(0);
-    CHECK(node.radius() == 0);
-}
-
-TEST_CASE("BoxBlurNode blurs image") {
-    const int imgSize = 32;
-    const int canvasSize = 64;
-
-    // 中央に白い点のある黒い画像を作成
-    ImageBuffer srcImg = createSolidImage(imgSize, imgSize, 0, 0, 0, 255);
-    ViewPort srcView = srcImg.view();
-    // 中央に白い点
-    uint8_t* centerPixel = static_cast<uint8_t*>(srcView.pixelAt(imgSize / 2, imgSize / 2));
-    centerPixel[0] = 255; centerPixel[1] = 255; centerPixel[2] = 255; centerPixel[3] = 255;
-
-    ImageBuffer dstImg(canvasSize, canvasSize, PixelFormatIDs::RGBA8_Straight);
-    ViewPort dstView = dstImg.view();
-
-    SourceNode src(srcView, imgSize / 2.0f, imgSize / 2.0f);
-    BoxBlurNode blur;
-    RendererNode renderer;
-    SinkNode sink(dstView, canvasSize / 2.0f, canvasSize / 2.0f);
-
-    src >> blur >> renderer >> sink;
-
-    blur.setRadius(2);
-
-    renderer.setVirtualScreen(canvasSize, canvasSize);
-    renderer.exec();
-
-    // ブラー処理が完了することを確認
-    CHECK(true);
-}
-
-// =============================================================================
 // HorizontalBlurNode Tests
 // =============================================================================
 
@@ -359,7 +308,7 @@ TEST_CASE("VerticalBlurNode blurs image vertically") {
 // Horizontal + Vertical Blur Combination Tests
 // =============================================================================
 
-TEST_CASE("HorizontalBlur + VerticalBlur combination equals BoxBlur") {
+TEST_CASE("HorizontalBlur + VerticalBlur combination") {
     const int imgSize = 32;
     const int canvasSize = 64;
 

@@ -267,7 +267,7 @@ protected:
 
 private:
     int radius_ = 5;
-    int passes_ = 1;  // 1-3の範囲、デフォルト1（従来互換）
+    int passes_ = 1;  // 1-3の範囲、デフォルト1
 
     // スクリーン情報
     int screenWidth_ = 0;

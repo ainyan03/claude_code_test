@@ -83,8 +83,9 @@ ImageBuffer::deallocate() {
 | Composite | ブレンド処理のみ（上流評価除外） |
 | Brightness | 明るさ調整処理 |
 | Grayscale | グレースケール変換処理 |
-| BoxBlur | ぼかし処理（マージン処理含む） |
 | Alpha | アルファ調整処理 |
+| HorizontalBlur | 水平ぼかし処理 |
+| VerticalBlur | 垂直ぼかし処理 |
 
 ### ピクセル効率計測
 
@@ -117,8 +118,9 @@ ImageBuffer のコンストラクタ/デストラクタで自動的に記録：
 | Composite | キャンバスバッファ |
 | Brightness | 作業バッファ、出力バッファ |
 | Grayscale | 作業バッファ、出力バッファ |
-| BoxBlur | 作業バッファ、出力バッファ、クロップバッファ |
 | Alpha | 作業バッファ、出力バッファ |
+| HorizontalBlur | 出力バッファ |
+| VerticalBlur | 行キャッシュ、列合計、出力バッファ |
 
 ノード別統計:
 - `allocatedBytes`: このノードが確保したバイト数

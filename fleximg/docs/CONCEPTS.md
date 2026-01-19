@@ -17,7 +17,7 @@ image = grayscale(image);
 saveImage(image, "output.jpg");
 
 【ノードベース】
-SourceNode → BrightnessNode → BoxBlurNode → GrayscaleNode → SinkNode
+SourceNode → BrightnessNode → HBlurNode → VBlurNode → GrayscaleNode → SinkNode
 ```
 
 ### ノードベースの利点
@@ -132,7 +132,7 @@ CRTモニターの走査線に由来する用語で、画像の1行（横1列の
 
 ### 制約
 
-ぼかしフィルタ（BoxBlur）のように、上下のピクセルを参照する処理では、複数行のキャッシュが必要です。fleximg ではこれを内部的に管理しています。
+ぼかしフィルタ（VerticalBlurNode）のように、上下のピクセルを参照する処理では、複数行のキャッシュが必要です。fleximg ではこれを内部的に管理しています。
 
 ---
 
