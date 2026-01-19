@@ -95,10 +95,10 @@ TEST_CASE("CompositeNode single opaque input") {
     ViewPort dstView = dstImg.view();
 
     // ノード構築（1入力のComposite）
-    SourceNode src(srcView, imgSize / 2.0f, imgSize / 2.0f);
+    SourceNode src(srcView, float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
     CompositeNode composite(1);
     RendererNode renderer;
-    SinkNode sink(dstView, canvasSize / 2.0f, canvasSize / 2.0f);
+    SinkNode sink(dstView, float_to_fixed(canvasSize / 2.0f), float_to_fixed(canvasSize / 2.0f));
 
     src >> composite >> renderer >> sink;
 
@@ -134,11 +134,11 @@ TEST_CASE("CompositeNode two inputs compositing") {
     ViewPort dstView = dstImg.view();
 
     // ノード構築
-    SourceNode bgSrc(bgView, imgSize / 2.0f, imgSize / 2.0f);
-    SourceNode fgSrc(fgView, imgSize / 2.0f, imgSize / 2.0f);
+    SourceNode bgSrc(bgView, float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
+    SourceNode fgSrc(fgView, float_to_fixed(imgSize / 2.0f), float_to_fixed(imgSize / 2.0f));
     CompositeNode composite(2);
     RendererNode renderer;
-    SinkNode sink(dstView, canvasSize / 2.0f, canvasSize / 2.0f);
+    SinkNode sink(dstView, float_to_fixed(canvasSize / 2.0f), float_to_fixed(canvasSize / 2.0f));
 
     bgSrc >> composite;
     fgSrc.connectTo(composite, 1);
@@ -170,7 +170,7 @@ TEST_CASE("CompositeNode empty inputs") {
     // ノード構築（入力なし）
     CompositeNode composite(2);  // 2入力だが接続なし
     RendererNode renderer;
-    SinkNode sink(dstView, canvasSize / 2.0f, canvasSize / 2.0f);
+    SinkNode sink(dstView, float_to_fixed(canvasSize / 2.0f), float_to_fixed(canvasSize / 2.0f));
 
     composite >> renderer >> sink;
 

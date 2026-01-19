@@ -51,6 +51,26 @@ fleximg は組み込み環境への移植を見据えて設計されています
    - 差分計算（`end - start`）
    - 負の座標を扱う処理
 
+### `int` を避ける方針
+
+クロスプラットフォーム対応のため、座標やサイズに関しては `int` の使用を避け、
+明示的なサイズを持つ型または最速型を使用する。
+
+```cpp
+// 良い例：意図が明確
+int_fast16_t srcX = static_cast<int_fast16_t>(from_fixed_floor(value));
+int_fast16_t width = static_cast<int_fast16_t>(srcEndX - srcX);
+
+// 避けるべき例：int はプラットフォーム依存
+int srcX = from_fixed_floor(value);
+int width = srcEndX - srcX;
+```
+
+**理由**:
+- `int` のサイズはプラットフォーム依存（16bit〜32bit）
+- `int_fast16_t` は「16bit以上の最速型」という意図が明確
+- ViewPortの設計パターン（引数`int_fast16_t`、メンバ`int16_t`）と一貫性を保つ
+
 ### 最速型 (`int_fast*_t`) の使用
 
 `int_fast8_t`, `int_fast16_t` 等の最速型を使用する際は、必要に応じてサイズ選択の根拠をコメントで説明する。
@@ -108,6 +128,17 @@ int_fixed scale = float_to_fixed(1.5f);
 
 // 悪い例（意図が不明確）
 int32_t posX = 100 << 16;
+```
+
+**float → int_fixed 変換**: `float_to_fixed()` 関数を使用すること。
+暗黙の型変換は `-Wfloat-conversion` 警告の原因となる。
+
+```cpp
+// 良い例：明示的変換
+SourceNode src(srcView, float_to_fixed(imgW / 2.0f), float_to_fixed(imgH / 2.0f));
+
+// 悪い例：暗黙変換（警告発生）
+SourceNode src(srcView, imgW / 2.0f, imgH / 2.0f);
 ```
 
 ### 例
@@ -273,6 +304,7 @@ using flex_int32 = int_fast32_t;
 
 ## 変更履歴
 
+- 2026-01-19: `int`を避ける方針、`float_to_fixed()`使用規約を追加
 - 2026-01-19: 追加警告オプション（-Wconversion等）を必須化、全警告を解消
 - 2026-01-19: ループカウンタ/配列インデックス、座標値、警告オプションのルールを明確化
 - 2026-01-12: 初版作成

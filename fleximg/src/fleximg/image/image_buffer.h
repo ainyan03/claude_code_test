@@ -151,12 +151,12 @@ public:
     ViewPort& viewRef() { return view_; }
     const ViewPort& viewRef() const { return view_; }
 
-    ViewPort subView(int x, int y, int w, int h) const {
+    ViewPort subView(int_fast16_t x, int_fast16_t y, int_fast16_t w, int_fast16_t h) const {
         return view_ops::subView(view_, x, y, w, h);
     }
 
     // サブビューを持つ参照モードImageBufferを作成
-    ImageBuffer subBuffer(int x, int y, int w, int h) const {
+    ImageBuffer subBuffer(int_fast16_t x, int_fast16_t y, int_fast16_t w, int_fast16_t h) const {
         return ImageBuffer(view_ops::subView(view_, x, y, w, h));
     }
 
