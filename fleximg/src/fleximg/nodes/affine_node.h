@@ -103,25 +103,33 @@ public:
     void setMatrix(const AffineMatrix& m) { matrix_ = m; }
     const AffineMatrix& matrix() const { return matrix_; }
 
-    // 便利なセッター
+    // 便利なセッター（各セッターは担当要素のみを変更し、他の要素は維持）
+
+    // 回転を設定（a,b,c,dのみ変更、tx,tyは維持）
     void setRotation(float radians) {
-        float c = std::cos(radians);
-        float s = std::sin(radians);
+        float c = std::cosf(radians);
+        float s = std::sinf(radians);
         matrix_.a = c;  matrix_.b = -s;
         matrix_.c = s;  matrix_.d = c;
-        matrix_.tx = 0; matrix_.ty = 0;
     }
 
+    // スケールを設定（a,b,c,dのみ変更、tx,tyは維持）
     void setScale(float sx, float sy) {
         matrix_.a = sx; matrix_.b = 0;
         matrix_.c = 0;  matrix_.d = sy;
-        matrix_.tx = 0; matrix_.ty = 0;
     }
 
+    // 平行移動を設定（tx,tyのみ変更、a,b,c,dは維持）
     void setTranslation(float tx, float ty) {
-        matrix_.a = 1;  matrix_.b = 0;
-        matrix_.c = 0;  matrix_.d = 1;
         matrix_.tx = tx; matrix_.ty = ty;
+    }
+
+    // 回転+スケールを設定（a,b,c,dのみ変更、tx,tyは維持）
+    void setRotationScale(float radians, float sx, float sy) {
+        float c = std::cosf(radians);
+        float s = std::sinf(radians);
+        matrix_.a = c * sx;  matrix_.b = -s * sy;
+        matrix_.c = s * sx;  matrix_.d = c * sy;
     }
 
     // ========================================
