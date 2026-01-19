@@ -119,38 +119,37 @@ public:
         if (copyW < 0) copyW = 0;
         if (copyH < 0) copyH = 0;
 
-        // 予定領域との比較で左右余白を消去
+        // 予定領域の配置計算
         int expectedDstX = from_fixed(originX_ - expectedOriginX_);
-        int expectedRight = expectedDstX + expectedWidth_;
 
-        // 描画高さ（有効範囲がなくても1ライン分消去）
+        // 描画高さ（有効範囲がなくても1ライン分描画）
         int fillH = (copyH > 0) ? copyH : 1;
         int fillY = dstY;
 
-        // 有効な描画範囲がある場合
-        if (copyW > 0 && copyH > 0) {
-            // 左余白を消去（expectedDstX から dstX まで）
-            if (dstX > expectedDstX) {
-                lcd_->fillRect(windowX_ + expectedDstX, windowY_ + fillY,
-                               dstX - expectedDstX, fillH, 0);
-            }
-            // 右余白を消去（dstX + copyW から expectedRight まで）
-            int imageRight = dstX + copyW;
-            if (imageRight < expectedRight) {
-                lcd_->fillRect(windowX_ + imageRight, windowY_ + fillY,
-                               expectedRight - imageRight, fillH, 0);
-            }
+        // ダブルバッファ: 現在のバッファを選択
+        auto& currentBuffer = imageBuffers_[currentBufferIndex_];
+        currentBufferIndex_ = 1 - currentBufferIndex_;  // 次回用に切り替え
 
-            // 変換バッファのサイズを確保
-            size_t bufferSize = static_cast<size_t>(copyW) * static_cast<size_t>(copyH);
-            if (imageBuffer_.size() < bufferSize) {
-                imageBuffer_.resize(bufferSize);
-            }
+        // バッファをexpectedWidth幅で確保（余白含む）
+        size_t rowWidth = static_cast<size_t>(expectedWidth_);
+        size_t bufferSize = rowWidth * static_cast<size_t>(fillH);
+        if (currentBuffer.size() < bufferSize) {
+            currentBuffer.resize(bufferSize);
+        }
+
+        // バッファ全体をゼロクリア（余白を黒に）
+        std::fill(currentBuffer.begin(), currentBuffer.begin() + static_cast<ptrdiff_t>(bufferSize), 0);
+
+        // 有効な描画範囲がある場合、画像部分のみ変換して配置
+        if (copyW > 0 && copyH > 0) {
+            int offsetInRow = dstX - expectedDstX;
 
             // スキャンライン単位でRGB565_BEに変換
             for (int y = 0; y < copyH; ++y) {
                 const void* srcRow = inputView.pixelAt(srcX, srcY + y);
-                uint16_t* dstRow = imageBuffer_.data() + static_cast<size_t>(y) * static_cast<size_t>(copyW);
+                uint16_t* dstRow = currentBuffer.data()
+                    + static_cast<size_t>(y) * rowWidth
+                    + static_cast<size_t>(offsetInRow);
 
                 ::fleximg::convertFormat(
                     srcRow,
@@ -160,19 +159,16 @@ public:
                     copyW
                 );
             }
-
-            // pushImageで正しい位置に描画
-            lcd_->pushImage(
-                windowX_ + dstX,
-                windowY_ + dstY,
-                copyW,
-                copyH,
-                reinterpret_cast<const lgfx::swap565_t*>(imageBuffer_.data())
-            );
-        } else {
-            // 有効な画像がない場合は全体を消去
-            lcd_->fillRect(windowX_ + expectedDstX, windowY_ + fillY, expectedWidth_, fillH, 0);
         }
+
+        // 余白含めて一括転送
+        lcd_->pushImageDMA(
+            windowX_ + expectedDstX,
+            windowY_ + fillY,
+            expectedWidth_,
+            fillH,
+            reinterpret_cast<const lgfx::swap565_t*>(currentBuffer.data())
+        );
     }
 
     // ========================================
@@ -196,8 +192,9 @@ private:
     int16_t expectedWidth_ = 0;
     int_fixed expectedOriginX_ = 0;
 
-    // RGB565変換バッファ（画像全体用）
-    std::vector<uint16_t> imageBuffer_;
+    // RGB565変換ダブルバッファ（DMA転送中の上書き防止）
+    std::vector<uint16_t> imageBuffers_[2];
+    int currentBufferIndex_ = 0;
 };
 
 } // namespace fleximg

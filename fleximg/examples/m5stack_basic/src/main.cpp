@@ -73,8 +73,8 @@ void setup() {
     int16_t screenH = static_cast<int16_t>(M5.Display.height());
 
     // 描画領域（画面中央に配置）
-    int16_t drawW = 200;
-    int16_t drawH = 200;
+    int16_t drawW = 320;
+    int16_t drawH = 240;
     int16_t drawX = (screenW - drawW) / 2;
     int16_t drawY = (screenH - drawH) / 2;
 
@@ -95,6 +95,8 @@ void setup() {
 
     // パイプライン接続
     source >> affine >> renderer >> lcdSink;
+
+    M5.Display.startWrite();
 }
 
 void loop() {
