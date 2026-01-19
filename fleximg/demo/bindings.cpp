@@ -226,7 +226,7 @@ public:
         result.set("height", sinkOut.height);
         result.set("format", std::string(getFormatName(sinkOut.format)));
 
-        size_t pixelCount = sinkOut.width * sinkOut.height;
+        size_t pixelCount = static_cast<size_t>(sinkOut.width) * static_cast<size_t>(sinkOut.height);
         size_t rgba8Size = pixelCount * 4;
 
         // RGBA8888 に変換（または同一フォーマットならコピー）
@@ -242,7 +242,7 @@ public:
             convertFormat(
                 sinkOut.buffer.data(), sinkOut.format,
                 rgba8Data.data(), PixelFormatIDs::RGBA8_Straight,
-                pixelCount
+                static_cast<int>(pixelCount)
             );
             val data = val::global("Uint8ClampedArray").new_(
                 typed_memory_view(rgba8Data.size(), rgba8Data.data())
@@ -277,12 +277,12 @@ public:
         } else {
             // フォーマット変換
             auto targetBpp = getBytesPerPixel(targetFormat);
-            std::vector<uint8_t> converted(static_cast<size_t>(width * height * targetBpp));
+            std::vector<uint8_t> converted(static_cast<size_t>(width) * static_cast<size_t>(height) * static_cast<size_t>(targetBpp));
 
             convertFormat(
                 rgba8Data.data(), PixelFormatIDs::RGBA8_Straight,
                 converted.data(), targetFormat,
-                width * height
+                static_cast<int>(static_cast<size_t>(width) * static_cast<size_t>(height))
             );
 
             imageViews_[id] = imageStore_.store(id, converted.data(), width, height, targetFormat);
@@ -996,11 +996,11 @@ private:
                               info.width, info.height);
             } else {
                 // フォーマット変換してコピー
-                size_t pixelCount = info.width * info.height;
+                size_t pixelCount = static_cast<size_t>(info.width) * static_cast<size_t>(info.height);
                 convertFormat(
                     sinkOut.buffer.data(), info.format,
                     static_cast<uint8_t*>(info.outputView.data), PixelFormatIDs::RGBA8_Straight,
-                    pixelCount
+                    static_cast<int>(pixelCount)
                 );
             }
         }

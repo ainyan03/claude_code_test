@@ -67,7 +67,7 @@ void* PoolAllocator::allocate(size_t size) {
             stats_.hits++;
             stats_.allocatedBitmap = allocatedBitmap_;
 
-            return static_cast<uint8_t*>(poolMemory_) + (i * blockSize_);
+            return static_cast<uint8_t*>(poolMemory_) + (static_cast<size_t>(i) * blockSize_);
         }
     }
 
@@ -91,7 +91,7 @@ bool PoolAllocator::deallocate(void* ptr) {
     }
 
     // ブロックインデックス計算
-    size_t blockIndex = (p - poolStart) / blockSize_;
+    size_t blockIndex = static_cast<size_t>(p - poolStart) / blockSize_;
 
     if (blockIndex >= blockCount_) {
         return false;  // 範囲外

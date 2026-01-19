@@ -97,7 +97,7 @@ public:
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         // パイプライン方式: 各ステージ (radius*2+1)*width*4 + width*16
-        size_t cacheBytes = passes_ * (kernelSize() * cacheWidth_ * 4 + cacheWidth_ * 4 * sizeof(uint32_t));
+        size_t cacheBytes = static_cast<size_t>(passes_) * (static_cast<size_t>(kernelSize()) * static_cast<size_t>(cacheWidth_) * 4 + static_cast<size_t>(cacheWidth_) * 4 * sizeof(uint32_t));
         PerfMetrics::instance().nodes[NodeType::VerticalBlur].recordAlloc(
             cacheBytes, cacheWidth_, kernelSize() * passes_);
 #endif
@@ -193,14 +193,14 @@ public:
         }
 
         if (!input.isValid()) {
-            std::memset(stage0.rowCache[slot0].view().data, 0, cacheWidth_ * 4);
+            std::memset(stage0.rowCache[static_cast<size_t>(slot0)].view().data, 0, static_cast<size_t>(cacheWidth_) * 4);
         } else {
             ImageBuffer converted = convertFormat(std::move(input.buffer),
                                                    PixelFormatIDs::RGBA8_Straight);
             int xOffset = from_fixed(inputOrigin.x - baseOriginX_);
             storeInputRowToStageCache(stage0, converted, slot0, xOffset);
         }
-        stage0.rowOriginX[slot0] = inputOrigin.x;
+        stage0.rowOriginX[static_cast<size_t>(slot0)] = inputOrigin.x;
 
         // 新しい行を列合計に加算
         updateStageColSum(stage0, slot0, true);
@@ -233,7 +233,7 @@ public:
             if (stage0.pushInputY >= ks) {
                 updateStageColSum(stage0, slot0, false);
             }
-            std::memset(stage0.rowCache[slot0].view().data, 0, cacheWidth_ * 4);
+            std::memset(stage0.rowCache[static_cast<size_t>(slot0)].view().data, 0, static_cast<size_t>(cacheWidth_) * 4);
 
             lastInputOriginY_ -= to_fixed(1);
             stage0.pushInputY++;
@@ -351,7 +351,7 @@ private:
 #endif
 
         // 最終ステージの列合計から出力行を計算
-        computeStageOutputRow(stages_[passes_ - 1], output, request.width);
+        computeStageOutputRow(stages_[static_cast<size_t>(passes_ - 1)], output, request.width);
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         metrics.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
@@ -364,7 +364,7 @@ private:
 
     // ステージsのキャッシュを更新（requestYに対応する出力が得られるように）
     void updateStageCache(int stageIndex, Node* upstream, const RenderRequest& request, int newY) {
-        BlurStage& stage = stages_[stageIndex];
+        BlurStage& stage = stages_[static_cast<size_t>(stageIndex)];
         int ks = kernelSize();
 
         // このステージへの最初の呼び出し時、currentYを調整してキャッシュを完全に充填
@@ -414,8 +414,8 @@ private:
         RenderResult result = upstream->pullProcess(upstreamReq);
 
         // キャッシュ行をゼロクリア
-        ViewPort dstView = stage.rowCache[cacheIndex].view();
-        std::memset(dstView.data, 0, cacheWidth_ * 4);
+        ViewPort dstView = stage.rowCache[static_cast<size_t>(cacheIndex)].view();
+        std::memset(dstView.data, 0, static_cast<size_t>(cacheWidth_) * 4);
 
         if (!result.isValid()) {
             return;
@@ -432,31 +432,31 @@ private:
         int copyWidth = std::min(static_cast<int>(srcView.width) - srcStartX, cacheWidth_ - dstStartX);
         if (copyWidth > 0) {
             const uint8_t* srcPtr = static_cast<const uint8_t*>(srcView.data) + srcStartX * 4;
-            std::memcpy(static_cast<uint8_t*>(dstView.data) + dstStartX * 4, srcPtr, copyWidth * 4);
+            std::memcpy(static_cast<uint8_t*>(dstView.data) + dstStartX * 4, srcPtr, static_cast<size_t>(copyWidth) * 4);
         }
     }
 
     // 前段ステージから1行取得して現ステージのキャッシュに格納
     void fetchRowFromPrevStage(int stageIndex, Node* upstream, const RenderRequest& request,
                                 int srcY, int cacheIndex) {
-        BlurStage& stage = stages_[stageIndex];
-        BlurStage& prevStage = stages_[stageIndex - 1];
+        BlurStage& stage = stages_[static_cast<size_t>(stageIndex)];
+        BlurStage& prevStage = stages_[static_cast<size_t>(stageIndex - 1)];
 
         // 前段ステージのキャッシュを更新
         updateStageCache(stageIndex - 1, upstream, request, srcY);
 
         // 前段ステージの列合計から1行を計算してキャッシュに格納
-        ViewPort dstView = stage.rowCache[cacheIndex].view();
+        ViewPort dstView = stage.rowCache[static_cast<size_t>(cacheIndex)].view();
         uint8_t* dstRow = static_cast<uint8_t*>(dstView.data);
 
         int ks = kernelSize();
-        for (int x = 0; x < cacheWidth_; x++) {
-            int off = x * 4;
+        for (size_t x = 0; x < static_cast<size_t>(cacheWidth_); x++) {
+            size_t off = x * 4;
             if (prevStage.colSumA[x] > 0) {
                 dstRow[off]     = static_cast<uint8_t>(prevStage.colSumR[x] / prevStage.colSumA[x]);
                 dstRow[off + 1] = static_cast<uint8_t>(prevStage.colSumG[x] / prevStage.colSumA[x]);
                 dstRow[off + 2] = static_cast<uint8_t>(prevStage.colSumB[x] / prevStage.colSumA[x]);
-                dstRow[off + 3] = static_cast<uint8_t>(prevStage.colSumA[x] / ks);
+                dstRow[off + 3] = static_cast<uint8_t>(prevStage.colSumA[x] / static_cast<uint32_t>(ks));
             } else {
                 dstRow[off] = dstRow[off + 1] = dstRow[off + 2] = dstRow[off + 3] = 0;
             }
@@ -465,18 +465,18 @@ private:
 
     // ステージの列合計を更新（加算/減算）
     void updateStageColSum(BlurStage& stage, int cacheIndex, bool add) {
-        const uint8_t* row = static_cast<const uint8_t*>(stage.rowCache[cacheIndex].view().data);
+        const uint8_t* row = static_cast<const uint8_t*>(stage.rowCache[static_cast<size_t>(cacheIndex)].view().data);
         int sign = add ? 1 : -1;
-        for (int x = 0; x < cacheWidth_; x++) {
-            int off = x * 4;
+        for (size_t x = 0; x < static_cast<size_t>(cacheWidth_); x++) {
+            size_t off = x * 4;
             int32_t a = row[off + 3] * sign;
             int32_t ra = row[off] * a;
             int32_t ga = row[off + 1] * a;
             int32_t ba = row[off + 2] * a;
-            stage.colSumR[x] += ra;
-            stage.colSumG[x] += ga;
-            stage.colSumB[x] += ba;
-            stage.colSumA[x] += a;
+            stage.colSumR[x] += static_cast<uint32_t>(ra);
+            stage.colSumG[x] += static_cast<uint32_t>(ga);
+            stage.colSumB[x] += static_cast<uint32_t>(ba);
+            stage.colSumA[x] += static_cast<uint32_t>(a);
         }
     }
 
@@ -484,13 +484,13 @@ private:
     void computeStageOutputRow(BlurStage& stage, ImageBuffer& output, int width) {
         uint8_t* outRow = static_cast<uint8_t*>(output.view().data);
         int ks = kernelSize();
-        for (int x = 0; x < width; x++) {
-            int off = x * 4;
+        for (size_t x = 0; x < static_cast<size_t>(width); x++) {
+            size_t off = x * 4;
             if (stage.colSumA[x] > 0) {
                 outRow[off]     = static_cast<uint8_t>(stage.colSumR[x] / stage.colSumA[x]);
                 outRow[off + 1] = static_cast<uint8_t>(stage.colSumG[x] / stage.colSumA[x]);
                 outRow[off + 2] = static_cast<uint8_t>(stage.colSumB[x] / stage.colSumA[x]);
-                outRow[off + 3] = static_cast<uint8_t>(stage.colSumA[x] / ks);
+                outRow[off + 3] = static_cast<uint8_t>(stage.colSumA[x] / static_cast<uint32_t>(ks));
             } else {
                 outRow[off] = outRow[off + 1] = outRow[off + 2] = outRow[off + 3] = 0;
             }
@@ -503,17 +503,17 @@ private:
 
     // 単一ステージのキャッシュを初期化
     void initializeStage(BlurStage& stage, int width) {
-        int cacheRows = kernelSize();  // radius*2+1
+        size_t cacheRows = static_cast<size_t>(kernelSize());  // radius*2+1
         stage.rowCache.resize(cacheRows);
         stage.rowOriginX.assign(cacheRows, 0);
-        for (int i = 0; i < cacheRows; i++) {
+        for (size_t i = 0; i < cacheRows; i++) {
             stage.rowCache[i] = ImageBuffer(width, 1, PixelFormatIDs::RGBA8_Straight,
                                             InitPolicy::Zero);
         }
-        stage.colSumR.assign(width, 0);
-        stage.colSumG.assign(width, 0);
-        stage.colSumB.assign(width, 0);
-        stage.colSumA.assign(width, 0);
+        stage.colSumR.assign(static_cast<size_t>(width), 0);
+        stage.colSumG.assign(static_cast<size_t>(width), 0);
+        stage.colSumB.assign(static_cast<size_t>(width), 0);
+        stage.colSumA.assign(static_cast<size_t>(width), 0);
         stage.currentY = 0;
         stage.cacheReady = false;
     }
@@ -521,8 +521,8 @@ private:
     // 全ステージを初期化
     void initializeStages(int width) {
         cacheWidth_ = width;
-        stages_.resize(passes_);
-        for (int i = 0; i < passes_; i++) {
+        stages_.resize(static_cast<size_t>(passes_));
+        for (size_t i = 0; i < static_cast<size_t>(passes_); i++) {
             initializeStage(stages_[i], width);
         }
     }
@@ -537,21 +537,21 @@ private:
 
         // Stage 0の出力を計算してStage 1以降に伝播
         for (int s = 1; s < passes_; s++) {
-            BlurStage& prevStage = stages_[s - 1];
-            BlurStage& stage = stages_[s];
+            BlurStage& prevStage = stages_[static_cast<size_t>(s - 1)];
+            BlurStage& stage = stages_[static_cast<size_t>(s)];
 
             // 前段ステージの列合計から1行を計算
             ImageBuffer stageInput(cacheWidth_, 1, PixelFormatIDs::RGBA8_Straight,
                                    InitPolicy::Uninitialized);
             uint8_t* stageRow = static_cast<uint8_t*>(stageInput.view().data);
 
-            for (int x = 0; x < cacheWidth_; x++) {
-                int off = x * 4;
+            for (size_t x = 0; x < static_cast<size_t>(cacheWidth_); x++) {
+                size_t off = x * 4;
                 if (prevStage.colSumA[x] > 0) {
                     stageRow[off]     = static_cast<uint8_t>(prevStage.colSumR[x] / prevStage.colSumA[x]);
                     stageRow[off + 1] = static_cast<uint8_t>(prevStage.colSumG[x] / prevStage.colSumA[x]);
                     stageRow[off + 2] = static_cast<uint8_t>(prevStage.colSumB[x] / prevStage.colSumA[x]);
-                    stageRow[off + 3] = static_cast<uint8_t>(prevStage.colSumA[x] / ks);
+                    stageRow[off + 3] = static_cast<uint8_t>(prevStage.colSumA[x] / static_cast<uint32_t>(ks));
                 } else {
                     stageRow[off] = stageRow[off + 1] = stageRow[off + 2] = stageRow[off + 3] = 0;
                 }
@@ -570,8 +570,8 @@ private:
 
             // 新しい行をキャッシュに格納
             ViewPort srcView = stageInput.view();
-            ViewPort dstView = stage.rowCache[slot].view();
-            std::memcpy(dstView.data, srcView.data, cacheWidth_ * 4);
+            ViewPort dstView = stage.rowCache[static_cast<size_t>(slot)].view();
+            std::memcpy(dstView.data, srcView.data, static_cast<size_t>(cacheWidth_) * 4);
 
             // 新しい行を列合計に加算
             updateStageColSum(stage, slot, true);
@@ -590,20 +590,20 @@ private:
 
     // パイプライン方式の出力（最終ステージから下流へpush）
     void emitBlurredLinePipeline() {
-        BlurStage& lastStage = stages_[passes_ - 1];
+        BlurStage& lastStage = stages_[static_cast<size_t>(passes_ - 1)];
         int ks = kernelSize();
 
         ImageBuffer output(cacheWidth_, 1, PixelFormatIDs::RGBA8_Straight,
                           InitPolicy::Uninitialized);
         uint8_t* outRow = static_cast<uint8_t*>(output.view().data);
 
-        for (int x = 0; x < cacheWidth_; x++) {
-            int off = x * 4;
+        for (size_t x = 0; x < static_cast<size_t>(cacheWidth_); x++) {
+            size_t off = x * 4;
             if (lastStage.colSumA[x] > 0) {
                 outRow[off]     = static_cast<uint8_t>(lastStage.colSumR[x] / lastStage.colSumA[x]);
                 outRow[off + 1] = static_cast<uint8_t>(lastStage.colSumG[x] / lastStage.colSumA[x]);
                 outRow[off + 2] = static_cast<uint8_t>(lastStage.colSumB[x] / lastStage.colSumA[x]);
-                outRow[off + 3] = static_cast<uint8_t>(lastStage.colSumA[x] / ks);
+                outRow[off + 3] = static_cast<uint8_t>(lastStage.colSumA[x] / static_cast<uint32_t>(ks));
             } else {
                 outRow[off] = outRow[off + 1] = outRow[off + 2] = outRow[off + 3] = 0;
             }
@@ -633,13 +633,13 @@ private:
     // ステージのキャッシュに行を格納（push用）
     void storeInputRowToStageCache(BlurStage& stage, const ImageBuffer& input, int cacheIndex, int xOffset = 0) {
         ViewPort srcView = input.view();
-        ViewPort dstView = stage.rowCache[cacheIndex].view();
+        ViewPort dstView = stage.rowCache[static_cast<size_t>(cacheIndex)].view();
         const uint8_t* srcData = static_cast<const uint8_t*>(srcView.data);
         uint8_t* dstData = static_cast<uint8_t*>(dstView.data);
         int srcWidth = static_cast<int>(srcView.width);
 
         // キャッシュをゼロクリア
-        std::memset(dstData, 0, cacheWidth_ * 4);
+        std::memset(dstData, 0, static_cast<size_t>(cacheWidth_) * 4);
 
         // コピー範囲の計算
         int dstStart = std::max(0, -xOffset);
@@ -648,7 +648,7 @@ private:
         int copyWidth = dstEnd - dstStart;
 
         if (copyWidth > 0 && srcStart < srcWidth) {
-            std::memcpy(dstData + dstStart * 4, srcData + srcStart * 4, copyWidth * 4);
+            std::memcpy(dstData + dstStart * 4, srcData + srcStart * 4, static_cast<size_t>(copyWidth) * 4);
         }
     }
 };

@@ -190,8 +190,8 @@ public:
         RenderResult maskResult;
         if (upstream2) {
             RenderRequest unionRequest;
-            unionRequest.width = unionWidth;
-            unionRequest.height = unionHeight;
+            unionRequest.width = static_cast<int16_t>(unionWidth);
+            unionRequest.height = static_cast<int16_t>(unionHeight);
             unionRequest.origin = Point{unionOriginX, unionOriginY};
 
             maskResult = upstream2->pullProcess(unionRequest);
@@ -219,8 +219,8 @@ public:
 
         // マット合成処理（Union領域で実行）
         RenderRequest unionRequest;
-        unionRequest.width = unionWidth;
-        unionRequest.height = unionHeight;
+        unionRequest.width = static_cast<int16_t>(unionWidth);
+        unionRequest.height = static_cast<int16_t>(unionHeight);
         unionRequest.origin = Point{unionOriginX, unionOriginY};
 
         applyMatteComposite(outputBuf, unionRequest,
@@ -308,7 +308,7 @@ private:
         if (!maskPtr) {
             if (!img2Ptr) {
                 // 背景もない → 全面透明黒
-                std::memset(outPtr, 0, outHeight * outStride);
+                std::memset(outPtr, 0, static_cast<size_t>(outHeight) * static_cast<size_t>(outStride));
                 return;
             }
             // 背景のみコピー
@@ -475,7 +475,7 @@ private:
 
             if (srcY < 0 || srcY >= srcHeight) {
                 // 範囲外 → 透明黒
-                std::memset(outRow, 0, outWidth * 4);
+                std::memset(outRow, 0, static_cast<size_t>(outWidth) * 4);
                 continue;
             }
 
@@ -487,19 +487,19 @@ private:
 
             // 左側の透明部分
             if (xStart > 0) {
-                std::memset(outRow, 0, xStart * 4);
+                std::memset(outRow, 0, static_cast<size_t>(xStart) * 4);
             }
 
             // 有効部分をコピー
             if (xEnd > xStart) {
                 std::memcpy(outRow + xStart * 4,
                             srcRow + (xStart + offsetX) * 4,
-                            (xEnd - xStart) * 4);
+                            static_cast<size_t>(xEnd - xStart) * 4);
             }
 
             // 右側の透明部分
             if (xEnd < outWidth) {
-                std::memset(outRow + xEnd * 4, 0, (outWidth - xEnd) * 4);
+                std::memset(outRow + xEnd * 4, 0, static_cast<size_t>(outWidth - xEnd) * 4);
             }
         }
     }

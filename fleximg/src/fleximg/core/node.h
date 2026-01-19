@@ -47,12 +47,12 @@ public:
 
     Port* inputPort(int index = 0) {
         return (index >= 0 && index < static_cast<int>(inputs_.size()))
-            ? &inputs_[index] : nullptr;
+            ? &inputs_[static_cast<size_t>(index)] : nullptr;
     }
 
     Port* outputPort(int index = 0) {
         return (index >= 0 && index < static_cast<int>(outputs_.size()))
-            ? &outputs_[index] : nullptr;
+            ? &outputs_[static_cast<size_t>(index)] : nullptr;
     }
 
     int inputPortCount() const { return static_cast<int>(inputs_.size()); }
@@ -257,7 +257,7 @@ public:
         if (inputIndex < 0 || inputIndex >= static_cast<int>(inputs_.size())) {
             return nullptr;
         }
-        return inputs_[inputIndex].connectedNode();
+        return inputs_[static_cast<size_t>(inputIndex)].connectedNode();
     }
 
     // 下流ノードを取得（出力ポート経由）
@@ -265,7 +265,7 @@ public:
         if (outputIndex < 0 || outputIndex >= static_cast<int>(outputs_.size())) {
             return nullptr;
         }
-        return outputs_[outputIndex].connectedNode();
+        return outputs_[static_cast<size_t>(outputIndex)].connectedNode();
     }
 
 protected:
@@ -321,13 +321,13 @@ protected:
 
     // 派生クラス用：ポート初期化
     void initPorts(int inputCount, int outputCount) {
-        inputs_.resize(inputCount);
-        outputs_.resize(outputCount);
+        inputs_.resize(static_cast<size_t>(inputCount));
+        outputs_.resize(static_cast<size_t>(outputCount));
         for (int i = 0; i < inputCount; ++i) {
-            inputs_[i] = Port(this, i);
+            inputs_[static_cast<size_t>(i)] = Port(this, i);
         }
         for (int i = 0; i < outputCount; ++i) {
-            outputs_[i] = Port(this, i);
+            outputs_[static_cast<size_t>(i)] = Port(this, i);
         }
     }
 };

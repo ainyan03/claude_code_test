@@ -64,7 +64,7 @@ struct InputRegion {
 
     // 効率（0.0〜1.0）
     float currentEfficiency() const {
-        return aabbPixels > 0 ? static_cast<float>(parallelogramPixels) / aabbPixels : 1.0f;
+        return aabbPixels > 0 ? static_cast<float>(parallelogramPixels) / static_cast<float>(aabbPixels) : 1.0f;
     }
 };
 
@@ -281,9 +281,9 @@ public:
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         // ピクセル効率計測
         auto& metrics = PerfMetrics::instance().nodes[NodeType::Affine];
-        metrics.usedPixels += region.outputPixels;
+        metrics.usedPixels += static_cast<uint64_t>(region.outputPixels);
         // 分割時の理論最小値（平行四辺形面積 × 2、三角形領域の効率50%を考慮）
-        metrics.theoreticalMinPixels += region.parallelogramPixels * 2;
+        metrics.theoreticalMinPixels += static_cast<uint64_t>(region.parallelogramPixels * 2);
 #endif
 
         // AABB分割判定
@@ -310,7 +310,7 @@ private:
         inputReq.origin.y = to_fixed8(-region.aabbTop);
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
-        PerfMetrics::instance().nodes[NodeType::Affine].requestedPixels += region.aabbPixels;
+        PerfMetrics::instance().nodes[NodeType::Affine].requestedPixels += static_cast<uint64_t>(region.aabbPixels);
 #endif
 
         // 上流を評価
@@ -386,7 +386,7 @@ private:
             }
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
-            int64_t splitPixels = static_cast<int64_t>(subReq.width) * subReq.height;
+            uint64_t splitPixels = static_cast<uint64_t>(subReq.width) * static_cast<uint64_t>(subReq.height);
             PerfMetrics::instance().nodes[NodeType::Affine].requestedPixels += splitPixels;
 #endif
 
@@ -445,7 +445,7 @@ private:
         ImageBuffer trimmed(totalResult.width(), totalResult.height(), output.formatID());
         if (trimmed.isValid()) {
             const int bpp = static_cast<int>(output.bytesPerPixel());
-            const int rowBytes = totalResult.width() * bpp;
+            const size_t rowBytes = static_cast<size_t>(totalResult.width()) * static_cast<size_t>(bpp);
             for (int y = 0; y < totalResult.height(); ++y) {
                 std::memcpy(trimmed.pixelAt(0, y),
                             output.pixelAt(totalResult.minX, totalResult.minY + y),
@@ -674,7 +674,7 @@ public:
         ImageBuffer trimmed(ar.width(), ar.height(), output.formatID());
         if (trimmed.isValid()) {
             const int bpp = static_cast<int>(output.bytesPerPixel());
-            const int rowBytes = ar.width() * bpp;
+            const size_t rowBytes = static_cast<size_t>(ar.width()) * static_cast<size_t>(bpp);
             for (int y = 0; y < ar.height(); ++y) {
                 std::memcpy(trimmed.pixelAt(0, y),
                             output.pixelAt(ar.minX, ar.minY + y),
@@ -717,7 +717,7 @@ protected:
     bool shouldSplitAABB(const InputRegion& region) const {
         if (region.parallelogramPixels == 0) return false;
         float improvementFactor = static_cast<float>(region.aabbPixels)
-                                / (region.parallelogramPixels * 2);
+                                / static_cast<float>(region.parallelogramPixels * 2);
         return improvementFactor >= AABB_SPLIT_THRESHOLD;
     }
 
@@ -971,7 +971,7 @@ private:
             uint32_t sx = static_cast<uint32_t>(srcX_fixed) >> INT_FIXED16_SHIFT;
             uint32_t sy = static_cast<uint32_t>(srcY_fixed) >> INT_FIXED16_SHIFT;
 
-            const uint8_t* srcPixel = srcData + sy * srcStride + sx * BytesPerPixel;
+            const uint8_t* srcPixel = srcData + static_cast<size_t>(sy) * static_cast<size_t>(srcStride) + static_cast<size_t>(sx) * BytesPerPixel;
 
             // データサイズ単位で転写（ピクセル構造を意識しない）
             if constexpr (BytesPerPixel == 8) {

@@ -45,10 +45,10 @@ public:
     // 出力数を変更（既存接続は維持）
     void setOutputCount(int count) {
         if (count < 1) count = 1;
-        outputs_.resize(count);
+        outputs_.resize(static_cast<size_t>(count));
         for (int i = 0; i < count; ++i) {
-            if (outputs_[i].owner == nullptr) {
-                outputs_[i] = Port(this, i);
+            if (outputs_[static_cast<size_t>(i)].owner == nullptr) {
+                outputs_[static_cast<size_t>(i)] = Port(this, i);
             }
         }
     }

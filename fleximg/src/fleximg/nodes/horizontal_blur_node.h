@@ -91,7 +91,7 @@ protected:
         // マージンを計算して上流への要求を拡大
         int totalMargin = radius_ * passes_;  // 片側のマージン
         RenderRequest inputReq;
-        inputReq.width = request.width + totalMargin * 2;  // 両側にマージンを追加
+        inputReq.width = static_cast<int16_t>(request.width + totalMargin * 2);  // 両側にマージンを追加
         inputReq.height = 1;
         inputReq.origin.x = request.origin.x + to_fixed(totalMargin);  // 左側にマージン分拡張
         inputReq.origin.y = request.origin.y;
@@ -121,7 +121,7 @@ protected:
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
             if (pass == 0) {
-                metrics.recordAlloc(outputWidth * 4, outputWidth, 1);
+                metrics.recordAlloc(static_cast<size_t>(outputWidth) * 4, outputWidth, 1);
             }
 #endif
 
@@ -162,7 +162,7 @@ protected:
         if (copyWidth > 0) {
             std::memcpy(dstRow + dstStartX * 4,
                        srcRow + srcStartX * 4,
-                       copyWidth * 4);
+                       static_cast<size_t>(copyWidth) * 4);
         }
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
@@ -305,7 +305,7 @@ private:
     void writeBlurredPixel(uint8_t* row, int x, uint32_t sumR, uint32_t sumG,
                            uint32_t sumB, uint32_t sumA) {
         int off = x * 4;
-        int ks = kernelSize();
+        uint32_t ks = static_cast<uint32_t>(kernelSize());
         if (sumA > 0) {
             row[off]     = static_cast<uint8_t>(sumR / sumA);
             row[off + 1] = static_cast<uint8_t>(sumG / sumA);
