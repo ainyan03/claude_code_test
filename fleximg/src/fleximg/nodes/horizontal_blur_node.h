@@ -4,6 +4,8 @@
 #include "../core/node.h"
 #include "../core/perf_metrics.h"
 #include "../image/image_buffer.h"
+#include <algorithm>  // for std::min, std::max
+#include <cstring>    // for std::memcpy
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
 #include <chrono>
 #endif
@@ -16,19 +18,43 @@ namespace FLEXIMG_NAMESPACE {
 //
 // 入力画像に水平方向のボックスブラー（平均化フィルタ）を適用します。
 // - radius: ブラー半径（カーネルサイズ = 2 * radius + 1）
+// - passes: ブラー適用回数（1-3、デフォルト1）
+//
+// パラメータ上限（32bit演算でのオーバーフロー防止）:
+// - passes=1: radius上限なし（実用上問題なし）
+// - passes=2: radius上限128
+// - passes=3: radius上限19
+//
+// マルチパス処理:
+// - passes=3で3回水平ブラーを適用（ガウシアン近似）
+// - pull型: 上流にマージン付き要求、下流には元サイズで返却
+// - push型: 入力を拡張して下流に配布
+//
+// メモリ消費量（概算）:
+// - 水平ブラーはスキャンライン処理のため、メモリ消費は少ない
+// - 1行分のバッファ: width * 4 bytes（各パスで width + radius*2 ずつ拡張）
+//
+// pull型の動作:
+// - 上流への要求: width + radius*2*passes（マージン確保）
+// - 処理後に中央部分をクロップ
+// - 下流への返却: 要求されたwidthそのまま
+//
+// push型の動作:
+// - 入力を passes 回ブラー（各パスで width + radius*2 ずつ拡張）
+// - 拡張された結果を下流に配布
 //
 // スキャンライン処理:
 // - 1行完結の処理（キャッシュ不要）
-// - 入力マージン: radius（左右に拡張）
 // - スライディングウィンドウで水平方向のみブラー
 //
 // 使用例:
 //   HorizontalBlurNode hblur;
-//   hblur.setRadius(5);
+//   hblur.setRadius(6);
+//   hblur.setPasses(3);  // ガウシアン近似
 //   src >> hblur >> sink;
 //
-// VerticalBlurNodeと組み合わせてボックスブラーを実現:
-//   src >> hblur >> vblur >> sink;  // HorizontalBlur → VerticalBlur の順が効率的
+// VerticalBlurNodeと組み合わせて2次元ガウシアン近似:
+//   src >> hblur(r=6, p=3) >> vblur(r=6, p=3) >> sink;
 //
 
 class HorizontalBlurNode : public Node {
@@ -41,8 +67,28 @@ public:
     // パラメータ設定
     // ========================================
 
-    void setRadius(int radius) { radius_ = radius; }
+    // passes別のradius上限（32bit演算オーバーフロー防止）
+    // kernelSum = (2*radius+1)^passes
+    // maxSumRGB = 65025 * kernelSum < 2^32
+    // passes=1: 199+, passes=2: 128, passes=3: 19
+    static int maxRadiusForPasses(int passes) {
+        return (passes <= 1) ? 199 : (passes == 2) ? 128 : 19;
+    }
+
+    void setRadius(int radius) {
+        int maxR = maxRadiusForPasses(passes_);
+        radius_ = (radius < 0) ? 0 : (radius > maxR) ? maxR : radius;
+    }
+
+    void setPasses(int passes) {
+        passes_ = (passes < 1) ? 1 : (passes > 3) ? 3 : passes;
+        // passesが変わるとradius上限も変わるので再適用
+        int maxR = maxRadiusForPasses(passes_);
+        if (radius_ > maxR) radius_ = maxR;
+    }
+
     int radius() const { return radius_; }
+    int passes() const { return passes_; }
     int kernelSize() const { return radius_ * 2 + 1; }
 
     // ========================================
@@ -62,16 +108,17 @@ protected:
         Node* upstream = upstreamNode(0);
         if (!upstream) return RenderResult();
 
-        // radius=0の場合は処理をスキップしてスルー出力
-        if (radius_ == 0) {
+        // radius=0またはpasses=0の場合は処理をスキップしてスルー出力
+        if (radius_ == 0 || passes_ == 0) {
             return upstream->pullProcess(request);
         }
 
-        // 上流への要求（マージン含む）
+        // マージンを計算して上流への要求を拡大
+        int totalMargin = radius_ * passes_;  // 片側のマージン
         RenderRequest inputReq;
-        inputReq.width = request.width + radius_ * 2;
+        inputReq.width = request.width + totalMargin * 2;  // 両側にマージンを追加
         inputReq.height = 1;
-        inputReq.origin.x = request.origin.x + to_fixed(radius_);
+        inputReq.origin.x = request.origin.x + to_fixed(totalMargin);  // 左側にマージン分拡張
         inputReq.origin.y = request.origin.y;
 
         RenderResult input = upstream->pullProcess(inputReq);
@@ -80,31 +127,68 @@ protected:
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         auto start = std::chrono::high_resolution_clock::now();
         auto& metrics = PerfMetrics::instance().nodes[NodeType::HorizontalBlur];
-        metrics.requestedPixels += static_cast<uint64_t>(request.width + radius_ * 2) * 1;
-        metrics.usedPixels += static_cast<uint64_t>(request.width) * 1;
+        metrics.requestedPixels += static_cast<uint64_t>(request.width) * 1;
+        metrics.usedPixels += static_cast<uint64_t>(inputReq.width) * 1;
 #endif
 
         // RGBA8_Straightに変換
-        ImageBuffer converted = convertFormat(std::move(input.buffer),
-                                               PixelFormatIDs::RGBA8_Straight);
-        ViewPort srcView = converted.view();
+        ImageBuffer buffer = convertFormat(std::move(input.buffer),
+                                           PixelFormatIDs::RGBA8_Straight);
 
-        // 出力バッファを確保
-        ImageBuffer output(request.width, 1, PixelFormatIDs::RGBA8_Straight,
-                          InitPolicy::Uninitialized);
+        // 上流から返されたoriginを保存
+        Point currentOrigin = input.origin;
+
+        // passes回、水平ブラーを適用（各パスで拡張＋origin調整）
+        for (int pass = 0; pass < passes_; pass++) {
+            ViewPort srcView = buffer.view();
+            int inputWidth = srcView.width;
+            int outputWidth = inputWidth + radius_ * 2;
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
-        metrics.recordAlloc(output.totalBytes(), output.width(), output.height());
+            if (pass == 0) {
+                metrics.recordAlloc(outputWidth * 4, outputWidth, 1);
+            }
 #endif
 
-        // オフセット計算
-        // srcOffsetX = inputReq.origin.x - input.origin.x
-        // 出力x=0のカーネル中心 = radius_ - srcOffsetX
-        int srcOffsetX = from_fixed(inputReq.origin.x - input.origin.x);
-        int inputOffset = radius_ - srcOffsetX;
+            // 出力バッファを確保
+            ImageBuffer output(outputWidth, 1, PixelFormatIDs::RGBA8_Straight,
+                              InitPolicy::Uninitialized);
 
-        // 水平方向スライディングウィンドウでブラー処理
-        applyHorizontalBlur(srcView, inputOffset, output);
+            // 水平方向スライディングウィンドウでブラー処理
+            // inputOffset = -radius (出力を左に拡張)
+            applyHorizontalBlur(srcView, -radius_, output);
+
+            // origin.xを左に拡張した分だけ増やす（固定小数点）
+            currentOrigin.x = currentOrigin.x + to_fixed(radius_);
+
+            buffer = std::move(output);
+        }
+
+        // origin座標を基準にクロップ位置を計算
+        // currentOrigin.x が現在のbufferの左端、request.origin.x が欲しい位置
+        // cropOffset = currentOrigin.x - request.origin.x（固定小数点での差分）
+        // cropOffset > 0: bufferは左側にある → buffer[cropOffset]がrequest.origin.xに対応
+        int_fixed offsetX = currentOrigin.x - request.origin.x;
+        int cropOffset = from_fixed(offsetX);
+
+        // 出力バッファを確保（ゼロ初期化）
+        ImageBuffer output(request.width, 1, PixelFormatIDs::RGBA8_Straight,
+                          InitPolicy::Zero);
+        const uint8_t* srcRow = static_cast<const uint8_t*>(buffer.view().data);
+        uint8_t* dstRow = static_cast<uint8_t*>(output.view().data);
+
+        // クロップ範囲を計算（境界チェック付き）
+        int srcStartX = std::max(0, cropOffset);
+        int dstStartX = std::max(0, -cropOffset);
+        int copyWidth = std::min(static_cast<int>(buffer.width()) - srcStartX,
+                                 request.width - dstStartX);
+
+        // 有効な範囲をコピー（範囲外は既にゼロ初期化済み）
+        if (copyWidth > 0) {
+            std::memcpy(dstRow + dstStartX * 4,
+                       srcRow + srcStartX * 4,
+                       copyWidth * 4);
+        }
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         metrics.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
@@ -120,8 +204,8 @@ protected:
     // ========================================
 
     void pushProcess(RenderResult&& input, const RenderRequest& request) override {
-        // radius=0の場合はスルー
-        if (radius_ == 0) {
+        // radius=0またはpasses=0の場合はスルー
+        if (radius_ == 0 || passes_ == 0) {
             Node* downstream = downstreamNode(0);
             if (downstream) {
                 downstream->pushProcess(std::move(input), request);
@@ -142,24 +226,29 @@ protected:
 #endif
 
         // RGBA8_Straightに変換
-        ImageBuffer converted = convertFormat(std::move(input.buffer),
-                                               PixelFormatIDs::RGBA8_Straight);
-        ViewPort srcView = converted.view();
+        ImageBuffer buffer = convertFormat(std::move(input.buffer),
+                                           PixelFormatIDs::RGBA8_Straight);
+        Point currentOrigin = input.origin;
 
-        // 出力サイズ = 入力サイズ + radius*2（左右に拡張）
-        int inputWidth = srcView.width;
-        int outputWidth = inputWidth + radius_ * 2;
+        // passes回、水平ブラーを適用
+        for (int pass = 0; pass < passes_; pass++) {
+            ViewPort srcView = buffer.view();
+            int inputWidth = srcView.width;
+            int outputWidth = inputWidth + radius_ * 2;
 
-        // 出力バッファを確保
-        ImageBuffer output(outputWidth, 1, PixelFormatIDs::RGBA8_Straight,
-                          InitPolicy::Uninitialized);
+            // 出力バッファを確保
+            ImageBuffer output(outputWidth, 1, PixelFormatIDs::RGBA8_Straight,
+                              InitPolicy::Uninitialized);
 
-        // 水平方向スライディングウィンドウでブラー処理
-        // push型では inputOffset = -radius
-        // 出力x=radius のカーネル中心 = -radius + radius = 0（入力x=0）
-        // これにより出力x=radiusのブラー結果が入力x=0を中心としたものになり、
-        // origin.x + radius と整合性が取れる
-        applyHorizontalBlur(srcView, -radius_, output);
+            // 水平方向スライディングウィンドウでブラー処理
+            // push型では inputOffset = -radius
+            applyHorizontalBlur(srcView, -radius_, output);
+
+            // origin.xをradius分大きくする（左に拡張するため）
+            currentOrigin.x = currentOrigin.x + to_fixed(radius_);
+
+            buffer = std::move(output);
+        }
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         auto& metrics = PerfMetrics::instance().nodes[NodeType::HorizontalBlur];
@@ -169,20 +258,17 @@ protected:
 #endif
 
         // 下流にpush
-        // origin.xをradius分大きくする（左に拡張するため）
         Node* downstream = downstreamNode(0);
         if (downstream) {
             RenderRequest outReq = request;
-            outReq.width = static_cast<int16_t>(outputWidth);
-            Point outOrigin;
-            outOrigin.x = input.origin.x + to_fixed(radius_);
-            outOrigin.y = input.origin.y;
-            downstream->pushProcess(RenderResult(std::move(output), outOrigin), outReq);
+            outReq.width = static_cast<int16_t>(buffer.width());
+            downstream->pushProcess(RenderResult(std::move(buffer), currentOrigin), outReq);
         }
     }
 
 private:
     int radius_ = 5;
+    int passes_ = 1;  // 1-5の範囲、デフォルト1（従来互換）
 
     // ========================================
     // 水平方向ブラー処理（pull型用）

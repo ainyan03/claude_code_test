@@ -145,11 +145,17 @@ std::unique_ptr<Node> createFilterNode(const GraphNode& gnode) {
     else if (gnode.filterType == "horizontalBlur" && !gnode.filterParams.empty()) {
         auto node = std::make_unique<HorizontalBlurNode>();
         node->setRadius(static_cast<int>(gnode.filterParams[0]));
+        if (gnode.filterParams.size() > 1) {
+            node->setPasses(static_cast<int>(gnode.filterParams[1]));
+        }
         return node;
     }
     else if (gnode.filterType == "verticalBlur" && !gnode.filterParams.empty()) {
         auto node = std::make_unique<VerticalBlurNode>();
         node->setRadius(static_cast<int>(gnode.filterParams[0]));
+        if (gnode.filterParams.size() > 1) {
+            node->setPasses(static_cast<int>(gnode.filterParams[1]));
+        }
         return node;
     }
     else if (gnode.filterType == "alpha" && !gnode.filterParams.empty()) {
