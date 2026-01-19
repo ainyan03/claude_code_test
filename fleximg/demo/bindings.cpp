@@ -804,27 +804,21 @@ private:
 
                 auto compositeNode = std::make_unique<CompositeNode>(inputCount);
 
-                // 各入力を接続（toPortIdの順序でソート）
-                std::vector<const GraphConnection*> compositeConns;
+                // 各入力を接続（toPortIdからポート番号を抽出）
                 for (const auto& conn : graphConnections_) {
                     if (conn.toNodeId == nodeId) {
-                        compositeConns.push_back(&conn);
-                    }
-                }
-
-                // toPortId（in1, in2, in3, ...）の順序でソート
-                std::sort(compositeConns.begin(), compositeConns.end(),
-                    [](const GraphConnection* a, const GraphConnection* b) {
-                        return a->toPortId < b->toPortId;
-                    });
-
-                // ソート済みの順序で接続
-                int portIndex = 0;
-                for (const auto* conn : compositeConns) {
-                    Node* upstream = buildNode(conn->fromNodeId);
-                    if (upstream && portIndex < inputCount) {
-                        upstream->connectTo(*compositeNode, portIndex);
-                        portIndex++;
+                        // toPortId（"in1", "in2", "in3", ...）からポート番号を抽出
+                        // "in1" → 0, "in2" → 1, "in3" → 2, ...
+                        int portIndex = -1;
+                        if (conn.toPortId.size() >= 3 && conn.toPortId.substr(0, 2) == "in") {
+                            portIndex = std::stoi(conn.toPortId.substr(2)) - 1;
+                        }
+                        if (portIndex >= 0 && portIndex < inputCount) {
+                            Node* upstream = buildNode(conn.fromNodeId);
+                            if (upstream) {
+                                upstream->connectTo(*compositeNode, portIndex);
+                            }
+                        }
                     }
                 }
 
@@ -836,27 +830,21 @@ private:
                 // MatteNode: 3入力（前景, 背景, マスク）→1出力
                 auto matteNode = std::make_unique<MatteNode>();
 
-                // 各入力を接続（toPortIdの順序でソート）
-                std::vector<const GraphConnection*> matteConns;
+                // 各入力を接続（toPortIdからポート番号を抽出）
                 for (const auto& conn : graphConnections_) {
                     if (conn.toNodeId == nodeId) {
-                        matteConns.push_back(&conn);
-                    }
-                }
-
-                // toPortId（in1, in2, in3）の順序でソート
-                std::sort(matteConns.begin(), matteConns.end(),
-                    [](const GraphConnection* a, const GraphConnection* b) {
-                        return a->toPortId < b->toPortId;
-                    });
-
-                // ソート済みの順序で接続（最大3入力）
-                int portIndex = 0;
-                for (const auto* conn : matteConns) {
-                    Node* upstream = buildNode(conn->fromNodeId);
-                    if (upstream && portIndex < 3) {
-                        upstream->connectTo(*matteNode, portIndex);
-                        portIndex++;
+                        // toPortId（"in1", "in2", "in3"）からポート番号を抽出
+                        // "in1" → 0, "in2" → 1, "in3" → 2
+                        int portIndex = -1;
+                        if (conn.toPortId.size() >= 3 && conn.toPortId.substr(0, 2) == "in") {
+                            portIndex = std::stoi(conn.toPortId.substr(2)) - 1;
+                        }
+                        if (portIndex >= 0 && portIndex < 3) {
+                            Node* upstream = buildNode(conn.fromNodeId);
+                            if (upstream) {
+                                upstream->connectTo(*matteNode, portIndex);
+                            }
+                        }
                     }
                 }
 
