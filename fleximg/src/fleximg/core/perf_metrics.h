@@ -42,7 +42,7 @@ namespace NodeType {
     // フィルタ系
     constexpr int Brightness = 6;
     constexpr int Grayscale = 7;
-    constexpr int BoxBlur = 8;
+    // 8: 廃止（旧BoxBlur）
     constexpr int Alpha = 9;
     constexpr int HorizontalBlur = 10;
     constexpr int VerticalBlur = 11;

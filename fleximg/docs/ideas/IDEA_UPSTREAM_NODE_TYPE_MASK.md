@@ -13,7 +13,7 @@
 アフィン変換の入力要求分割など、上流の構成によって最適な処理が異なるケースがある。
 
 - 上流が SourceNode のみ → 分割不要（画像の切り出しは軽量）
-- 上流に BoxBlur 等の重いフィルタ → 分割推奨（無駄な処理を削減）
+- 上流にブラーフィルタ等の重いフィルタ → 分割推奨（無駄な処理を削減）
 
 ## ビットマスク定義
 
@@ -27,7 +27,7 @@ namespace NodeTypeMask {
     constexpr uint32_t IMAGE        = 1 << 0;  // SourceNode（画像切り出し）
     constexpr uint32_t LIGHT_FILTER = 1 << 1;  // Brightness, Grayscale, Alpha
     constexpr uint32_t TRANSFORM    = 1 << 2;  // AffineNode（アフィン変換）
-    constexpr uint32_t HEAVY_FILTER = 1 << 3;  // BoxBlur 等
+    constexpr uint32_t HEAVY_FILTER = 1 << 3;  // HorizontalBlur, VerticalBlur 等
     constexpr uint32_t COMPOSITE    = 1 << 4;  // CompositeNode
 }
 ```
@@ -40,7 +40,8 @@ namespace NodeTypeMask {
 | BrightnessNode | Brightness | LIGHT_FILTER |
 | GrayscaleNode | Grayscale | LIGHT_FILTER |
 | AlphaNode | Alpha | LIGHT_FILTER |
-| BoxBlurNode | BoxBlur | HEAVY_FILTER |
+| HorizontalBlurNode | HorizontalBlur | HEAVY_FILTER |
+| VerticalBlurNode | VerticalBlur | HEAVY_FILTER |
 | AffineNode | Affine | TRANSFORM |
 | CompositeNode | Composite | COMPOSITE |
 
@@ -83,7 +84,14 @@ public:
     }
 };
 
-class BoxBlurNode : public FilterNodeBase {
+class HorizontalBlurNode : public Node {
+public:
+    uint32_t getOwnMask() const override {
+        return NodeTypeMask::HEAVY_FILTER;
+    }
+};
+
+class VerticalBlurNode : public Node {
 public:
     uint32_t getOwnMask() const override {
         return NodeTypeMask::HEAVY_FILTER;

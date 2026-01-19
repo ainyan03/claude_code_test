@@ -49,18 +49,19 @@
 ## 現状分析
 
 ### 現在の実装
-- **HorizontalBlurNode / VerticalBlurNode**: 分離型ボックスブラー
-- **BoxBlurNode**: 統合型ボックスブラー（filters.cpp内）
+- **HorizontalBlurNode / VerticalBlurNode**: 分離型ボックスブラー（パイプライン方式）
+- ~~**BoxBlurNode**: 統合型ボックスブラー~~ → 廃止（2026-01-19）
 - **アルゴリズム**: スライディングウィンドウ方式、O(width×height)でradius非依存
 - **演算**: 32bit整数演算（uint32_t）、α加重平均
 - **カーネルサイズ**: 2 * radius + 1
 
 ### 過去の試行
 - **Stack Blur**: アルゴリズムに不備があったためBox Blurに戻した（2026-01-17）
+- **BoxBlurNode**: HorizontalBlur + VerticalBlur で代替可能なため廃止（2026-01-19）
 
 ### 要件
 - ガウシアンブラーまたは近い結果
-- radius最大19（passes=3時、32bit演算制約）
+- radius: 0-127（パイプライン方式により制約緩和）
 - 32bit整数演算のみ使用
 - スタックブラーは避ける
 

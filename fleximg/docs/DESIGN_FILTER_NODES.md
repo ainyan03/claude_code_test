@@ -11,7 +11,6 @@ Node (基底クラス)
 ├── FilterNodeBase (フィルタ共通基底)
 │   ├── BrightnessNode      - 明るさ調整
 │   ├── GrayscaleNode       - グレースケール変換
-│   ├── BoxBlurNode         - ボックスブラー（2D、非推奨）
 │   └── AlphaNode           - アルファ調整
 │
 └── 分離型ブラー（独立実装、ガウシアン近似対応）
@@ -69,7 +68,6 @@ public:
 |---------|----------|-----|------|----------|------|
 | BrightnessNode | amount | float | -1.0〜1.0 | 0.0 | 明るさ調整量。正で明るく、負で暗く |
 | GrayscaleNode | - | - | - | - | パラメータなし |
-| BoxBlurNode | radius | int | 0以上 | 5 | ブラー半径。0でスルー出力 |
 | AlphaNode | scale | float | 0.0〜1.0 | 1.0 | アルファスケール。0.5で50%の不透明度 |
 | HorizontalBlurNode | radius | int | 0〜127 | 5 | ブラー半径。0でスルー出力 |
 |  | passes | int | 1〜3 | 1 | ブラー適用回数。3でガウシアン近似 |
@@ -85,8 +83,14 @@ brightness.setAmount(0.2f);   // 20%明るく
 AlphaNode alpha;
 alpha.setScale(0.5f);         // 50%の不透明度
 
-BoxBlurNode blur;
-blur.setRadius(10);           // 半径10ピクセルのブラー
+// ガウシアン近似ブラー
+HorizontalBlurNode hblur;
+hblur.setRadius(6);
+hblur.setPasses(3);
+
+VerticalBlurNode vblur;
+vblur.setRadius(6);
+vblur.setPasses(3);
 ```
 
 ---
@@ -111,28 +115,6 @@ protected:
 };
 ```
 
-### BoxBlurNode（非推奨）
-
-2次元ボックスブラー。pull型のみ対応。
-
-**注意**: BoxBlurNodeは廃止予定です。代わりにHorizontalBlurNodeとVerticalBlurNodeを使用してください。
-
-```cpp
-class BoxBlurNode : public FilterNodeBase {
-    int radius_ = 5;
-
-protected:
-    int computeInputMargin() const override { return radius_; }
-    int nodeTypeForMetrics() const override { return NodeType::BoxBlur; }
-
-    RenderResult process(RenderResult&& input, const RenderRequest& request) override {
-        // 1. フォーマット変換
-        // 2. ブラー適用
-        // 3. 要求範囲を切り出し（margin分を除去）
-    }
-};
-```
-
 ### HorizontalBlurNode / VerticalBlurNode（推奨）
 
 分離型ブラーフィルタ。**ガウシアン近似に対応**。
@@ -140,7 +122,7 @@ protected:
 ```cpp
 class HorizontalBlurNode : public Node {
     int radius_ = 5;
-    int passes_ = 1;  // 1〜5
+    int passes_ = 1;  // 1〜3
 
 protected:
     // pull型: マージンを確保して上流に要求、下流には元サイズで返却
@@ -171,10 +153,11 @@ protected:
 **特徴**:
 - **マルチパス対応**: passes=3で3回ブラーを適用し、ガウシアン分布に近似
 - **中心極限定理**: 複数回のボックスブラーでガウシアンに収束
+- **パイプライン方式**: 各パスが独立して処理され、境界処理も独立
 - **pull型**: マージン付き要求、元サイズで返却（FilterNodeBaseパターン準拠）
 - **push型**: 入力拡張、拡張結果を配布（width → width + radius*2*passes）
 - **pull/push両対応**: RendererNodeの上流・下流どちらでも使用可能
-- **スキャンライン最適化**: 1行ずつ処理、キャッシュ不要（HorizontalBlurNode）
+- **スキャンライン最適化**: 1行ずつ処理（HorizontalBlurNode）
 
 **使用例**:
 ```cpp
@@ -192,9 +175,9 @@ src >> hblur >> vblur >> sink;
 ```
 
 **垂直ブラーの実装**:
-- **passes=1**: 従来の列合計方式（O(width) メモリ）
-- **passes>1**: 畳み込みカーネル方式（O(width × totalKernelSize) メモリ）
-- カーネルを事前計算し、ガウシアン近似の重み分布を生成
+- パイプライン方式: 各パスが独立したステージとして処理
+- メモリ消費: 各ステージ (radius×2+1)×width×4 + width×16 bytes
+- 「3パス×1ノード」と「1パス×3ノード直列」が同等の結果
 
 ---
 
@@ -243,7 +226,6 @@ src/fleximg/nodes/
 ├── filter_node_base.h      # 共通基底クラス
 ├── brightness_node.h       # 明るさ調整
 ├── grayscale_node.h        # グレースケール
-├── box_blur_node.h         # ボックスブラー（非推奨）
 ├── horizontal_blur_node.h  # 水平ブラー（ガウシアン対応）
 ├── vertical_blur_node.h    # 垂直ブラー（ガウシアン対応）
 └── alpha_node.h            # アルファ調整
