@@ -370,76 +370,80 @@ private:
         // マスク値の連続領域を検出し、0/255の連続はmemcpyで高速処理
 
         // height==1前提: ループ不要、y=0固定
-        (void)outHeight;  // 未使用警告抑制（デバッグビルドでassert用に残す場合に備える）
+        (void)outHeight;  // 未使用警告抑制
 
-        uint8_t* outRow = outPtr;  // y=0なのでオフセット不要
+        uint8_t* outRow = outPtr;
 
-        // 行ポインタ（Y範囲外ならnullptr）- オフセットはy=0前提で簡略化
-        const uint8_t* fgRow = (static_cast<unsigned>(fgOffsetY) < static_cast<unsigned>(fgHeight))
-                               ? fgPtr + fgOffsetY * fgStride : nullptr;
-        const uint8_t* bgRow = (static_cast<unsigned>(bgOffsetY) < static_cast<unsigned>(bgHeight))
-                               ? bgPtr + bgOffsetY * bgStride : nullptr;
-        const uint8_t* maskRow = (static_cast<unsigned>(maskOffsetY) < static_cast<unsigned>(maskHeight))
-                                 ? maskPtr + maskOffsetY * maskStride : nullptr;
+        // 行ポインタ（Y範囲外ならnullptr）
+        const uint8_t* fgRowBase = (static_cast<unsigned>(fgOffsetY) < static_cast<unsigned>(fgHeight))
+                                   ? fgPtr + fgOffsetY * fgStride : nullptr;
+        const uint8_t* bgRowBase = (static_cast<unsigned>(bgOffsetY) < static_cast<unsigned>(bgHeight))
+                                   ? bgPtr + bgOffsetY * bgStride : nullptr;
+        const uint8_t* maskRowBase = (static_cast<unsigned>(maskOffsetY) < static_cast<unsigned>(maskHeight))
+                                     ? maskPtr + maskOffsetY * maskStride : nullptr;
 
         // マスク行が無効な場合は全面alpha=0（背景のみ）
-        if (!maskRow) {
-            copyRowRegion(outRow, bgRow, bgOffsetX, bgWidth, 0, outWidth);
+        if (!maskRowBase) {
+            copyRowRegion(outRow, outWidth, bgRowBase, bgOffsetX, bgWidth, 0, outWidth);
             return;
         }
 
-        // マスクの有効X範囲
+        // マスクの有効X範囲（出力座標系）
         const int maskXStart = std::max(0, -maskOffsetX);
         const int maskXEnd = std::min(outWidth, maskWidth - maskOffsetX);
 
-        // マスク範囲外の左側（alpha=0）
+        // マスク範囲外の左側（alpha=0）→背景のみ
         if (maskXStart > 0) {
-            copyRowRegion(outRow, bgRow, bgOffsetX, bgWidth, 0, maskXStart);
+            copyRowRegion(outRow, outWidth, bgRowBase, bgOffsetX, bgWidth, 0, maskXStart);
         }
 
-        // マスク有効範囲内をランレングス処理
-        int x = maskXStart;
-        uint8_t currentAlpha = (x < maskXEnd) ? maskRow[x + maskOffsetX] : 0;
+        // オフセット適用済みポインタ（ループ内でのオフセット計算を削減）
+        const uint8_t* maskP = maskRowBase + maskOffsetX + maskXStart;
+        const uint8_t* const maskPEnd = maskRowBase + maskOffsetX + maskXEnd;
 
-        while (x < maskXEnd) {
-            const uint8_t runAlpha = currentAlpha;
+        int x = maskXStart;
+
+        // ランレングス処理ループ
+        while (maskP < maskPEnd) {
+            const uint8_t runAlpha = *maskP;
             const int runStart = x;
 
             // 同じalpha値が続く限り進む
-            while (x < maskXEnd) {
-                x++;
-                if (x < maskXEnd) {
-                    currentAlpha = maskRow[x + maskOffsetX];
-                    if (currentAlpha != runAlpha) break;
-                }
-            }
-            const int runLength = x - runStart;
+            do {
+                ++maskP;
+                ++x;
+            } while (maskP < maskPEnd && *maskP == runAlpha);
+
+            const int runEnd = x;
 
             if (runAlpha == 0) {
                 // 背景のみコピー
-                copyRowRegion(outRow, bgRow, bgOffsetX, bgWidth, runStart, runStart + runLength);
+                copyRowRegion(outRow, outWidth, bgRowBase, bgOffsetX, bgWidth, runStart, runEnd);
             } else if (runAlpha == 255) {
                 // 前景のみコピー
-                copyRowRegion(outRow, fgRow, fgOffsetX, fgWidth, runStart, runStart + runLength);
+                copyRowRegion(outRow, outWidth, fgRowBase, fgOffsetX, fgWidth, runStart, runEnd);
             } else {
-                // 中間値: 同じalpha値で複数ピクセルを一括ブレンド
-                blendPixels(outRow, runStart, runLength, runAlpha,
-                            fgRow, fgOffsetX, fgWidth,
-                            bgRow, bgOffsetX, bgWidth);
+                // 中間値: ブレンド処理
+                blendPixelsOptimized(outRow, runStart, runEnd, runAlpha,
+                                     fgRowBase, fgOffsetX, fgWidth,
+                                     bgRowBase, bgOffsetX, bgWidth);
             }
         }
 
-        // マスク範囲外の右側（alpha=0）
+        // マスク範囲外の右側（alpha=0）→背景のみ
         if (maskXEnd < outWidth) {
-            copyRowRegion(outRow, bgRow, bgOffsetX, bgWidth, maskXEnd, outWidth);
+            copyRowRegion(outRow, outWidth, bgRowBase, bgOffsetX, bgWidth, maskXEnd, outWidth);
         }
     }
 
     // 行の一部領域をコピー（alpha=0またはalpha=255用）
-    void copyRowRegion(uint8_t* outRow,
-                       const uint8_t* srcRow, int srcOffsetX, int srcWidth,
+    // srcRowBase: オフセット未適用のソース行ポインタ（nullptrなら透明黒）
+    void copyRowRegion(uint8_t* outRow, int outWidth,
+                       const uint8_t* srcRowBase, int srcOffsetX, int srcWidth,
                        int xStart, int xEnd) {
-        if (!srcRow) {
+        (void)outWidth;  // 将来の境界チェック用に残す
+
+        if (!srcRowBase) {
             // ソースがない場合は透明黒
             std::memset(outRow + xStart * 4, 0, static_cast<size_t>(xEnd - xStart) * 4);
             return;
@@ -457,53 +461,57 @@ private:
         // 有効部分をコピー
         if (srcXEnd > srcXStart) {
             std::memcpy(outRow + srcXStart * 4,
-                        srcRow + (srcXStart + srcOffsetX) * 4,
+                        srcRowBase + (srcXStart + srcOffsetX) * 4,
                         static_cast<size_t>(srcXEnd - srcXStart) * 4);
         }
 
         // 右側の透明部分
-        // 担当範囲[xStart, xEnd)の外には触らないようにする
         const int clearStart = std::max(srcXEnd, xStart);
         if (clearStart < xEnd) {
             std::memset(outRow + clearStart * 4, 0, static_cast<size_t>(xEnd - clearStart) * 4);
         }
     }
 
-    // 複数ピクセルの一括ブレンド処理（同一alpha値）
-    void blendPixels(uint8_t* outRow, int xStart, int length, uint8_t alpha,
-                     const uint8_t* fgRow, int fgOffsetX, int fgWidth,
-                     const uint8_t* bgRow, int bgOffsetX, int bgWidth) {
-        // alpha/inv_alphaを1回だけ計算
+    // 最適化版ブレンド処理（範囲事前計算で境界チェックを削減）
+    void blendPixelsOptimized(uint8_t* outRow, int xStart, int xEnd, uint8_t alpha,
+                              const uint8_t* fgRowBase, int fgOffsetX, int fgWidth,
+                              const uint8_t* bgRowBase, int bgOffsetX, int bgWidth) {
         const uint32_t a = alpha;
         const uint32_t inv_a = 255 - alpha;
 
-        for (int i = 0; i < length; ++i) {
-            const int x = xStart + i;
-            uint8_t* outP = outRow + x * 4;
+        // 前景・背景の有効X範囲を事前計算
+        const int fgXStart = fgRowBase ? std::max(xStart, -fgOffsetX) : xEnd;
+        const int fgXEnd = fgRowBase ? std::min(xEnd, fgWidth - fgOffsetX) : xStart;
+        const int bgXStart = bgRowBase ? std::max(xStart, -bgOffsetX) : xEnd;
+        const int bgXEnd = bgRowBase ? std::min(xEnd, bgWidth - bgOffsetX) : xStart;
 
-            // 読み出し時にalpha適用（範囲外は乗算スキップ）
+        // オフセット適用済みポインタ
+        uint8_t* outP = outRow + xStart * 4;
+        const uint8_t* fgP = fgRowBase ? fgRowBase + (xStart + fgOffsetX) * 4 : nullptr;
+        const uint8_t* bgP = bgRowBase ? bgRowBase + (xStart + bgOffsetX) * 4 : nullptr;
+
+        for (int x = xStart; x < xEnd; ++x) {
             uint32_t fgR = 0, fgG = 0, fgB = 0, fgA = 0;
             uint32_t bgR = 0, bgG = 0, bgB = 0, bgA = 0;
 
-            // 前景から取得（alpha適用済み）
-            const int fgX = x + fgOffsetX;
-            if (fgRow && static_cast<unsigned>(fgX) < static_cast<unsigned>(fgWidth)) {
-                const uint8_t* p = fgRow + fgX * 4;
-                fgR = p[0] * a; fgG = p[1] * a; fgB = p[2] * a; fgA = p[3] * a;
+            // 前景（範囲内のみ）
+            if (x >= fgXStart && x < fgXEnd) {
+                fgR = fgP[0] * a; fgG = fgP[1] * a; fgB = fgP[2] * a; fgA = fgP[3] * a;
             }
 
-            // 背景から取得（inv_alpha適用済み）
-            const int bgX = x + bgOffsetX;
-            if (bgRow && static_cast<unsigned>(bgX) < static_cast<unsigned>(bgWidth)) {
-                const uint8_t* p = bgRow + bgX * 4;
-                bgR = p[0] * inv_a; bgG = p[1] * inv_a; bgB = p[2] * inv_a; bgA = p[3] * inv_a;
+            // 背景（範囲内のみ）
+            if (x >= bgXStart && x < bgXEnd) {
+                bgR = bgP[0] * inv_a; bgG = bgP[1] * inv_a; bgB = bgP[2] * inv_a; bgA = bgP[3] * inv_a;
             }
 
-            // ブレンド（加算のみ）
             outP[0] = div255(fgR + bgR);
             outP[1] = div255(fgG + bgG);
             outP[2] = div255(fgB + bgB);
             outP[3] = div255(fgA + bgA);
+
+            outP += 4;
+            if (fgP) fgP += 4;
+            if (bgP) bgP += 4;
         }
     }
 
