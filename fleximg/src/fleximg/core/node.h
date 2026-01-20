@@ -49,6 +49,77 @@ public:
     virtual ~Node() = default;
 
     // ========================================
+    // コピー/ムーブ操作
+    // ========================================
+    //
+    // ノードのコピー/ムーブ時は既存の接続が切断されます。
+    // 代入後は新しいノードとして再接続が必要です。
+    //
+
+    // デフォルトコンストラクタ
+    Node() = default;
+
+    // コピーコンストラクタ: ポート構造のみコピー、接続は引き継がない
+    Node(const Node& other)
+        : pullPrepareState_(PrepareState::Idle)
+        , pushPrepareState_(PrepareState::Idle)
+        , allocator_(nullptr)
+    {
+        initPorts(static_cast<int>(other.inputs_.size()),
+                  static_cast<int>(other.outputs_.size()));
+    }
+
+    // ムーブコンストラクタ: ポート構造をムーブし、ownerを修正
+    Node(Node&& other) noexcept
+        : inputs_(std::move(other.inputs_))
+        , outputs_(std::move(other.outputs_))
+        , pullPrepareState_(PrepareState::Idle)
+        , pushPrepareState_(PrepareState::Idle)
+        , allocator_(nullptr)
+    {
+        // ownerポインタを自分に修正
+        for (auto& port : inputs_) {
+            port.owner = this;
+        }
+        for (auto& port : outputs_) {
+            port.owner = this;
+        }
+    }
+
+    // コピー代入演算子: 既存接続を切断し、ポート構造のみコピー
+    Node& operator=(const Node& other) {
+        if (this != &other) {
+            disconnectAll();
+            initPorts(static_cast<int>(other.inputs_.size()),
+                      static_cast<int>(other.outputs_.size()));
+            pullPrepareState_ = PrepareState::Idle;
+            pushPrepareState_ = PrepareState::Idle;
+            allocator_ = nullptr;
+        }
+        return *this;
+    }
+
+    // ムーブ代入演算子: 既存接続を切断し、ポート構造をムーブ後にowner修正
+    Node& operator=(Node&& other) noexcept {
+        if (this != &other) {
+            disconnectAll();
+            inputs_ = std::move(other.inputs_);
+            outputs_ = std::move(other.outputs_);
+            // ownerポインタを自分に修正
+            for (auto& port : inputs_) {
+                port.owner = this;
+            }
+            for (auto& port : outputs_) {
+                port.owner = this;
+            }
+            pullPrepareState_ = PrepareState::Idle;
+            pushPrepareState_ = PrepareState::Idle;
+            allocator_ = nullptr;
+        }
+        return *this;
+    }
+
+    // ========================================
     // ポートアクセス（詳細API）
     // ========================================
 
@@ -79,6 +150,20 @@ public:
     // sourceの出力をこのノードの入力に接続
     bool connectFrom(Node& source, int sourceOutputIndex = 0, int inputIndex = 0) {
         return source.connectTo(*this, inputIndex, sourceOutputIndex);
+    }
+
+    // ========================================
+    // 接続解除
+    // ========================================
+
+    // 全ての入力/出力ポートの接続を解除
+    void disconnectAll() {
+        for (auto& port : inputs_) {
+            port.disconnect();
+        }
+        for (auto& port : outputs_) {
+            port.disconnect();
+        }
     }
 
     // ========================================

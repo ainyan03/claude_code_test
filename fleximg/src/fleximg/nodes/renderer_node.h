@@ -125,18 +125,20 @@ public:
 
         // 上流へ準備を伝播（プル型、循環参照検出付き）
         Node* upstream = upstreamNode(0);
-        if (upstream) {
-            if (!upstream->pullPrepare(prepReq)) {
-                return ExecResult::CycleDetected;
-            }
+        if (!upstream) {
+            return ExecResult::NoUpstream;
+        }
+        if (!upstream->pullPrepare(prepReq)) {
+            return ExecResult::CycleDetected;
         }
 
         // 下流へ準備を伝播（プッシュ型、循環参照検出付き）
         Node* downstream = downstreamNode(0);
-        if (downstream) {
-            if (!downstream->pushPrepare(prepReq)) {
-                return ExecResult::CycleDetected;
-            }
+        if (!downstream) {
+            return ExecResult::NoDownstream;
+        }
+        if (!downstream->pushPrepare(prepReq)) {
+            return ExecResult::CycleDetected;
         }
 
         return ExecResult::Success;
