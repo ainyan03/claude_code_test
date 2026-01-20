@@ -1,13 +1,37 @@
-# ピクセルフォーマット変換設計
+# ピクセルフォーマット設計
 
-RGBA8_Straight と RGBA16_Premultiplied 間の変換処理について説明します。
+## 現在のデフォルトフォーマット
 
-## フォーマット概要
+**RGBA8_Straight** を全ての内部処理で使用しています。
 
-| フォーマット | 用途 |
-|-------------|------|
-| RGBA8_Straight | 入出力、画像保存、フィルタ処理 |
-| RGBA16_Premultiplied | 合成・アフィン変換処理 |
+| フォーマット | 用途 | ステータス |
+|-------------|------|-----------|
+| RGBA8_Straight | 入出力、合成、フィルタ処理 | **デフォルト** |
+| RGBA16_Premultiplied | （無効化） | `#if 0` で封印 |
+
+### RGBA8_Straight への移行理由
+
+ベンチマーク比較により、以下の結果が得られました：
+
+| シナリオ | RGBA16版 FPS | RGBA8版 FPS | 改善率 |
+|---------|-------------|-------------|--------|
+| Source | 29.9 | 34.2 | +14% |
+| Affine | ~30 | 34.3 | +14% |
+| Composite | 11.6 | 16.2 | **+40%** |
+| Matte | 12.3 | 12.5 | +2% |
+
+- **フォーマット変換オーバーヘッドの削減**: RGBA8→RGBA16変換が不要に
+- **メモリ使用量の削減**: 4バイト/ピクセル vs 8バイト/ピクセル（-50%）
+- **キャッシュ効率の向上**: 特に組み込み環境で効果的
+
+---
+
+## 参考: RGBA16_Premultiplied 仕様（無効化中）
+
+以下はRGBA16_Premultiplied使用時の仕様です。現在は`#if 0`で無効化されていますが、
+将来必要になった場合に備えて仕様を残しています。
+
+### RGBA8_Straight ↔ RGBA16_Premultiplied 変換
 
 ## 変換アルゴリズム
 
@@ -107,11 +131,12 @@ for (int i = 0; i < pixelCount; i++) {
 
 ## 関連ファイル
 
-| ファイル | 役割 |
-|---------|------|
-| `src/fleximg/image/pixel_format.h` | フォーマットID（Descriptorポインタ）、閾値定数、変換関数 |
-| `src/fleximg/image/pixel_format.cpp` | Descriptor実体、変換関数実装 |
-| `src/fleximg/operations/blend.cpp` | 合成処理での閾値判定 |
+| ファイル | 役割 | RGBA16関連 |
+|---------|------|-----------|
+| `src/fleximg/image/pixel_format.h` | フォーマットID、変換関数 | `#if 0` で無効化 |
+| `src/fleximg/image/pixel_format.cpp` | Descriptor実体、変換関数実装 | `#if 0` で無効化 |
+| `src/fleximg/operations/blend.cpp` | 合成処理 | RGBA8同士のブレンドのみ有効 |
+| `src/fleximg/operations/canvas_utils.h` | キャンバス作成 | RGBA8_Straight固定 |
 
 ## PixelFormatID
 

@@ -394,7 +394,7 @@ void loop() {
 
     // マスクのアニメーション（回転・スケール・移動）
     float maskRotation = -animationTime * 0.5f;
-    float maskScale = 2.0f + 1.9f * std::sinf(animationTime * 2.5f);
+    float maskScale = 5.0f + 4.9f * std::sinf(animationTime * 2.0f);
     float moveRadius = 30.0f;
     float offsetX = moveRadius * std::cosf(animationTime);
     float offsetY = moveRadius * std::sinf(animationTime);

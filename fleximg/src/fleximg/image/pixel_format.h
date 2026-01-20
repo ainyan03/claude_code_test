@@ -18,6 +18,7 @@ struct PixelFormatDescriptor;
 
 using PixelFormatID = const PixelFormatDescriptor*;
 
+#if 0  // RGBA16_Premultiplied サポート無効化
 // RGBA16_Premultiplied用アルファ閾値
 namespace RGBA16Premul {
     constexpr uint16_t ALPHA_TRANSPARENT_MAX = 255;
@@ -26,6 +27,7 @@ namespace RGBA16Premul {
     inline constexpr bool isTransparent(uint16_t a) { return a <= ALPHA_TRANSPARENT_MAX; }
     inline constexpr bool isOpaque(uint16_t a) { return a >= ALPHA_OPAQUE_MIN; }
 }
+#endif
 
 // ========================================================================
 // エンディアン情報
@@ -165,7 +167,9 @@ struct PixelFormatDescriptor {
 // ========================================================================
 
 namespace BuiltinFormats {
+#if 0  // RGBA16_Premultiplied サポート無効化
     extern const PixelFormatDescriptor RGBA16_Premultiplied;
+#endif
     extern const PixelFormatDescriptor RGBA8_Straight;
     extern const PixelFormatDescriptor RGB565_LE;
     extern const PixelFormatDescriptor RGB565_BE;
@@ -180,8 +184,10 @@ namespace BuiltinFormats {
 // ========================================================================
 
 namespace PixelFormatIDs {
+#if 0  // RGBA16_Premultiplied サポート無効化
     // 16bit RGBA系
     inline const PixelFormatID RGBA16_Premultiplied  = &BuiltinFormats::RGBA16_Premultiplied;
+#endif
 
     // 8bit RGBA系
     inline const PixelFormatID RGBA8_Straight        = &BuiltinFormats::RGBA8_Straight;
@@ -213,6 +219,7 @@ struct DirectConversion {
     DirectConvertFunc convert;
 };
 
+#if 0  // RGBA16_Premultiplied サポート無効化
 // 直接変換関数（実体は pixel_format_registry.cpp で定義）
 namespace DirectConvertFuncs {
     extern void rgba16PremulToRgba8Straight(const void* src, void* dst, int pixelCount);
@@ -228,14 +235,22 @@ inline const DirectConversion directConversions[] = {
 };
 
 inline constexpr size_t directConversionsCount = sizeof(directConversions) / sizeof(directConversions[0]);
+#else
+inline constexpr size_t directConversionsCount = 0;
+#endif
 
 // 直接変換関数を取得（なければ nullptr）
 inline DirectConvertFunc getDirectConversion(PixelFormatID from, PixelFormatID to) {
+#if 0  // RGBA16_Premultiplied サポート無効化
     for (size_t i = 0; i < directConversionsCount; ++i) {
         if (directConversions[i].from == from && directConversions[i].to == to) {
             return directConversions[i].convert;
         }
     }
+#else
+    (void)from;
+    (void)to;
+#endif
     return nullptr;
 }
 
@@ -253,7 +268,7 @@ inline int_fast8_t getBytesPerPixel(PixelFormatID formatID) {
 
 // 組み込みフォーマット一覧（名前検索用）
 inline const PixelFormatID builtinFormats[] = {
-    PixelFormatIDs::RGBA16_Premultiplied,
+    // PixelFormatIDs::RGBA16_Premultiplied,  // RGBA16_Premultiplied サポート無効化
     PixelFormatIDs::RGBA8_Straight,
     PixelFormatIDs::RGB565_LE,
     PixelFormatIDs::RGB565_BE,

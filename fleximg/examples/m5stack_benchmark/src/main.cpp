@@ -59,8 +59,9 @@ private:
 };
 
 // PoolAllocator用のメモリプール
-static constexpr size_t POOL_BLOCK_SIZE = 2 * 1024;  // 2KB per block
-static constexpr size_t POOL_BLOCK_COUNT = 8;        // 8 blocks = 16KB
+// 画面幅320px × RGBA8(4bytes) = 1280bytes/line、余裕を持って4KB/block
+static constexpr size_t POOL_BLOCK_SIZE = 4 * 1024;  // 4KB per block
+static constexpr size_t POOL_BLOCK_COUNT = 8;        // 8 blocks = 32KB
 static uint8_t poolMemory[POOL_BLOCK_SIZE * POOL_BLOCK_COUNT];
 static memory::PoolAllocator internalPool;
 static PoolAllocatorAdapter* poolAdapter = nullptr;
@@ -231,16 +232,20 @@ static void setupPipeline(Scenario scenario) {
     lcdSink.disconnectAll();
 
     // シナリオ別パイプライン構築
+    // 8x8画像を画面いっぱいに拡大（約40倍）して描画負荷を高める
+    constexpr float baseScale = 40.0f;
+
     switch (scenario) {
         case Scenario::Source:
-            // Source → Affine → Renderer → LCD
+            // Source → Affine → Renderer → LCD（静止画、最大スケール）
             source1 >> affine1 >> renderer >> lcdSink;
-            affine1.setRotationScale(0, 6.0f, 6.0f);
+            affine1.setRotationScale(0, baseScale, baseScale);
             break;
 
         case Scenario::Affine:
-            // Source → Affine(回転) → Renderer → LCD
+            // Source → Affine(回転+スケール変動) → Renderer → LCD
             source1 >> affine1 >> renderer >> lcdSink;
+            affine1.setRotationScale(0, baseScale, baseScale);
             break;
 
         case Scenario::Composite:
@@ -252,6 +257,8 @@ static void setupPipeline(Scenario scenario) {
             source2 >> affine2;
             affine2.connectTo(composite, 1);
             composite >> renderer >> lcdSink;
+            affine1.setRotationScale(0, baseScale, baseScale);
+            affine2.setRotationScale(0, baseScale * 0.8f, baseScale * 0.8f);
             break;
 
         case Scenario::Matte:
@@ -266,6 +273,9 @@ static void setupPipeline(Scenario scenario) {
             maskSource >> maskAffine;
             maskAffine.connectTo(matte, 2);
             matte >> renderer >> lcdSink;
+            affine1.setRotationScale(0, baseScale, baseScale);
+            affine2.setRotationScale(0, baseScale * 0.9f, baseScale * 0.9f);
+            maskAffine.setRotationScale(0, baseScale, baseScale);
             break;
 
         default:
@@ -283,27 +293,32 @@ static void updateAnimation() {
         animationTime -= 2.0f * static_cast<float>(M_PI);
     }
 
+    // 画面いっぱいのスケール（8x8 → 320x320相当）
+    constexpr float baseScale = 40.0f;
     float rotation = animationTime;
-    float scale = 5.0f + 2.0f * std::sin(animationTime * 2.0f);
+    float scaleVar = baseScale + 5.0f * std::sin(animationTime * 2.0f);
 
     switch (currentScenario) {
         case Scenario::Source:
-            // 静止
+            // 静止（setupPipelineで設定済み）
             break;
 
         case Scenario::Affine:
-            affine1.setRotationScale(rotation, scale, scale);
+            // 回転+スケール変動
+            affine1.setRotationScale(rotation, scaleVar, scaleVar);
             break;
 
         case Scenario::Composite:
-            affine1.setRotationScale(rotation, 5.0f, 5.0f);
-            affine2.setRotationScale(-rotation * 0.5f, 6.0f, 6.0f);
+            // 2画像を異なる回転で合成
+            affine1.setRotationScale(rotation, baseScale, baseScale);
+            affine2.setRotationScale(-rotation * 0.5f, baseScale * 0.8f, baseScale * 0.8f);
             break;
 
         case Scenario::Matte:
-            affine1.setRotationScale(rotation, 6.0f, 6.0f);
-            affine2.setRotationScale(-rotation * 0.3f, 7.0f, 7.0f);
-            maskAffine.setRotationScale(rotation * 0.5f, scale, scale);
+            // 前景、背景、マスクを異なるパラメータで変換
+            affine1.setRotationScale(rotation, baseScale, baseScale);
+            affine2.setRotationScale(-rotation * 0.3f, baseScale * 0.9f, baseScale * 0.9f);
+            maskAffine.setRotationScale(rotation * 0.5f, scaleVar, scaleVar);
             break;
 
         default:
@@ -401,6 +416,7 @@ static void switchScenario() {
 void setup() {
     auto cfg = M5.config();
     M5.begin(cfg);
+    M5.Log.setLogLevel(m5::log_target_t::log_target_serial, esp_log_level_t::ESP_LOG_INFO);
 
     M5.delay(100);
 
@@ -410,11 +426,11 @@ void setup() {
     screenW = static_cast<int16_t>(M5.Display.width());
     screenH = static_cast<int16_t>(M5.Display.height());
 
-    // 描画領域（小さく設定してテスト）
-    drawW = 100;
-    drawH = 80;
-    drawX = (screenW - drawW) / 2;
-    drawY = (screenH - drawH) / 2 + 15;
+    // 描画領域（画面いっぱい、上部にメトリクス表示領域を確保）
+    drawW = screenW;
+    drawH = screenH - 20;  // 上部20pxをメトリクス表示に使用
+    drawX = 0;
+    drawY = 20;
 
     // PoolAllocatorを初期化（fleximg内部バッファ用）
     internalPool.initialize(poolMemory, POOL_BLOCK_SIZE, POOL_BLOCK_COUNT, false);

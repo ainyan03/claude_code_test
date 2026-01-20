@@ -15,14 +15,14 @@ namespace canvas_utils {
 // 共通して使用するキャンバス操作をまとめたユーティリティ関数群。
 //
 
-// キャンバス作成（RGBA16_Premultiplied）
+// キャンバス作成（RGBA8_Straight形式）
 // 合成処理に適したフォーマットでバッファを確保
 // init: 初期化ポリシー（デフォルトはDefaultInitPolicy）
 //   - 全面を画像で埋める場合: DefaultInitPolicy（初期化スキップ可）
 //   - 部分的な描画の場合: InitPolicy::Zero（透明で初期化）
 inline ImageBuffer createCanvas(int width, int height,
                                 InitPolicy init = DefaultInitPolicy) {
-    return ImageBuffer(width, height, PixelFormatIDs::RGBA16_Premultiplied, init);
+    return ImageBuffer(width, height, PixelFormatIDs::RGBA8_Straight, init);
 }
 
 // 最初の画像をキャンバスに配置
@@ -40,24 +40,22 @@ inline void placeOnto(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canva
 }
 
 // フォーマット変換（必要なら）
-// blend関数が対応していないフォーマットをRGBA16_Premultipliedに変換
-// 対応フォーマット: RGBA8_Straight, RGBA16_Premultiplied
+// blend関数が対応していないフォーマットをRGBA8_Straightに変換
 inline RenderResult ensureBlendableFormat(RenderResult&& input) {
     if (!input.isValid()) {
         return std::move(input);
     }
 
     PixelFormatID inputFmt = input.view().formatID;
-    if (inputFmt == PixelFormatIDs::RGBA8_Straight ||
-        inputFmt == PixelFormatIDs::RGBA16_Premultiplied) {
+    if (inputFmt == PixelFormatIDs::RGBA8_Straight) {
         // 対応フォーマットならそのまま返す
         return std::move(input);
     }
 
-    // RGBA16_Premultiplied に変換
+    // RGBA8_Straight に変換
     Point savedOrigin = input.origin;
     return RenderResult(
-        std::move(input.buffer).toFormat(PixelFormatIDs::RGBA16_Premultiplied),
+        std::move(input.buffer).toFormat(PixelFormatIDs::RGBA8_Straight),
         savedOrigin
     );
 }
