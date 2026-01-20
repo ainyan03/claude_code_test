@@ -96,7 +96,8 @@ protected:
 
     // onPullProcess: マット合成処理
     RenderResult onPullProcess(const RenderRequest& request) override {
-        FLEXIMG_METRICS_SCOPE(NodeType::Matte);
+        // 注意: FLEXIMG_METRICS_SCOPEは上流呼び出し後に配置
+        // （上流の処理時間を含めないため）
 
         Node* fgNode = upstreamNode(0);    // 前景 (foreground)
         Node* bgNode = upstreamNode(1);    // 背景 (background)
@@ -232,6 +233,9 @@ protected:
         // ========================================
         // Step 5: 出力バッファを確保しマット合成
         // ========================================
+        // ここからMatteNode自身の処理を計測（上流呼び出しは計測対象外）
+        FLEXIMG_METRICS_SCOPE(NodeType::Matte);
+
         ImageBuffer outputBuf(unionWidth, unionHeight, PixelFormatIDs::RGBA8_Straight,
                               InitPolicy::Uninitialized, allocator_);
 
