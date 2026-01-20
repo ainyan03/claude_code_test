@@ -32,6 +32,40 @@ using namespace fleximg;
 using namespace fleximg::core;
 
 // ========================================================================
+// PoolAllocatorアダプタ
+// ========================================================================
+
+class PoolAllocatorAdapter : public memory::IAllocator {
+public:
+    PoolAllocatorAdapter(memory::PoolAllocator& pool) : pool_(pool) {}
+
+    void* allocate(size_t bytes, size_t /* alignment */ = 16) override {
+        void* ptr = pool_.allocate(bytes);
+        if (ptr) return ptr;
+        // プールから確保できない場合はDefaultAllocatorにフォールバック
+        return memory::DefaultAllocator::instance().allocate(bytes);
+    }
+
+    void deallocate(void* ptr) override {
+        if (!pool_.deallocate(ptr)) {
+            memory::DefaultAllocator::instance().deallocate(ptr);
+        }
+    }
+
+    const char* name() const override { return "PoolAllocatorAdapter"; }
+
+private:
+    memory::PoolAllocator& pool_;
+};
+
+// PoolAllocator用のメモリプール
+static constexpr size_t POOL_BLOCK_SIZE = 2 * 1024;  // 2KB per block
+static constexpr size_t POOL_BLOCK_COUNT = 8;        // 8 blocks = 16KB
+static uint8_t poolMemory[POOL_BLOCK_SIZE * POOL_BLOCK_COUNT];
+static memory::PoolAllocator internalPool;
+static PoolAllocatorAdapter* poolAdapter = nullptr;
+
+// ========================================================================
 // テストシナリオ
 // ========================================================================
 enum class Scenario {
@@ -174,6 +208,7 @@ static void setupPipeline(Scenario scenario) {
 
     // 共通設定
     renderer.setVirtualScreen(drawW, drawH);
+    renderer.setAllocator(poolAdapter);  // 内部バッファ用アロケータを設定
     lcdSink.setTarget(&M5.Display, drawX, drawY, drawW, drawH);
     lcdSink.setOrigin(float_to_fixed(drawW / 2.0f), float_to_fixed(drawH / 2.0f));
 
@@ -362,6 +397,11 @@ void setup() {
     drawH = 180;
     drawX = (screenW - drawW) / 2;
     drawY = (screenH - drawH) / 2 + 15;
+
+    // PoolAllocatorを初期化（fleximg内部バッファ用）
+    internalPool.initialize(poolMemory, POOL_BLOCK_SIZE, POOL_BLOCK_COUNT, false);
+    static PoolAllocatorAdapter adapter(internalPool);
+    poolAdapter = &adapter;
 
     // 画像作成
     image1 = createCheckerboard(30, 30);
