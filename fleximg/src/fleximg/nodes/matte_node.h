@@ -358,7 +358,7 @@ private:
                 return;
             }
             // 背景のみコピー
-            copyImageToOutput(outPtr, outStride, outWidth, outHeight,
+            copyImageToOutput(outPtr, outWidth,
                               bgPtr, bgStride, bgWidth, bgHeight,
                               bgOffsetX, bgOffsetY);
             return;
@@ -384,7 +384,7 @@ private:
 
         // マスク行が無効な場合は全面alpha=0（背景のみ）
         if (!maskRowBase) {
-            copyRowRegion(outRow, outWidth, bgRowBase, bgOffsetX, bgWidth, 0, outWidth);
+            copyRowRegion(outRow, bgRowBase, bgOffsetX, bgWidth, 0, outWidth);
             return;
         }
 
@@ -394,7 +394,7 @@ private:
 
         // マスク範囲外の左側（alpha=0）→背景のみ
         if (maskXStart > 0) {
-            copyRowRegion(outRow, outWidth, bgRowBase, bgOffsetX, bgWidth, 0, maskXStart);
+            copyRowRegion(outRow, bgRowBase, bgOffsetX, bgWidth, 0, maskXStart);
         }
 
         // オフセット適用済みポインタ（ループ内でのオフセット計算を削減）
@@ -418,10 +418,10 @@ private:
 
             if (runAlpha == 0) {
                 // 背景のみコピー
-                copyRowRegion(outRow, outWidth, bgRowBase, bgOffsetX, bgWidth, runStart, runEnd);
+                copyRowRegion(outRow, bgRowBase, bgOffsetX, bgWidth, runStart, runEnd);
             } else if (runAlpha == 255) {
                 // 前景のみコピー
-                copyRowRegion(outRow, outWidth, fgRowBase, fgOffsetX, fgWidth, runStart, runEnd);
+                copyRowRegion(outRow, fgRowBase, fgOffsetX, fgWidth, runStart, runEnd);
             } else {
                 // 中間値: ブレンド処理
                 blendPixelsOptimized(outRow, runStart, runEnd, runAlpha,
@@ -432,17 +432,15 @@ private:
 
         // マスク範囲外の右側（alpha=0）→背景のみ
         if (maskXEnd < outWidth) {
-            copyRowRegion(outRow, outWidth, bgRowBase, bgOffsetX, bgWidth, maskXEnd, outWidth);
+            copyRowRegion(outRow, bgRowBase, bgOffsetX, bgWidth, maskXEnd, outWidth);
         }
     }
 
     // 行の一部領域をコピー（alpha=0またはalpha=255用）
     // srcRowBase: オフセット未適用のソース行ポインタ（nullptrなら透明黒）
-    void copyRowRegion(uint8_t* outRow, int outWidth,
+    void copyRowRegion(uint8_t* outRow,
                        const uint8_t* srcRowBase, int srcOffsetX, int srcWidth,
                        int xStart, int xEnd) {
-        (void)outWidth;  // 将来の境界チェック用に残す
-
         if (!srcRowBase) {
             // ソースがない場合は透明黒
             std::memset(outRow + xStart * 4, 0, static_cast<size_t>(xEnd - xStart) * 4);
@@ -516,14 +514,10 @@ private:
     }
 
     // 画像を出力バッファにコピー（高速パス用、スキャンライン = height==1 前提）
-    void copyImageToOutput(uint8_t* outPtr, int outStride, int outWidth, int outHeight,
+    void copyImageToOutput(uint8_t* outPtr, int outWidth,
                            const uint8_t* srcPtr, int srcStride, int srcWidth, int srcHeight,
                            int offsetX, int offsetY) {
-        // height==1前提: ループ不要、y=0固定
-        (void)outStride;   // 未使用警告抑制
-        (void)outHeight;   // 未使用警告抑制
-
-        uint8_t* outRow = outPtr;  // y=0なのでオフセット不要
+        uint8_t* outRow = outPtr;
         const int srcY = offsetY;  // y=0 + offsetY
 
         if (srcY < 0 || srcY >= srcHeight) {
@@ -575,13 +569,12 @@ private:
 
         ViewPort outView = outputBuf.view();
         uint8_t* outPtr = static_cast<uint8_t*>(outView.data);
-        const int outStride = outView.stride;
 
         // オフセット計算
         const int offsetX = from_fixed(src.origin.x - unionOriginX);
         const int offsetY = from_fixed(src.origin.y - unionOriginY);
 
-        copyImageToOutput(outPtr, outStride, unionWidth, unionHeight,
+        copyImageToOutput(outPtr, unionWidth,
                           srcPtr, srcStride, srcWidth, srcHeight,
                           offsetX, offsetY);
 
