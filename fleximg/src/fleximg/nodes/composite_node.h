@@ -123,6 +123,8 @@ public:
 
     // 複数の上流から画像を取得して合成するため、pullProcess()を直接オーバーライド
     RenderResult pullProcess(const RenderRequest& request) override {
+        // スキャンライン処理: 高さは常に1
+        assert(request.height == 1 && "Scanline processing requires height == 1");
         // 循環エラー状態ならスキップ（無限再帰防止）
         if (pullPrepareState_ != PrepareState::Prepared) {
             return RenderResult();

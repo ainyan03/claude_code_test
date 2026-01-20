@@ -2,6 +2,7 @@
 #define FLEXIMG_NODE_H
 
 #include <vector>
+#include <cassert>
 #include "common.h"
 #include "port.h"
 #include "perf_metrics.h"
@@ -116,6 +117,8 @@ public:
 
     // 上流から画像を取得して処理
     virtual RenderResult pullProcess(const RenderRequest& request) {
+        // スキャンライン処理: 高さは常に1
+        assert(request.height == 1 && "Scanline processing requires height == 1");
         // 循環エラー状態ならスキップ（無限再帰防止）
         if (pullPrepareState_ != PrepareState::Prepared) {
             return RenderResult();
@@ -180,6 +183,8 @@ public:
     // 上流から画像を受け取って処理し、下流へ渡す
     virtual void pushProcess(RenderResult&& input,
                              const RenderRequest& request) {
+        // スキャンライン処理: 高さは常に1
+        assert(request.height == 1 && "Scanline processing requires height == 1");
         // 循環エラー状態ならスキップ（無限再帰防止）
         if (pushPrepareState_ != PrepareState::Prepared) {
             return;

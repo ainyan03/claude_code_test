@@ -227,6 +227,8 @@ public:
     // ========================================
 
     RenderResult pullProcess(const RenderRequest& request) override {
+        // スキャンライン処理: 高さは常に1
+        assert(request.height == 1 && "Scanline processing requires height == 1");
         if (!sourceValid_ || outputWidth_ <= 0 || outputHeight_ <= 0) {
             return RenderResult();
         }
