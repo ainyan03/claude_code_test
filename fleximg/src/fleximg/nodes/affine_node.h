@@ -38,6 +38,12 @@ namespace FLEXIMG_NAMESPACE {
 //
 
 // ========================================================================
+// [DEPRECATED] 以下の構造体はアフィン伝播導入により不要になりました。
+// フォールバック用コードと共に無効化されています。
+// ========================================================================
+#if 0  // DEPRECATED: アフィン伝播により不要
+
+// ========================================================================
 // InputRegion - 入力要求領域の情報
 // ========================================================================
 //
@@ -89,6 +95,8 @@ struct AffineResult {
     int width() const { return isEmpty() ? 0 : maxX - minX + 1; }
     int height() const { return isEmpty() ? 0 : maxY - minY + 1; }
 };
+
+#endif  // DEPRECATED
 
 class AffineNode : public Node {
 public:
@@ -274,6 +282,11 @@ public:
             return upstream->pullProcess(request);
         }
 
+        // アフィン伝播が無効な場合はエラー（フォールバック処理は廃止）
+        assert(false && "AffineNode requires affine propagation; fallback is deprecated");
+        return RenderResult();
+
+#if 0  // DEPRECATED: フォールバック処理は廃止
         // ----------------------------------------------------------------
         // [DEPRECATED] 以下はフォールバック処理（アフィン伝播が無効な場合のみ）
         // 通常はSourceNodeでDDA処理されるため、このパスは使用されない。
@@ -303,9 +316,11 @@ public:
 
         // 通常処理（分割なし）
         return pullProcessNoSplit(request, region, upstream);
+#endif  // DEPRECATED
     }
 
 private:
+#if 0  // DEPRECATED: フォールバック処理は廃止
     // ========================================
     // 通常処理（分割なし）
     // ========================================
@@ -471,6 +486,7 @@ private:
 
         return RenderResult(std::move(trimmed), newOrigin);
     }
+#endif  // DEPRECATED
 
 public:
 
@@ -481,9 +497,11 @@ public:
     const Matrix2x2_fixed16& getFwdMatrix() const { return fwdMatrix_; }
     int_fixed getTxFixed() const { return txFixed_; }
     int_fixed getTyFixed() const { return tyFixed_; }
+#if 0  // DEPRECATED: InputRegion は廃止
     InputRegion testComputeInputRegion(const RenderRequest& request) {
         return computeInputRegion(request);
     }
+#endif
 
     // ========================================
     // プッシュ型インターフェース
@@ -519,6 +537,10 @@ public:
             return;
         }
 
+        // アフィン伝播が無効な場合はエラー（フォールバック処理は廃止）
+        assert(false && "AffineNode requires affine propagation; fallback is deprecated");
+
+#if 0  // DEPRECATED: フォールバック処理は廃止
         // ----------------------------------------------------------------
         // [DEPRECATED] 以下はフォールバック処理（アフィン伝播が無効な場合のみ）
         // 通常はSinkNodeでDDA処理されるため、このパスは使用されない。
@@ -630,8 +652,10 @@ public:
                 RenderResult(std::move(output), Point{outOriginX, outOriginY}),
                 downstreamReq);
         }
+#endif  // DEPRECATED
     }
 
+#if 0  // DEPRECATED: フォールバック処理は廃止
     // ========================================
     // 変換処理（process() オーバーライド）
     // ========================================
@@ -700,8 +724,12 @@ public:
 
         return RenderResult(std::move(trimmed), newOrigin);
     }
+#endif  // DEPRECATED
 
 protected:
+    int nodeTypeForMetrics() const override { return NodeType::Affine; }
+
+#if 0  // DEPRECATED: フォールバック処理は廃止
     // ========================================
     // AABB分割パラメータ
     // ========================================
@@ -940,6 +968,7 @@ protected:
 
         return inputReq;
     }
+#endif  // DEPRECATED
 
 private:
     AffineMatrix matrix_;  // 恒等行列がデフォルト
@@ -950,6 +979,7 @@ private:
     bool hasAffinePropagated_ = false;      // プル型アフィン伝播済みフラグ
     bool hasPushAffinePropagated_ = false;  // プッシュ型アフィン伝播済みフラグ
 
+#if 0  // DEPRECATED: フォールバック処理は廃止
     // ========================================
     // アフィン変換実装（tx/ty サブピクセル精度版）
     // ========================================
@@ -1117,6 +1147,7 @@ private:
 
         return result;
     }
+#endif  // DEPRECATED
 };
 
 } // namespace FLEXIMG_NAMESPACE
