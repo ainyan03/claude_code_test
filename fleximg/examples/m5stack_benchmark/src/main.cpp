@@ -154,7 +154,7 @@ static ViewPort createRomView(const uint8_t* data, int w, int h, PixelFormatID f
     vp.data = const_cast<uint8_t*>(data);  // ROM参照のためconst_cast
     vp.width = w;
     vp.height = h;
-    vp.stride = w * getPixelSize(fmt);
+    vp.stride = w * getBytesPerPixel(fmt);
     vp.formatID = fmt;
     return vp;
 }
@@ -197,19 +197,8 @@ static int16_t drawX, drawY;
 // パイプライン構築
 // ========================================================================
 
-static void setupPipeline(Scenario scenario) {
-    // 全接続をリセット（ノードの入力ポートをクリア）
-    source1 = SourceNode();
-    source2 = SourceNode();
-    maskSource = SourceNode();
-    affine1 = AffineNode();
-    affine2 = AffineNode();
-    maskAffine = AffineNode();
-    composite = CompositeNode(2);
-    matte = MatteNode();
-    renderer = RendererNode();
-    lcdSink = LcdSinkNode();
-
+// ノード初期化（setup()から1回だけ呼ぶ）
+static void initializeNodes() {
     // 共通設定
     renderer.setVirtualScreen(drawW, drawH);
     renderer.setAllocator(poolAdapter);  // 内部バッファ用アロケータを設定
@@ -226,6 +215,20 @@ static void setupPipeline(Scenario scenario) {
 
     maskSource.setSource(maskView);
     maskSource.setOrigin(float_to_fixed(maskView.width / 2.0f), float_to_fixed(maskView.height / 2.0f));
+}
+
+static void setupPipeline(Scenario scenario) {
+    // 全ノードの接続をクリア（ノード自体は再生成しない）
+    source1.disconnectAll();
+    source2.disconnectAll();
+    maskSource.disconnectAll();
+    affine1.disconnectAll();
+    affine2.disconnectAll();
+    maskAffine.disconnectAll();
+    composite.disconnectAll();
+    matte.disconnectAll();
+    renderer.disconnectAll();
+    lcdSink.disconnectAll();
 
     // シナリオ別パイプライン構築
     switch (scenario) {
@@ -313,19 +316,16 @@ static void updateAnimation() {
 // ========================================================================
 
 static void printMetricsHeader() {
-    Serial.println();
-    Serial.println("=== fleximg Benchmark ===");
-    Serial.printf("Screen: %dx%d, Draw: %dx%d\n", screenW, screenH, drawW, drawH);
-    Serial.println();
-    Serial.println("CSV Format: Scenario,Frames,TotalTime_us,AvgFrame_us,FPS,AllocBytes,AllocCount");
-    Serial.println();
+    M5_LOGI("=== fleximg Benchmark ===");
+    M5_LOGI("Screen: %dx%d, Draw: %dx%d", screenW, screenH, drawW, drawH);
+    M5_LOGI("CSV Format: Scenario,Frames,TotalTime_us,AvgFrame_us,FPS,AllocBytes,AllocCount");
 }
 
 static void printMetricsReport() {
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
     auto& metrics = PerfMetrics::instance();
 
     // 合計時間とフレーム数
-    uint32_t totalTime = metrics.totalTime();
     uint32_t rendererTime = metrics.nodes[NodeType::Renderer].time_us;
     int frames = metrics.nodes[NodeType::Renderer].count;
 
@@ -335,27 +335,27 @@ static void printMetricsReport() {
     float fps = (avgFrameTime > 0) ? 1000000.0f / avgFrameTime : 0;
 
     // CSV出力
-    Serial.printf("%s,%d,%u,%.1f,%.1f,%u,%d\n",
-                  scenarioNames[static_cast<int>(currentScenario)],
-                  frames,
-                  rendererTime,
-                  static_cast<double>(avgFrameTime),
-                  static_cast<double>(fps),
-                  metrics.totalAllocatedBytes,
-                  static_cast<int>(metrics.totalNodeAllocatedBytes()));
+    M5_LOGI("%s,%d,%lu,%.1f,%.1f,%lu,%d",
+            scenarioNames[static_cast<int>(currentScenario)],
+            frames,
+            static_cast<unsigned long>(rendererTime),
+            static_cast<double>(avgFrameTime),
+            static_cast<double>(fps),
+            static_cast<unsigned long>(metrics.totalAllocatedBytes),
+            static_cast<int>(metrics.totalNodeAllocatedBytes()));
 
-    // 詳細出力（シリアル）
-    Serial.println("--- Node Details ---");
+    // 詳細出力
+    M5_LOGI("--- Node Details ---");
     for (int i = 0; i < NodeType::Count; ++i) {
         const auto& n = metrics.nodes[i];
         if (n.count > 0) {
             float avgTime = static_cast<float>(n.time_us) / static_cast<float>(n.count);
-            Serial.printf("  [%2d] time=%6uus cnt=%4d avg=%.1fus alloc=%uB\n",
-                          i, n.time_us, n.count, static_cast<double>(avgTime), n.allocatedBytes);
+            M5_LOGI("  [%2d] time=%6luus cnt=%4d avg=%.1fus alloc=%luB",
+                    i, static_cast<unsigned long>(n.time_us), n.count,
+                    static_cast<double>(avgTime), static_cast<unsigned long>(n.allocatedBytes));
         }
     }
-    Serial.printf("Peak memory: %u bytes\n", metrics.peakMemoryBytes);
-    Serial.println();
+    M5_LOGI("Peak memory: %lu bytes", static_cast<unsigned long>(metrics.peakMemoryBytes));
 
     // 画面表示
     M5.Display.fillRect(0, 0, screenW, drawY - 5, TFT_BLACK);
@@ -363,21 +363,35 @@ static void printMetricsReport() {
     M5.Display.setTextSize(1);
     M5.Display.printf("[%s] FPS:%.1f\n", scenarioNames[static_cast<int>(currentScenario)],
                       static_cast<double>(fps));
-    M5.Display.printf("Frame:%uus Peak:%uB\n",
+    M5.Display.printf("Frame:%uus Peak:%luB\n",
                       static_cast<unsigned int>(avgFrameTime),
-                      metrics.peakMemoryBytes);
+                      static_cast<unsigned long>(metrics.peakMemoryBytes));
+#else
+    // FLEXIMG_DEBUG無効時は簡易FPS表示のみ
+    static unsigned long lastMs = 0;
+    unsigned long now = M5.millis();
+    float fps = (now > lastMs) ? 1000.0f * static_cast<float>(frameCount) / static_cast<float>(now - lastMs) : 0;
+    lastMs = now;
+
+    M5_LOGI("%s: FPS=%.1f", scenarioNames[static_cast<int>(currentScenario)], static_cast<double>(fps));
+
+    M5.Display.fillRect(0, 0, screenW, drawY - 5, TFT_BLACK);
+    M5.Display.setCursor(0, 0);
+    M5.Display.setTextSize(1);
+    M5.Display.printf("[%s] FPS:%.1f\n", scenarioNames[static_cast<int>(currentScenario)], static_cast<double>(fps));
+#endif
 }
 
 static void switchScenario() {
     int next = (static_cast<int>(currentScenario) + 1) % static_cast<int>(Scenario::Count);
     currentScenario = static_cast<Scenario>(next);
 
-    Serial.printf("\n>>> Switching to scenario: %s\n\n", scenarioNames[next]);
+    M5_LOGI(">>> Switching to scenario: %s", scenarioNames[next]);
 
     PerfMetrics::instance().reset();
     setupPipeline(currentScenario);
     frameCount = 0;
-    lastReportTime = lgfx::millis();
+    lastReportTime = M5.millis();
 }
 
 // ========================================================================
@@ -388,8 +402,7 @@ void setup() {
     auto cfg = M5.config();
     M5.begin(cfg);
 
-    Serial.begin(115200);
-    delay(100);
+    M5.delay(100);
 
     M5.Display.setRotation(1);
     M5.Display.fillScreen(TFT_BLACK);
@@ -397,9 +410,9 @@ void setup() {
     screenW = static_cast<int16_t>(M5.Display.width());
     screenH = static_cast<int16_t>(M5.Display.height());
 
-    // 描画領域
-    drawW = 280;
-    drawH = 180;
+    // 描画領域（小さく設定してテスト）
+    drawW = 100;
+    drawH = 80;
     drawX = (screenW - drawW) / 2;
     drawY = (screenH - drawH) / 2 + 15;
 
@@ -413,6 +426,9 @@ void setup() {
     image2View = createRomView(stripeData, 8, 8, PixelFormatIDs::RGBA8_Straight);
     maskView = createRomView(circleMaskData, 8, 8, PixelFormatIDs::Alpha8);
 
+    // ノード初期化（1回だけ）
+    initializeNodes();
+
     // 初期パイプライン構築
     setupPipeline(currentScenario);
 
@@ -422,18 +438,14 @@ void setup() {
     M5.Display.println("fleximg Benchmark");
     M5.Display.println("BtnA: Switch scenario");
 
-    lastReportTime = lgfx::millis();
+    lastReportTime = M5.millis();
 
     M5.Display.startWrite();
 }
 
 void loop() {
-#if defined ( M5UNIFIED_PC_BUILD )
-    lgfx::delay(16);
-#else
-    // ESP32: ウォッチドッグタイマーをフィード
-    yield();
-#endif
+    // nativeビルド時は16ms待機、ESP32時はWDTフィード
+    M5.delay(M5.getBoard() == m5::board_t::board_unknown ? 16 : 1);
     M5.update();
 
     // ボタンでシナリオ切り替え
@@ -449,7 +461,7 @@ void loop() {
     frameCount++;
 
     // 定期レポート
-    unsigned long now = lgfx::millis();
+    unsigned long now = M5.millis();
     if (frameCount >= FRAMES_PER_REPORT || (now - lastReportTime) >= REPORT_INTERVAL_MS) {
         printMetricsReport();
         PerfMetrics::instance().reset();
