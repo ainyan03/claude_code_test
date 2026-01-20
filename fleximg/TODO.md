@@ -27,6 +27,7 @@
 | 機能 | 概要 | 備考 |
 |------|------|------|
 | フィルタパラメータ固定小数点化 | brightness/alphaのパラメータ | 組み込み移植時 |
+| Node基底クラスのprepare/finalize共通化 | pullPrepare/pushPrepareで必須の処理（allocator保持等）を基底クラスで強制し、派生クラスでの実装漏れを防止。Template Methodパターン等を検討 | SourceNodeでallocator_未設定バグ発生 |
 
 ## 既知の問題
 

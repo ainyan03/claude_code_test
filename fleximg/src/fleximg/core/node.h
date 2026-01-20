@@ -140,6 +140,9 @@ public:
             return true;  // DAG共有ノード: スキップ
         }
 
+        // アロケータを保持
+        allocator_ = request.allocator;
+
         // 上流へ伝播
         Node* upstream = upstreamNode(0);
         if (upstream) {
@@ -168,6 +171,9 @@ public:
         }
         // 状態リセット
         pullPrepareState_ = PrepareState::Idle;
+
+        // アロケータをクリア
+        allocator_ = nullptr;
 
         finalize();
         Node* upstream = upstreamNode(0);
@@ -207,6 +213,9 @@ public:
             return true;  // DAG共有ノード: スキップ
         }
 
+        // アロケータを保持
+        allocator_ = request.allocator;
+
         // 準備処理
         RenderRequest screenInfo;
         screenInfo.width = request.width;
@@ -235,6 +244,9 @@ public:
         }
         // 状態リセット
         pushPrepareState_ = PrepareState::Idle;
+
+        // アロケータをクリア
+        allocator_ = nullptr;
 
         Node* downstream = downstreamNode(0);
         if (downstream) {
@@ -273,6 +285,14 @@ public:
         return outputs_[static_cast<size_t>(outputIndex)].connectedNode();
     }
 
+    // ========================================
+    // アロケータアクセス
+    // ========================================
+
+    // prepare時に設定されたアロケータを取得
+    // 設定されていない場合はnullptrを返す
+    core::memory::IAllocator* allocator() const { return allocator_; }
+
 protected:
     std::vector<Port> inputs_;
     std::vector<Port> outputs_;
@@ -280,6 +300,9 @@ protected:
     // 循環参照検出用状態
     PrepareState pullPrepareState_ = PrepareState::Idle;
     PrepareState pushPrepareState_ = PrepareState::Idle;
+
+    // RendererNodeから伝播されるアロケータ（prepare時に保持、finalize時にクリア）
+    core::memory::IAllocator* allocator_ = nullptr;
 
     // ========================================
     // ヘルパーメソッド
@@ -309,9 +332,17 @@ protected:
 
     // フォーマット変換ヘルパー（メトリクス記録付き）
     // 参照モードから所有モードに変わった場合、ノード別統計に記録
+    // allocator_を使用してバッファを確保する
     ImageBuffer convertFormat(ImageBuffer&& buffer, PixelFormatID target,
                               FormatConversion mode = FormatConversion::CopyIfNeeded) {
         bool wasOwning = buffer.ownsMemory();
+
+        // 参照モードのバッファにノードのallocator_を設定してから変換
+        // これにより、toFormat()内で新バッファ作成時にallocator_が使われる
+        if (!wasOwning && allocator_) {
+            buffer.setAllocator(allocator_);
+        }
+
         ImageBuffer result = std::move(buffer).toFormat(target, mode);
 
         // 参照→所有モードへの変換時にメトリクス記録

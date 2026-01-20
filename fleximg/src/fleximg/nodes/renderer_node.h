@@ -68,6 +68,13 @@ public:
         tileConfig_ = TileConfig(tileWidth, tileHeight);
     }
 
+    // アロケータ設定
+    // パイプライン内の各ノードがImageBuffer確保時に使用するアロケータを設定
+    // nullptrの場合はデフォルトアロケータを使用
+    void setAllocator(core::memory::IAllocator* allocator) {
+        pipelineAllocator_ = allocator;
+    }
+
     // デバッグ用チェッカーボード
     void setDebugCheckerboard(bool enabled) {
         debugCheckerboard_ = enabled;
@@ -124,6 +131,7 @@ public:
         prepReq.height = screenInfo.height;
         prepReq.origin = screenInfo.origin;
         prepReq.hasAffine = false;
+        prepReq.allocator = pipelineAllocator_;  // アロケータを設定
 
         // 上流へ準備を伝播（プル型、循環参照検出付き）
         Node* upstream = upstreamNode(0);
@@ -209,6 +217,7 @@ private:
     int_fixed originY_ = 0;
     TileConfig tileConfig_;
     bool debugCheckerboard_ = false;
+    core::memory::IAllocator* pipelineAllocator_ = nullptr;  // パイプライン用アロケータ
 
     // タイルサイズ取得
     // 注: パイプライン上のリクエストは必ずスキャンライン（height=1）

@@ -21,6 +21,97 @@
 #include "fleximg/core/memory/platform.cpp"
 #include "fleximg/core/memory/pool_allocator.cpp"
 
+// DefaultAllocatorの統計を追跡するラッパー
+class TrackedDefaultAllocator : public fleximg::core::memory::IAllocator {
+public:
+    struct Stats {
+        size_t allocCount = 0;
+        size_t deallocCount = 0;
+        size_t lastAllocSize = 0;
+
+        void reset() {
+            allocCount = deallocCount = 0;
+            lastAllocSize = 0;
+        }
+    };
+
+    void* allocate(size_t bytes, size_t alignment = 16) override {
+        stats_.allocCount++;
+        stats_.lastAllocSize = bytes;
+        return fleximg::core::memory::DefaultAllocator::instance().allocate(bytes, alignment);
+    }
+
+    void deallocate(void* ptr) override {
+        if (ptr) stats_.deallocCount++;
+        fleximg::core::memory::DefaultAllocator::instance().deallocate(ptr);
+    }
+
+    const char* name() const override { return "TrackedDefaultAllocator"; }
+
+    const Stats& stats() const { return stats_; }
+    void resetStats() { stats_.reset(); }
+
+    static TrackedDefaultAllocator& instance() {
+        static TrackedDefaultAllocator s_instance;
+        return s_instance;
+    }
+
+private:
+    Stats stats_;
+};
+
+// PoolAllocatorをIAllocatorとして使用するためのアダプタ（統計付き）
+class PoolAllocatorAdapter : public fleximg::core::memory::IAllocator {
+public:
+    // 統計情報
+    struct Stats {
+        size_t poolHits = 0;        // プールから確保成功
+        size_t poolMisses = 0;      // プールから確保失敗（フォールバック）
+        size_t poolDeallocs = 0;    // プールへ解放
+        size_t defaultDeallocs = 0; // DefaultAllocatorへ解放
+        size_t lastAllocSize = 0;   // 最後の確保サイズ
+
+        void reset() {
+            poolHits = poolMisses = poolDeallocs = defaultDeallocs = 0;
+            lastAllocSize = 0;
+        }
+    };
+
+    PoolAllocatorAdapter(fleximg::core::memory::PoolAllocator& pool)
+        : pool_(pool) {}
+
+    void* allocate(size_t bytes, size_t /* alignment */ = 16) override {
+        stats_.lastAllocSize = bytes;
+        void* ptr = pool_.allocate(bytes);
+        if (ptr) {
+            stats_.poolHits++;
+            return ptr;
+        }
+        // プールから確保できない場合はDefaultAllocatorにフォールバック
+        stats_.poolMisses++;
+        return fleximg::core::memory::DefaultAllocator::instance().allocate(bytes);
+    }
+
+    void deallocate(void* ptr) override {
+        if (pool_.deallocate(ptr)) {
+            stats_.poolDeallocs++;
+        } else {
+            // プール外のポインタはDefaultAllocatorで解放
+            stats_.defaultDeallocs++;
+            fleximg::core::memory::DefaultAllocator::instance().deallocate(ptr);
+        }
+    }
+
+    const char* name() const override { return "PoolAllocatorAdapter"; }
+
+    const Stats& stats() const { return stats_; }
+    void resetStats() { stats_.reset(); }
+
+private:
+    fleximg::core::memory::PoolAllocator& pool_;
+    Stats stats_;
+};
+
 // カスタムSinkNode
 #include "lcd_sink_node.h"
 
@@ -30,7 +121,9 @@ using namespace fleximg;
 
 // チェッカーボード画像を作成（前景用）
 static ImageBuffer createForegroundImage(int width, int height) {
-    ImageBuffer img(width, height, PixelFormatIDs::RGBA8_Straight);
+    // 元画像はTrackedDefaultAllocatorで統計追跡
+    ImageBuffer img(width, height, PixelFormatIDs::RGBA8_Straight, InitPolicy::Uninitialized,
+                    &TrackedDefaultAllocator::instance());
 
     const int cellSize = 16;  // チェッカーボードのセルサイズ
 
@@ -59,7 +152,8 @@ static ImageBuffer createForegroundImage(int width, int height) {
 
 // 縦ストライプ + 横グラデーション画像を作成（背景用）
 static ImageBuffer createBackgroundImage(int width, int height) {
-    ImageBuffer img(width, height, PixelFormatIDs::RGBA8_Straight);
+    ImageBuffer img(width, height, PixelFormatIDs::RGBA8_Straight, InitPolicy::Uninitialized,
+                    &TrackedDefaultAllocator::instance());
 
     const int stripeWidth = 12;  // ストライプの幅
 
@@ -109,7 +203,8 @@ static bool pointInTriangle(float px, float py,
 
 // 六芒星マスクを作成（くっきり）
 static ImageBuffer createHexagramMask(int width, int height) {
-    ImageBuffer img(width, height, PixelFormatIDs::Alpha8);
+    ImageBuffer img(width, height, PixelFormatIDs::Alpha8, InitPolicy::Uninitialized,
+                    &TrackedDefaultAllocator::instance());
 
     float centerX = static_cast<float>(width) / 2.0f;
     float centerY = static_cast<float>(height) / 2.0f;
@@ -148,6 +243,18 @@ static ImageBuffer createHexagramMask(int width, int height) {
     return img;
 }
 
+// PoolAllocator用のメモリプール（内部RAM使用）
+// fleximg内部で動的に確保されるバッファ用（MatteNode等の一時バッファ）
+// 320幅のスキャンライン: 320 * 4 = 1280バイト
+// 余裕を持って2KB x 8ブロック = 16KB
+static constexpr size_t POOL_BLOCK_SIZE = 2 * 1024;  // 2KB per block
+static constexpr size_t POOL_BLOCK_COUNT = 8;        // 8 blocks = 16KB
+static uint8_t poolMemory[POOL_BLOCK_SIZE * POOL_BLOCK_COUNT];
+
+// PoolAllocatorとアダプタのインスタンス
+static fleximg::core::memory::PoolAllocator internalPool;
+static PoolAllocatorAdapter* poolAdapter = nullptr;
+
 // グローバル変数
 static ImageBuffer foregroundImage;
 static ImageBuffer backgroundImage;
@@ -174,14 +281,21 @@ void setup() {
     M5.Display.setRotation(1);
     M5.Display.fillScreen(TFT_BLACK);
 
-    // 画像を作成
-    foregroundImage = createForegroundImage(60, 60);
-    backgroundImage = createBackgroundImage(80, 80);
-    maskImage = createHexagramMask(70, 70);
-
     M5.Display.setCursor(0, 0);
     M5.Display.println("fleximg Matte Demo");
-    M5.Display.println("Hexagram mask blend");
+
+    // 元画像を作成（DefaultAllocatorを使用）
+    foregroundImage = createForegroundImage(30, 30);
+    backgroundImage = createBackgroundImage(40, 40);
+    maskImage = createHexagramMask(50, 50);
+
+    // PoolAllocatorを初期化（fleximg内部バッファ用）
+    internalPool.initialize(poolMemory, POOL_BLOCK_SIZE, POOL_BLOCK_COUNT, false);
+    static PoolAllocatorAdapter adapter(internalPool);
+    poolAdapter = &adapter;
+
+    M5.Display.printf("Pool: %zu x %zu bytes\n", POOL_BLOCK_COUNT, POOL_BLOCK_SIZE);
+    M5.Display.println("Internal buffers use pool");
 
     // 画面サイズ取得
     int16_t screenW = static_cast<int16_t>(M5.Display.width());
@@ -189,7 +303,7 @@ void setup() {
 
     // 描画領域（画面中央に配置）
     int16_t drawW = 320;
-    int16_t drawH = 240;
+    int16_t drawH = 200;
     int16_t drawX = (screenW - drawW) / 2;
     int16_t drawY = (screenH - drawH) / 2;
 
@@ -218,6 +332,7 @@ void setup() {
 
     // レンダラー設定
     renderer.setVirtualScreen(drawW, drawH);
+    renderer.setAllocator(poolAdapter);  // 内部バッファ用アロケータを設定
 
     // LCD出力設定
     lcdSink.setTarget(&M5.Display, drawX, drawY, drawW, drawH);
@@ -242,6 +357,13 @@ void setup() {
     // Matte → Renderer → LCD
     matte >> renderer >> lcdSink;
 
+    // 初期化完了後、DefaultAllocatorのトラップを有効化
+    // これ以降DefaultAllocatorが使われるとassertで停止する
+#ifdef FLEXIMG_TRAP_DEFAULT_ALLOCATOR
+    fleximg::core::memory::DefaultAllocator::trapEnabled() = true;
+    M5.Display.println("DefaultAllocator trap ENABLED");
+#endif
+
     M5.Display.startWrite();
 }
 
@@ -263,16 +385,16 @@ void loop() {
     if (rotationAngle > 2.0f * static_cast<float>(M_PI)) {
         rotationAngle -= 2.0f * static_cast<float>(M_PI);
     }
-    affine.setRotationScale(rotationAngle, 3.0f, 3.0f);
+    affine.setRotationScale(rotationAngle, 6.0f, 6.0f);
 
     // 背景のアニメーション（3倍拡大 + 緩やかな回転）
-    float bgRotation = animationTime * 0.5f;  // 回転
-    float bgScale = 4.0f;
+    float bgRotation = animationTime * 1.5f;  // 回転
+    float bgScale = 6.0f;
     bgAffine.setRotationScale(bgRotation, bgScale, bgScale);
 
     // マスクのアニメーション（回転・スケール・移動）
     float maskRotation = -animationTime * 0.5f;
-    float maskScale = 1.5f + 1.0f * std::sinf(animationTime * 1.5f);
+    float maskScale = 2.0f + 1.9f * std::sinf(animationTime * 2.5f);
     float moveRadius = 30.0f;
     float offsetX = moveRadius * std::cosf(animationTime);
     float offsetY = moveRadius * std::sinf(animationTime);
@@ -284,7 +406,7 @@ void loop() {
     // レンダリング実行
     renderer.exec();
 
-    // FPS表示
+    // FPS・アロケータ統計表示
     static unsigned long lastTime = 0;
     static int frameCount = 0;
     static float fps = 0.0f;
@@ -296,10 +418,23 @@ void loop() {
         frameCount = 0;
         lastTime = now;
 
-        // FPS表示更新
+        // 統計取得
+        const auto& poolStats = poolAdapter->stats();
+        const auto& defaultStats = TrackedDefaultAllocator::instance().stats();
+
+        // FPS・アロケータ統計表示更新
         int16_t dispH = static_cast<int16_t>(M5.Display.height());
-        M5.Display.fillRect(0, dispH - 20, 100, 20, TFT_BLACK);
-        M5.Display.setCursor(0, dispH - 20);
-        M5.Display.printf("FPS: %.1f", static_cast<double>(fps));
+        M5.Display.fillRect(0, dispH - 60, 250, 60, TFT_BLACK);
+        M5.Display.setCursor(0, dispH - 60);
+        M5.Display.printf("FPS:%.1f", static_cast<double>(fps));
+        M5.Display.setCursor(0, dispH - 45);
+        M5.Display.printf("Pool  A:%zu F:%zu",
+                          poolStats.poolHits, poolStats.poolDeallocs);
+        M5.Display.setCursor(0, dispH - 30);
+        M5.Display.printf("Deflt A:%zu F:%zu",
+                          defaultStats.allocCount, defaultStats.deallocCount);
+        M5.Display.setCursor(0, dispH - 15);
+        M5.Display.printf("Miss:%zu Size:%zu",
+                          poolStats.poolMisses, poolStats.lastAllocSize);
     }
 }

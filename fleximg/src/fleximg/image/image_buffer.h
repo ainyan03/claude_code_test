@@ -63,11 +63,14 @@ public:
           initPolicy_(DefaultInitPolicy) {}
 
     // サイズ指定コンストラクタ
+    // alloc = nullptr の場合、DefaultAllocator を使用
     ImageBuffer(int w, int h, PixelFormatID fmt = PixelFormatIDs::RGBA8_Straight,
                 InitPolicy init = DefaultInitPolicy,
-                core::memory::IAllocator* alloc = &core::memory::DefaultAllocator::instance())
+                core::memory::IAllocator* alloc = nullptr)
         : view_(nullptr, fmt, 0, static_cast<int16_t>(w), static_cast<int16_t>(h))
-        , capacity_(0), allocator_(alloc), initPolicy_(init) {
+        , capacity_(0)
+        , allocator_(alloc ? alloc : &core::memory::DefaultAllocator::instance())
+        , initPolicy_(init) {
         allocate();
     }
 
@@ -178,6 +181,9 @@ public:
     // メモリを所有しているか（false=参照モード、編集禁止）
     bool ownsMemory() const { return allocator_ != nullptr; }
 
+    // アロケータを設定（参照モードのバッファに対して、変換時に使用するアロケータを指定）
+    void setAllocator(core::memory::IAllocator* alloc) { allocator_ = alloc; }
+
     int16_t width() const { return view_.width; }
     int16_t height() const { return view_.height; }
     int32_t stride() const { return view_.stride; }
@@ -218,17 +224,17 @@ public:
                 // 所有モード: そのまま返す
                 return std::move(*this);
             }
-            // 参照モード + CopyIfNeeded: コピー作成
+            // 参照モード + CopyIfNeeded: コピー作成（アロケータ引き継ぎ）
             ImageBuffer copied(view_.width, view_.height, view_.formatID,
-                               InitPolicy::Uninitialized);
+                               InitPolicy::Uninitialized, allocator_);
             if (isValid() && copied.isValid()) {
                 view_ops::copy(copied.view_, 0, 0, view_, 0, 0, view_.width, view_.height);
             }
             return copied;
         }
-        // フォーマット不一致: 常に変換（新バッファ作成）
+        // フォーマット不一致: 常に変換（新バッファ作成、アロケータ引き継ぎ）
         ImageBuffer converted(view_.width, view_.height, target,
-                              InitPolicy::Uninitialized);
+                              InitPolicy::Uninitialized, allocator_);
         if (isValid() && converted.isValid()) {
             // 行単位で変換（サブビューのストライドを正しく処理）
             for (int y = 0; y < view_.height; ++y) {

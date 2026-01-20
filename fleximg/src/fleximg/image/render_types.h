@@ -5,6 +5,7 @@
 #include <cstdint>
 #include "../core/common.h"
 #include "../core/perf_metrics.h"
+#include "../core/memory/allocator.h"
 #include "image_buffer.h"
 
 namespace FLEXIMG_NAMESPACE {
@@ -82,6 +83,9 @@ struct PrepareRequest {
     // プッシュ型アフィン（下流→Sink で実行）
     AffineMatrix pushAffineMatrix;
     bool hasPushAffine = false;
+
+    // アロケータ（RendererNodeから伝播、各ノードがprepare時に保持）
+    core::memory::IAllocator* allocator = nullptr;
 };
 
 // ========================================================================
