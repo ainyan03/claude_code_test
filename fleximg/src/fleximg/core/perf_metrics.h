@@ -3,6 +3,7 @@
 
 #include "common.h"
 #include <cstdint>
+#include <chrono>
 
 // ========================================================================
 // デバッグ機能制御マクロ
@@ -185,6 +186,49 @@ struct PerfMetrics {
     }
 };
 
+// ========================================================================
+// RAII スタイルのメトリクス計測ガード
+// ========================================================================
+//
+// 使用例:
+//   RenderResult process(...) override {
+//       FLEXIMG_METRICS_SCOPE(nodeTypeForMetrics());
+//       // ... 処理 ...
+//       return result;
+//   }
+//
+// スコープを抜けると自動的に経過時間とカウントが記録される。
+// リリースビルドではノーオペレーションになる。
+//
+class MetricsGuard {
+public:
+    explicit MetricsGuard(int nodeType)
+        : nodeType_(nodeType)
+        , start_(std::chrono::high_resolution_clock::now())
+    {}
+
+    ~MetricsGuard() {
+        auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::high_resolution_clock::now() - start_).count();
+        auto& metrics = PerfMetrics::instance().nodes[nodeType_];
+        metrics.time_us += static_cast<uint32_t>(elapsed);
+        metrics.count++;
+    }
+
+    // コピー・ムーブ禁止
+    MetricsGuard(const MetricsGuard&) = delete;
+    MetricsGuard& operator=(const MetricsGuard&) = delete;
+    MetricsGuard(MetricsGuard&&) = delete;
+    MetricsGuard& operator=(MetricsGuard&&) = delete;
+
+private:
+    int nodeType_;
+    std::chrono::high_resolution_clock::time_point start_;
+};
+
+#define FLEXIMG_METRICS_SCOPE(nodeType) \
+    ::FLEXIMG_NAMESPACE::core::MetricsGuard _metricsGuard##__LINE__(nodeType)
+
 #else
 
 // リリースビルド用のダミー構造体（最小サイズ）
@@ -206,6 +250,9 @@ struct PerfMetrics {
     void recordAlloc(size_t, int = 0, int = 0) {}
     void recordFree(size_t) {}
 };
+
+// リリースビルド用: メトリクス計測マクロは何もしない
+#define FLEXIMG_METRICS_SCOPE(nodeType) ((void)0)
 
 #endif // FLEXIMG_DEBUG_PERF_METRICS
 

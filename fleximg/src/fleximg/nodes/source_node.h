@@ -7,7 +7,6 @@
 #include "../image/image_buffer.h"
 #include "../operations/transform.h"
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
-#include <chrono>
 #include <cstdio>
 #endif
 
@@ -201,17 +200,9 @@ public:
     // onPullProcess: ソース画像のスキャンラインを返す
     // SourceNodeは入力がないため、上流を呼び出さずに直接処理
     RenderResult onPullProcess(const RenderRequest& request) override {
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto sourceStart = std::chrono::high_resolution_clock::now();
-#endif
+        FLEXIMG_METRICS_SCOPE(NodeType::Source);
 
         if (!source_.isValid()) {
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-            auto& m = PerfMetrics::instance().nodes[NodeType::Source];
-            m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
-                std::chrono::high_resolution_clock::now() - sourceStart).count();
-            m.count++;
-#endif
             return RenderResult();
         }
 
@@ -242,12 +233,6 @@ public:
         int_fixed interBottom = std::min(imgBottom, reqBottom);
 
         if (interLeft >= interRight || interTop >= interBottom) {
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-            auto& m = PerfMetrics::instance().nodes[NodeType::Source];
-            m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
-                std::chrono::high_resolution_clock::now() - sourceStart).count();
-            m.count++;
-#endif
             // バッファ内基準点位置 = request.origin
             return RenderResult(ImageBuffer(), request.origin);
         }
@@ -264,12 +249,6 @@ public:
         // サブビューの参照モードImageBufferを作成（メモリ確保なし）
         ImageBuffer result(view_ops::subView(source_, srcX, srcY, interW, interH));
 
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto& m = PerfMetrics::instance().nodes[NodeType::Source];
-        m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::high_resolution_clock::now() - sourceStart).count();
-        m.count++;
-#endif
         // バッファ内基準点位置 = -interLeft, -interTop
         return RenderResult(std::move(result), Point{-interLeft, -interTop});
     }
@@ -302,10 +281,6 @@ private:
     // 有効範囲のみのバッファを返し、範囲外の0データを下流に送らない
     //
     RenderResult pullProcessWithAffine(const RenderRequest& request) {
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto sourceStart = std::chrono::high_resolution_clock::now();
-#endif
-
         // 特異行列チェック
         if (!affine_.isValid()) {
             return RenderResult(ImageBuffer(), request.origin);
@@ -358,12 +333,6 @@ private:
 
         // 有効ピクセルがない場合
         if (dxStart > dxEnd) {
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-            auto& m = PerfMetrics::instance().nodes[NodeType::Source];
-            m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
-                std::chrono::high_resolution_clock::now() - sourceStart).count();
-            m.count++;
-#endif
             return RenderResult(ImageBuffer(), request.origin);
         }
 
@@ -416,13 +385,6 @@ private:
                     break;
             }
         }
-
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto& m = PerfMetrics::instance().nodes[NodeType::Source];
-        m.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::high_resolution_clock::now() - sourceStart).count();
-        m.count++;
-#endif
 
         // originを有効範囲に合わせて調整
         // dxStart分だけ左にオフセット

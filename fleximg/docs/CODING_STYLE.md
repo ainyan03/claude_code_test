@@ -264,6 +264,53 @@ if (static_cast<uint_fast32_t>(x) >= static_cast<uint_fast32_t>(width)) {
 
 ---
 
+## パフォーマンス計測
+
+### FLEXIMG_METRICS_SCOPE マクロ
+
+デバッグビルドでのパフォーマンス計測には `FLEXIMG_METRICS_SCOPE` マクロを使用する。
+このマクロはRAII（Resource Acquisition Is Initialization）パターンで実装されており、
+スコープ終了時に自動的に処理時間とカウントを記録する。
+
+```cpp
+#include "../core/perf_metrics.h"
+
+RenderResult onPullProcess(const RenderRequest& request) override {
+    FLEXIMG_METRICS_SCOPE(NodeType::Source);
+
+    // 処理
+    // ...
+    // 早期リターンでも計測される（RAIIにより自動記録）
+    if (!isValid()) return RenderResult();
+
+    // 正常終了時も自動記録
+    return RenderResult(std::move(buffer), origin);
+}
+```
+
+**利点**:
+- 早期リターンを含む複数の終了パスでも確実に計測
+- 手動で開始/終了を記録する必要がない
+- リリースビルドでは自動的にno-op（オーバーヘッドなし）
+
+**使用上の注意**:
+- 関数の先頭付近でマクロを呼び出す（上流ノードの呼び出し後が望ましい）
+- ノードタイプは `NodeType::*` 定数を使用（`perf_metrics.h` で定義）
+- 新規ノード追加時は `NodeType` に定数を追加し、`demo/web/app.js` の `NODE_TYPES` と同期する
+
+### 追加のメトリクス記録
+
+バッファ確保サイズなど、時間以外のメトリクスは `#ifdef FLEXIMG_DEBUG_PERF_METRICS` で囲む。
+
+```cpp
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+PerfMetrics::instance().nodes[NodeType::Composite].recordAlloc(
+    buffer.totalBytes(), buffer.width(), buffer.height());
+#endif
+```
+
+---
+
 ## ヘッダ構成
 
 | ヘッダ | 責務 |
@@ -304,6 +351,7 @@ using flex_int32 = int_fast32_t;
 
 ## 変更履歴
 
+- 2026-01-20: パフォーマンス計測（FLEXIMG_METRICS_SCOPE）のガイドラインを追加
 - 2026-01-19: `int`を避ける方針、`float_to_fixed()`使用規約を追加
 - 2026-01-19: 追加警告オプション（-Wconversion等）を必須化、全警告を解消
 - 2026-01-19: ループカウンタ/配列インデックス、座標値、警告オプションのルールを明確化

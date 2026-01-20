@@ -6,9 +6,6 @@
 #include "../image/image_buffer.h"
 #include "../image/pixel_format.h"
 #include "../operations/canvas_utils.h"
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-#include <chrono>
-#endif
 
 namespace FLEXIMG_NAMESPACE {
 
@@ -99,6 +96,7 @@ protected:
 
     // onPullProcess: マット合成処理
     RenderResult onPullProcess(const RenderRequest& request) override {
+        FLEXIMG_METRICS_SCOPE(NodeType::Matte);
 
         Node* fgNode = upstreamNode(0);    // 前景 (foreground)
         Node* bgNode = upstreamNode(1);    // 背景 (background)
@@ -234,9 +232,6 @@ protected:
         // ========================================
         // Step 5: 出力バッファを確保しマット合成
         // ========================================
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto startTime = std::chrono::high_resolution_clock::now();
-#endif
         ImageBuffer outputBuf(unionWidth, unionHeight, PixelFormatIDs::RGBA8_Straight,
                               InitPolicy::Uninitialized, allocator_);
 
@@ -252,13 +247,6 @@ protected:
 
         applyMatteComposite(outputBuf, unionRequest,
                            fgResult, bgResult, maskResult);
-
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto& metrics = PerfMetrics::instance().nodes[NodeType::Matte];
-        metrics.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::high_resolution_clock::now() - startTime).count();
-        metrics.count++;
-#endif
 
         return RenderResult(std::move(outputBuf), Point{unionOriginX, unionOriginY});
     }

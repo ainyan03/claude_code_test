@@ -6,9 +6,6 @@
 #include "../image/image_buffer.h"
 #include <algorithm>  // for std::min, std::max
 #include <cstring>    // for std::memcpy
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-#include <chrono>
-#endif
 
 namespace FLEXIMG_NAMESPACE {
 
@@ -100,8 +97,9 @@ protected:
         RenderResult input = upstream->pullProcess(inputReq);
         if (!input.isValid()) return input;
 
+        FLEXIMG_METRICS_SCOPE(NodeType::HorizontalBlur);
+
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto start = std::chrono::high_resolution_clock::now();
         auto& metrics = PerfMetrics::instance().nodes[NodeType::HorizontalBlur];
         metrics.requestedPixels += static_cast<uint64_t>(request.width) * 1;
         metrics.usedPixels += static_cast<uint64_t>(inputReq.width) * 1;
@@ -166,12 +164,6 @@ protected:
                        static_cast<size_t>(copyWidth) * 4);
         }
 
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        metrics.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::high_resolution_clock::now() - start).count();
-        metrics.count++;
-#endif
-
         return RenderResult(std::move(output), request.origin);
     }
 
@@ -194,9 +186,7 @@ protected:
             return;
         }
 
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto start = std::chrono::high_resolution_clock::now();
-#endif
+        FLEXIMG_METRICS_SCOPE(NodeType::HorizontalBlur);
 
         // RGBA8_Straightに変換
         ImageBuffer buffer = convertFormat(std::move(input.buffer),
@@ -222,13 +212,6 @@ protected:
 
             buffer = std::move(output);
         }
-
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto& metrics = PerfMetrics::instance().nodes[NodeType::HorizontalBlur];
-        metrics.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::high_resolution_clock::now() - start).count();
-        metrics.count++;
-#endif
 
         // 下流にpush
         Node* downstream = downstreamNode(0);

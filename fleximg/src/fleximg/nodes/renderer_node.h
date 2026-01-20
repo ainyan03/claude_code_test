@@ -6,9 +6,6 @@
 #include "../core/perf_metrics.h"
 #include "../image/render_types.h"
 #include <algorithm>
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-#include <chrono>
-#endif
 
 namespace FLEXIMG_NAMESPACE {
 
@@ -98,9 +95,8 @@ public:
     // 簡易API（prepare → execute → finalize）
     // 戻り値: ExecResult（Success = 0、エラー = 非0）
     ExecResult exec() {
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto startTime = std::chrono::high_resolution_clock::now();
-#endif
+        FLEXIMG_METRICS_SCOPE(NodeType::Renderer);
+
         ExecResult result = execPrepare();
         if (result != ExecResult::Success) {
             // エラー時も状態をリセット
@@ -109,12 +105,6 @@ public:
         }
         execProcess();
         execFinalize();
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto endTime = std::chrono::high_resolution_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime).count();
-        PerfMetrics::instance().nodes[NodeType::Renderer].time_us += static_cast<uint32_t>(elapsed);
-        PerfMetrics::instance().nodes[NodeType::Renderer].count++;
-#endif
         return ExecResult::Success;
     }
 

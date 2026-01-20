@@ -5,9 +5,6 @@
 #include "../core/perf_metrics.h"
 #include "../image/image_buffer.h"
 #include "../operations/filters.h"
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-#include <chrono>
-#endif
 
 namespace FLEXIMG_NAMESPACE {
 
@@ -104,10 +101,7 @@ protected:
     RenderResult process(RenderResult&& input,
                         const RenderRequest& request) override {
         (void)request;  // スキャンライン必須仕様では未使用
-
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto start = std::chrono::high_resolution_clock::now();
-#endif
+        FLEXIMG_METRICS_SCOPE(nodeTypeForMetrics());
 
         // 入力をRGBA8_Straightに変換（メトリクス記録付き）
         ImageBuffer working = convertFormat(std::move(input.buffer), PixelFormatIDs::RGBA8_Straight);
@@ -116,13 +110,6 @@ protected:
         // ラインフィルタを適用（height=1前提）
         uint8_t* row = static_cast<uint8_t*>(workingView.data);
         getFilterFunc()(row, workingView.width, params_);
-
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto& metrics = PerfMetrics::instance().nodes[nodeTypeForMetrics()];
-        metrics.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::high_resolution_clock::now() - start).count();
-        metrics.count++;
-#endif
 
         return RenderResult(std::move(working), input.origin);
     }
