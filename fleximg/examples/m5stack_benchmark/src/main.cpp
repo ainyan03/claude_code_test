@@ -385,6 +385,9 @@ void setup() {
 void loop() {
 #if defined ( M5UNIFIED_PC_BUILD )
     lgfx::delay(16);
+#else
+    // ESP32: ウォッチドッグタイマーをフィード
+    yield();
 #endif
     M5.update();
 
