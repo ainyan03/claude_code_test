@@ -50,8 +50,8 @@ TEST_CASE("blend::first basic copy") {
     setPixelRGBA8(src, 1, 1, 255, 0, 0, 255);
 
     // 基準点を中央に設定
-    int_fixed8 srcOrigin = to_fixed8(2);
-    int_fixed8 dstOrigin = to_fixed8(2);
+    int_fixed srcOrigin = to_fixed(2);
+    int_fixed dstOrigin = to_fixed(2);
 
     blend::first(dst.viewRef(), dstOrigin, dstOrigin,
                  src.view(), srcOrigin, srcOrigin);
@@ -67,14 +67,14 @@ TEST_CASE("blend::first basic copy") {
 
 TEST_CASE("blend::first with offset") {
     ImageBuffer src(4, 4, PixelFormatIDs::RGBA8_Straight);
-    ImageBuffer dst(8, 8, PixelFormatIDs::RGBA8_Straight);
+    ImageBuffer dst(8, 8, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero);
 
     // srcの(0,0)に赤ピクセル
     setPixelRGBA8(src, 0, 0, 255, 0, 0, 255);
 
     // srcの基準点(0,0)をdstの基準点(4,4)に合わせる
-    blend::first(dst.viewRef(), to_fixed8(4), to_fixed8(4),
-                 src.view(), to_fixed8(0), to_fixed8(0));
+    blend::first(dst.viewRef(), to_fixed(4), to_fixed(4),
+                 src.view(), to_fixed(0), to_fixed(0));
 
     // dstの(4,4)に赤ピクセルがあるはず
     uint8_t r, g, b, a;
@@ -97,8 +97,8 @@ TEST_CASE("blend::first format conversion RGBA8 to RGBA16") {
     // srcに不透明赤ピクセル
     setPixelRGBA8(src, 1, 1, 255, 0, 0, 255);
 
-    blend::first(dst.viewRef(), to_fixed8(2), to_fixed8(2),
-                 src.view(), to_fixed8(2), to_fixed8(2));
+    blend::first(dst.viewRef(), to_fixed(2), to_fixed(2),
+                 src.view(), to_fixed(2), to_fixed(2));
 
     // RGBA16形式で確認
     uint16_t r, g, b, a;
@@ -114,7 +114,7 @@ TEST_CASE("blend::first format conversion RGBA8 to RGBA16") {
 
 TEST_CASE("blend::first clipping") {
     ImageBuffer src(4, 4, PixelFormatIDs::RGBA8_Straight);
-    ImageBuffer dst(4, 4, PixelFormatIDs::RGBA8_Straight);
+    ImageBuffer dst(4, 4, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero);
 
     // 全ピクセルを赤に
     for (int y = 0; y < 4; ++y) {
@@ -124,8 +124,8 @@ TEST_CASE("blend::first clipping") {
     }
 
     // srcを右下にオフセット（一部のみ見える）
-    blend::first(dst.viewRef(), to_fixed8(0), to_fixed8(0),
-                 src.view(), to_fixed8(2), to_fixed8(2));
+    blend::first(dst.viewRef(), to_fixed(0), to_fixed(0),
+                 src.view(), to_fixed(2), to_fixed(2));
 
     // dstの(0,0)-(1,1)にsrcの(2,2)-(3,3)がコピーされる
     uint8_t r, g, b, a;
@@ -155,8 +155,8 @@ TEST_CASE("blend::onto opaque over transparent") {
     uint16_t opaqueAlpha = 65535;
     setPixelRGBA16(src, 1, 1, 65535, 0, 0, opaqueAlpha);
 
-    blend::onto(dst.viewRef(), to_fixed8(2), to_fixed8(2),
-                src.view(), to_fixed8(2), to_fixed8(2));
+    blend::onto(dst.viewRef(), to_fixed(2), to_fixed(2),
+                src.view(), to_fixed(2), to_fixed(2));
 
     uint16_t r, g, b, a;
     getPixelRGBA16(dst, 1, 1, r, g, b, a);
@@ -169,7 +169,7 @@ TEST_CASE("blend::onto opaque over transparent") {
 }
 
 TEST_CASE("blend::onto transparent src skipped") {
-    ImageBuffer src(4, 4, PixelFormatIDs::RGBA16_Premultiplied);
+    ImageBuffer src(4, 4, PixelFormatIDs::RGBA16_Premultiplied, InitPolicy::Zero);
     ImageBuffer dst(4, 4, PixelFormatIDs::RGBA16_Premultiplied);
 
     // dstに緑ピクセル
@@ -177,8 +177,8 @@ TEST_CASE("blend::onto transparent src skipped") {
 
     // srcは透明（デフォルト）
 
-    blend::onto(dst.viewRef(), to_fixed8(2), to_fixed8(2),
-                src.view(), to_fixed8(2), to_fixed8(2));
+    blend::onto(dst.viewRef(), to_fixed(2), to_fixed(2),
+                src.view(), to_fixed(2), to_fixed(2));
 
     uint16_t r, g, b, a;
     getPixelRGBA16(dst, 1, 1, r, g, b, a);
@@ -202,8 +202,8 @@ TEST_CASE("blend::onto semi-transparent blending") {
     uint16_t halfAlpha = 32768;
     setPixelRGBA16(src, 1, 1, halfAlpha, 0, 0, halfAlpha);
 
-    blend::onto(dst.viewRef(), to_fixed8(2), to_fixed8(2),
-                src.view(), to_fixed8(2), to_fixed8(2));
+    blend::onto(dst.viewRef(), to_fixed(2), to_fixed(2),
+                src.view(), to_fixed(2), to_fixed(2));
 
     uint16_t r, g, b, a;
     getPixelRGBA16(dst, 1, 1, r, g, b, a);
@@ -224,8 +224,8 @@ TEST_CASE("blend::onto RGBA8 to RGBA16 conversion") {
     // srcに不透明赤（RGBA8 Straight）
     setPixelRGBA8(src, 1, 1, 255, 0, 0, 255);
 
-    blend::onto(dst.viewRef(), to_fixed8(2), to_fixed8(2),
-                src.view(), to_fixed8(2), to_fixed8(2));
+    blend::onto(dst.viewRef(), to_fixed(2), to_fixed(2),
+                src.view(), to_fixed(2), to_fixed(2));
 
     uint16_t r, g, b, a;
     getPixelRGBA16(dst, 1, 1, r, g, b, a);
@@ -245,8 +245,8 @@ TEST_CASE("blend::first with invalid viewports") {
     ViewPort invalidDst;  // invalid
 
     // should not crash
-    blend::first(invalidDst, to_fixed8(0), to_fixed8(0),
-                 src.view(), to_fixed8(0), to_fixed8(0));
+    blend::first(invalidDst, to_fixed(0), to_fixed(0),
+                 src.view(), to_fixed(0), to_fixed(0));
     CHECK(true);  // reached here without crash
 }
 
@@ -255,20 +255,20 @@ TEST_CASE("blend::onto with invalid viewports") {
     ViewPort invalidSrc;  // invalid
 
     // should not crash
-    blend::onto(dst.viewRef(), to_fixed8(0), to_fixed8(0),
-                invalidSrc, to_fixed8(0), to_fixed8(0));
+    blend::onto(dst.viewRef(), to_fixed(0), to_fixed(0),
+                invalidSrc, to_fixed(0), to_fixed(0));
     CHECK(true);  // reached here without crash
 }
 
 TEST_CASE("blend with completely out of bounds") {
     ImageBuffer src(4, 4, PixelFormatIDs::RGBA8_Straight);
-    ImageBuffer dst(4, 4, PixelFormatIDs::RGBA8_Straight);
+    ImageBuffer dst(4, 4, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero);
 
     setPixelRGBA8(src, 0, 0, 255, 0, 0, 255);
 
     // srcを完全にdstの外に配置
-    blend::first(dst.viewRef(), to_fixed8(0), to_fixed8(0),
-                 src.view(), to_fixed8(100), to_fixed8(100));
+    blend::first(dst.viewRef(), to_fixed(0), to_fixed(0),
+                 src.view(), to_fixed(100), to_fixed(100));
 
     // dstは変更されない
     uint8_t r, g, b, a;
