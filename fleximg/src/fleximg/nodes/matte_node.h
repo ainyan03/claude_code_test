@@ -365,77 +365,73 @@ private:
         }
 
         // ========================================
-        // 最適化3: ランレングス処理
+        // 最適化3: ランレングス処理（スキャンライン = height==1 前提）
         // ========================================
         // マスク値の連続領域を検出し、0/255の連続はmemcpyで高速処理
 
-        for (int y = 0; y < outHeight; ++y) {
-            uint8_t* outRow = outPtr + y * outStride;
+        // height==1前提: ループ不要、y=0固定
+        (void)outHeight;  // 未使用警告抑制（デバッグビルドでassert用に残す場合に備える）
 
-            // 各入力の現在行のY座標と有効性チェック
-            const int fgY = y + fgOffsetY;
-            const int bgY = y + bgOffsetY;
-            const int maskY = y + maskOffsetY;
+        uint8_t* outRow = outPtr;  // y=0なのでオフセット不要
 
-            // 行ポインタ（Y範囲外ならnullptr）
-            const uint8_t* fgRow = (static_cast<unsigned>(fgY) < static_cast<unsigned>(fgHeight))
-                                   ? fgPtr + fgY * fgStride : nullptr;
-            const uint8_t* bgRow = (static_cast<unsigned>(bgY) < static_cast<unsigned>(bgHeight))
-                                   ? bgPtr + bgY * bgStride : nullptr;
-            const uint8_t* maskRow = (static_cast<unsigned>(maskY) < static_cast<unsigned>(maskHeight))
-                                     ? maskPtr + maskY * maskStride : nullptr;
+        // 行ポインタ（Y範囲外ならnullptr）- オフセットはy=0前提で簡略化
+        const uint8_t* fgRow = (static_cast<unsigned>(fgOffsetY) < static_cast<unsigned>(fgHeight))
+                               ? fgPtr + fgOffsetY * fgStride : nullptr;
+        const uint8_t* bgRow = (static_cast<unsigned>(bgOffsetY) < static_cast<unsigned>(bgHeight))
+                               ? bgPtr + bgOffsetY * bgStride : nullptr;
+        const uint8_t* maskRow = (static_cast<unsigned>(maskOffsetY) < static_cast<unsigned>(maskHeight))
+                                 ? maskPtr + maskOffsetY * maskStride : nullptr;
 
-            // マスク行が無効な場合は全面alpha=0（背景のみ）
-            if (!maskRow) {
-                copyRowRegion(outRow, bgRow, bgOffsetX, bgWidth, 0, outWidth);
-                continue;
-            }
+        // マスク行が無効な場合は全面alpha=0（背景のみ）
+        if (!maskRow) {
+            copyRowRegion(outRow, bgRow, bgOffsetX, bgWidth, 0, outWidth);
+            return;
+        }
 
-            // マスクの有効X範囲
-            const int maskXStart = std::max(0, -maskOffsetX);
-            const int maskXEnd = std::min(outWidth, maskWidth - maskOffsetX);
+        // マスクの有効X範囲
+        const int maskXStart = std::max(0, -maskOffsetX);
+        const int maskXEnd = std::min(outWidth, maskWidth - maskOffsetX);
 
-            // マスク範囲外の左側（alpha=0）
-            if (maskXStart > 0) {
-                copyRowRegion(outRow, bgRow, bgOffsetX, bgWidth, 0, maskXStart);
-            }
+        // マスク範囲外の左側（alpha=0）
+        if (maskXStart > 0) {
+            copyRowRegion(outRow, bgRow, bgOffsetX, bgWidth, 0, maskXStart);
+        }
 
-            // マスク有効範囲内をランレングス処理
-            int x = maskXStart;
-            uint8_t currentAlpha = (x < maskXEnd) ? maskRow[x + maskOffsetX] : 0;
+        // マスク有効範囲内をランレングス処理
+        int x = maskXStart;
+        uint8_t currentAlpha = (x < maskXEnd) ? maskRow[x + maskOffsetX] : 0;
 
+        while (x < maskXEnd) {
+            const uint8_t runAlpha = currentAlpha;
+            const int runStart = x;
+
+            // 同じalpha値が続く限り進む
             while (x < maskXEnd) {
-                const uint8_t runAlpha = currentAlpha;
-                const int runStart = x;
-
-                // 同じalpha値が続く限り進む
-                while (x < maskXEnd) {
-                    x++;
-                    if (x < maskXEnd) {
-                        currentAlpha = maskRow[x + maskOffsetX];
-                        if (currentAlpha != runAlpha) break;
-                    }
-                }
-                const int runLength = x - runStart;
-
-                if (runAlpha == 0) {
-                    // 背景のみコピー
-                    copyRowRegion(outRow, bgRow, bgOffsetX, bgWidth, runStart, runStart + runLength);
-                } else if (runAlpha == 255) {
-                    // 前景のみコピー
-                    copyRowRegion(outRow, fgRow, fgOffsetX, fgWidth, runStart, runStart + runLength);
-                } else {
-                    // 中間値: 同じalpha値で複数ピクセルを一括ブレンド
-                    blendPixels(outRow, runStart, runLength, runAlpha,
-                                fgRow, fgOffsetX, fgWidth,
-                                bgRow, bgOffsetX, bgWidth);
+                x++;
+                if (x < maskXEnd) {
+                    currentAlpha = maskRow[x + maskOffsetX];
+                    if (currentAlpha != runAlpha) break;
                 }
             }
+            const int runLength = x - runStart;
 
-            // マスク範囲外の右側（alpha=0）
-            if (maskXEnd < outWidth) {
-                copyRowRegion(outRow, bgRow, bgOffsetX, bgWidth, maskXEnd, outWidth);
+            if (runAlpha == 0) {
+                // 背景のみコピー
+                copyRowRegion(outRow, bgRow, bgOffsetX, bgWidth, runStart, runStart + runLength);
+            } else if (runAlpha == 255) {
+                // 前景のみコピー
+                copyRowRegion(outRow, fgRow, fgOffsetX, fgWidth, runStart, runStart + runLength);
+            } else {
+                // 中間値: 同じalpha値で複数ピクセルを一括ブレンド
+                blendPixels(outRow, runStart, runLength, runAlpha,
+                            fgRow, fgOffsetX, fgWidth,
+                            bgRow, bgOffsetX, bgWidth);
             }
+        }
+
+        // マスク範囲外の右側（alpha=0）
+        if (maskXEnd < outWidth) {
+            copyRowRegion(outRow, bgRow, bgOffsetX, bgWidth, maskXEnd, outWidth);
         }
     }
 
@@ -511,42 +507,44 @@ private:
         }
     }
 
-    // 画像を出力バッファにコピー（高速パス用）
+    // 画像を出力バッファにコピー（高速パス用、スキャンライン = height==1 前提）
     void copyImageToOutput(uint8_t* outPtr, int outStride, int outWidth, int outHeight,
                            const uint8_t* srcPtr, int srcStride, int srcWidth, int srcHeight,
                            int offsetX, int offsetY) {
-        for (int y = 0; y < outHeight; ++y) {
-            uint8_t* outRow = outPtr + y * outStride;
-            const int srcY = y + offsetY;
+        // height==1前提: ループ不要、y=0固定
+        (void)outStride;   // 未使用警告抑制
+        (void)outHeight;   // 未使用警告抑制
 
-            if (srcY < 0 || srcY >= srcHeight) {
-                // 範囲外 → 透明黒
-                std::memset(outRow, 0, static_cast<size_t>(outWidth) * 4);
-                continue;
-            }
+        uint8_t* outRow = outPtr;  // y=0なのでオフセット不要
+        const int srcY = offsetY;  // y=0 + offsetY
 
-            const uint8_t* srcRow = srcPtr + srcY * srcStride;
+        if (srcY < 0 || srcY >= srcHeight) {
+            // 範囲外 → 透明黒
+            std::memset(outRow, 0, static_cast<size_t>(outWidth) * 4);
+            return;
+        }
 
-            // X範囲を計算
-            const int xStart = std::max(0, -offsetX);
-            const int xEnd = std::min(outWidth, srcWidth - offsetX);
+        const uint8_t* srcRow = srcPtr + srcY * srcStride;
 
-            // 左側の透明部分
-            if (xStart > 0) {
-                std::memset(outRow, 0, static_cast<size_t>(xStart) * 4);
-            }
+        // X範囲を計算
+        const int xStart = std::max(0, -offsetX);
+        const int xEnd = std::min(outWidth, srcWidth - offsetX);
 
-            // 有効部分をコピー
-            if (xEnd > xStart) {
-                std::memcpy(outRow + xStart * 4,
-                            srcRow + (xStart + offsetX) * 4,
-                            static_cast<size_t>(xEnd - xStart) * 4);
-            }
+        // 左側の透明部分
+        if (xStart > 0) {
+            std::memset(outRow, 0, static_cast<size_t>(xStart) * 4);
+        }
 
-            // 右側の透明部分
-            if (xEnd < outWidth) {
-                std::memset(outRow + xEnd * 4, 0, static_cast<size_t>(outWidth - xEnd) * 4);
-            }
+        // 有効部分をコピー
+        if (xEnd > xStart) {
+            std::memcpy(outRow + xStart * 4,
+                        srcRow + (xStart + offsetX) * 4,
+                        static_cast<size_t>(xEnd - xStart) * 4);
+        }
+
+        // 右側の透明部分
+        if (xEnd < outWidth) {
+            std::memset(outRow + xEnd * 4, 0, static_cast<size_t>(outWidth - xEnd) * 4);
         }
     }
 
