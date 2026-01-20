@@ -6,9 +6,6 @@
 #include "../image/image_buffer.h"
 #include "../image/pixel_format.h"
 #include "../operations/canvas_utils.h"
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-#include <chrono>
-#endif
 
 namespace FLEXIMG_NAMESPACE {
 
@@ -109,10 +106,7 @@ public:
         int numInputs = inputCount();
         if (numInputs == 0) return RenderResult();
 
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        uint32_t compositeTime = 0;
-        int compositeCount = 0;
-#endif
+        FLEXIMG_METRICS_SCOPE(NodeType::Composite);
 
         RenderResult canvas;
         bool canvasInitialized = false;
@@ -133,10 +127,6 @@ public:
 
             // フォーマット変換: blend関数が対応していないフォーマットは変換
             inputResult = canvas_utils::ensureBlendableFormat(std::move(inputResult));
-
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-            auto compStart = std::chrono::high_resolution_clock::now();
-#endif
 
             if (!canvasInitialized) {
                 // 最初の非空入力 → 新しいキャンバスを作成
@@ -160,21 +150,7 @@ public:
                 canvas_utils::placeOnto(canvasView, canvas.origin.x, canvas.origin.y,
                                         inputResult.view(), inputResult.origin.x, inputResult.origin.y);
             }
-
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-            compositeTime += std::chrono::duration_cast<std::chrono::microseconds>(
-                std::chrono::high_resolution_clock::now() - compStart).count();
-            compositeCount++;
-#endif
         }
-
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        if (compositeCount > 0) {
-            auto& mComp = PerfMetrics::instance().nodes[NodeType::Composite];
-            mComp.time_us += compositeTime;
-            mComp.count += compositeCount;
-        }
-#endif
 
         // 全ての入力が空だった場合
         if (!canvasInitialized) {
@@ -183,6 +159,9 @@ public:
 
         return canvas;
     }
+
+protected:
+    int nodeTypeForMetrics() const override { return NodeType::Composite; }
 };
 
 } // namespace FLEXIMG_NAMESPACE

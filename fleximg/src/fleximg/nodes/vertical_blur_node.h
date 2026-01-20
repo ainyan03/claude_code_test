@@ -8,9 +8,6 @@
 #include <algorithm>
 #include <cstring>
 #include <cstdint>  // for int32_t, uint32_t
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-#include <chrono>
-#endif
 
 namespace FLEXIMG_NAMESPACE {
 
@@ -332,8 +329,9 @@ private:
         // updateStageCache内で上流をpullするため、計測はこの後から開始
         updateStageCache(passes_ - 1, upstream, request, requestY);
 
+        FLEXIMG_METRICS_SCOPE(NodeType::VerticalBlur);
+
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto start = std::chrono::high_resolution_clock::now();
         auto& metrics = PerfMetrics::instance().nodes[NodeType::VerticalBlur];
         metrics.requestedPixels += static_cast<uint64_t>(request.width) * 1;
         metrics.usedPixels += static_cast<uint64_t>(request.width) * 1;
@@ -349,12 +347,6 @@ private:
 
         // 最終ステージの列合計から出力行を計算
         computeStageOutputRow(stages_[static_cast<size_t>(passes_ - 1)], output, request.width);
-
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        metrics.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::high_resolution_clock::now() - start).count();
-        metrics.count++;
-#endif
 
         return RenderResult(std::move(output), request.origin);
     }

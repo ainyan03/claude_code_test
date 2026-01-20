@@ -4,9 +4,6 @@
 #include "../core/node.h"
 #include "../core/perf_metrics.h"
 #include "../image/image_buffer.h"
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-#include <chrono>
-#endif
 
 namespace FLEXIMG_NAMESPACE {
 
@@ -112,9 +109,7 @@ public:
             return;
         }
 
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto distStart = std::chrono::high_resolution_clock::now();
-#endif
+        FLEXIMG_METRICS_SCOPE(NodeType::Distributor);
 
         int numOutputs = outputCount();
         int validOutputs = 0;
@@ -149,14 +144,6 @@ public:
                 downstream->pushProcess(std::move(input), request);
             }
         }
-
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto distEnd = std::chrono::high_resolution_clock::now();
-        auto& mDist = PerfMetrics::instance().nodes[NodeType::Distributor];
-        mDist.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
-            distEnd - distStart).count();
-        mDist.count += validOutputs;
-#endif
     }
 };
 

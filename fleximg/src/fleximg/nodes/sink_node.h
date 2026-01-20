@@ -5,9 +5,6 @@
 #include "../core/perf_metrics.h"
 #include "../image/viewport.h"
 #include "../operations/transform.h"
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-#include <chrono>
-#endif
 
 namespace FLEXIMG_NAMESPACE {
 
@@ -93,19 +90,11 @@ protected:
 
         if (!input.isValid() || !target_.isValid()) return;
 
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto start = std::chrono::high_resolution_clock::now();
-#endif
+        FLEXIMG_METRICS_SCOPE(NodeType::Sink);
 
         // アフィン変換が伝播されている場合はDDA処理
         if (hasAffine_) {
             pushProcessWithAffine(std::move(input));
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-            auto& metrics = PerfMetrics::instance().nodes[NodeType::Sink];
-            metrics.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
-                std::chrono::high_resolution_clock::now() - start).count();
-            metrics.count++;
-#endif
             return;
         }
 
@@ -130,13 +119,6 @@ protected:
             view_ops::copy(target_, dstX, dstY, inputView, srcX, srcY,
                           static_cast<int>(copyW), static_cast<int>(copyH));
         }
-
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        auto& metrics = PerfMetrics::instance().nodes[NodeType::Sink];
-        metrics.time_us += std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::high_resolution_clock::now() - start).count();
-        metrics.count++;
-#endif
     }
 
 private:
