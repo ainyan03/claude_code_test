@@ -43,6 +43,7 @@ static void alpha8_fromStandard(const uint8_t* src, void* dst, int pixelCount) {
     }
 }
 
+#if 0  // RGBA16_Premultiplied サポート無効化
 // ========================================================================
 // RGBA16_Premultiplied: 16bit Premultiplied ↔ 8bit Straight 変換
 // ========================================================================
@@ -140,6 +141,7 @@ void rgba8StraightToRgba16Premul(const void* src, void* dst, int pixelCount) {
 }
 
 } // namespace DirectConvertFuncs
+#endif
 
 // ========================================================================
 // RGB565_LE: 16bit RGB (Little Endian)
@@ -286,6 +288,7 @@ static void bgr888_fromStandard(const uint8_t* src, void* dst, int pixelCount) {
 
 namespace BuiltinFormats {
 
+#if 0  // RGBA16_Premultiplied サポート無効化
 const PixelFormatDescriptor RGBA16_Premultiplied = {
     "RGBA16_Premultiplied",
     64,  // bitsPerPixel
@@ -307,6 +310,7 @@ const PixelFormatDescriptor RGBA16_Premultiplied = {
     nullptr,  // toStandardIndexed
     nullptr   // fromStandardIndexed
 };
+#endif
 
 const PixelFormatDescriptor RGBA8_Straight = {
     "RGBA8_Straight",

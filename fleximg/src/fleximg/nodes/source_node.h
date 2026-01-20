@@ -177,14 +177,15 @@ public:
                     hasAffine_ = true;
                 }
 
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-                printf("[SourceNode] isDotByDot=%s (invA=%d, invD=%d, invB=%d, invC=%d, txFrac=%d, tyFrac=%d, oxFrac=%d, oyFrac=%d)\n",
-                       isDotByDot ? "true" : "false",
-                       affine_.invMatrix.a, affine_.invMatrix.d,
-                       affine_.invMatrix.b, affine_.invMatrix.c,
-                       affine_.invTxFixed & 0xFFFF, affine_.invTyFixed & 0xFFFF,
-                       originX_ & 0xFFFF, originY_ & 0xFFFF);
-#endif
+// Note: 詳細デバッグ出力は実機では負荷が高いためコメントアウト
+// #ifdef FLEXIMG_DEBUG_PERF_METRICS
+//                 printf("[SourceNode] isDotByDot=%s (invA=%d, invD=%d, invB=%d, invC=%d, txFrac=%d, tyFrac=%d, oxFrac=%d, oyFrac=%d)\n",
+//                        isDotByDot ? "true" : "false",
+//                        affine_.invMatrix.a, affine_.invMatrix.d,
+//                        affine_.invMatrix.b, affine_.invMatrix.c,
+//                        affine_.invTxFixed & 0xFFFF, affine_.invTyFixed & 0xFFFF,
+//                        originX_ & 0xFFFF, originY_ & 0xFFFF);
+// #endif
             } else {
                 // 逆行列が無効（特異行列）
                 hasAffine_ = true;
