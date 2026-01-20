@@ -106,8 +106,6 @@ public:
         int numInputs = inputCount();
         if (numInputs == 0) return RenderResult();
 
-        FLEXIMG_METRICS_SCOPE(NodeType::Composite);
-
         RenderResult canvas;
         bool canvasInitialized = false;
         // バッファ内基準点位置（固定小数点 Q16.16）
@@ -119,11 +117,14 @@ public:
             Node* upstream = upstreamNode(i);
             if (!upstream) continue;
 
-            // 上流を評価（新APIを使用）
+            // 上流を評価（計測対象外）
             RenderResult inputResult = upstream->pullProcess(request);
 
             // 空入力はスキップ
             if (!inputResult.isValid()) continue;
+
+            // ここからCompositeNode自身の処理を計測
+            FLEXIMG_METRICS_SCOPE(NodeType::Composite);
 
             // フォーマット変換: blend関数が対応していないフォーマットは変換
             inputResult = canvas_utils::ensureBlendableFormat(std::move(inputResult));
