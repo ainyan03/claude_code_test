@@ -112,28 +112,19 @@ public:
     }
 
     // ========================================
-    // push型インターフェース
+    // Template Method フック
     // ========================================
 
-    bool pushPrepare(const PrepareRequest& request) override {
-        bool shouldContinue;
-        if (!checkPrepareState(pushPrepareState_, shouldContinue)) {
-            return false;
-        }
-        if (!shouldContinue) {
-            return true;
-        }
-
+    // onPushPrepare: push用状態を初期化し、下流へ伝播
+    bool onPushPrepare(const PrepareRequest& request) override {
         // radius=0の場合はスルー
         if (radius_ == 0) {
             Node* downstream = downstreamNode(0);
             if (downstream) {
                 if (!downstream->pushPrepare(request)) {
-                    pushPrepareState_ = PrepareState::CycleError;
                     return false;
                 }
             }
-            pushPrepareState_ = PrepareState::Prepared;
             return true;
         }
 
@@ -160,16 +151,15 @@ public:
         Node* downstream = downstreamNode(0);
         if (downstream) {
             if (!downstream->pushPrepare(request)) {
-                pushPrepareState_ = PrepareState::CycleError;
                 return false;
             }
         }
 
-        pushPrepareState_ = PrepareState::Prepared;
         return true;
     }
 
-    void pushProcess(RenderResult&& input, const RenderRequest& /* request */) override {
+    // onPushProcess: パイプライン方式で処理
+    void onPushProcess(RenderResult&& input, const RenderRequest& /* request */) override {
         // radius=0の場合はスルー
         if (radius_ == 0) {
             Node* downstream = downstreamNode(0);
@@ -214,10 +204,15 @@ public:
         }
     }
 
-    void pushFinalize() override {
-        // radius=0の場合はスルー
+    // onPushFinalize: 残りの行を出力し、下流へ伝播
+    void onPushFinalize() override {
+        // radius=0の場合はデフォルト動作
         if (radius_ == 0) {
-            Node::pushFinalize();
+            Node* downstream = downstreamNode(0);
+            if (downstream) {
+                downstream->pushFinalize();
+            }
+            finalize();
             return;
         }
 
@@ -242,19 +237,19 @@ public:
             propagatePipelineStages();
         }
 
-        Node::pushFinalize();
+        // デフォルト動作: 下流へ伝播し、finalize()を呼び出す
+        Node* downstream = downstreamNode(0);
+        if (downstream) {
+            downstream->pushFinalize();
+        }
+        finalize();
     }
 
 protected:
     int nodeTypeForMetrics() const override { return NodeType::VerticalBlur; }
 
-    // ========================================
-    // pullProcess オーバーライド
-    // ========================================
-
-    RenderResult pullProcess(const RenderRequest& request) override {
-        // スキャンライン処理: 高さは常に1
-        assert(request.height == 1 && "Scanline processing requires height == 1");
+    // onPullProcess: パイプライン方式で処理
+    RenderResult onPullProcess(const RenderRequest& request) override {
         Node* upstream = upstreamNode(0);
         if (!upstream) return RenderResult();
 
