@@ -8,14 +8,12 @@
 #include "fleximg/core/types.h"
 #include "fleximg/image/render_types.h"
 #include "fleximg/image/image_buffer.h"
-#include "fleximg/operations/transform.h"
 #include "fleximg/nodes/affine_node.h"
 #include "fleximg/nodes/source_node.h"
 #include "fleximg/nodes/sink_node.h"
 #include "fleximg/nodes/renderer_node.h"
 
 #include <cmath>
-#include <algorithm>
 
 using namespace fleximg;
 
@@ -79,98 +77,6 @@ static PixelPos findRedCenter(const ViewPort& view) {
     }
     return {sumX / count, sumY / count, true};
 }
-
-// [DEPRECATED] DDA シミュレーション関連はフォールバック処理で使用されていたため無効化
-#if 0
-// DDA シミュレーションで実際にアクセスされる範囲を計算
-struct ActualAccessRange {
-    int minX = INT32_MAX;
-    int maxX = INT32_MIN;
-    int minY = INT32_MAX;
-    int maxY = INT32_MIN;
-    bool hasAccess = false;
-
-    void update(int x, int y) {
-        minX = std::min(minX, x);
-        maxX = std::max(maxX, x);
-        minY = std::min(minY, y);
-        maxY = std::max(maxY, y);
-        hasAccess = true;
-    }
-};
-
-// DDA シミュレーション（applyAffine と同じロジック）
-static ActualAccessRange simulateDDA(
-    const RenderRequest& request,
-    const Matrix2x2_fixed16& invMatrix,
-    int_fixed8 txFixed8,
-    int_fixed8 tyFixed8,
-    int srcWidth,
-    int srcHeight,
-    int_fixed8 srcOriginX,
-    int_fixed8 srcOriginY
-) {
-    ActualAccessRange range;
-
-    const int outW = request.width;
-    const int outH = request.height;
-
-    const int32_t fixedInvA = invMatrix.a;
-    const int32_t fixedInvB = invMatrix.b;
-    const int32_t fixedInvC = invMatrix.c;
-    const int32_t fixedInvD = invMatrix.d;
-
-    const int32_t dstOriginXInt = from_fixed8(request.origin.x);
-    const int32_t dstOriginYInt = from_fixed8(request.origin.y);
-    const int32_t srcOriginXInt = from_fixed8(srcOriginX);
-    const int32_t srcOriginYInt = from_fixed8(srcOriginY);
-
-    int64_t invTx64 = -(static_cast<int64_t>(txFixed8) * fixedInvA
-                      + static_cast<int64_t>(tyFixed8) * fixedInvB);
-    int64_t invTy64 = -(static_cast<int64_t>(txFixed8) * fixedInvC
-                      + static_cast<int64_t>(tyFixed8) * fixedInvD);
-    int32_t invTxFixed = static_cast<int32_t>(invTx64 >> INT_FIXED8_SHIFT);
-    int32_t invTyFixed = static_cast<int32_t>(invTy64 >> INT_FIXED8_SHIFT);
-
-    const int32_t fixedInvTx = invTxFixed
-                        - (dstOriginXInt * fixedInvA)
-                        - (dstOriginYInt * fixedInvB)
-                        + (srcOriginXInt << INT_FIXED16_SHIFT);
-    const int32_t fixedInvTy = invTyFixed
-                        - (dstOriginXInt * fixedInvC)
-                        - (dstOriginYInt * fixedInvD)
-                        + (srcOriginYInt << INT_FIXED16_SHIFT);
-
-    const int32_t rowOffsetX = fixedInvB >> 1;
-    const int32_t rowOffsetY = fixedInvD >> 1;
-    const int32_t dxOffsetX = fixedInvA >> 1;
-    const int32_t dxOffsetY = fixedInvC >> 1;
-
-    for (int dy = 0; dy < outH; dy++) {
-        int32_t rowBaseX = fixedInvB * dy + fixedInvTx + rowOffsetX;
-        int32_t rowBaseY = fixedInvD * dy + fixedInvTy + rowOffsetY;
-
-        auto [xStart, xEnd] = transform::calcValidRange(fixedInvA, rowBaseX, srcWidth, outW);
-        auto [yStart, yEnd] = transform::calcValidRange(fixedInvC, rowBaseY, srcHeight, outW);
-        int dxStart = std::max({0, xStart, yStart});
-        int dxEnd = std::min({outW - 1, xEnd, yEnd});
-
-        if (dxStart > dxEnd) continue;
-
-        for (int dx = dxStart; dx <= dxEnd; dx++) {
-            int32_t srcX_fixed = fixedInvA * dx + rowBaseX + dxOffsetX;
-            int32_t srcY_fixed = fixedInvC * dx + rowBaseY + dxOffsetY;
-
-            int srcX = static_cast<uint32_t>(srcX_fixed) >> INT_FIXED16_SHIFT;
-            int srcY = static_cast<uint32_t>(srcY_fixed) >> INT_FIXED16_SHIFT;
-
-            range.update(srcX, srcY);
-        }
-    }
-
-    return range;
-}
-#endif  // DEPRECATED: DDA シミュレーション
 
 // =============================================================================
 // AffineNode Basic Tests
@@ -249,135 +155,6 @@ TEST_CASE("AffineNode setTranslation") {
 }
 
 // =============================================================================
-// AffineNode prepare() Tests
-// =============================================================================
-
-TEST_CASE("AffineNode prepare computes inverse matrix") {
-    AffineNode node;
-
-    SUBCASE("identity matrix") {
-        RenderRequest req;
-        req.width = 64;
-        req.height = 64;
-        req.origin = Point(to_fixed8(32), to_fixed8(32));
-        node.prepare(req);
-
-        const auto& inv = node.getInvMatrix();
-        CHECK(inv.valid);
-    }
-
-    SUBCASE("rotation + scale") {
-        float angle = static_cast<float>(M_PI / 4.0);  // 45度
-        float scale = 2.0f;
-        float c = std::cos(angle) * scale;
-        float s = std::sin(angle) * scale;
-
-        AffineMatrix m;
-        m.a = c;  m.b = -s;
-        m.c = s;  m.d = c;
-        node.setMatrix(m);
-
-        RenderRequest req;
-        req.width = 64;
-        req.height = 64;
-        req.origin = Point(to_fixed8(32), to_fixed8(32));
-        node.prepare(req);
-
-        const auto& inv = node.getInvMatrix();
-        CHECK(inv.valid);
-    }
-}
-
-// =============================================================================
-// AffineNode computeInputRegion Tests (Margin Validation)
-// =============================================================================
-
-// [DEPRECATED] このテストはフォールバック処理（testComputeInputRegion）を使用するため無効化
-#if 0
-TEST_CASE("AffineNode computeInputRegion margin validation") {
-    // AABB が実際の DDA アクセス範囲をカバーしていることを確認
-
-    auto testMargin = [](float angleDeg, float scale, float tx, float ty,
-                         int outWidth, int outHeight) -> bool {
-        AffineNode node;
-        float rad = angleDeg * static_cast<float>(M_PI) / 180.0f;
-        float c = std::cos(rad) * scale;
-        float s = std::sin(rad) * scale;
-        AffineMatrix matrix;
-        matrix.a = c;   matrix.b = -s;
-        matrix.c = s;   matrix.d = c;
-        matrix.tx = tx; matrix.ty = ty;
-        node.setMatrix(matrix);
-
-        RenderRequest screenInfo;
-        screenInfo.width = static_cast<int16_t>(outWidth);
-        screenInfo.height = static_cast<int16_t>(outHeight);
-        screenInfo.origin = Point(to_fixed8(outWidth / 2), to_fixed8(outHeight / 2));
-        node.prepare(screenInfo);
-
-        RenderRequest request;
-        request.width = static_cast<int16_t>(outWidth);
-        request.height = static_cast<int16_t>(outHeight);
-        request.origin = Point(to_fixed8(outWidth / 2), to_fixed8(outHeight / 2));
-
-        auto region = node.testComputeInputRegion(request);
-
-        int inputWidth = region.aabbRight - region.aabbLeft + 1;
-        int inputHeight = region.aabbBottom - region.aabbTop + 1;
-        int_fixed8 srcOriginX = to_fixed8(-region.aabbLeft);
-        int_fixed8 srcOriginY = to_fixed8(-region.aabbTop);
-
-        ActualAccessRange actual = simulateDDA(
-            request,
-            node.getInvMatrix(),
-            node.getTxFixed(),
-            node.getTyFixed(),
-            inputWidth,
-            inputHeight,
-            srcOriginX,
-            srcOriginY
-        );
-
-        if (!actual.hasAccess) return true;
-
-        int actualMinX = actual.minX + region.aabbLeft;
-        int actualMaxX = actual.maxX + region.aabbLeft;
-        int actualMinY = actual.minY + region.aabbTop;
-        int actualMaxY = actual.maxY + region.aabbTop;
-
-        return (region.aabbLeft <= actualMinX &&
-                region.aabbRight >= actualMaxX &&
-                region.aabbTop <= actualMinY &&
-                region.aabbBottom >= actualMaxY);
-    };
-
-    SUBCASE("identity transform") {
-        CHECK(testMargin(0.0f, 1.0f, 0, 0, 64, 64));
-    }
-
-    SUBCASE("45 degree rotation") {
-        CHECK(testMargin(45.0f, 1.0f, 0, 0, 64, 64));
-    }
-
-    SUBCASE("90 degree rotation") {
-        CHECK(testMargin(90.0f, 1.0f, 0, 0, 64, 64));
-    }
-
-    SUBCASE("30 degree with translation") {
-        CHECK(testMargin(30.0f, 1.0f, 0.5f, 0.5f, 32, 32));
-    }
-
-    SUBCASE("scale 2x with rotation") {
-        CHECK(testMargin(60.0f, 2.0f, 0, 0, 64, 64));
-    }
-
-    SUBCASE("149.8 degree scale 3x (known issue condition)") {
-        CHECK(testMargin(149.8f, 3.0f, 0, 0, 64, 64));
-    }
-}
-#endif  // DEPRECATED
-
-// =============================================================================
 // AffineNode Pull Mode Tests
 // =============================================================================
 
@@ -406,7 +183,6 @@ TEST_CASE("AffineNode pull mode translation only") {
 
     PixelPos pos = findRedCenter(dstView);
     CHECK(pos.found);
-    // 位置がキャンバス内に収まっていることを確認
     CHECK(pos.x >= 0);
     CHECK(pos.x < canvasW);
     CHECK(pos.y >= 0);
@@ -445,7 +221,6 @@ TEST_CASE("AffineNode pull mode translation with rotation") {
 
     PixelPos pos = findRedCenter(dstView);
     CHECK(pos.found);
-    // 位置がキャンバス内に収まっていることを確認
     CHECK(pos.x >= 0);
     CHECK(pos.x < canvasW);
     CHECK(pos.y >= 0);
@@ -478,7 +253,6 @@ TEST_CASE("AffineNode pull mode with tile splitting") {
 
     PixelPos pos = findRedCenter(dstView);
     CHECK(pos.found);
-    // 位置がキャンバス内に収まっていることを確認
     CHECK(pos.x >= 0);
     CHECK(pos.x < canvasW);
     CHECK(pos.y >= 0);
