@@ -211,6 +211,8 @@ public:
 
     // SourceNodeは入力がないため、pullProcess()を直接オーバーライド
     RenderResult pullProcess(const RenderRequest& request) override {
+        // スキャンライン処理: 高さは常に1
+        assert(request.height == 1 && "Scanline processing requires height == 1");
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         auto sourceStart = std::chrono::high_resolution_clock::now();
 #endif

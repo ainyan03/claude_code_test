@@ -259,6 +259,8 @@ public:
     // ========================================
 
     RenderResult pullProcess(const RenderRequest& request) override {
+        // スキャンライン処理: 高さは常に1
+        assert(request.height == 1 && "Scanline processing requires height == 1");
         // 循環エラー状態ならスキップ（無限再帰防止）
         if (pullPrepareState_ != PrepareState::Prepared) {
             return RenderResult();

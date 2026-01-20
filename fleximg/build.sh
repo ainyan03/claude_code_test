@@ -12,11 +12,13 @@ set -e
 # デバッグモード判定
 DEBUG_MODE=0
 DEBUG_FLAGS=""
+RELEASE_FLAGS="-DNDEBUG"  # リリースビルドではassertを無効化
 for arg in "$@"; do
     case $arg in
         --debug)
             DEBUG_MODE=1
             DEBUG_FLAGS="-DFLEXIMG_DEBUG"
+            RELEASE_FLAGS=""  # デバッグビルドではassertを有効化
             ;;
     esac
 done
@@ -72,6 +74,7 @@ emcc src/fleximg/core/memory/platform.cpp \
     -Wconversion -Wsign-conversion -Wshadow -Wcast-qual -Wdouble-promotion \
     -Wformat=2 -Wnull-dereference -Wunused \
     -O3 \
+    $RELEASE_FLAGS \
     $DEBUG_FLAGS \
     -s WASM=1 \
     -s ALLOW_MEMORY_GROWTH=1 \

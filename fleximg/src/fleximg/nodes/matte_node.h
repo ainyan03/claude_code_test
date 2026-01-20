@@ -114,6 +114,8 @@ public:
 
     // マット合成処理
     RenderResult pullProcess(const RenderRequest& request) override {
+        // スキャンライン処理: 高さは常に1
+        assert(request.height == 1 && "Scanline processing requires height == 1");
         if (pullPrepareState_ != PrepareState::Prepared) {
             return RenderResult();
         }
