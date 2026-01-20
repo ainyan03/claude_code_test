@@ -90,6 +90,9 @@ public:
             return true;  // DAG共有ノード: スキップ
         }
 
+        // アロケータを保持
+        allocator_ = request.allocator;
+
         // アフィン情報を受け取り、事前計算を行う
         // position が設定されている場合も、アフィン行列に合成して処理
         if (request.hasAffine || positionX_ != 0.0f || positionY_ != 0.0f) {
@@ -381,7 +384,7 @@ private:
 
         // 有効範囲のみのバッファを作成
         int validWidth = dxEnd - dxStart + 1;
-        ImageBuffer output(validWidth, 1, source_.formatID);
+        ImageBuffer output(validWidth, 1, source_.formatID, InitPolicy::Uninitialized, allocator_);
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         PerfMetrics::instance().nodes[NodeType::Source].recordAlloc(
             output.totalBytes(), output.width(), output.height());

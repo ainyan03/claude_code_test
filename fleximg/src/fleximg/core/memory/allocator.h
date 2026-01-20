@@ -49,7 +49,21 @@ public:
 
 class DefaultAllocator : public IAllocator {
 public:
+#ifdef FLEXIMG_TRAP_DEFAULT_ALLOCATOR
+    // デバッグ用: トラップ有効フラグ
+    static bool& trapEnabled() {
+        static bool enabled = false;
+        return enabled;
+    }
+#endif
+
     void* allocate(size_t bytes, size_t alignment = 16) override {
+#ifdef FLEXIMG_TRAP_DEFAULT_ALLOCATOR
+        // デバッグ用: トラップ有効時にDefaultAllocatorが使われたら停止
+        if (trapEnabled()) {
+            assert(false && "DefaultAllocator::allocate() called - use backtrace to find caller");
+        }
+#endif
 #ifdef _WIN32
         return _aligned_malloc(bytes, alignment);
 #else

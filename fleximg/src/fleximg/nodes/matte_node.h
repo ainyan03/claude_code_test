@@ -74,6 +74,9 @@ public:
             return true;  // DAG共有ノード: スキップ
         }
 
+        // アロケータを保持
+        allocator_ = request.allocator;
+
         // 全上流へ伝播（3入力）
         for (int i = 0; i < 3; ++i) {
             Node* upstream = upstreamNode(i);
@@ -102,6 +105,9 @@ public:
             return;
         }
         pullPrepareState_ = PrepareState::Idle;
+
+        // アロケータをクリア
+        allocator_ = nullptr;
 
         finalize();
         for (int i = 0; i < 3; ++i) {
@@ -257,7 +263,8 @@ public:
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         auto startTime = std::chrono::high_resolution_clock::now();
 #endif
-        ImageBuffer outputBuf(unionWidth, unionHeight, PixelFormatIDs::RGBA8_Straight);
+        ImageBuffer outputBuf(unionWidth, unionHeight, PixelFormatIDs::RGBA8_Straight,
+                              InitPolicy::Uninitialized, allocator_);
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         PerfMetrics::instance().nodes[NodeType::Matte].recordAlloc(
@@ -554,7 +561,8 @@ private:
     RenderResult createClippedResult(const RenderResult& src,
                                      int_fixed unionOriginX, int_fixed unionOriginY,
                                      int unionWidth, int unionHeight) {
-        ImageBuffer outputBuf(unionWidth, unionHeight, PixelFormatIDs::RGBA8_Straight);
+        ImageBuffer outputBuf(unionWidth, unionHeight, PixelFormatIDs::RGBA8_Straight,
+                              InitPolicy::Uninitialized, allocator_);
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         PerfMetrics::instance().nodes[NodeType::Matte].recordAlloc(

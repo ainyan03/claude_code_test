@@ -510,7 +510,7 @@ private:
         stage.rowOriginX.assign(cacheRows, 0);
         for (size_t i = 0; i < cacheRows; i++) {
             stage.rowCache[i] = ImageBuffer(width, 1, PixelFormatIDs::RGBA8_Straight,
-                                            InitPolicy::Zero);
+                                            InitPolicy::Zero, allocator_);
         }
         stage.colSumR.assign(static_cast<size_t>(width), 0);
         stage.colSumG.assign(static_cast<size_t>(width), 0);
