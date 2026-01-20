@@ -84,85 +84,89 @@ static const char* scenarioNames[] = {
 };
 
 // ========================================================================
-// 画像生成ユーティリティ
+// ROM上の固定テスト画像（ヒープを使わない）
 // ========================================================================
 
-// チェッカーボード画像
-static ImageBuffer createCheckerboard(int width, int height, int cellSize = 16) {
-    ImageBuffer img(width, height, PixelFormatIDs::RGBA8_Straight, InitPolicy::Uninitialized);
+// 8x8 チェッカーボード RGBA8 (256 bytes) - 赤/黄
+static const uint8_t checkerData[8 * 8 * 4] = {
+    // Row 0: R Y R Y R Y R Y
+    255,50,50,255,  255,220,50,255, 255,50,50,255,  255,220,50,255,
+    255,50,50,255,  255,220,50,255, 255,50,50,255,  255,220,50,255,
+    // Row 1: Y R Y R Y R Y R
+    255,220,50,255, 255,50,50,255,  255,220,50,255, 255,50,50,255,
+    255,220,50,255, 255,50,50,255,  255,220,50,255, 255,50,50,255,
+    // Row 2
+    255,50,50,255,  255,220,50,255, 255,50,50,255,  255,220,50,255,
+    255,50,50,255,  255,220,50,255, 255,50,50,255,  255,220,50,255,
+    // Row 3
+    255,220,50,255, 255,50,50,255,  255,220,50,255, 255,50,50,255,
+    255,220,50,255, 255,50,50,255,  255,220,50,255, 255,50,50,255,
+    // Row 4
+    255,50,50,255,  255,220,50,255, 255,50,50,255,  255,220,50,255,
+    255,50,50,255,  255,220,50,255, 255,50,50,255,  255,220,50,255,
+    // Row 5
+    255,220,50,255, 255,50,50,255,  255,220,50,255, 255,50,50,255,
+    255,220,50,255, 255,50,50,255,  255,220,50,255, 255,50,50,255,
+    // Row 6
+    255,50,50,255,  255,220,50,255, 255,50,50,255,  255,220,50,255,
+    255,50,50,255,  255,220,50,255, 255,50,50,255,  255,220,50,255,
+    // Row 7
+    255,220,50,255, 255,50,50,255,  255,220,50,255, 255,50,50,255,
+    255,220,50,255, 255,50,50,255,  255,220,50,255, 255,50,50,255,
+};
 
-    for (int y = 0; y < height; ++y) {
-        uint8_t* row = static_cast<uint8_t*>(img.pixelAt(0, y));
-        for (int x = 0; x < width; ++x) {
-            bool isEven = ((x / cellSize) + (y / cellSize)) % 2 == 0;
-            if (isEven) {
-                row[x * 4 + 0] = 255;  // R
-                row[x * 4 + 1] = 50;   // G
-                row[x * 4 + 2] = 50;   // B
-            } else {
-                row[x * 4 + 0] = 255;  // R
-                row[x * 4 + 1] = 220;  // G
-                row[x * 4 + 2] = 50;   // B
-            }
-            row[x * 4 + 3] = 255;  // A
-        }
-    }
-    return img;
-}
+// 8x8 青/シアン ストライプ RGBA8 (256 bytes)
+static const uint8_t stripeData[8 * 8 * 4] = {
+    // 縦ストライプ: 青 青 シアン シアン 青 青 シアン シアン
+    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
+    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
+    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
+    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
+    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
+    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
+    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
+    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
+    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
+    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
+    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
+    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
+    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
+    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
+    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
+    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
+};
 
-// ストライプ画像
-static ImageBuffer createStripes(int width, int height, int stripeWidth = 12) {
-    ImageBuffer img(width, height, PixelFormatIDs::RGBA8_Straight, InitPolicy::Uninitialized);
+// 8x8 円形マスク Alpha8 (64 bytes)
+static const uint8_t circleMaskData[8 * 8] = {
+    0,   0,   128, 255, 255, 128, 0,   0,
+    0,   200, 255, 255, 255, 255, 200, 0,
+    128, 255, 255, 255, 255, 255, 255, 128,
+    255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255,
+    128, 255, 255, 255, 255, 255, 255, 128,
+    0,   200, 255, 255, 255, 255, 200, 0,
+    0,   0,   128, 255, 255, 128, 0,   0,
+};
 
-    for (int y = 0; y < height; ++y) {
-        uint8_t* row = static_cast<uint8_t*>(img.pixelAt(0, y));
-        float gradientFactor = static_cast<float>(y) / static_cast<float>(height);
-
-        for (int x = 0; x < width; ++x) {
-            bool isStripe = (x / stripeWidth) % 2 == 0;
-            if (isStripe) {
-                row[x * 4 + 0] = static_cast<uint8_t>(30 + 50 * gradientFactor);
-                row[x * 4 + 1] = static_cast<uint8_t>(80 + 100 * gradientFactor);
-                row[x * 4 + 2] = static_cast<uint8_t>(180 + 75 * gradientFactor);
-            } else {
-                row[x * 4 + 0] = static_cast<uint8_t>(30 + 70 * gradientFactor);
-                row[x * 4 + 1] = static_cast<uint8_t>(150 + 105 * gradientFactor);
-                row[x * 4 + 2] = static_cast<uint8_t>(180 + 75 * gradientFactor);
-            }
-            row[x * 4 + 3] = 255;
-        }
-    }
-    return img;
-}
-
-// 円形マスク
-static ImageBuffer createCircleMask(int width, int height) {
-    ImageBuffer img(width, height, PixelFormatIDs::Alpha8, InitPolicy::Uninitialized);
-
-    float centerX = static_cast<float>(width) / 2.0f;
-    float centerY = static_cast<float>(height) / 2.0f;
-    float radius = std::min(centerX, centerY) * 0.9f;
-
-    for (int y = 0; y < height; ++y) {
-        uint8_t* row = static_cast<uint8_t*>(img.pixelAt(0, y));
-        for (int x = 0; x < width; ++x) {
-            float dx = static_cast<float>(x) - centerX;
-            float dy = static_cast<float>(y) - centerY;
-            float dist = std::sqrt(dx * dx + dy * dy);
-            row[x] = (dist < radius) ? 255 : 0;
-        }
-    }
-    return img;
+// ROM画像用のViewPort作成ヘルパー
+static ViewPort createRomView(const uint8_t* data, int w, int h, PixelFormatID fmt) {
+    ViewPort vp;
+    vp.data = const_cast<uint8_t*>(data);  // ROM参照のためconst_cast
+    vp.width = w;
+    vp.height = h;
+    vp.stride = w * getPixelSize(fmt);
+    vp.formatID = fmt;
+    return vp;
 }
 
 // ========================================================================
 // グローバル変数
 // ========================================================================
 
-// 画像バッファ
-static ImageBuffer image1;
-static ImageBuffer image2;
-static ImageBuffer maskImage;
+// ROM画像用ViewPort（動的メモリ確保なし）
+static ViewPort image1View;
+static ViewPort image2View;
+static ViewPort maskView;
 
 // ノード
 static SourceNode source1;
@@ -213,14 +217,15 @@ static void setupPipeline(Scenario scenario) {
     lcdSink.setOrigin(float_to_fixed(drawW / 2.0f), float_to_fixed(drawH / 2.0f));
 
     // ソース設定
-    source1.setSource(image1.view());
-    source1.setOrigin(float_to_fixed(image1.width() / 2.0f), float_to_fixed(image1.height() / 2.0f));
+    // ROM画像をソースに設定
+    source1.setSource(image1View);
+    source1.setOrigin(float_to_fixed(image1View.width / 2.0f), float_to_fixed(image1View.height / 2.0f));
 
-    source2.setSource(image2.view());
-    source2.setOrigin(float_to_fixed(image2.width() / 2.0f), float_to_fixed(image2.height() / 2.0f));
+    source2.setSource(image2View);
+    source2.setOrigin(float_to_fixed(image2View.width / 2.0f), float_to_fixed(image2View.height / 2.0f));
 
-    maskSource.setSource(maskImage.view());
-    maskSource.setOrigin(float_to_fixed(maskImage.width() / 2.0f), float_to_fixed(maskImage.height() / 2.0f));
+    maskSource.setSource(maskView);
+    maskSource.setOrigin(float_to_fixed(maskView.width / 2.0f), float_to_fixed(maskView.height / 2.0f));
 
     // シナリオ別パイプライン構築
     switch (scenario) {
@@ -403,10 +408,10 @@ void setup() {
     static PoolAllocatorAdapter adapter(internalPool);
     poolAdapter = &adapter;
 
-    // 画像作成
-    image1 = createCheckerboard(30, 30);
-    image2 = createStripes(40, 40);
-    maskImage = createCircleMask(50, 50);
+    // ROM上の固定画像をViewPortとして参照（ヒープ確保なし）
+    image1View = createRomView(checkerData, 8, 8, PixelFormatIDs::RGBA8_Straight);
+    image2View = createRomView(stripeData, 8, 8, PixelFormatIDs::RGBA8_Straight);
+    maskView = createRomView(circleMaskData, 8, 8, PixelFormatIDs::Alpha8);
 
     // 初期パイプライン構築
     setupPipeline(currentScenario);
