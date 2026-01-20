@@ -73,12 +73,12 @@ static_assert(NodeType::VerticalBlur == 11,
 struct NodeMetrics {
     uint32_t time_us = 0;         // 処理時間（マイクロ秒）
     int count = 0;                // 呼び出し回数
-    uint64_t requestedPixels = 0; // 上流に要求したピクセル数
-    uint64_t usedPixels = 0;      // 実際に使用したピクセル数
-    uint64_t theoreticalMinPixels = 0; // 理論最小ピクセル数（分割時の推定値）
-    uint64_t allocatedBytes = 0;  // このノードが確保したバイト数
+    uint32_t requestedPixels = 0; // 上流に要求したピクセル数
+    uint32_t usedPixels = 0;      // 実際に使用したピクセル数
+    uint32_t theoreticalMinPixels = 0; // 理論最小ピクセル数（分割時の推定値）
+    uint32_t allocatedBytes = 0;  // このノードが確保したバイト数
     int allocCount = 0;           // 確保回数
-    uint64_t maxAllocBytes = 0;   // 一回の最大確保バイト数
+    uint32_t maxAllocBytes = 0;   // 一回の最大確保バイト数
     int maxAllocWidth = 0;        // その時の幅
     int maxAllocHeight = 0;       // その時の高さ
 
@@ -107,10 +107,10 @@ struct NodeMetrics {
 
     // メモリ確保を記録
     void recordAlloc(size_t bytes, int width, int height) {
-        allocatedBytes += bytes;
+        allocatedBytes += static_cast<uint32_t>(bytes);
         allocCount++;
-        if (bytes > maxAllocBytes) {
-            maxAllocBytes = bytes;
+        if (static_cast<uint32_t>(bytes) > maxAllocBytes) {
+            maxAllocBytes = static_cast<uint32_t>(bytes);
             maxAllocWidth = width;
             maxAllocHeight = height;
         }
@@ -121,10 +121,10 @@ struct PerfMetrics {
     NodeMetrics nodes[NodeType::Count];
 
     // グローバル統計（パイプライン全体）
-    uint64_t totalAllocatedBytes = 0;  // 累計確保バイト数
-    uint64_t peakMemoryBytes = 0;      // ピークメモリ使用量
-    uint64_t currentMemoryBytes = 0;   // 現在のメモリ使用量
-    uint64_t maxAllocBytes = 0;        // 一回の最大確保バイト数
+    uint32_t totalAllocatedBytes = 0;  // 累計確保バイト数
+    uint32_t peakMemoryBytes = 0;      // ピークメモリ使用量
+    uint32_t currentMemoryBytes = 0;   // 現在のメモリ使用量
+    uint32_t maxAllocBytes = 0;        // 一回の最大確保バイト数
     int maxAllocWidth = 0;             // その時の幅
     int maxAllocHeight = 0;            // その時の高さ
 
@@ -156,21 +156,22 @@ struct PerfMetrics {
     }
 
     // 全ノード合計の確保バイト数
-    uint64_t totalNodeAllocatedBytes() const {
-        uint64_t sum = 0;
+    uint32_t totalNodeAllocatedBytes() const {
+        uint32_t sum = 0;
         for (const auto& n : nodes) sum += n.allocatedBytes;
         return sum;
     }
 
     // メモリ確保を記録（ImageBuffer作成時に呼ぶ）
     void recordAlloc(size_t bytes, int width = 0, int height = 0) {
-        totalAllocatedBytes += bytes;
-        currentMemoryBytes += bytes;
+        uint32_t b = static_cast<uint32_t>(bytes);
+        totalAllocatedBytes += b;
+        currentMemoryBytes += b;
         if (currentMemoryBytes > peakMemoryBytes) {
             peakMemoryBytes = currentMemoryBytes;
         }
-        if (bytes > maxAllocBytes) {
-            maxAllocBytes = bytes;
+        if (b > maxAllocBytes) {
+            maxAllocBytes = b;
             maxAllocWidth = width;
             maxAllocHeight = height;
         }
@@ -178,8 +179,9 @@ struct PerfMetrics {
 
     // メモリ解放を記録（ImageBuffer破棄時に呼ぶ）
     void recordFree(size_t bytes) {
-        if (currentMemoryBytes >= bytes) {
-            currentMemoryBytes -= bytes;
+        uint32_t b = static_cast<uint32_t>(bytes);
+        if (currentMemoryBytes >= b) {
+            currentMemoryBytes -= b;
         } else {
             currentMemoryBytes = 0;
         }
