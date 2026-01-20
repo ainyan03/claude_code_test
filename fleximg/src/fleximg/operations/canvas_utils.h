@@ -17,8 +17,12 @@ namespace canvas_utils {
 
 // キャンバス作成（RGBA16_Premultiplied）
 // 合成処理に適したフォーマットでバッファを確保
-inline ImageBuffer createCanvas(int width, int height) {
-    return ImageBuffer(width, height, PixelFormatIDs::RGBA16_Premultiplied);
+// init: 初期化ポリシー（デフォルトはDefaultInitPolicy）
+//   - 全面を画像で埋める場合: DefaultInitPolicy（初期化スキップ可）
+//   - 部分的な描画の場合: InitPolicy::Zero（透明で初期化）
+inline ImageBuffer createCanvas(int width, int height,
+                                InitPolicy init = DefaultInitPolicy) {
+    return ImageBuffer(width, height, PixelFormatIDs::RGBA16_Premultiplied, init);
 }
 
 // 最初の画像をキャンバスに配置

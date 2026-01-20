@@ -129,8 +129,8 @@ public:
             inputResult = canvas_utils::ensureBlendableFormat(std::move(inputResult));
 
             if (!canvasInitialized) {
-                // 最初の非空入力 → 新しいキャンバスを作成
-                ImageBuffer canvasBuf = canvas_utils::createCanvas(request.width, request.height);
+                // 最初の非空入力 → 新しいキャンバスを作成（透明で初期化）
+                ImageBuffer canvasBuf = canvas_utils::createCanvas(request.width, request.height, InitPolicy::Zero);
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
                 PerfMetrics::instance().nodes[NodeType::Composite].recordAlloc(
                     canvasBuf.totalBytes(), canvasBuf.width(), canvasBuf.height());
