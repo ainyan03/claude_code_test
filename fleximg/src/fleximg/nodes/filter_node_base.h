@@ -52,13 +52,11 @@ public:
     const char* name() const override { return "FilterNodeBase"; }
 
     // ========================================
-    // プル型インターフェース
+    // Template Method フック
     // ========================================
 
-    // マージン追加とメトリクス記録を行い、process() に委譲
-    RenderResult pullProcess(const RenderRequest& request) override {
-        // スキャンライン処理: 高さは常に1
-        assert(request.height == 1 && "Scanline processing requires height == 1");
+    // onPullProcess: マージン追加とメトリクス記録を行い、process() に委譲
+    RenderResult onPullProcess(const RenderRequest& request) override {
         Node* upstream = upstreamNode(0);
         if (!upstream) return RenderResult();
 

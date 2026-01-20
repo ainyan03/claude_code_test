@@ -76,23 +76,14 @@ public:
 
     const char* name() const override { return "AffineNode"; }
 
+protected:
     // ========================================
-    // プル型準備（行列伝播）
+    // Template Method フック
     // ========================================
-    //
-    // アフィン行列を上流に伝播し、SourceNodeで一括実行する。
-    // 複数のAffineNodeがある場合は行列を合成する。
-    //
 
-    bool pullPrepare(const PrepareRequest& request) override {
-        bool shouldContinue;
-        if (!checkPrepareState(pullPrepareState_, shouldContinue)) {
-            return false;
-        }
-        if (!shouldContinue) {
-            return true;  // DAG共有ノード: スキップ
-        }
-
+    // onPullPrepare: アフィン行列を上流に伝播し、SourceNodeで一括実行
+    // 複数のAffineNodeがある場合は行列を合成する
+    bool onPullPrepare(const PrepareRequest& request) override {
         // 上流に渡すためのコピーを作成し、自身の行列を累積
         PrepareRequest upstreamRequest = request;
         if (upstreamRequest.hasAffine) {
@@ -107,32 +98,15 @@ public:
         Node* upstream = upstreamNode(0);
         if (upstream) {
             if (!upstream->pullPrepare(upstreamRequest)) {
-                pullPrepareState_ = PrepareState::CycleError;
                 return false;
             }
         }
-
-        pullPrepareState_ = PrepareState::Prepared;
         return true;
     }
 
-    // ========================================
-    // プッシュ型準備（行列伝播）
-    // ========================================
-    //
-    // アフィン行列を下流に伝播し、SinkNodeで一括実行する。
-    // 複数のAffineNodeがある場合は行列を合成する。
-    //
-
-    bool pushPrepare(const PrepareRequest& request) override {
-        bool shouldContinue;
-        if (!checkPrepareState(pushPrepareState_, shouldContinue)) {
-            return false;
-        }
-        if (!shouldContinue) {
-            return true;  // DAG共有ノード: スキップ
-        }
-
+    // onPushPrepare: アフィン行列を下流に伝播し、SinkNodeで一括実行
+    // 複数のAffineNodeがある場合は行列を合成する
+    bool onPushPrepare(const PrepareRequest& request) override {
         // 下流に渡すためのコピーを作成し、自身の行列を累積
         PrepareRequest downstreamRequest = request;
         if (downstreamRequest.hasPushAffine) {
@@ -147,45 +121,29 @@ public:
         Node* downstream = downstreamNode(0);
         if (downstream) {
             if (!downstream->pushPrepare(downstreamRequest)) {
-                pushPrepareState_ = PrepareState::CycleError;
                 return false;
             }
         }
-
-        pushPrepareState_ = PrepareState::Prepared;
         return true;
     }
 
-    // ========================================
-    // プル型インターフェース
-    // ========================================
-
-    RenderResult pullProcess(const RenderRequest& request) override {
-        assert(request.height == 1 && "Scanline processing requires height == 1");
-        if (pullPrepareState_ != PrepareState::Prepared) {
-            return RenderResult();
-        }
+    // onPullProcess: AffineNodeは行列を保持するのみ、パススルー
+    RenderResult onPullProcess(const RenderRequest& request) override {
         Node* upstream = upstreamNode(0);
         if (!upstream) return RenderResult();
         return upstream->pullProcess(request);
     }
 
-    // ========================================
-    // プッシュ型インターフェース
-    // ========================================
-
-    void pushProcess(RenderResult&& input,
-                     const RenderRequest& request) override {
-        if (pushPrepareState_ != PrepareState::Prepared) {
-            return;
-        }
+    // onPushProcess: AffineNodeは行列を保持するのみ、パススルー
+    void onPushProcess(RenderResult&& input,
+                       const RenderRequest& request) override {
         Node* downstream = downstreamNode(0);
         if (downstream) {
             downstream->pushProcess(std::move(input), request);
         }
     }
 
-protected:
+
     int nodeTypeForMetrics() const override { return NodeType::Affine; }
 
 private:

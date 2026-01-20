@@ -59,30 +59,18 @@ public:
 protected:
     int nodeTypeForMetrics() const override { return NodeType::Matte; }
 
-public:
+protected:
     // ========================================
-    // プル型インターフェース
+    // Template Method フック
     // ========================================
 
-    // 全上流ノードにPrepareRequestを伝播
-    bool pullPrepare(const PrepareRequest& request) override {
-        bool shouldContinue;
-        if (!checkPrepareState(pullPrepareState_, shouldContinue)) {
-            return false;
-        }
-        if (!shouldContinue) {
-            return true;  // DAG共有ノード: スキップ
-        }
-
-        // アロケータを保持
-        allocator_ = request.allocator;
-
+    // onPullPrepare: 全上流ノードにPrepareRequestを伝播
+    bool onPullPrepare(const PrepareRequest& request) override {
         // 全上流へ伝播（3入力）
         for (int i = 0; i < 3; ++i) {
             Node* upstream = upstreamNode(i);
             if (upstream) {
                 if (!upstream->pullPrepare(request)) {
-                    pullPrepareState_ = PrepareState::CycleError;
                     return false;
                 }
             }
@@ -95,20 +83,11 @@ public:
         screenInfo.origin = request.origin;
         prepare(screenInfo);
 
-        pullPrepareState_ = PrepareState::Prepared;
         return true;
     }
 
-    // 全上流ノードに終了を伝播
-    void pullFinalize() override {
-        if (pullPrepareState_ == PrepareState::Idle) {
-            return;
-        }
-        pullPrepareState_ = PrepareState::Idle;
-
-        // アロケータをクリア
-        allocator_ = nullptr;
-
+    // onPullFinalize: 全上流ノードに終了を伝播
+    void onPullFinalize() override {
         finalize();
         for (int i = 0; i < 3; ++i) {
             Node* upstream = upstreamNode(i);
@@ -118,13 +97,8 @@ public:
         }
     }
 
-    // マット合成処理
-    RenderResult pullProcess(const RenderRequest& request) override {
-        // スキャンライン処理: 高さは常に1
-        assert(request.height == 1 && "Scanline processing requires height == 1");
-        if (pullPrepareState_ != PrepareState::Prepared) {
-            return RenderResult();
-        }
+    // onPullProcess: マット合成処理
+    RenderResult onPullProcess(const RenderRequest& request) override {
 
         Node* fgNode = upstreamNode(0);    // 前景 (foreground)
         Node* bgNode = upstreamNode(1);    // 背景 (background)

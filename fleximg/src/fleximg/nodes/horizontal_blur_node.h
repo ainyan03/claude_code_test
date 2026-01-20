@@ -76,12 +76,11 @@ protected:
     int nodeTypeForMetrics() const override { return NodeType::HorizontalBlur; }
 
     // ========================================
-    // pullProcess オーバーライド
+    // Template Method フック
     // ========================================
 
-    RenderResult pullProcess(const RenderRequest& request) override {
-        // スキャンライン処理: 高さは常に1
-        assert(request.height == 1 && "Scanline processing requires height == 1");
+    // onPullProcess: 水平ブラー処理
+    RenderResult onPullProcess(const RenderRequest& request) override {
         Node* upstream = upstreamNode(0);
         if (!upstream) return RenderResult();
 
@@ -176,11 +175,8 @@ protected:
         return RenderResult(std::move(output), request.origin);
     }
 
-    // ========================================
-    // pushProcess オーバーライド
-    // ========================================
-
-    void pushProcess(RenderResult&& input, const RenderRequest& request) override {
+    // onPushProcess: 水平ブラー処理（push型）
+    void onPushProcess(RenderResult&& input, const RenderRequest& request) override {
         // radius=0またはpasses=0の場合はスルー
         if (radius_ == 0 || passes_ == 0) {
             Node* downstream = downstreamNode(0);

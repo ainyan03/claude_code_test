@@ -171,18 +171,11 @@ public:
     int nodeTypeForMetrics() const override { return NodeType::NinePatch; }
 
     // ========================================
-    // PrepareRequest対応
+    // Template Method フック
     // ========================================
 
-    bool pullPrepare(const PrepareRequest& request) override {
-        bool shouldContinue;
-        if (!checkPrepareState(pullPrepareState_, shouldContinue)) {
-            return false;
-        }
-        if (!shouldContinue) {
-            return true;  // DAG共有ノード: スキップ
-        }
-
+    // onPullPrepare: 各区画のSourceNodeにPrepareRequestを伝播
+    bool onPullPrepare(const PrepareRequest& request) override {
         // ジオメトリ計算（まだなら）
         if (!geometryValid_) {
             updatePatchGeometry();
@@ -207,28 +200,20 @@ public:
             patches_[i].pullPrepare(patchRequest);
         }
 
-        pullPrepareState_ = PrepareState::Prepared;
+        // NinePatchSourceNodeは終端なので上流への伝播なし（return trueのみ）
         return true;
     }
 
-    void pullFinalize() override {
-        if (pullPrepareState_ == PrepareState::Idle) {
-            return;
-        }
-        pullPrepareState_ = PrepareState::Idle;
-
+    // onPullFinalize: 各区画のSourceNodeに終了を伝播
+    void onPullFinalize() override {
         for (int i = 0; i < 9; i++) {
             patches_[i].pullFinalize();
         }
+        finalize();
     }
 
-    // ========================================
-    // プル型インターフェース
-    // ========================================
-
-    RenderResult pullProcess(const RenderRequest& request) override {
-        // スキャンライン処理: 高さは常に1
-        assert(request.height == 1 && "Scanline processing requires height == 1");
+    // onPullProcess: 全9区画を処理して合成
+    RenderResult onPullProcess(const RenderRequest& request) override {
         if (!sourceValid_ || outputWidth_ <= 0 || outputHeight_ <= 0) {
             return RenderResult();
         }

@@ -62,21 +62,13 @@ public:
 protected:
     int nodeTypeForMetrics() const override { return 100; }  // カスタムノードID
 
-public:
     // ========================================
-    // プッシュ型準備
+    // Template Method フック
     // ========================================
-    bool pushPrepare(const PrepareRequest& request) override {
-        bool shouldContinue;
-        if (!checkPrepareState(pushPrepareState_, shouldContinue)) {
-            return false;
-        }
-        if (!shouldContinue) {
-            return true;
-        }
 
+    // onPushPrepare: LCD準備
+    bool onPushPrepare(const PrepareRequest& request) override {
         if (!lcd_) {
-            pushPrepareState_ = PrepareState::CycleError;
             return false;
         }
 
@@ -88,19 +80,15 @@ public:
         lcd_->startWrite();
         currentY_ = 0;
 
-        pushPrepareState_ = PrepareState::Prepared;
         return true;
     }
 
-    // ========================================
-    // プッシュ型処理（画像転送）
-    // ========================================
-    void pushProcess(RenderResult&& input,
-                     const RenderRequest& request) override {
+    // onPushProcess: 画像転送
+    void onPushProcess(RenderResult&& input,
+                       const RenderRequest& request) override {
         (void)request;
 
         if (!lcd_) return;
-        if (pushPrepareState_ != PrepareState::Prepared) return;
 
         ViewPort inputView = input.isValid() ? input.view() : ViewPort();
 
@@ -171,14 +159,11 @@ public:
         );
     }
 
-    // ========================================
-    // プッシュ型終了処理
-    // ========================================
-    void pushFinalize() override {
+    // onPushFinalize: LCD終了処理
+    void onPushFinalize() override {
         if (lcd_) {
             lcd_->endWrite();
         }
-        Node::pushFinalize();
     }
 
 private:

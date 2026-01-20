@@ -65,19 +65,11 @@ public:
     int nodeTypeForMetrics() const override { return NodeType::Distributor; }
 
     // ========================================
-    // プッシュ型インターフェース
+    // Template Method フック
     // ========================================
 
-    // 下流へ準備を伝播（全出力へ）
-    bool pushPrepare(const PrepareRequest& request) override {
-        bool shouldContinue;
-        if (!checkPrepareState(pushPrepareState_, shouldContinue)) {
-            return false;
-        }
-        if (!shouldContinue) {
-            return true;  // DAG共有ノード: スキップ
-        }
-
+    // onPushPrepare: 全下流ノードにPrepareRequestを伝播
+    bool onPushPrepare(const PrepareRequest& request) override {
         // 準備処理
         RenderRequest screenInfo;
         screenInfo.width = request.width;
@@ -91,23 +83,16 @@ public:
             Node* downstream = downstreamNode(i);
             if (downstream) {
                 if (!downstream->pushPrepare(request)) {
-                    pushPrepareState_ = PrepareState::CycleError;
                     return false;
                 }
             }
         }
 
-        pushPrepareState_ = PrepareState::Prepared;
         return true;
     }
 
-    // 下流へ終了を伝播（全出力へ）
-    void pushFinalize() override {
-        if (pushPrepareState_ == PrepareState::Idle) {
-            return;
-        }
-        pushPrepareState_ = PrepareState::Idle;
-
+    // onPushFinalize: 全下流ノードに終了を伝播
+    void onPushFinalize() override {
         // 全下流へ伝播
         int numOutputs = outputCount();
         for (int i = 0; i < numOutputs; ++i) {
@@ -119,14 +104,9 @@ public:
         finalize();
     }
 
-    // プッシュ処理: 全出力に参照モードで配信
-    void pushProcess(RenderResult&& input,
-                     const RenderRequest& request) override {
-        // 循環エラー状態ならスキップ
-        if (pushPrepareState_ != PrepareState::Prepared) {
-            return;
-        }
-
+    // onPushProcess: 全出力に参照モードで配信
+    void onPushProcess(RenderResult&& input,
+                       const RenderRequest& request) override {
         // プッシュ型単一入力: 無効なら処理終了
         if (!input.isValid()) {
             return;

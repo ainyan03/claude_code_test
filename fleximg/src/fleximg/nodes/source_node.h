@@ -78,21 +78,12 @@ public:
     const char* name() const override { return "SourceNode"; }
 
     // ========================================
-    // PrepareRequest対応（循環検出+アフィン伝播）
+    // Template Method フック
     // ========================================
 
-    bool pullPrepare(const PrepareRequest& request) override {
-        bool shouldContinue;
-        if (!checkPrepareState(pullPrepareState_, shouldContinue)) {
-            return false;
-        }
-        if (!shouldContinue) {
-            return true;  // DAG共有ノード: スキップ
-        }
-
-        // アロケータを保持
-        allocator_ = request.allocator;
-
+    // onPullPrepare: アフィン情報を受け取り、事前計算を行う
+    // SourceNodeは終端なので上流への伝播なし
+    bool onPullPrepare(const PrepareRequest& request) override {
         // アフィン情報を受け取り、事前計算を行う
         // position が設定されている場合も、アフィン行列に合成して処理
         if (request.hasAffine || positionX_ != 0.0f || positionY_ != 0.0f) {
@@ -203,19 +194,13 @@ public:
             hasAffine_ = false;
         }
 
-        // SourceNodeは終端なので上流への伝播なし
-        pullPrepareState_ = PrepareState::Prepared;
+        // SourceNodeは終端なので上流への伝播なし（return trueのみ）
         return true;
     }
 
-    // ========================================
-    // プル型インターフェース
-    // ========================================
-
-    // SourceNodeは入力がないため、pullProcess()を直接オーバーライド
-    RenderResult pullProcess(const RenderRequest& request) override {
-        // スキャンライン処理: 高さは常に1
-        assert(request.height == 1 && "Scanline processing requires height == 1");
+    // onPullProcess: ソース画像のスキャンラインを返す
+    // SourceNodeは入力がないため、上流を呼び出さずに直接処理
+    RenderResult onPullProcess(const RenderRequest& request) override {
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         auto sourceStart = std::chrono::high_resolution_clock::now();
 #endif

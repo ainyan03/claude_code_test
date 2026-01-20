@@ -52,20 +52,14 @@ public:
 protected:
     int nodeTypeForMetrics() const override { return NodeType::Sink; }
 
-public:
+protected:
     // ========================================
-    // プッシュ型準備（アフィン情報受け取り）
+    // Template Method フック
     // ========================================
 
-    bool pushPrepare(const PrepareRequest& request) override {
-        bool shouldContinue;
-        if (!checkPrepareState(pushPrepareState_, shouldContinue)) {
-            return false;
-        }
-        if (!shouldContinue) {
-            return true;  // DAG共有ノード: スキップ
-        }
-
+    // onPushPrepare: アフィン情報を受け取り、事前計算を行う
+    // SinkNodeは終端なので下流への伝播なし
+    bool onPushPrepare(const PrepareRequest& request) override {
         // アフィン情報を受け取り、事前計算を行う
         if (request.hasPushAffine) {
             // 逆行列とピクセル中心オフセットを計算（共通処理）
@@ -87,18 +81,14 @@ public:
             hasAffine_ = false;
         }
 
-        // SinkNodeは終端なので下流への伝播なし
-        pushPrepareState_ = PrepareState::Prepared;
+        // SinkNodeは終端なので下流への伝播なし（return trueのみ）
         return true;
     }
 
-    // ========================================
-    // プッシュ型インターフェース
-    // ========================================
-
-    // タイル単位で呼び出され、出力バッファに書き込み
-    void pushProcess(RenderResult&& input,
-                     const RenderRequest& request) override {
+    // onPushProcess: タイル単位で呼び出され、出力バッファに書き込み
+    // SinkNodeは終端なので下流への伝播なし
+    void onPushProcess(RenderResult&& input,
+                       const RenderRequest& request) override {
         (void)request;  // 現在は未使用
 
         if (!input.isValid() || !target_.isValid()) return;

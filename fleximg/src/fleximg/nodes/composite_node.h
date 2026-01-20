@@ -64,19 +64,11 @@ public:
     const char* name() const override { return "CompositeNode"; }
 
     // ========================================
-    // プル型インターフェース
+    // Template Method フック
     // ========================================
 
-    // 全上流ノードにPrepareRequestを伝播（循環検出+アフィン伝播）
-    bool pullPrepare(const PrepareRequest& request) override {
-        bool shouldContinue;
-        if (!checkPrepareState(pullPrepareState_, shouldContinue)) {
-            return false;
-        }
-        if (!shouldContinue) {
-            return true;  // DAG共有ノード: スキップ
-        }
-
+    // onPullPrepare: 全上流ノードにPrepareRequestを伝播
+    bool onPullPrepare(const PrepareRequest& request) override {
         // 全上流へ伝播
         int numInputs = inputCount();
         for (int i = 0; i < numInputs; ++i) {
@@ -85,7 +77,6 @@ public:
                 // 各上流に同じリクエストを伝播
                 // 注意: アフィン行列は共有されるため、各上流で同じ変換が適用される
                 if (!upstream->pullPrepare(request)) {
-                    pullPrepareState_ = PrepareState::CycleError;
                     return false;
                 }
             }
@@ -98,19 +89,11 @@ public:
         screenInfo.origin = request.origin;
         prepare(screenInfo);
 
-        pullPrepareState_ = PrepareState::Prepared;
         return true;
     }
 
-    // 全上流ノードに終了を伝播
-    void pullFinalize() override {
-        // 既にIdleなら何もしない（循環防止）
-        if (pullPrepareState_ == PrepareState::Idle) {
-            return;
-        }
-        // 状態リセット
-        pullPrepareState_ = PrepareState::Idle;
-
+    // onPullFinalize: 全上流ノードに終了を伝播
+    void onPullFinalize() override {
         finalize();
         int numInputs = inputCount();
         for (int i = 0; i < numInputs; ++i) {
@@ -121,14 +104,8 @@ public:
         }
     }
 
-    // 複数の上流から画像を取得して合成するため、pullProcess()を直接オーバーライド
-    RenderResult pullProcess(const RenderRequest& request) override {
-        // スキャンライン処理: 高さは常に1
-        assert(request.height == 1 && "Scanline processing requires height == 1");
-        // 循環エラー状態ならスキップ（無限再帰防止）
-        if (pullPrepareState_ != PrepareState::Prepared) {
-            return RenderResult();
-        }
+    // onPullProcess: 複数の上流から画像を取得して合成
+    RenderResult onPullProcess(const RenderRequest& request) override {
         int numInputs = inputCount();
         if (numInputs == 0) return RenderResult();
 

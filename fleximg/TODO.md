@@ -13,6 +13,7 @@
 
 | 機能 | 概要 | バージョン |
 |------|------|-----------|
+| Node基底クラスTemplate Method化 | pullPrepare/pushPrepare等の共通処理を基底クラスでfinal化し、派生クラスはonXxxフックをオーバーライド | - |
 | スキャンライン必須仕様 | パイプライン上のリクエストは必ずheight=1 | v2.30.0 |
 | アフィン伝播最適化 | SourceNodeへのアフィン伝播、有効範囲のみ返却 | v2.30.0 |
 | プッシュ型アフィン変換 | Renderer下流でのアフィン変換 | v2.19.0 |
@@ -27,7 +28,6 @@
 | 機能 | 概要 | 備考 |
 |------|------|------|
 | フィルタパラメータ固定小数点化 | brightness/alphaのパラメータ | 組み込み移植時 |
-| Node基底クラスのprepare/finalize共通化 | pullPrepare/pushPrepareで必須の処理（allocator保持等）を基底クラスで強制し、派生クラスでの実装漏れを防止。Template Methodパターン等を検討 | SourceNodeでallocator_未設定バグ発生 |
 
 ## 既知の問題
 
