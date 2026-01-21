@@ -212,11 +212,12 @@ namespace FormatIdx {
 }
 
 namespace OpType {
-    constexpr int ToStandard = 0;    // 各フォーマット → RGBA8_Straight
-    constexpr int FromStandard = 1;  // RGBA8_Straight → 各フォーマット
-    constexpr int BlendUnder = 2;    // 各フォーマット → Premul dst (under合成)
-    constexpr int FromPremul = 3;    // Premul → 各フォーマット
-    constexpr int Count = 4;
+    constexpr int ToStraight = 0;    // 各フォーマット → RGBA8_Straight
+    constexpr int FromStraight = 1;  // RGBA8_Straight → 各フォーマット
+    constexpr int ToPremul = 2;      // 各フォーマット → RGBA16_Premultiplied
+    constexpr int FromPremul = 3;    // RGBA16_Premultiplied → 各フォーマット
+    constexpr int BlendUnder = 4;    // 各フォーマット → Premul dst (under合成)
+    constexpr int Count = 5;
 }
 
 struct FormatOpEntry {
@@ -243,8 +244,8 @@ struct FormatMetrics {
 
 ```cpp
 // 各変換関数の先頭に追加
-static void rgb565le_toStandard(..., int pixelCount) {
-    FLEXIMG_FMT_METRICS(RGB565_LE, ToStandard, pixelCount);
+static void rgb565le_toStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(RGB565_LE, ToStraight, pixelCount);
     // 処理...
 }
 ```
@@ -252,7 +253,7 @@ static void rgb565le_toStandard(..., int pixelCount) {
 ### WebUI表示
 
 デバッグセクションの「フォーマット変換」に以下を表示:
-- 操作別合計（toStandard, fromStandard, blendUnder, fromPremul）
+- 操作別合計（toStraight, fromStraight, toPremul, fromPremul, blendUnder）
 - フォーマット別内訳（各フォーマットの操作別ピクセル数・呼び出し回数）
 
 ### UI変換の除外

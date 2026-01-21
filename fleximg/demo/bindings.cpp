@@ -608,7 +608,7 @@ public:
             "RGB332", "RGB888", "BGR888", "Alpha8"
         };
         static const char* opNames[] = {
-            "toStandard", "fromStandard", "blendUnder", "fromPremul"
+            "toStraight", "fromStraight", "toPremul", "fromPremul", "blendUnder"
         };
 
         // フォーマット別データ
