@@ -21,7 +21,6 @@ static void rgba8Straight_fromStraight(void* dst, const void* src, int pixelCoun
     std::memcpy(dst, src, static_cast<size_t>(pixelCount) * 4);
 }
 
-#if 1  // RGBA16_Premultiplied サポート有効
 // RGBA8_Straight: Premul形式のブレンド・変換関数
 
 // blendUnderPremul: srcフォーマット(RGBA8_Straight)からPremul形式のdstへunder合成
@@ -120,7 +119,6 @@ static void rgba8Straight_toPremul(void* dst, const void* src, int pixelCount, c
         d[idx + 3] = static_cast<uint16_t>(255 * a_tmp);
     }
 }
-#endif
 
 // ========================================================================
 // Alpha8: 単一アルファチャンネル ↔ RGBA8_Straight 変換
@@ -150,7 +148,6 @@ static void alpha8_fromStraight(void* dst, const void* src, int pixelCount, cons
     }
 }
 
-#if 1  // RGBA16_Premultiplied サポート有効
 // ========================================================================
 // RGBA16_Premultiplied: 16bit Premultiplied ↔ 8bit Straight 変換
 // ========================================================================
@@ -269,7 +266,6 @@ static void rgba16Premul_toPremul(void* dst, const void* src, int pixelCount, co
     FLEXIMG_FMT_METRICS(RGBA16_Premultiplied, ToPremul, pixelCount);
     std::memcpy(dst, src, static_cast<size_t>(pixelCount) * 8);
 }
-#endif
 
 // ========================================================================
 // RGB565_LE: 16bit RGB (Little Endian)
@@ -305,7 +301,6 @@ static void rgb565le_fromStraight(void* dst, const void* src, int pixelCount, co
     }
 }
 
-#if 1  // RGBA16_Premultiplied サポート有効
 // blendUnderPremul: srcフォーマット(RGB565_LE)からPremul形式のdstへunder合成
 // RGB565はアルファなし→常に不透明として扱う
 static void rgb565le_blendUnderPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
@@ -405,7 +400,6 @@ static void rgb565le_fromPremul(void* dst, const void* src, int pixelCount, cons
         d[i] = static_cast<uint16_t>(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
     }
 }
-#endif
 
 // ========================================================================
 // RGB565_BE: 16bit RGB (Big Endian)
@@ -444,7 +438,6 @@ static void rgb565be_fromStraight(void* dst, const void* src, int pixelCount, co
     }
 }
 
-#if 1  // RGBA16_Premultiplied サポート有効
 // blendUnderPremul: srcフォーマット(RGB565_BE)からPremul形式のdstへunder合成
 static void rgb565be_blendUnderPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB565_BE, BlendUnder, pixelCount);
@@ -539,7 +532,6 @@ static void rgb565be_fromPremul(void* dst, const void* src, int pixelCount, cons
         d[i*2 + 1] = static_cast<uint8_t>(pixel & 0xFF);
     }
 }
-#endif
 
 // ========================================================================
 // RGB332: 8bit RGB (3-3-2)
@@ -575,7 +567,6 @@ static void rgb332_fromStraight(void* dst, const void* src, int pixelCount, cons
     }
 }
 
-#if 1  // RGBA16_Premultiplied サポート有効
 // blendUnderPremul: srcフォーマット(RGB332)からPremul形式のdstへunder合成
 static void rgb332_blendUnderPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB332, BlendUnder, pixelCount);
@@ -668,7 +659,6 @@ static void rgb332_fromPremul(void* dst, const void* src, int pixelCount, const 
         d[i] = static_cast<uint8_t>((r & 0xE0) | ((g >> 5) << 2) | (b >> 6));
     }
 }
-#endif
 
 // ========================================================================
 // RGB888: 24bit RGB (mem[0]=R, mem[1]=G, mem[2]=B)
@@ -697,7 +687,6 @@ static void rgb888_fromStraight(void* dst, const void* src, int pixelCount, cons
     }
 }
 
-#if 1  // RGBA16_Premultiplied サポート有効
 // blendUnderPremul: srcフォーマット(RGB888)からPremul形式のdstへunder合成
 static void rgb888_blendUnderPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB888, BlendUnder, pixelCount);
@@ -771,7 +760,6 @@ static void rgb888_fromPremul(void* dst, const void* src, int pixelCount, const 
         d[i*3 + 2] = static_cast<uint8_t>(b16 / a_tmp);
     }
 }
-#endif
 
 // ========================================================================
 // BGR888: 24bit BGR (mem[0]=B, mem[1]=G, mem[2]=R)
@@ -800,7 +788,6 @@ static void bgr888_fromStraight(void* dst, const void* src, int pixelCount, cons
     }
 }
 
-#if 1  // RGBA16_Premultiplied サポート有効
 // blendUnderPremul: srcフォーマット(BGR888)からPremul形式のdstへunder合成
 static void bgr888_blendUnderPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(BGR888, BlendUnder, pixelCount);
@@ -874,7 +861,6 @@ static void bgr888_fromPremul(void* dst, const void* src, int pixelCount, const 
         d[i*3 + 2] = static_cast<uint8_t>(r16 / a_tmp);  // R
     }
 }
-#endif
 
 // ========================================================================
 // エンディアン・バイトスワップ関数
@@ -912,7 +898,6 @@ namespace BuiltinFormats {
 extern const PixelFormatDescriptor RGB565_BE;
 extern const PixelFormatDescriptor BGR888;
 
-#if 1  // RGBA16_Premultiplied サポート有効
 const PixelFormatDescriptor RGBA16_Premultiplied = {
     "RGBA16_Premultiplied",
     64,  // bitsPerPixel
@@ -939,7 +924,6 @@ const PixelFormatDescriptor RGBA16_Premultiplied = {
     nullptr,  // siblingEndian
     nullptr   // swapEndian
 };
-#endif
 
 const PixelFormatDescriptor RGBA8_Straight = {
     "RGBA8_Straight",
@@ -961,15 +945,9 @@ const PixelFormatDescriptor RGBA8_Straight = {
     rgba8Straight_fromStraight,
     nullptr,  // toStraightIndexed
     nullptr,  // fromStraightIndexed
-#if 1  // RGBA16_Premultiplied サポート有効
     rgba8Straight_toPremul,
     rgba8Straight_fromPremul,
     rgba8Straight_blendUnderPremul,
-#else
-    nullptr,  // toPremul
-    nullptr,  // fromPremul
-    nullptr,  // blendUnderPremul
-#endif
     nullptr,  // siblingEndian
     nullptr   // swapEndian
 };
@@ -994,15 +972,9 @@ const PixelFormatDescriptor RGB565_LE = {
     rgb565le_fromStraight,
     nullptr,  // toStraightIndexed
     nullptr,  // fromStraightIndexed
-#if 1  // RGBA16_Premultiplied サポート有効
     rgb565le_toPremul,
     rgb565le_fromPremul,
     rgb565le_blendUnderPremul,
-#else
-    nullptr,  // toPremul
-    nullptr,  // fromPremul
-    nullptr,  // blendUnderPremul
-#endif
     &RGB565_BE,  // siblingEndian
     swap16       // swapEndian
 };
@@ -1027,15 +999,9 @@ const PixelFormatDescriptor RGB565_BE = {
     rgb565be_fromStraight,
     nullptr,  // toStraightIndexed
     nullptr,  // fromStraightIndexed
-#if 1  // RGBA16_Premultiplied サポート有効
     rgb565be_toPremul,
     rgb565be_fromPremul,
     rgb565be_blendUnderPremul,
-#else
-    nullptr,  // toPremul
-    nullptr,  // fromPremul
-    nullptr,  // blendUnderPremul
-#endif
     &RGB565_LE,  // siblingEndian
     swap16       // swapEndian
 };
@@ -1060,15 +1026,9 @@ const PixelFormatDescriptor RGB332 = {
     rgb332_fromStraight,
     nullptr,  // toStraightIndexed
     nullptr,  // fromStraightIndexed
-#if 1  // RGBA16_Premultiplied サポート有効
     rgb332_toPremul,
     rgb332_fromPremul,
     rgb332_blendUnderPremul,
-#else
-    nullptr,  // toPremul
-    nullptr,  // fromPremul
-    nullptr,  // blendUnderPremul
-#endif
     nullptr,  // siblingEndian
     nullptr   // swapEndian
 };
@@ -1093,15 +1053,9 @@ const PixelFormatDescriptor RGB888 = {
     rgb888_fromStraight,
     nullptr,  // toStraightIndexed
     nullptr,  // fromStraightIndexed
-#if 1  // RGBA16_Premultiplied サポート有効
     rgb888_toPremul,
     rgb888_fromPremul,
     rgb888_blendUnderPremul,
-#else
-    nullptr,  // toPremul
-    nullptr,  // fromPremul
-    nullptr,  // blendUnderPremul
-#endif
     &BGR888,  // siblingEndian
     swap24    // swapEndian
 };
@@ -1126,15 +1080,9 @@ const PixelFormatDescriptor BGR888 = {
     bgr888_fromStraight,
     nullptr,  // toStraightIndexed
     nullptr,  // fromStraightIndexed
-#if 1  // RGBA16_Premultiplied サポート有効
     bgr888_toPremul,
     bgr888_fromPremul,
     bgr888_blendUnderPremul,
-#else
-    nullptr,  // toPremul
-    nullptr,  // fromPremul
-    nullptr,  // blendUnderPremul
-#endif
     &RGB888,  // siblingEndian
     swap24    // swapEndian
 };

@@ -120,7 +120,6 @@ void first(ViewPort& dst, int_fixed dstOriginX, int_fixed dstOriginY,
         return;
     }
 
-#if 1  // RGBA16_Premultiplied サポート有効
     // RGBA8_Straight → RGBA16_Premultiplied 変換
     if (src.formatID == PixelFormatIDs::RGBA8_Straight &&
         dst.formatID == PixelFormatIDs::RGBA16_Premultiplied) {
@@ -154,7 +153,6 @@ void first(ViewPort& dst, int_fixed dstOriginX, int_fixed dstOriginY,
         }
         return;
     }
-#endif
 
     // RGBA8_Straight 同士
     if (src.formatID == PixelFormatIDs::RGBA8_Straight &&
@@ -191,7 +189,6 @@ void onto(ViewPort& dst, int_fixed dstOriginX, int_fixed dstOriginY,
 
     if (yStart >= yEnd || xStart >= xEnd) return;
 
-#if 1  // RGBA16_Premultiplied サポート有効
     // 閾値定数
     constexpr uint16_t ALPHA_TRANS_MAX = RGBA16Premul::ALPHA_TRANSPARENT_MAX;
     constexpr uint16_t ALPHA_OPAQUE_MIN = RGBA16Premul::ALPHA_OPAQUE_MIN;
@@ -240,7 +237,6 @@ void onto(ViewPort& dst, int_fixed dstOriginX, int_fixed dstOriginY,
         }
         return;
     }
-#endif
 
     // RGBA8_Straight 同士のブレンド
     if (src.formatID == PixelFormatIDs::RGBA8_Straight &&
@@ -321,7 +317,6 @@ void onto(ViewPort& dst, int_fixed dstOriginX, int_fixed dstOriginY,
         return;
     }
 
-#if 1  // RGBA16_Premultiplied サポート有効
     // 閾値定数（16bit用）
     constexpr uint16_t ALPHA_TRANS_MAX_16 = RGBA16Premul::ALPHA_TRANSPARENT_MAX;
     constexpr uint16_t ALPHA_OPAQUE_MIN_16 = RGBA16Premul::ALPHA_OPAQUE_MIN;
@@ -360,7 +355,6 @@ void onto(ViewPort& dst, int_fixed dstOriginX, int_fixed dstOriginY,
             dstPixel[3] = srcA;
         }
     }
-#endif
 }
 
 } // namespace blend
