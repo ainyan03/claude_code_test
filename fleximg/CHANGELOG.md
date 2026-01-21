@@ -1,5 +1,31 @@
 # Changelog
 
+## [2.40.0] - 2026-01-22
+
+### パフォーマンス改善
+
+- **blendUnderPremul関数の大幅最適化**: 最大25%の性能改善
+  - SWAR (SIMD Within A Register): RG/BAを32bitにパックして同時演算
+  - 8bit精度アルファ処理: 16bit→8bit変換でシフト演算を削減
+  - プリデクリメント方式: continue時のポインタ進行を保証
+  - 分岐構造の最適化: ストア処理を統合しコードパスを単純化
+
+- **toPremul関数のSWAR最適化**: 約19%の性能改善
+  - RG/BAを32bitにパックして乗算を4回→2回に削減
+  - 4ピクセルアンローリングとの組み合わせで効果最大化
+
+- **ベンチマーク結果**:
+  - blendUnderPremul (Semi/Sem): 1388us → 1045us (-24.7%)
+  - toPremul: 368us → 299us (-18.8%)
+  - Compositeシナリオ全体: 43.8fps → 45.1fps (+3.0%)
+
+### 追加
+
+- **m5stack_method_bench**: 4×4マトリクステスト追加
+  - src×dstパターン総当たりでblendUnderPremulの条件分岐影響を測定
+
+---
+
 ## [2.39.0] - 2026-01-21
 
 ### バグ修正

@@ -51,46 +51,53 @@ static void rgba8Straight_fromStraight(void* dst, const void* src, int pixelCoun
 
 // blendUnderPremul: srcフォーマット(RGBA8_Straight)からPremul形式のdstへunder合成
 // RGBA8_Straight → RGBA16_Premultiplied変換しながらunder合成
+//
+// 最適化手法:
+// - SWAR (SIMD Within A Register): RG/BAを32bitにパックして同時演算
+// - プリデクリメント方式: continue時のポインタ進行を保証
+// - 8bit精度のアルファ処理: 16bit→8bit変換でシフト演算を削減
 static void rgba8Straight_blendUnderPremul(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGBA8_Straight, BlendUnder, pixelCount);
     uint16_t* __restrict__ d = static_cast<uint16_t*>(dst);
     const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
 
+    // プリデクリメント: ループ先頭でインクリメントするため事前に戻す
+    s -= 4;
+    d -= 4;
+
     for (int i = 0; i < pixelCount; i++) {
-        int idx = i * 4;
-        uint16_t dstA = d[idx + 3];
+        d += 4;
+        // dstアルファを8bit精度で取得（上位バイト直接読み取り、リトルエンディアン前提）
+        uint_fast8_t dstA8 = reinterpret_cast<uint8_t*>(d)[7];
+        s += 4;
 
         // dst が不透明 → スキップ
-        if (RGBA16Premul::isOpaque(dstA)) continue;
+        if (dstA8 == 255) continue;
 
-        uint8_t srcA8 = s[idx + 3];
+        uint_fast8_t srcA8 = s[3];
 
         // src が透明 → スキップ
         if (srcA8 == 0) continue;
 
         // RGBA8_Straight → RGBA16_Premultiplied 変換
-        // A_tmp = A8 + 1 (範囲: 1-256)
-        uint16_t a_tmp = srcA8 + 1;
-        uint16_t srcR = s[idx + 0] * a_tmp;
-        uint16_t srcG = s[idx + 1] * a_tmp;
-        uint16_t srcB = s[idx + 2] * a_tmp;
-        uint16_t srcA = 255 * a_tmp;
+        // SWAR: RGとBAを32bitにパックして乗算を2回に削減
+        // a_tmp = srcA8 + 1 (範囲: 1-256) で8bit→16bit変換
+        uint_fast16_t a_tmp = srcA8 + 1;
+        uint32_t srcRG = (s[0] + (static_cast<uint32_t>(s[1]) << 16)) * a_tmp;
+        uint32_t srcBA = (s[2] + (static_cast<uint32_t>(srcA8) << 16)) * a_tmp;
 
-        // dst が透明 → 単純コピー
-        if (RGBA16Premul::isTransparent(dstA)) {
-            d[idx]     = srcR;
-            d[idx + 1] = srcG;
-            d[idx + 2] = srcB;
-            d[idx + 3] = srcA;
-            continue;
+        // dst が半透明 → under合成
+        if (dstA8 != 0) {
+            // under合成: dst = dst + src * (1 - dstA)
+            // SWAR: 8bit精度に変換後、32bitで2チャンネル同時演算
+            uint_fast16_t invDstA8 = 255 - dstA8;
+            srcRG = reinterpret_cast<uint32_t*>(d)[0] + ((srcRG >> 8) & 0x00FF00FF) * invDstA8;
+            srcBA = reinterpret_cast<uint32_t*>(d)[1] + ((srcBA >> 8) & 0x00FF00FF) * invDstA8;
         }
 
-        // under合成: dst = dst + src * (1 - dstA)
-        uint16_t invDstA = RGBA16Premul::ALPHA_OPAQUE_MIN - dstA;
-        d[idx]     = static_cast<uint16_t>(d[idx]     + ((srcR * invDstA) >> 16));
-        d[idx + 1] = static_cast<uint16_t>(d[idx + 1] + ((srcG * invDstA) >> 16));
-        d[idx + 2] = static_cast<uint16_t>(d[idx + 2] + ((srcB * invDstA) >> 16));
-        d[idx + 3] = static_cast<uint16_t>(dstA       + ((srcA * invDstA) >> 16));
+        // 32bit単位で書き込み（2チャンネル同時）
+        reinterpret_cast<uint32_t*>(d)[0] = srcRG;
+        reinterpret_cast<uint32_t*>(d)[1] = srcBA;
     }
 }
 
@@ -134,42 +141,43 @@ static void rgba8Straight_fromPremul(void* __restrict__ dst, const void* __restr
 #undef RGBA8_FROM_PREMUL_PIXEL
 
 // toPremul: RGBA8_StraightのsrcからPremul形式(RGBA16_Premultiplied)のdstへ変換コピー
-// RGBA8_Straight→RGBA16_Premul 1ピクセル変換マクロ
-// s: uint8_t*, d: uint16_t*, s_off: srcオフセット, d_off: dstオフセット(uint16_t単位)
-#define RGBA8_TO_PREMUL_PIXEL(s_off, d_off) \
+//
+// 最適化手法:
+// - SWAR (SIMD Within A Register): RG/BAを32bitにパックして同時演算
+// - 4ピクセルアンローリング
+// SWAR版1ピクセル変換マクロ
+#define RGBA8_TO_PREMUL_SWAR(s_off, d_off) \
     do { \
-        uint16_t a_tmp = s[s_off + 3] + 1; \
-        d[d_off]     = static_cast<uint16_t>(s[s_off] * a_tmp); \
-        d[d_off + 1] = static_cast<uint16_t>(s[s_off + 1] * a_tmp); \
-        d[d_off + 2] = static_cast<uint16_t>(s[s_off + 2] * a_tmp); \
-        d[d_off + 3] = static_cast<uint16_t>(255 * a_tmp); \
+        uint_fast16_t a_tmp = s[s_off + 3] + 1; \
+        d32[d_off]     = (s[s_off] + (static_cast<uint32_t>(s[s_off + 1]) << 16)) * a_tmp; \
+        d32[d_off + 1] = (s[s_off + 2] + (static_cast<uint32_t>(s[s_off + 3]) << 16)) * a_tmp; \
     } while(0)
 
 static void rgba8Straight_toPremul(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGBA8_Straight, ToPremul, pixelCount);
-    uint16_t* __restrict__ d = static_cast<uint16_t*>(dst);
+    uint32_t* __restrict__ d32 = static_cast<uint32_t*>(dst);
     const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
 
     // 端数処理（1〜3ピクセル）
     int remainder = pixelCount & 3;
     while (remainder--) {
-        RGBA8_TO_PREMUL_PIXEL(0, 0);
+        RGBA8_TO_PREMUL_SWAR(0, 0);
         s += 4;
-        d += 4;
+        d32 += 2;
     }
 
     // 4ピクセル単位でループ
     pixelCount >>= 2;
     while (pixelCount--) {
-        RGBA8_TO_PREMUL_PIXEL(0, 0);
-        RGBA8_TO_PREMUL_PIXEL(4, 4);
-        RGBA8_TO_PREMUL_PIXEL(8, 8);
-        RGBA8_TO_PREMUL_PIXEL(12, 12);
+        RGBA8_TO_PREMUL_SWAR(0, 0);
+        RGBA8_TO_PREMUL_SWAR(4, 2);
+        RGBA8_TO_PREMUL_SWAR(8, 4);
+        RGBA8_TO_PREMUL_SWAR(12, 6);
         s += 16;
-        d += 16;
+        d32 += 8;
     }
 }
-#undef RGBA8_TO_PREMUL_PIXEL
+#undef RGBA8_TO_PREMUL_SWAR
 
 // ========================================================================
 // Alpha8: 単一アルファチャンネル ↔ RGBA8_Straight 変換
