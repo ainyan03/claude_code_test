@@ -27,6 +27,9 @@ bool PoolAllocator::initialize(void* memory, size_t blockSize, size_t blockCount
     blockCount_ = blockCount;
     isPSRAM_ = isPSRAM;
     allocatedBitmap_ = 0;
+    for (size_t i = 0; i < 32; ++i) {
+        blockCounts_[i] = 0;
+    }
 
     initialized_ = true;
     return true;
@@ -64,6 +67,7 @@ void* PoolAllocator::allocate(size_t size) {
         if ((allocatedBitmap_ & shiftedNeed) == 0) {
             // 空きブロック発見
             allocatedBitmap_ |= shiftedNeed;
+            blockCounts_[i] = static_cast<uint8_t>(blocksNeeded);  // 確保ブロック数を記録
             stats_.hits++;
             stats_.allocatedBitmap = allocatedBitmap_;
 
@@ -102,11 +106,18 @@ bool PoolAllocator::deallocate(void* ptr) {
         return false;  // 二重解放
     }
 
+    // 確保ブロック数を取得
+    uint8_t blocksToFree = blockCounts_[blockIndex];
+    if (blocksToFree == 0) {
+        blocksToFree = 1;  // フォールバック（通常は起きない）
+    }
+
     stats_.totalDeallocations++;
 
-    // 該当ブロックのビットをクリア
-    // 注意: 連続確保の場合、先頭ブロックのみで解放される想定
-    allocatedBitmap_ &= ~(1U << blockIndex);
+    // 確保時のブロック数分のビットをクリア
+    uint32_t freeBitmap = ((1U << blocksToFree) - 1) << blockIndex;
+    allocatedBitmap_ &= ~freeBitmap;
+    blockCounts_[blockIndex] = 0;  // 記録をクリア
     stats_.allocatedBitmap = allocatedBitmap_;
 
     return true;
