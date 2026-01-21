@@ -164,18 +164,22 @@ struct PixelFormatDescriptor {
     // ========================================================================
 
     // 関数型定義（統一シグネチャ）
+    // ToPremulFunc: このフォーマットのsrcからPremul形式のdstへ変換コピー
+    using ToPremulFunc = ConvertFunc;
+
+    // FromPremulFunc: Premul形式のsrcからこのフォーマットのdstへ変換コピー
+    using FromPremulFunc = ConvertFunc;
+
     // BlendUnderPremulFunc: srcフォーマットからPremul形式のdstへunder合成
     //   - dst が不透明なら何もしない（スキップ）
     //   - dst が透明なら単純変換コピー（toPremul相当）
     //   - dst が半透明ならunder合成
     using BlendUnderPremulFunc = ConvertFunc;
 
-    // FromPremulFunc: Premul形式のsrcからこのフォーマットのdstへ変換コピー
-    using FromPremulFunc = ConvertFunc;
-
     // 関数ポインタ（Premul形式用、未実装の場合は nullptr）
-    BlendUnderPremulFunc blendUnderPremul;
+    ToPremulFunc toPremul;
     FromPremulFunc fromPremul;
+    BlendUnderPremulFunc blendUnderPremul;
 
     // ========================================================================
     // チャンネルアクセスメソッド（Phase 2で追加）
@@ -256,55 +260,6 @@ namespace PixelFormatIDs {
 }
 
 // ========================================================================
-// 直接変換テーブル
-// ========================================================================
-
-// 直接変換関数の型
-using DirectConvertFunc = void(*)(const void* src, void* dst, int pixelCount);
-
-// 直接変換エントリ
-struct DirectConversion {
-    PixelFormatID from;
-    PixelFormatID to;
-    DirectConvertFunc convert;
-};
-
-#if 1  // RGBA16_Premultiplied サポート有効
-// 直接変換関数（実体は pixel_format_registry.cpp で定義）
-namespace DirectConvertFuncs {
-    extern void rgba16PremulToRgba8Straight(const void* src, void* dst, int pixelCount);
-    extern void rgba8StraightToRgba16Premul(const void* src, void* dst, int pixelCount);
-}
-
-// 直接変換テーブル（線形検索用）
-inline const DirectConversion directConversions[] = {
-    { PixelFormatIDs::RGBA16_Premultiplied, PixelFormatIDs::RGBA8_Straight,
-      DirectConvertFuncs::rgba16PremulToRgba8Straight },
-    { PixelFormatIDs::RGBA8_Straight, PixelFormatIDs::RGBA16_Premultiplied,
-      DirectConvertFuncs::rgba8StraightToRgba16Premul },
-};
-
-inline constexpr size_t directConversionsCount = sizeof(directConversions) / sizeof(directConversions[0]);
-#else
-inline constexpr size_t directConversionsCount = 0;
-#endif
-
-// 直接変換関数を取得（なければ nullptr）
-inline DirectConvertFunc getDirectConversion(PixelFormatID from, PixelFormatID to) {
-#if 1  // RGBA16_Premultiplied サポート有効
-    for (size_t i = 0; i < directConversionsCount; ++i) {
-        if (directConversions[i].from == from && directConversions[i].to == to) {
-            return directConversions[i].convert;
-        }
-    }
-#else
-    (void)from;
-    (void)to;
-#endif
-    return nullptr;
-}
-
-// ========================================================================
 // ユーティリティ関数
 // ========================================================================
 
@@ -352,8 +307,8 @@ inline const char* getFormatName(PixelFormatID formatID) {
 
 // 2つのフォーマット間で変換
 // - 同一フォーマット: 単純コピー
-// - 直接変換があれば使用（最適化パス）
-// - なければStraight形式（RGBA8_Straight）経由で変換
+// - Premul形式との直接変換（toPremul/fromPremul）
+// - それ以外はStraight形式（RGBA8_Straight）経由で変換
 inline void convertFormat(const void* src, PixelFormatID srcFormat,
                           void* dst, PixelFormatID dstFormat,
                           int pixelCount,
@@ -369,16 +324,21 @@ inline void convertFormat(const void* src, PixelFormatID srcFormat,
         return;
     }
 
-    // 直接変換があれば使用（最適化パス）
-    DirectConvertFunc directFunc = getDirectConversion(srcFormat, dstFormat);
-    if (directFunc) {
-        directFunc(src, dst, pixelCount);
+    if (!srcFormat || !dstFormat) return;
+
+    // Premul形式への直接変換（toPremul）
+    if (dstFormat == PixelFormatIDs::RGBA16_Premultiplied && srcFormat->toPremul) {
+        srcFormat->toPremul(dst, src, pixelCount, params);
+        return;
+    }
+
+    // Premul形式からの直接変換（fromPremul）
+    if (srcFormat == PixelFormatIDs::RGBA16_Premultiplied && dstFormat->fromPremul) {
+        dstFormat->fromPremul(dst, src, pixelCount, params);
         return;
     }
 
     // Straight形式（RGBA8_Straight）経由で変換
-    if (!srcFormat || !dstFormat) return;
-
     // 一時バッファを確保（スレッドローカル）
     thread_local std::vector<uint8_t> conversionBuffer;
     conversionBuffer.resize(static_cast<size_t>(pixelCount) * 4);

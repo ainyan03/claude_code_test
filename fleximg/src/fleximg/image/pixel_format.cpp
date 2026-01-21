@@ -95,6 +95,31 @@ static void rgba8Straight_fromPremul(void* dst, const void* src, int pixelCount,
         d[idx + 3] = a8;
     }
 }
+
+// toPremul: RGBA8_StraightのsrcからPremul形式(RGBA16_Premultiplied)のdstへ変換コピー
+static void rgba8Straight_toPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(RGBA8_Straight, ToPremul, pixelCount);
+    uint16_t* d = static_cast<uint16_t*>(dst);
+    const uint8_t* s = static_cast<const uint8_t*>(src);
+
+    for (int i = 0; i < pixelCount; i++) {
+        int idx = i * 4;
+        uint16_t r8 = s[idx];
+        uint16_t g8 = s[idx + 1];
+        uint16_t b8 = s[idx + 2];
+        uint16_t a8 = s[idx + 3];
+
+        // A_tmp = A8 + 1 (範囲: 1-256)
+        uint16_t a_tmp = a8 + 1;
+
+        // Premultiply: RGB * A_tmp
+        // A16 = 255 * A_tmp (範囲: 255-65280)
+        d[idx]     = static_cast<uint16_t>(r8 * a_tmp);
+        d[idx + 1] = static_cast<uint16_t>(g8 * a_tmp);
+        d[idx + 2] = static_cast<uint16_t>(b8 * a_tmp);
+        d[idx + 3] = static_cast<uint16_t>(255 * a_tmp);
+    }
+}
 #endif
 
 // ========================================================================
@@ -182,53 +207,6 @@ static void rgba16Premul_fromStraight(void* dst, const void* src, int pixelCount
 }
 
 // ========================================================================
-// 直接変換関数（最適化用）
-// ========================================================================
-
-namespace DirectConvertFuncs {
-
-void rgba16PremulToRgba8Straight(const void* src, void* dst, int pixelCount) {
-    const uint16_t* s = static_cast<const uint16_t*>(src);
-    uint8_t* d = static_cast<uint8_t*>(dst);
-    for (int i = 0; i < pixelCount; i++) {
-        int idx = i * 4;
-        uint16_t r16 = s[idx];
-        uint16_t g16 = s[idx + 1];
-        uint16_t b16 = s[idx + 2];
-        uint16_t a16 = s[idx + 3];
-
-        uint8_t a8 = a16 >> 8;
-        uint16_t a_tmp = a8 + 1;
-
-        d[idx]     = static_cast<uint8_t>(r16 / a_tmp);
-        d[idx + 1] = static_cast<uint8_t>(g16 / a_tmp);
-        d[idx + 2] = static_cast<uint8_t>(b16 / a_tmp);
-        d[idx + 3] = a8;
-    }
-}
-
-void rgba8StraightToRgba16Premul(const void* src, void* dst, int pixelCount) {
-    const uint8_t* s = static_cast<const uint8_t*>(src);
-    uint16_t* d = static_cast<uint16_t*>(dst);
-    for (int i = 0; i < pixelCount; i++) {
-        int idx = i * 4;
-        uint16_t r8 = s[idx];
-        uint16_t g8 = s[idx + 1];
-        uint16_t b8 = s[idx + 2];
-        uint16_t a8 = s[idx + 3];
-
-        uint16_t a_tmp = a8 + 1;
-
-        d[idx]     = static_cast<uint16_t>(r8 * a_tmp);
-        d[idx + 1] = static_cast<uint16_t>(g8 * a_tmp);
-        d[idx + 2] = static_cast<uint16_t>(b8 * a_tmp);
-        d[idx + 3] = static_cast<uint16_t>(255 * a_tmp);
-    }
-}
-
-} // namespace DirectConvertFuncs
-
-// ========================================================================
 // RGBA16_Premultiplied: Premul形式のブレンド・変換関数
 // ========================================================================
 
@@ -282,6 +260,13 @@ static void rgba16Premul_blendUnderPremul(void* dst, const void* src, int pixelC
 // 同一フォーマットなので単純コピー
 static void rgba16Premul_fromPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGBA16_Premultiplied, FromPremul, pixelCount);
+    std::memcpy(dst, src, static_cast<size_t>(pixelCount) * 8);
+}
+
+// toPremul: RGBA16_Premultiplied形式のsrcからPremul形式のdstへ変換コピー
+// 同一フォーマットなので単純コピー
+static void rgba16Premul_toPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(RGBA16_Premultiplied, ToPremul, pixelCount);
     std::memcpy(dst, src, static_cast<size_t>(pixelCount) * 8);
 }
 #endif
@@ -366,6 +351,58 @@ static void rgb565le_blendUnderPremul(void* dst, const void* src, int pixelCount
         d[idx16 + 1] = static_cast<uint16_t>(d[idx16 + 1] + ((srcG * invDstA) >> 16));
         d[idx16 + 2] = static_cast<uint16_t>(d[idx16 + 2] + ((srcB * invDstA) >> 16));
         d[idx16 + 3] = static_cast<uint16_t>(dstA         + ((srcA * invDstA) >> 16));
+    }
+}
+
+// toPremul: RGB565_LEのsrcからPremul形式のdstへ変換コピー
+// アルファなし→完全不透明として変換
+static void rgb565le_toPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(RGB565_LE, ToPremul, pixelCount);
+    uint16_t* d = static_cast<uint16_t*>(dst);
+    const uint16_t* s = static_cast<const uint16_t*>(src);
+
+    for (int i = 0; i < pixelCount; i++) {
+        uint16_t pixel = s[i];
+        uint8_t r5 = (pixel >> 11) & 0x1F;
+        uint8_t g6 = (pixel >> 5) & 0x3F;
+        uint8_t b5 = pixel & 0x1F;
+
+        // RGB565 → RGB8 → RGBA16_Premultiplied（A=255、完全不透明）
+        uint16_t r8 = static_cast<uint16_t>((r5 << 3) | (r5 >> 2));
+        uint16_t g8 = static_cast<uint16_t>((g6 << 2) | (g6 >> 4));
+        uint16_t b8 = static_cast<uint16_t>((b5 << 3) | (b5 >> 2));
+
+        int idx = i * 4;
+        d[idx]     = static_cast<uint16_t>(r8 << 8);
+        d[idx + 1] = static_cast<uint16_t>(g8 << 8);
+        d[idx + 2] = static_cast<uint16_t>(b8 << 8);
+        d[idx + 3] = RGBA16Premul::ALPHA_OPAQUE_MIN;
+    }
+}
+
+// fromPremul: Premul形式のsrcからRGB565_LEのdstへ変換コピー
+// アルファ情報は破棄
+static void rgb565le_fromPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(RGB565_LE, FromPremul, pixelCount);
+    uint16_t* d = static_cast<uint16_t*>(dst);
+    const uint16_t* s = static_cast<const uint16_t*>(src);
+
+    for (int i = 0; i < pixelCount; i++) {
+        int idx = i * 4;
+        uint16_t r16 = s[idx];
+        uint16_t g16 = s[idx + 1];
+        uint16_t b16 = s[idx + 2];
+        uint16_t a16 = s[idx + 3];
+
+        // Unpremultiply
+        uint8_t a8 = a16 >> 8;
+        uint16_t a_tmp = a8 + 1;
+        uint8_t r = static_cast<uint8_t>(r16 / a_tmp);
+        uint8_t g = static_cast<uint8_t>(g16 / a_tmp);
+        uint8_t b = static_cast<uint8_t>(b16 / a_tmp);
+
+        // RGB565にパック
+        d[i] = static_cast<uint16_t>(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
     }
 }
 #endif
@@ -453,6 +490,55 @@ static void rgb565be_blendUnderPremul(void* dst, const void* src, int pixelCount
         d[idx16 + 3] = static_cast<uint16_t>(dstA         + ((srcA * invDstA) >> 16));
     }
 }
+
+// toPremul: RGB565_BEのsrcからPremul形式のdstへ変換コピー
+static void rgb565be_toPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(RGB565_BE, ToPremul, pixelCount);
+    uint16_t* d = static_cast<uint16_t*>(dst);
+    const uint8_t* s = static_cast<const uint8_t*>(src);
+
+    for (int i = 0; i < pixelCount; i++) {
+        uint16_t pixel = static_cast<uint16_t>((static_cast<uint16_t>(s[i*2]) << 8) | s[i*2 + 1]);
+        uint8_t r5 = (pixel >> 11) & 0x1F;
+        uint8_t g6 = (pixel >> 5) & 0x3F;
+        uint8_t b5 = pixel & 0x1F;
+
+        uint16_t r8 = static_cast<uint16_t>((r5 << 3) | (r5 >> 2));
+        uint16_t g8 = static_cast<uint16_t>((g6 << 2) | (g6 >> 4));
+        uint16_t b8 = static_cast<uint16_t>((b5 << 3) | (b5 >> 2));
+
+        int idx = i * 4;
+        d[idx]     = static_cast<uint16_t>(r8 << 8);
+        d[idx + 1] = static_cast<uint16_t>(g8 << 8);
+        d[idx + 2] = static_cast<uint16_t>(b8 << 8);
+        d[idx + 3] = RGBA16Premul::ALPHA_OPAQUE_MIN;
+    }
+}
+
+// fromPremul: Premul形式のsrcからRGB565_BEのdstへ変換コピー
+static void rgb565be_fromPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(RGB565_BE, FromPremul, pixelCount);
+    uint8_t* d = static_cast<uint8_t*>(dst);
+    const uint16_t* s = static_cast<const uint16_t*>(src);
+
+    for (int i = 0; i < pixelCount; i++) {
+        int idx = i * 4;
+        uint16_t r16 = s[idx];
+        uint16_t g16 = s[idx + 1];
+        uint16_t b16 = s[idx + 2];
+        uint16_t a16 = s[idx + 3];
+
+        uint8_t a8 = a16 >> 8;
+        uint16_t a_tmp = a8 + 1;
+        uint8_t r = static_cast<uint8_t>(r16 / a_tmp);
+        uint8_t g = static_cast<uint8_t>(g16 / a_tmp);
+        uint8_t b = static_cast<uint8_t>(b16 / a_tmp);
+
+        uint16_t pixel = static_cast<uint16_t>(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+        d[i*2] = static_cast<uint8_t>(pixel >> 8);
+        d[i*2 + 1] = static_cast<uint8_t>(pixel & 0xFF);
+    }
+}
 #endif
 
 // ========================================================================
@@ -535,6 +621,53 @@ static void rgb332_blendUnderPremul(void* dst, const void* src, int pixelCount, 
         d[idx16 + 3] = static_cast<uint16_t>(dstA         + ((srcA * invDstA) >> 16));
     }
 }
+
+// toPremul: RGB332のsrcからPremul形式のdstへ変換コピー
+static void rgb332_toPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(RGB332, ToPremul, pixelCount);
+    uint16_t* d = static_cast<uint16_t*>(dst);
+    const uint8_t* s = static_cast<const uint8_t*>(src);
+
+    for (int i = 0; i < pixelCount; i++) {
+        uint8_t pixel = s[i];
+        uint8_t r3 = (pixel >> 5) & 0x07;
+        uint8_t g3 = (pixel >> 2) & 0x07;
+        uint8_t b2 = pixel & 0x03;
+
+        uint16_t r8 = static_cast<uint16_t>((r3 * 0x49) >> 1);
+        uint16_t g8 = static_cast<uint16_t>((g3 * 0x49) >> 1);
+        uint16_t b8 = static_cast<uint16_t>(b2 * 0x55);
+
+        int idx = i * 4;
+        d[idx]     = static_cast<uint16_t>(r8 << 8);
+        d[idx + 1] = static_cast<uint16_t>(g8 << 8);
+        d[idx + 2] = static_cast<uint16_t>(b8 << 8);
+        d[idx + 3] = RGBA16Premul::ALPHA_OPAQUE_MIN;
+    }
+}
+
+// fromPremul: Premul形式のsrcからRGB332のdstへ変換コピー
+static void rgb332_fromPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(RGB332, FromPremul, pixelCount);
+    uint8_t* d = static_cast<uint8_t*>(dst);
+    const uint16_t* s = static_cast<const uint16_t*>(src);
+
+    for (int i = 0; i < pixelCount; i++) {
+        int idx = i * 4;
+        uint16_t r16 = s[idx];
+        uint16_t g16 = s[idx + 1];
+        uint16_t b16 = s[idx + 2];
+        uint16_t a16 = s[idx + 3];
+
+        uint8_t a8 = a16 >> 8;
+        uint16_t a_tmp = a8 + 1;
+        uint8_t r = static_cast<uint8_t>(r16 / a_tmp);
+        uint8_t g = static_cast<uint8_t>(g16 / a_tmp);
+        uint8_t b = static_cast<uint8_t>(b16 / a_tmp);
+
+        d[i] = static_cast<uint8_t>((r & 0xE0) | ((g >> 5) << 2) | (b >> 6));
+    }
+}
 #endif
 
 // ========================================================================
@@ -599,6 +732,43 @@ static void rgb888_blendUnderPremul(void* dst, const void* src, int pixelCount, 
         d[idx16 + 1] = static_cast<uint16_t>(d[idx16 + 1] + ((srcG * invDstA) >> 16));
         d[idx16 + 2] = static_cast<uint16_t>(d[idx16 + 2] + ((srcB * invDstA) >> 16));
         d[idx16 + 3] = static_cast<uint16_t>(dstA         + ((srcA * invDstA) >> 16));
+    }
+}
+
+// toPremul: RGB888のsrcからPremul形式のdstへ変換コピー
+static void rgb888_toPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(RGB888, ToPremul, pixelCount);
+    uint16_t* d = static_cast<uint16_t*>(dst);
+    const uint8_t* s = static_cast<const uint8_t*>(src);
+
+    for (int i = 0; i < pixelCount; i++) {
+        int idx = i * 4;
+        d[idx]     = static_cast<uint16_t>(s[i*3 + 0] << 8);
+        d[idx + 1] = static_cast<uint16_t>(s[i*3 + 1] << 8);
+        d[idx + 2] = static_cast<uint16_t>(s[i*3 + 2] << 8);
+        d[idx + 3] = RGBA16Premul::ALPHA_OPAQUE_MIN;
+    }
+}
+
+// fromPremul: Premul形式のsrcからRGB888のdstへ変換コピー
+static void rgb888_fromPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(RGB888, FromPremul, pixelCount);
+    uint8_t* d = static_cast<uint8_t*>(dst);
+    const uint16_t* s = static_cast<const uint16_t*>(src);
+
+    for (int i = 0; i < pixelCount; i++) {
+        int idx = i * 4;
+        uint16_t r16 = s[idx];
+        uint16_t g16 = s[idx + 1];
+        uint16_t b16 = s[idx + 2];
+        uint16_t a16 = s[idx + 3];
+
+        uint8_t a8 = a16 >> 8;
+        uint16_t a_tmp = a8 + 1;
+
+        d[i*3 + 0] = static_cast<uint8_t>(r16 / a_tmp);
+        d[i*3 + 1] = static_cast<uint8_t>(g16 / a_tmp);
+        d[i*3 + 2] = static_cast<uint8_t>(b16 / a_tmp);
     }
 }
 #endif
@@ -667,6 +837,43 @@ static void bgr888_blendUnderPremul(void* dst, const void* src, int pixelCount, 
         d[idx16 + 3] = static_cast<uint16_t>(dstA         + ((srcA * invDstA) >> 16));
     }
 }
+
+// toPremul: BGR888のsrcからPremul形式のdstへ変換コピー
+static void bgr888_toPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(BGR888, ToPremul, pixelCount);
+    uint16_t* d = static_cast<uint16_t*>(dst);
+    const uint8_t* s = static_cast<const uint8_t*>(src);
+
+    for (int i = 0; i < pixelCount; i++) {
+        int idx = i * 4;
+        d[idx]     = static_cast<uint16_t>(s[i*3 + 2] << 8);  // R
+        d[idx + 1] = static_cast<uint16_t>(s[i*3 + 1] << 8);  // G
+        d[idx + 2] = static_cast<uint16_t>(s[i*3 + 0] << 8);  // B
+        d[idx + 3] = RGBA16Premul::ALPHA_OPAQUE_MIN;
+    }
+}
+
+// fromPremul: Premul形式のsrcからBGR888のdstへ変換コピー
+static void bgr888_fromPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(BGR888, FromPremul, pixelCount);
+    uint8_t* d = static_cast<uint8_t*>(dst);
+    const uint16_t* s = static_cast<const uint16_t*>(src);
+
+    for (int i = 0; i < pixelCount; i++) {
+        int idx = i * 4;
+        uint16_t r16 = s[idx];
+        uint16_t g16 = s[idx + 1];
+        uint16_t b16 = s[idx + 2];
+        uint16_t a16 = s[idx + 3];
+
+        uint8_t a8 = a16 >> 8;
+        uint16_t a_tmp = a8 + 1;
+
+        d[i*3 + 0] = static_cast<uint8_t>(b16 / a_tmp);  // B
+        d[i*3 + 1] = static_cast<uint8_t>(g16 / a_tmp);  // G
+        d[i*3 + 2] = static_cast<uint8_t>(r16 / a_tmp);  // R
+    }
+}
 #endif
 
 // ========================================================================
@@ -696,8 +903,9 @@ const PixelFormatDescriptor RGBA16_Premultiplied = {
     rgba16Premul_fromStraight,
     nullptr,  // toStraightIndexed
     nullptr,  // fromStraightIndexed
-    rgba16Premul_blendUnderPremul,
-    rgba16Premul_fromPremul
+    rgba16Premul_toPremul,
+    rgba16Premul_fromPremul,
+    rgba16Premul_blendUnderPremul
 };
 #endif
 
@@ -722,11 +930,13 @@ const PixelFormatDescriptor RGBA8_Straight = {
     nullptr,  // toStraightIndexed
     nullptr,  // fromStraightIndexed
 #if 1  // RGBA16_Premultiplied サポート有効
-    rgba8Straight_blendUnderPremul,
-    rgba8Straight_fromPremul
+    rgba8Straight_toPremul,
+    rgba8Straight_fromPremul,
+    rgba8Straight_blendUnderPremul
 #else
-    nullptr,  // blendUnderPremul
-    nullptr   // fromPremul
+    nullptr,  // toPremul
+    nullptr,  // fromPremul
+    nullptr   // blendUnderPremul
 #endif
 };
 
@@ -751,11 +961,13 @@ const PixelFormatDescriptor RGB565_LE = {
     nullptr,  // toStraightIndexed
     nullptr,  // fromStraightIndexed
 #if 1  // RGBA16_Premultiplied サポート有効
-    rgb565le_blendUnderPremul,
-    nullptr   // fromPremul (RGB565にはアルファがないのでPremulからの変換は不要)
+    rgb565le_toPremul,
+    rgb565le_fromPremul,
+    rgb565le_blendUnderPremul
 #else
-    nullptr,  // blendUnderPremul
-    nullptr   // fromPremul
+    nullptr,  // toPremul
+    nullptr,  // fromPremul
+    nullptr   // blendUnderPremul
 #endif
 };
 
@@ -780,11 +992,13 @@ const PixelFormatDescriptor RGB565_BE = {
     nullptr,  // toStraightIndexed
     nullptr,  // fromStraightIndexed
 #if 1  // RGBA16_Premultiplied サポート有効
-    rgb565be_blendUnderPremul,
-    nullptr   // fromPremul
+    rgb565be_toPremul,
+    rgb565be_fromPremul,
+    rgb565be_blendUnderPremul
 #else
-    nullptr,  // blendUnderPremul
-    nullptr   // fromPremul
+    nullptr,  // toPremul
+    nullptr,  // fromPremul
+    nullptr   // blendUnderPremul
 #endif
 };
 
@@ -809,11 +1023,13 @@ const PixelFormatDescriptor RGB332 = {
     nullptr,  // toStraightIndexed
     nullptr,  // fromStraightIndexed
 #if 1  // RGBA16_Premultiplied サポート有効
-    rgb332_blendUnderPremul,
-    nullptr   // fromPremul
+    rgb332_toPremul,
+    rgb332_fromPremul,
+    rgb332_blendUnderPremul
 #else
-    nullptr,  // blendUnderPremul
-    nullptr   // fromPremul
+    nullptr,  // toPremul
+    nullptr,  // fromPremul
+    nullptr   // blendUnderPremul
 #endif
 };
 
@@ -838,11 +1054,13 @@ const PixelFormatDescriptor RGB888 = {
     nullptr,  // toStraightIndexed
     nullptr,  // fromStraightIndexed
 #if 1  // RGBA16_Premultiplied サポート有効
-    rgb888_blendUnderPremul,
-    nullptr   // fromPremul
+    rgb888_toPremul,
+    rgb888_fromPremul,
+    rgb888_blendUnderPremul
 #else
-    nullptr,  // blendUnderPremul
-    nullptr   // fromPremul
+    nullptr,  // toPremul
+    nullptr,  // fromPremul
+    nullptr   // blendUnderPremul
 #endif
 };
 
@@ -867,11 +1085,13 @@ const PixelFormatDescriptor BGR888 = {
     nullptr,  // toStraightIndexed
     nullptr,  // fromStraightIndexed
 #if 1  // RGBA16_Premultiplied サポート有効
-    bgr888_blendUnderPremul,
-    nullptr   // fromPremul
+    bgr888_toPremul,
+    bgr888_fromPremul,
+    bgr888_blendUnderPremul
 #else
-    nullptr,  // blendUnderPremul
-    nullptr   // fromPremul
+    nullptr,  // toPremul
+    nullptr,  // fromPremul
+    nullptr   // blendUnderPremul
 #endif
 };
 
@@ -893,8 +1113,9 @@ const PixelFormatDescriptor Alpha8 = {
     alpha8_fromStraight,
     nullptr,  // toStraightIndexed
     nullptr,  // fromStraightIndexed
-    nullptr,  // blendUnderPremul
-    nullptr   // fromPremul
+    nullptr,  // toPremul
+    nullptr,  // fromPremul
+    nullptr   // blendUnderPremul
 };
 
 } // namespace BuiltinFormats

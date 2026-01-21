@@ -54,9 +54,10 @@ namespace FormatIdx {
 namespace OpType {
     constexpr int ToStraight = 0;    // 各フォーマット → RGBA8_Straight
     constexpr int FromStraight = 1;  // RGBA8_Straight → 各フォーマット
-    constexpr int BlendUnder = 2;    // 各フォーマット → Premul dst (under合成)
-    constexpr int FromPremul = 3;    // Premul → 各フォーマット
-    constexpr int Count = 4;
+    constexpr int ToPremul = 2;      // 各フォーマット → RGBA16_Premultiplied
+    constexpr int FromPremul = 3;    // RGBA16_Premultiplied → 各フォーマット
+    constexpr int BlendUnder = 4;    // 各フォーマット → Premul dst (under合成)
+    constexpr int Count = 5;
 }
 
 // ========================================================================
