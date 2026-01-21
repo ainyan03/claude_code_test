@@ -112,8 +112,8 @@ public:
         int_fixed canvasOriginX = request.origin.x;
         int_fixed canvasOriginY = request.origin.y;
 
-        // Premul形式のキャンバスを作成（透明で初期化）
-        ImageBuffer canvasBuf = canvas_utils::createPremulCanvas(request.width, request.height, InitPolicy::Zero);
+        // Premul形式のキャンバスを作成（透明で初期化、ノードのアロケータを使用）
+        ImageBuffer canvasBuf = canvas_utils::createPremulCanvas(request.width, request.height, InitPolicy::Zero, allocator());
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         PerfMetrics::instance().nodes[NodeType::Composite].recordAlloc(
             canvasBuf.totalBytes(), canvasBuf.width(), canvasBuf.height());

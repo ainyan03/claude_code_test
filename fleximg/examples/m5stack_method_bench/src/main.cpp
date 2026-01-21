@@ -30,6 +30,7 @@ static constexpr int WARMUP = 10;
 static uint8_t* srcRGBA8 = nullptr;      // RGBA8_Straight (4096 * 4 = 16KB)
 static uint8_t* dstRGB565 = nullptr;     // RGB565 (4096 * 2 = 8KB)
 static uint16_t* dstRGBA16 = nullptr;    // RGBA16_Premultiplied (4096 * 8 = 32KB)
+static uint16_t* canvasRGBA16 = nullptr; // blendUnderPremul用キャンバス (4096 * 8 = 32KB)
 
 // ========================================================================
 // ベンチマーク関数
@@ -42,7 +43,7 @@ struct BenchResult {
     float pixelsPerUs;
 };
 
-static BenchResult results[10];
+static BenchResult results[20];
 static int resultCount = 0;
 
 bool allocateBuffers() {
@@ -50,46 +51,85 @@ bool allocateBuffers() {
     srcRGBA8 = static_cast<uint8_t*>(malloc(BENCH_PIXELS * 4));
     dstRGB565 = static_cast<uint8_t*>(malloc(BENCH_PIXELS * 2));
     dstRGBA16 = static_cast<uint16_t*>(malloc(BENCH_PIXELS * 8));
+    canvasRGBA16 = static_cast<uint16_t*>(malloc(BENCH_PIXELS * 8));
 
-    if (!srcRGBA8 || !dstRGB565 || !dstRGBA16) {
+    if (!srcRGBA8 || !dstRGB565 || !dstRGBA16 || !canvasRGBA16) {
         Serial.println("ERROR: Failed to allocate buffers!");
         return false;
     }
 
-    Serial.printf("Buffers allocated: src=%p, dst565=%p, dst16=%p\n",
-                  srcRGBA8, dstRGB565, dstRGBA16);
+    Serial.printf("Buffers allocated: src=%p, dst565=%p, dst16=%p, canvas=%p\n",
+                  srcRGBA8, dstRGB565, dstRGBA16, canvasRGBA16);
     return true;
 }
 
-void initTestData() {
-    if (!srcRGBA8) return;
+// アルファパターンの種類
+enum class AlphaPattern {
+    Mixed,       // 透明/半透明/不透明の混在（デフォルト）
+    AllOpaque,   // 全て不透明（alpha=255）
+    AllTransparent, // 全て透明（alpha=0）
+    AllSemi      // 全て半透明（alpha=128）
+};
 
-    // テストデータ初期化
-    // 96ピクセル周期のアルファパターン:
-    // [0-31]:  A=0 (透明 32px)
-    // [32-47]: A=0→255 グラデーション (16px)
-    // [48-79]: A=255 (不透明 32px)
-    // [80-95]: A=255→0 グラデーション (16px)
+static AlphaPattern currentPattern = AlphaPattern::Mixed;
+
+void initTestData(AlphaPattern pattern = AlphaPattern::Mixed) {
+    if (!srcRGBA8) return;
+    currentPattern = pattern;
+
     for (int i = 0; i < BENCH_PIXELS; i++) {
         int idx = i * 4;
         srcRGBA8[idx + 0] = static_cast<uint8_t>(i & 0xFF);         // R
         srcRGBA8[idx + 1] = static_cast<uint8_t>((i >> 4) & 0xFF);  // G
         srcRGBA8[idx + 2] = static_cast<uint8_t>((i >> 8) & 0xFF);  // B
 
-        int phase = i % 96;
         uint8_t alpha;
-        if (phase < 32) {
-            alpha = 0;
-        } else if (phase < 48) {
-            // 中間値グラデーション 16→240 (16ステップ)
-            alpha = static_cast<uint8_t>(16 + (phase - 32) * 15);  // 16,31,46,...,241
-        } else if (phase < 80) {
-            alpha = 255;
-        } else {
-            // 中間値グラデーション 240→16 (16ステップ)
-            alpha = static_cast<uint8_t>(16 + (95 - phase) * 15);  // 241,226,...,31,16
+        switch (pattern) {
+            case AlphaPattern::AllOpaque:
+                alpha = 255;
+                break;
+            case AlphaPattern::AllTransparent:
+                alpha = 0;
+                break;
+            case AlphaPattern::AllSemi:
+                alpha = 128;
+                break;
+            case AlphaPattern::Mixed:
+            default:
+                // 96ピクセル周期のアルファパターン:
+                // [0-31]:  A=0 (透明 32px)
+                // [32-47]: A=0→255 グラデーション (16px)
+                // [48-79]: A=255 (不透明 32px)
+                // [80-95]: A=255→0 グラデーション (16px)
+                {
+                    int phase = i % 96;
+                    if (phase < 32) {
+                        alpha = 0;
+                    } else if (phase < 48) {
+                        alpha = static_cast<uint8_t>(16 + (phase - 32) * 15);
+                    } else if (phase < 80) {
+                        alpha = 255;
+                    } else {
+                        alpha = static_cast<uint8_t>(16 + (95 - phase) * 15);
+                    }
+                }
+                break;
         }
         srcRGBA8[idx + 3] = alpha;
+    }
+}
+
+// キャンバスを半透明で初期化（blendUnderPremul用）
+void initCanvasHalfTransparent() {
+    if (!canvasRGBA16) return;
+    // 半透明の緑色（Premultiplied形式）
+    // alpha = 32768 (約50%), G = 32768 (α×65535)
+    for (int i = 0; i < BENCH_PIXELS; i++) {
+        int idx = i * 4;
+        canvasRGBA16[idx + 0] = 0;      // R
+        canvasRGBA16[idx + 1] = 32768;  // G (premul)
+        canvasRGBA16[idx + 2] = 0;      // B
+        canvasRGBA16[idx + 3] = 32768;  // A
     }
 }
 
@@ -243,6 +283,54 @@ void benchMemcpy() {
 }
 
 // ========================================================================
+// CompositeNode関連ベンチマーク（追加）
+// ========================================================================
+
+void benchRgba16PremulToStraight() {
+    // 先にPremulデータを準備
+    BuiltinFormats::RGBA8_Straight.toPremul(
+        dstRGBA16, srcRGBA8, BENCH_PIXELS, nullptr);
+
+    auto result = runBench("rgba16p_toStraight", []() {
+        BuiltinFormats::RGBA16_Premultiplied.toStraight(
+            srcRGBA8, dstRGBA16, BENCH_PIXELS, nullptr);
+    });
+    results[resultCount++] = result;
+    printResult(result);
+}
+
+void benchRgba8BlendUnderPremul() {
+    // キャンバスを半透明で初期化
+    initCanvasHalfTransparent();
+
+    auto result = runBench("rgba8_blendUnder", []() {
+        // キャンバスを毎回リセット（公平な測定のため）
+        initCanvasHalfTransparent();
+        BuiltinFormats::RGBA8_Straight.blendUnderPremul(
+            canvasRGBA16, srcRGBA8, BENCH_PIXELS, nullptr);
+    });
+    results[resultCount++] = result;
+    printResult(result);
+}
+
+void benchRgba16PremulBlendUnderPremul() {
+    // srcをPremul形式で準備
+    BuiltinFormats::RGBA8_Straight.toPremul(
+        dstRGBA16, srcRGBA8, BENCH_PIXELS, nullptr);
+
+    // キャンバスを半透明で初期化
+    initCanvasHalfTransparent();
+
+    auto result = runBench("rgba16p_blendUnder", []() {
+        initCanvasHalfTransparent();
+        BuiltinFormats::RGBA16_Premultiplied.blendUnderPremul(
+            canvasRGBA16, dstRGBA16, BENCH_PIXELS, nullptr);
+    });
+    results[resultCount++] = result;
+    printResult(result);
+}
+
+// ========================================================================
 // メイン
 // ========================================================================
 
@@ -250,8 +338,11 @@ void runAllBenchmarks() {
     resultCount = 0;
     printHeader();
 
-    Serial.println("Running benchmarks...\n");
+    Serial.println("Running benchmarks (Mixed alpha)...\n");
     M5.Display.println("Running...\n");
+
+    // テストデータ初期化（混在パターン）
+    initTestData(AlphaPattern::Mixed);
 
     // ベースライン
     benchMemcpy();
@@ -268,12 +359,57 @@ void runAllBenchmarks() {
     benchRgb565leToPremul();
     benchRgb565leFromPremul();
 
+    // CompositeNode関連（追加）
+    Serial.println("\n--- CompositeNode methods ---");
+    M5.Display.println("\n-- Composite --");
+    benchRgba16PremulToStraight();
+    benchRgba8BlendUnderPremul();
+    benchRgba16PremulBlendUnderPremul();
+
     Serial.println("\n========================================");
     Serial.println("Benchmark complete!");
     Serial.println("========================================\n");
 
     M5.Display.println("\nComplete!");
     M5.Display.println("Touch to rerun");
+}
+
+// アルファパターン別ベンチマーク（blendUnderPremulの条件分岐影響測定）
+void runBlendUnderBenchByPattern() {
+    Serial.println("\n========================================");
+    Serial.println("blendUnderPremul by Alpha Pattern");
+    Serial.println("========================================\n");
+
+    M5.Display.fillScreen(TFT_BLACK);
+    M5.Display.setCursor(0, 0);
+    M5.Display.println("BlendUnder by Pattern\n");
+
+    const char* patternNames[] = {"Mixed", "Opaque", "Transparent", "Semi"};
+    AlphaPattern patterns[] = {
+        AlphaPattern::Mixed,
+        AlphaPattern::AllOpaque,
+        AlphaPattern::AllTransparent,
+        AlphaPattern::AllSemi
+    };
+
+    for (int p = 0; p < 4; p++) {
+        Serial.printf("\n--- Pattern: %s ---\n", patternNames[p]);
+        M5.Display.printf("\n%s:\n", patternNames[p]);
+
+        initTestData(patterns[p]);
+
+        // RGBA8_Straight → blendUnderPremul
+        initCanvasHalfTransparent();
+        auto result = runBench("rgba8_blendUnder", []() {
+            initCanvasHalfTransparent();
+            BuiltinFormats::RGBA8_Straight.blendUnderPremul(
+                canvasRGBA16, srcRGBA8, BENCH_PIXELS, nullptr);
+        });
+        printResult(result);
+    }
+
+    Serial.println("\n========================================\n");
+    M5.Display.println("\nTouch for main bench");
 }
 
 void setup() {
@@ -304,16 +440,21 @@ void setup() {
 
 void loop() {
     M5.update();
-
+#if 0
     // タッチで再実行
     if (M5.Touch.getCount() > 0) {
         delay(500);  // デバウンス
         runAllBenchmarks();
     }
-
-    // ボタンAでも再実行
+#endif
+    // ボタンAで通常ベンチマーク
     if (M5.BtnA.wasPressed()) {
         runAllBenchmarks();
+    }
+
+    // ボタンBでアルファパターン別ベンチマーク
+    if (M5.BtnB.wasPressed()) {
+        runBlendUnderBenchByPattern();
     }
 
     delay(10);
