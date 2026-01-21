@@ -123,6 +123,7 @@ public:
 
         // under合成: 入力を順に評価して合成
         // 入力ポート0が最前面、以降が背面
+        bool isFirstContent = true;
         for (int i = 0; i < numInputs; i++) {
             Node* upstream = upstreamNode(i);
             if (!upstream) continue;
@@ -144,9 +145,17 @@ public:
                 inputResult = canvas_utils::ensureBlendableFormat(std::move(inputResult));
             }
 
-            // under合成: dstが不透明なら何もしない最適化が自動適用
-            canvas_utils::placeUnder(canvasView, canvasOriginX, canvasOriginY,
-                                     inputResult.view(), inputResult.origin.x, inputResult.origin.y);
+            if (isFirstContent) {
+                // 初回: 透明キャンバスへの描画なのでブレンド不要
+                // placeFirstはmemcpy最適化や条件分岐なしの変換を使用
+                canvas_utils::placeFirst(canvasView, canvasOriginX, canvasOriginY,
+                                         inputResult.view(), inputResult.origin.x, inputResult.origin.y);
+                isFirstContent = false;
+            } else {
+                // 2回目以降: under合成（dstが不透明なら何もしない最適化が自動適用）
+                canvas_utils::placeUnder(canvasView, canvasOriginX, canvasOriginY,
+                                         inputResult.view(), inputResult.origin.x, inputResult.origin.y);
+            }
         }
 
         // 全ての入力が空だった場合

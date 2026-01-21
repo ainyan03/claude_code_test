@@ -30,18 +30,76 @@ inline ImageBuffer createCanvas(int width, int height,
 }
 
 // 最初の画像をキャンバスに配置
-// blend::first を使用（透明キャンバスへの最初の描画、memcpy最適化）
+// 透明キャンバスへの最初の描画（ブレンド不要、変換コピーのみ）
+// PixelFormatDescriptorの変換関数を使用
 inline void placeFirst(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canvasOriginY,
                        const ViewPort& src, int_fixed srcOriginX, int_fixed srcOriginY) {
-    blend::first(canvas, canvasOriginX, canvasOriginY, src, srcOriginX, srcOriginY);
+    if (!canvas.isValid() || !src.isValid()) return;
+
+    // 基準点を一致させるためのオフセット計算
+    int offsetX = from_fixed(canvasOriginX - srcOriginX);
+    int offsetY = from_fixed(canvasOriginY - srcOriginY);
+
+    // クリッピング範囲を計算
+    int srcStartX = std::max(0, -offsetX);
+    int srcStartY = std::max(0, -offsetY);
+    int dstStartX = std::max(0, offsetX);
+    int dstStartY = std::max(0, offsetY);
+    int copyWidth = std::min(src.width - srcStartX, canvas.width - dstStartX);
+    int copyHeight = std::min(src.height - srcStartY, canvas.height - dstStartY);
+
+    if (copyWidth <= 0 || copyHeight <= 0) return;
+
+    // 同一フォーマット → memcpy
+    if (src.formatID == canvas.formatID) {
+        size_t bpp = static_cast<size_t>(getBytesPerPixel(src.formatID));
+        for (int y = 0; y < copyHeight; y++) {
+            const void* srcRow = src.pixelAt(srcStartX, srcStartY + y);
+            void* dstRow = canvas.pixelAt(dstStartX, dstStartY + y);
+            std::memcpy(dstRow, srcRow, static_cast<size_t>(copyWidth) * bpp);
+        }
+        return;
+    }
+
+    // キャンバスがRGBA16_Premultiplied → toPremul関数を使用
+    if (canvas.formatID == PixelFormatIDs::RGBA16_Premultiplied && src.formatID->toPremul) {
+        for (int y = 0; y < copyHeight; y++) {
+            const void* srcRow = src.pixelAt(srcStartX, srcStartY + y);
+            void* dstRow = canvas.pixelAt(dstStartX, dstStartY + y);
+            src.formatID->toPremul(dstRow, srcRow, copyWidth, nullptr);
+        }
+        return;
+    }
+
+    // キャンバスがRGBA8_Straight → toStraight関数を使用
+    if (canvas.formatID == PixelFormatIDs::RGBA8_Straight && src.formatID->toStraight) {
+        for (int y = 0; y < copyHeight; y++) {
+            const void* srcRow = src.pixelAt(srcStartX, srcStartY + y);
+            void* dstRow = canvas.pixelAt(dstStartX, dstStartY + y);
+            src.formatID->toStraight(dstRow, srcRow, copyWidth, nullptr);
+        }
+        return;
+    }
+
+    // フォールバック: convertFormat経由（2段階変換の可能性あり）
+    for (int y = 0; y < copyHeight; y++) {
+        const void* srcRow = src.pixelAt(srcStartX, srcStartY + y);
+        void* dstRow = canvas.pixelAt(dstStartX, dstStartY + y);
+        convertFormat(srcRow, src.formatID, dstRow, canvas.formatID, copyWidth, nullptr);
+    }
 }
 
+// [DEPRECATED] 将来削除予定
+// over合成はunder合成に統一されたため、この関数は不要になりました。
+// 参照: CompositeNode, NinePatchSourceNode の placeFirst + placeUnder 方式
+#if 0
 // 追加画像をキャンバスに配置（ブレンド）
 // blend::onto を使用（2枚目以降の合成、ブレンド計算）
 inline void placeOnto(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canvasOriginY,
                       const ViewPort& src, int_fixed srcOriginX, int_fixed srcOriginY) {
     blend::onto(canvas, canvasOriginX, canvasOriginY, src, srcOriginX, srcOriginY);
 }
+#endif
 
 // フォーマット変換（必要なら）
 // blend関数が対応していないフォーマットをRGBA8_Straightに変換

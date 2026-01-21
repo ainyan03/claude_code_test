@@ -234,20 +234,23 @@ RenderResult result = node->pullProcess(request);
 int offsetX = static_cast<int>(request.origin.x - result.origin.x);
 int offsetY = static_cast<int>(request.origin.y - result.origin.y);
 
-// キャンバスにブレンド（blend名前空間を使用）
+// キャンバスに配置（canvas_utils名前空間を使用）
 ViewPort canvas = canvasBuffer.view();
-blend::onto(canvas, request.origin.x, request.origin.y,
-            result.view(), result.origin.x, result.origin.y);
+canvas_utils::placeFirst(canvas, request.origin.x, request.origin.y,
+                         result.view(), result.origin.x, result.origin.y);
 ```
 
-### blend::first vs blend::onto
+### canvas_utils の合成関数
 
 | 関数 | 用途 |
 |-----|------|
-| blend::first | 透明キャンバスへの最初の描画（memcpy最適化）|
-| blend::onto | 2枚目以降の合成（ブレンド計算）|
+| canvas_utils::placeFirst | 透明キャンバスへの最初の描画（変換コピー）|
+| canvas_utils::placeUnder | under合成（dst不透明ならスキップ）|
 
-これらは固定小数点の基準点座標（`int_fixed` Q16.16）を使用し、フォーマット変換（RGBA8_Straight → RGBA16_Premultiplied）にも対応しています。
+> **Note**: `blend::onto` および `canvas_utils::placeOnto` は廃止されました。
+> over合成はunder合成に統一され、CompositeNode等では `placeFirst` + `placeUnder` 方式を使用します。
+
+これらは固定小数点の基準点座標（`int_fixed` Q16.16）を使用し、PixelFormatDescriptor の変換関数（toPremul, blendUnderPremul）を利用します。
 
 ## 設計の利点
 

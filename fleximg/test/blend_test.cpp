@@ -5,7 +5,7 @@
 
 #define FLEXIMG_NAMESPACE fleximg
 #include "fleximg/image/image_buffer.h"
-#include "fleximg/operations/blend.h"
+#include "fleximg/operations/canvas_utils.h"
 
 using namespace fleximg;
 
@@ -38,10 +38,10 @@ static void getPixelRGBA16(const ImageBuffer& buf, int x, int y, uint16_t& r, ui
 }
 
 // =============================================================================
-// blend::first Tests
+// canvas_utils::placeFirst Tests
 // =============================================================================
 
-TEST_CASE("blend::first basic copy") {
+TEST_CASE("placeFirst basic copy") {
     // 同一フォーマット間のコピー
     ImageBuffer src(4, 4, PixelFormatIDs::RGBA8_Straight);
     ImageBuffer dst(4, 4, PixelFormatIDs::RGBA8_Straight);
@@ -53,8 +53,9 @@ TEST_CASE("blend::first basic copy") {
     int_fixed srcOrigin = to_fixed(2);
     int_fixed dstOrigin = to_fixed(2);
 
-    blend::first(dst.viewRef(), dstOrigin, dstOrigin,
-                 src.view(), srcOrigin, srcOrigin);
+    ViewPort dstView = dst.viewRef();
+    canvas_utils::placeFirst(dstView, dstOrigin, dstOrigin,
+                             src.view(), srcOrigin, srcOrigin);
 
     // コピーされていることを確認
     uint8_t r, g, b, a;
@@ -65,7 +66,7 @@ TEST_CASE("blend::first basic copy") {
     CHECK(a == 255);
 }
 
-TEST_CASE("blend::first with offset") {
+TEST_CASE("placeFirst with offset") {
     ImageBuffer src(4, 4, PixelFormatIDs::RGBA8_Straight);
     ImageBuffer dst(8, 8, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero);
 
@@ -73,8 +74,9 @@ TEST_CASE("blend::first with offset") {
     setPixelRGBA8(src, 0, 0, 255, 0, 0, 255);
 
     // srcの基準点(0,0)をdstの基準点(4,4)に合わせる
-    blend::first(dst.viewRef(), to_fixed(4), to_fixed(4),
-                 src.view(), to_fixed(0), to_fixed(0));
+    ViewPort dstView = dst.viewRef();
+    canvas_utils::placeFirst(dstView, to_fixed(4), to_fixed(4),
+                             src.view(), to_fixed(0), to_fixed(0));
 
     // dstの(4,4)に赤ピクセルがあるはず
     uint8_t r, g, b, a;
@@ -90,15 +92,16 @@ TEST_CASE("blend::first with offset") {
     CHECK(a == 0);
 }
 
-TEST_CASE("blend::first format conversion RGBA8 to RGBA16") {
+TEST_CASE("placeFirst format conversion RGBA8 to RGBA16") {
     ImageBuffer src(4, 4, PixelFormatIDs::RGBA8_Straight);
     ImageBuffer dst(4, 4, PixelFormatIDs::RGBA16_Premultiplied);
 
     // srcに不透明赤ピクセル
     setPixelRGBA8(src, 1, 1, 255, 0, 0, 255);
 
-    blend::first(dst.viewRef(), to_fixed(2), to_fixed(2),
-                 src.view(), to_fixed(2), to_fixed(2));
+    ViewPort dstView = dst.viewRef();
+    canvas_utils::placeFirst(dstView, to_fixed(2), to_fixed(2),
+                             src.view(), to_fixed(2), to_fixed(2));
 
     // RGBA16形式で確認
     uint16_t r, g, b, a;
@@ -112,7 +115,7 @@ TEST_CASE("blend::first format conversion RGBA8 to RGBA16") {
     CHECK(b == 0);
 }
 
-TEST_CASE("blend::first clipping") {
+TEST_CASE("placeFirst clipping") {
     ImageBuffer src(4, 4, PixelFormatIDs::RGBA8_Straight);
     ImageBuffer dst(4, 4, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero);
 
@@ -124,8 +127,9 @@ TEST_CASE("blend::first clipping") {
     }
 
     // srcを右下にオフセット（一部のみ見える）
-    blend::first(dst.viewRef(), to_fixed(0), to_fixed(0),
-                 src.view(), to_fixed(2), to_fixed(2));
+    ViewPort dstView = dst.viewRef();
+    canvas_utils::placeFirst(dstView, to_fixed(0), to_fixed(0),
+                             src.view(), to_fixed(2), to_fixed(2));
 
     // dstの(0,0)-(1,1)にsrcの(2,2)-(3,3)がコピーされる
     uint8_t r, g, b, a;
@@ -145,7 +149,9 @@ TEST_CASE("blend::first clipping") {
 
 // =============================================================================
 // blend::onto Tests
+// [DEPRECATED] 将来削除予定 - blend::onto は廃止されました
 // =============================================================================
+#if 0
 
 TEST_CASE("blend::onto opaque over transparent") {
     ImageBuffer src(4, 4, PixelFormatIDs::RGBA16_Premultiplied);
@@ -236,39 +242,32 @@ TEST_CASE("blend::onto RGBA8 to RGBA16 conversion") {
     CHECK(a >= RGBA16Premul::ALPHA_OPAQUE_MIN);
 }
 
+#endif // DEPRECATED blend::onto Tests
+
 // =============================================================================
 // Edge Cases
 // =============================================================================
 
-TEST_CASE("blend::first with invalid viewports") {
+TEST_CASE("placeFirst with invalid viewports") {
     ImageBuffer src(4, 4, PixelFormatIDs::RGBA8_Straight);
     ViewPort invalidDst;  // invalid
 
     // should not crash
-    blend::first(invalidDst, to_fixed(0), to_fixed(0),
-                 src.view(), to_fixed(0), to_fixed(0));
+    canvas_utils::placeFirst(invalidDst, to_fixed(0), to_fixed(0),
+                             src.view(), to_fixed(0), to_fixed(0));
     CHECK(true);  // reached here without crash
 }
 
-TEST_CASE("blend::onto with invalid viewports") {
-    ImageBuffer dst(4, 4, PixelFormatIDs::RGBA16_Premultiplied);
-    ViewPort invalidSrc;  // invalid
-
-    // should not crash
-    blend::onto(dst.viewRef(), to_fixed(0), to_fixed(0),
-                invalidSrc, to_fixed(0), to_fixed(0));
-    CHECK(true);  // reached here without crash
-}
-
-TEST_CASE("blend with completely out of bounds") {
+TEST_CASE("placeFirst with completely out of bounds") {
     ImageBuffer src(4, 4, PixelFormatIDs::RGBA8_Straight);
     ImageBuffer dst(4, 4, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero);
 
     setPixelRGBA8(src, 0, 0, 255, 0, 0, 255);
 
     // srcを完全にdstの外に配置
-    blend::first(dst.viewRef(), to_fixed(0), to_fixed(0),
-                 src.view(), to_fixed(100), to_fixed(100));
+    ViewPort dstView = dst.viewRef();
+    canvas_utils::placeFirst(dstView, to_fixed(0), to_fixed(0),
+                             src.view(), to_fixed(100), to_fixed(100));
 
     // dstは変更されない
     uint8_t r, g, b, a;
