@@ -105,6 +105,30 @@ for (auto& input : inputs) {
 - **メモリ効率**: 中間バッファ不要
 - **拡張性**: 新フォーマット追加時は `blendUnderPremul` 関数を実装するだけ
 
+### SWAR最適化
+
+blendUnderPremulおよびtoPremul関数にはSWAR（SIMD Within A Register）最適化が適用されています。
+32ビットレジスタにRG/BAの2チャンネルを同時にパックして演算することで、乗算回数を削減しています。
+
+```cpp
+// 例: toPremul（RGを同時処理）
+uint32_t rg = (r + (static_cast<uint32_t>(g) << 16)) * a_tmp;
+// rg & 0xFFFF = R16, rg >> 16 = G16
+```
+
+### ラウンドトリップ精度
+
+toPremul → fromPremul のラウンドトリップ変換は**精度100%**を達成しています。
+これは`invUnpremulTable`の計算にceil（切り上げ）を使用することで実現しています。
+
+```cpp
+// invUnpremulTable[a] = ceil(65536 / (a+1))
+constexpr uint16_t calcInvUnpremul(int a) {
+    return (a == 0) ? 0 : static_cast<uint16_t>(
+        (65536u + static_cast<uint32_t>(a)) / static_cast<uint32_t>(a + 1));
+}
+```
+
 ---
 
 ## 参考: RGBA16_Premultiplied 仕様（無効化中）

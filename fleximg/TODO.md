@@ -22,6 +22,8 @@
 | マイグレーションAPI削除 | Point2f, setOriginf() 等の削除 | v2.18.0 |
 | doctestテスト環境 | 91テストケース | v2.20.0 |
 | AffineNodeシンプル化 | DEPRECATEDコード削除、行列保持・伝播のみに | - |
+| SWAR最適化 | blendUnderPremul/toPremulにSWAR最適化を適用 | - |
+| ラウンドトリップ精度100% | toPremul/fromPremul変換の精度改善（ceilテーブル採用） | - |
 
 ## 実装予定
 
