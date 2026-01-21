@@ -238,7 +238,7 @@ public:
             0, 2, 6, 8   // 固定パッチ（角）を最後に
         };
 
-        bool first = true;
+        // bool first = true;  // placeOnto分岐削除に伴い不要
         for (int i : drawOrder) {
             // サイズ0の区画はスキップ
             int col = i % 3;
@@ -253,22 +253,22 @@ public:
             // フォーマット変換
             patchResult = canvas_utils::ensureBlendableFormat(std::move(patchResult));
 
-            // キャンバスに配置
-            // 固定パッチ（col≠1 かつ row≠1）以外は上書き（placeFirst）
-            bool isCornerPatch = (col != 1 && row != 1);
-            if (first) {
-                canvas_utils::placeFirst(canvasView, request.origin.x, request.origin.y,
-                                         patchResult.view(), patchResult.origin.x, patchResult.origin.y);
-                first = false;
-            } else if (isCornerPatch) {
-                // 固定パッチはブレンド（半透明対応）
-                canvas_utils::placeOnto(canvasView, request.origin.x, request.origin.y,
-                                        patchResult.view(), patchResult.origin.x, patchResult.origin.y);
-            } else {
-                // 伸縮パッチは上書き（オーバーラップ部分を完全に塗りつぶす）
-                canvas_utils::placeFirst(canvasView, request.origin.x, request.origin.y,
-                                         patchResult.view(), patchResult.origin.x, patchResult.origin.y);
-            }
+            // キャンバスに配置（全パッチ上書き）
+            // NinePatchではパッチ同士の重なりは単純上書きで良い
+            canvas_utils::placeFirst(canvasView, request.origin.x, request.origin.y,
+                                     patchResult.view(), patchResult.origin.x, patchResult.origin.y);
+            // TODO: 以下の分岐は不要と判断しコメントアウト。問題なければ削除予定
+            // bool isCornerPatch = (col != 1 && row != 1);
+            // if (first) {
+            //     canvas_utils::placeFirst(...);
+            //     first = false;
+            // } else if (isCornerPatch) {
+            //     // 固定パッチはブレンド（半透明対応）
+            //     canvas_utils::placeOnto(...);
+            // } else {
+            //     // 伸縮パッチは上書き
+            //     canvas_utils::placeFirst(...);
+            // }
         }
 
         return RenderResult(std::move(canvasBuf), request.origin);
