@@ -1,5 +1,18 @@
-// fleximg Method Benchmark
-// 変換関数の単体性能測定
+/**
+ * @file main.cpp
+ * @brief fleximg ピクセルフォーマット変換のベンチマーク（M5Stack用）
+ *
+ * 用途:
+ * - ピクセルフォーマット変換関数（toPremul/fromPremul等）の単体性能測定
+ * - fromPremul実装方式（テーブル vs 除算）の比較
+ * - blendUnder合成の方式別（Premul vs Straight）性能比較
+ * - アルファパターン（透明/半透明/不透明）別の処理速度検証
+ *
+ * ビルド: PlatformIOでM5Stack向けにビルド
+ * 操作:
+ *   - ボタンA: 通常ベンチマーク実行
+ *   - ボタンB: blendUnderのsrc×dstアルファパターンマトリクス測定
+ */
 
 #include <M5Unified.h>
 
@@ -31,6 +44,7 @@ static uint8_t* srcRGBA8 = nullptr;      // RGBA8_Straight (4096 * 4 = 16KB)
 static uint8_t* dstRGB565 = nullptr;     // RGB565 (4096 * 2 = 8KB)
 static uint16_t* dstRGBA16 = nullptr;    // RGBA16_Premultiplied (4096 * 8 = 32KB)
 static uint16_t* canvasRGBA16 = nullptr; // blendUnderPremul用キャンバス (4096 * 8 = 32KB)
+static uint8_t* canvasRGBA8 = nullptr;   // blendUnderStraight用キャンバス (4096 * 4 = 16KB)
 
 // ========================================================================
 // ベンチマーク関数
@@ -52,14 +66,15 @@ bool allocateBuffers() {
     dstRGB565 = static_cast<uint8_t*>(malloc(BENCH_PIXELS * 2));
     dstRGBA16 = static_cast<uint16_t*>(malloc(BENCH_PIXELS * 8));
     canvasRGBA16 = static_cast<uint16_t*>(malloc(BENCH_PIXELS * 8));
+    canvasRGBA8 = static_cast<uint8_t*>(malloc(BENCH_PIXELS * 4));
 
-    if (!srcRGBA8 || !dstRGB565 || !dstRGBA16 || !canvasRGBA16) {
+    if (!srcRGBA8 || !dstRGB565 || !dstRGBA16 || !canvasRGBA16 || !canvasRGBA8) {
         Serial.println("ERROR: Failed to allocate buffers!");
         return false;
     }
 
-    Serial.printf("Buffers allocated: src=%p, dst565=%p, dst16=%p, canvas=%p\n",
-                  srcRGBA8, dstRGB565, dstRGBA16, canvasRGBA16);
+    Serial.printf("Buffers allocated: src=%p, canvas8=%p, canvas16=%p\n",
+                  srcRGBA8, canvasRGBA8, canvasRGBA16);
     return true;
 }
 
@@ -167,6 +182,107 @@ void initCanvas(AlphaPattern pattern) {
 // 後方互換性のためのラッパー
 void initCanvasHalfTransparent() {
     initCanvas(AlphaPattern::AllSemi);
+}
+
+// RGBA8_Straight用キャンバス初期化
+void initCanvas8(AlphaPattern pattern) {
+    if (!canvasRGBA8) return;
+
+    for (int i = 0; i < BENCH_PIXELS; i++) {
+        int idx = i * 4;
+        uint8_t alpha;
+
+        switch (pattern) {
+            case AlphaPattern::AllOpaque:
+                alpha = 255;
+                break;
+            case AlphaPattern::AllTransparent:
+                alpha = 0;
+                break;
+            case AlphaPattern::AllSemi:
+                alpha = 128;
+                break;
+            case AlphaPattern::Mixed:
+            default:
+                {
+                    int phase = i % 96;
+                    if (phase < 32) {
+                        alpha = 0;
+                    } else if (phase < 48) {
+                        alpha = static_cast<uint8_t>(16 + (phase - 32) * 15);
+                    } else if (phase < 80) {
+                        alpha = 255;
+                    } else {
+                        alpha = static_cast<uint8_t>(16 + (95 - phase) * 15);
+                    }
+                }
+                break;
+        }
+
+        // Straight形式: 緑色ベース
+        canvasRGBA8[idx + 0] = 0;      // R
+        canvasRGBA8[idx + 1] = 255;    // G (straight: 緑)
+        canvasRGBA8[idx + 2] = 0;      // B
+        canvasRGBA8[idx + 3] = alpha;  // A
+    }
+}
+
+// ========================================================================
+// blendUnderStraight 実装（ベンチマーク用）
+// ========================================================================
+// under合成: result = dst + src * (1 - dstA)
+// Straight形式なので、最終的にunpremultiplyが必要
+
+static void blendUnderStraight_impl(
+    uint8_t* __restrict__ dst,
+    const uint8_t* __restrict__ src,
+    int pixelCount
+) {
+    for (int i = 0; i < pixelCount; i++) {
+        int idx = i * 4;
+        uint_fast16_t srcR = src[idx + 0];
+        uint_fast16_t srcG = src[idx + 1];
+        uint_fast16_t srcB = src[idx + 2];
+        uint_fast16_t srcA = src[idx + 3];
+        uint_fast16_t dstR = dst[idx + 0];
+        uint_fast16_t dstG = dst[idx + 1];
+        uint_fast16_t dstB = dst[idx + 2];
+        uint_fast16_t dstA = dst[idx + 3];
+
+        // dstが不透明ならスキップ
+        if (dstA == 255) continue;
+        // srcが透明ならスキップ
+        if (srcA == 0) continue;
+
+        // dstが透明なら単純コピー
+        if (dstA == 0) {
+            dst[idx + 0] = static_cast<uint8_t>(srcR);
+            dst[idx + 1] = static_cast<uint8_t>(srcG);
+            dst[idx + 2] = static_cast<uint8_t>(srcB);
+            dst[idx + 3] = static_cast<uint8_t>(srcA);
+            continue;
+        }
+
+        // under合成（Straight形式）
+        // invDstA = 255 - dstA (0-255スケール)
+        uint_fast16_t invDstA = 255 - dstA;
+
+        // resultA = dstA + srcA * invDstA / 255
+        uint_fast16_t resultA = dstA + (srcA * invDstA + 127) / 255;
+
+        // Premultiplied計算:
+        // resultR_premul = dstR * dstA + srcR * srcA * invDstA / 255
+        // resultR = resultR_premul / resultA
+        uint_fast32_t resultR_premul = dstR * dstA + (srcR * srcA * invDstA + 127) / 255;
+        uint_fast32_t resultG_premul = dstG * dstA + (srcG * srcA * invDstA + 127) / 255;
+        uint_fast32_t resultB_premul = dstB * dstA + (srcB * srcA * invDstA + 127) / 255;
+
+        // Unpremultiply (除算)
+        dst[idx + 0] = static_cast<uint8_t>(resultR_premul / resultA);
+        dst[idx + 1] = static_cast<uint8_t>(resultG_premul / resultA);
+        dst[idx + 2] = static_cast<uint8_t>(resultB_premul / resultA);
+        dst[idx + 3] = static_cast<uint8_t>(resultA);
+    }
 }
 
 template<typename Func>
@@ -319,6 +435,167 @@ void benchMemcpy() {
 }
 
 // ========================================================================
+// fromPremul実装比較ベンチマーク
+// テーブル(現在) vs テーブル+四捨五入 vs 除算
+// ========================================================================
+
+// 逆数テーブル（現在の実装: 切り捨て）
+static constexpr uint16_t calcInvFloor(int a) {
+    return (a == 0) ? 0 : static_cast<uint16_t>(65536u / static_cast<uint32_t>(a + 1));
+}
+
+// 逆数テーブル（改良案: 四捨五入）
+static constexpr uint16_t calcInvRound(int a) {
+    if (a == 0) return 0;
+    uint32_t divisor = static_cast<uint32_t>(a + 1);
+    return static_cast<uint16_t>((65536u + divisor / 2) / divisor);
+}
+
+// テーブル生成用ヘルパーマクロ
+#define INV_TABLE_ROW(base) \
+    calcInvFloor(base+0), calcInvFloor(base+1), calcInvFloor(base+2), calcInvFloor(base+3), \
+    calcInvFloor(base+4), calcInvFloor(base+5), calcInvFloor(base+6), calcInvFloor(base+7), \
+    calcInvFloor(base+8), calcInvFloor(base+9), calcInvFloor(base+10), calcInvFloor(base+11), \
+    calcInvFloor(base+12), calcInvFloor(base+13), calcInvFloor(base+14), calcInvFloor(base+15)
+
+#define INV_TABLE_ROW_R(base) \
+    calcInvRound(base+0), calcInvRound(base+1), calcInvRound(base+2), calcInvRound(base+3), \
+    calcInvRound(base+4), calcInvRound(base+5), calcInvRound(base+6), calcInvRound(base+7), \
+    calcInvRound(base+8), calcInvRound(base+9), calcInvRound(base+10), calcInvRound(base+11), \
+    calcInvRound(base+12), calcInvRound(base+13), calcInvRound(base+14), calcInvRound(base+15)
+
+alignas(64) static constexpr uint16_t invTableFloor[256] = {
+    INV_TABLE_ROW(0), INV_TABLE_ROW(16), INV_TABLE_ROW(32), INV_TABLE_ROW(48),
+    INV_TABLE_ROW(64), INV_TABLE_ROW(80), INV_TABLE_ROW(96), INV_TABLE_ROW(112),
+    INV_TABLE_ROW(128), INV_TABLE_ROW(144), INV_TABLE_ROW(160), INV_TABLE_ROW(176),
+    INV_TABLE_ROW(192), INV_TABLE_ROW(208), INV_TABLE_ROW(224), INV_TABLE_ROW(240)
+};
+
+alignas(64) static constexpr uint16_t invTableRound[256] = {
+    INV_TABLE_ROW_R(0), INV_TABLE_ROW_R(16), INV_TABLE_ROW_R(32), INV_TABLE_ROW_R(48),
+    INV_TABLE_ROW_R(64), INV_TABLE_ROW_R(80), INV_TABLE_ROW_R(96), INV_TABLE_ROW_R(112),
+    INV_TABLE_ROW_R(128), INV_TABLE_ROW_R(144), INV_TABLE_ROW_R(160), INV_TABLE_ROW_R(176),
+    INV_TABLE_ROW_R(192), INV_TABLE_ROW_R(208), INV_TABLE_ROW_R(224), INV_TABLE_ROW_R(240)
+};
+
+#undef INV_TABLE_ROW
+#undef INV_TABLE_ROW_R
+
+// 方式A: 切り捨てテーブル + 切り捨て演算（現在の実装）
+static void fromPremul_tableFloor(uint8_t* __restrict__ dst, const uint16_t* __restrict__ src, int pixelCount) {
+    for (int i = 0; i < pixelCount; i++) {
+        int idx = i * 4;
+        uint8_t a8 = static_cast<uint8_t>(src[idx + 3] >> 8);
+        uint32_t inv = invTableFloor[a8];
+        dst[idx + 0] = static_cast<uint8_t>((src[idx + 0] * inv) >> 16);
+        dst[idx + 1] = static_cast<uint8_t>((src[idx + 1] * inv) >> 16);
+        dst[idx + 2] = static_cast<uint8_t>((src[idx + 2] * inv) >> 16);
+        dst[idx + 3] = a8;
+    }
+}
+
+// 方式D: 四捨五入テーブル + 四捨五入演算（改良案）
+static void fromPremul_tableRound(uint8_t* __restrict__ dst, const uint16_t* __restrict__ src, int pixelCount) {
+    for (int i = 0; i < pixelCount; i++) {
+        int idx = i * 4;
+        uint8_t a8 = static_cast<uint8_t>(src[idx + 3] >> 8);
+        uint32_t inv = invTableRound[a8];
+        dst[idx + 0] = static_cast<uint8_t>((src[idx + 0] * inv + 32768) >> 16);
+        dst[idx + 1] = static_cast<uint8_t>((src[idx + 1] * inv + 32768) >> 16);
+        dst[idx + 2] = static_cast<uint8_t>((src[idx + 2] * inv + 32768) >> 16);
+        dst[idx + 3] = a8;
+    }
+}
+
+// 方式E: 純粋な除算（精度100%だが遅い）
+static void fromPremul_division(uint8_t* __restrict__ dst, const uint16_t* __restrict__ src, int pixelCount) {
+    for (int i = 0; i < pixelCount; i++) {
+        int idx = i * 4;
+        uint8_t a8 = static_cast<uint8_t>(src[idx + 3] >> 8);
+        uint16_t a_tmp = a8 + 1;
+        dst[idx + 0] = static_cast<uint8_t>(src[idx + 0] / a_tmp);
+        dst[idx + 1] = static_cast<uint8_t>(src[idx + 1] / a_tmp);
+        dst[idx + 2] = static_cast<uint8_t>(src[idx + 2] / a_tmp);
+        dst[idx + 3] = a8;
+    }
+}
+
+void benchFromPremulVariants() {
+    Serial.println("\n--- fromPremul Implementation Comparison ---");
+    M5.Display.println("\n-- fromPremul cmp --");
+
+    // 先にPremulデータを準備
+    BuiltinFormats::RGBA8_Straight.toPremul(
+        dstRGBA16, srcRGBA8, BENCH_PIXELS, nullptr);
+
+    // 方式A: テーブル(floor)+演算(floor) - 現在の実装
+    auto resultA = runBench("tbl_floor+floor", []() {
+        fromPremul_tableFloor(srcRGBA8, dstRGBA16, BENCH_PIXELS);
+    });
+    results[resultCount++] = resultA;
+    printResult(resultA);
+
+    // 方式D: テーブル(round)+演算(round) - 改良案
+    auto resultD = runBench("tbl_round+round", []() {
+        fromPremul_tableRound(srcRGBA8, dstRGBA16, BENCH_PIXELS);
+    });
+    results[resultCount++] = resultD;
+    printResult(resultD);
+
+    // 方式E: 除算
+    auto resultE = runBench("division", []() {
+        fromPremul_division(srcRGBA8, dstRGBA16, BENCH_PIXELS);
+    });
+    results[resultCount++] = resultE;
+    printResult(resultE);
+
+    // 比較結果
+    Serial.printf("\nComparison: round/floor=%.2fx, div/floor=%.2fx\n",
+                  static_cast<float>(resultD.perFrameUs) / resultA.perFrameUs,
+                  static_cast<float>(resultE.perFrameUs) / resultA.perFrameUs);
+}
+
+// ========================================================================
+// blendUnder比較ベンチマーク
+// Premul方式 vs Straight方式
+// ========================================================================
+
+static AlphaPattern g_canvas8Pattern = AlphaPattern::AllSemi;
+
+void benchBlendUnderComparison() {
+    Serial.println("\n--- blendUnder: Premul vs Straight ---");
+    M5.Display.println("\n-- blendUnder cmp --");
+
+    // 方式1: RGBA8 → blendUnderPremul → RGBA16 (現在の方式)
+    // toPremul変換 + blendUnder + fromPremul変換 の合計時間
+    auto resultPremul = runBench("via_Premul(16bit)", []() {
+        initCanvas(AlphaPattern::AllSemi);
+        BuiltinFormats::RGBA8_Straight.blendUnderPremul(
+            canvasRGBA16, srcRGBA8, BENCH_PIXELS, nullptr);
+    });
+    results[resultCount++] = resultPremul;
+    printResult(resultPremul);
+
+    // 方式2: RGBA8 → blendUnderStraight → RGBA8 (新方式)
+    auto resultStraight = runBench("Straight(8bit)", []() {
+        initCanvas8(AlphaPattern::AllSemi);
+        blendUnderStraight_impl(canvasRGBA8, srcRGBA8, BENCH_PIXELS);
+    });
+    results[resultCount++] = resultStraight;
+    printResult(resultStraight);
+
+    // 比較結果
+    Serial.printf("\nComparison: Straight/Premul=%.2fx\n",
+                  static_cast<float>(resultStraight.perFrameUs) / resultPremul.perFrameUs);
+
+    if (resultStraight.perFrameUs < resultPremul.perFrameUs) {
+        Serial.println("=> Straight is FASTER");
+    } else {
+        Serial.println("=> Premul is FASTER");
+    }
+}
+
+// ========================================================================
 // CompositeNode関連ベンチマーク（追加）
 // ========================================================================
 
@@ -394,6 +671,12 @@ void runAllBenchmarks() {
     benchRgb565beFromPremul();
     benchRgb565leToPremul();
     benchRgb565leFromPremul();
+
+    // fromPremul実装比較
+    benchFromPremulVariants();
+
+    // blendUnder比較（Premul vs Straight）
+    benchBlendUnderComparison();
 
     // CompositeNode関連（追加）
     Serial.println("\n--- CompositeNode methods ---");
