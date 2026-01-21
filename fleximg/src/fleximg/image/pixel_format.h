@@ -176,10 +176,17 @@ struct PixelFormatDescriptor {
     //   - dst が半透明ならunder合成
     using BlendUnderPremulFunc = ConvertFunc;
 
+    // SwapEndianFunc: エンディアン違いの兄弟フォーマットとの変換
+    using SwapEndianFunc = ConvertFunc;
+
     // 関数ポインタ（Premul形式用、未実装の場合は nullptr）
     ToPremulFunc toPremul;
     FromPremulFunc fromPremul;
     BlendUnderPremulFunc blendUnderPremul;
+
+    // エンディアン変換（兄弟フォーマットがある場合）
+    const PixelFormatDescriptor* siblingEndian;  // エンディアン違いの兄弟（なければnullptr）
+    SwapEndianFunc swapEndian;                   // バイトスワップ関数
 
     // ========================================================================
     // チャンネルアクセスメソッド（Phase 2で追加）
@@ -307,6 +314,7 @@ inline const char* getFormatName(PixelFormatID formatID) {
 
 // 2つのフォーマット間で変換
 // - 同一フォーマット: 単純コピー
+// - エンディアン違いの兄弟: swapEndian
 // - Premul形式との直接変換（toPremul/fromPremul）
 // - それ以外はStraight形式（RGBA8_Straight）経由で変換
 inline void convertFormat(const void* src, PixelFormatID srcFormat,
@@ -325,6 +333,12 @@ inline void convertFormat(const void* src, PixelFormatID srcFormat,
     }
 
     if (!srcFormat || !dstFormat) return;
+
+    // エンディアン違いの兄弟フォーマット → swapEndian
+    if (srcFormat->siblingEndian == dstFormat && srcFormat->swapEndian) {
+        srcFormat->swapEndian(dst, src, pixelCount, params);
+        return;
+    }
 
     // Premul形式への直接変換（toPremul）
     if (dstFormat == PixelFormatIDs::RGBA16_Premultiplied && srcFormat->toPremul) {

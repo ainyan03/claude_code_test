@@ -877,10 +877,40 @@ static void bgr888_fromPremul(void* dst, const void* src, int pixelCount, const 
 #endif
 
 // ========================================================================
+// エンディアン・バイトスワップ関数
+// ========================================================================
+
+// 16bit用バイトスワップ（RGB565_LE ↔ RGB565_BE）
+static void swap16(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    const uint16_t* srcPtr = static_cast<const uint16_t*>(src);
+    uint16_t* dstPtr = static_cast<uint16_t*>(dst);
+    for (int i = 0; i < pixelCount; i++) {
+        uint16_t v = srcPtr[i];
+        dstPtr[i] = static_cast<uint16_t>((v >> 8) | (v << 8));
+    }
+}
+
+// 24bit用チャンネルスワップ（RGB888 ↔ BGR888）
+static void swap24(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    const uint8_t* srcPtr = static_cast<const uint8_t*>(src);
+    uint8_t* dstPtr = static_cast<uint8_t*>(dst);
+    for (int i = 0; i < pixelCount; i++) {
+        int idx = i * 3;
+        dstPtr[idx + 0] = srcPtr[idx + 2];
+        dstPtr[idx + 1] = srcPtr[idx + 1];
+        dstPtr[idx + 2] = srcPtr[idx + 0];
+    }
+}
+
+// ========================================================================
 // 組み込みフォーマット定義
 // ========================================================================
 
 namespace BuiltinFormats {
+
+// Forward declarations for sibling references
+extern const PixelFormatDescriptor RGB565_BE;
+extern const PixelFormatDescriptor BGR888;
 
 #if 1  // RGBA16_Premultiplied サポート有効
 const PixelFormatDescriptor RGBA16_Premultiplied = {
@@ -905,7 +935,9 @@ const PixelFormatDescriptor RGBA16_Premultiplied = {
     nullptr,  // fromStraightIndexed
     rgba16Premul_toPremul,
     rgba16Premul_fromPremul,
-    rgba16Premul_blendUnderPremul
+    rgba16Premul_blendUnderPremul,
+    nullptr,  // siblingEndian
+    nullptr   // swapEndian
 };
 #endif
 
@@ -932,12 +964,14 @@ const PixelFormatDescriptor RGBA8_Straight = {
 #if 1  // RGBA16_Premultiplied サポート有効
     rgba8Straight_toPremul,
     rgba8Straight_fromPremul,
-    rgba8Straight_blendUnderPremul
+    rgba8Straight_blendUnderPremul,
 #else
     nullptr,  // toPremul
     nullptr,  // fromPremul
-    nullptr   // blendUnderPremul
+    nullptr,  // blendUnderPremul
 #endif
+    nullptr,  // siblingEndian
+    nullptr   // swapEndian
 };
 
 const PixelFormatDescriptor RGB565_LE = {
@@ -963,12 +997,14 @@ const PixelFormatDescriptor RGB565_LE = {
 #if 1  // RGBA16_Premultiplied サポート有効
     rgb565le_toPremul,
     rgb565le_fromPremul,
-    rgb565le_blendUnderPremul
+    rgb565le_blendUnderPremul,
 #else
     nullptr,  // toPremul
     nullptr,  // fromPremul
-    nullptr   // blendUnderPremul
+    nullptr,  // blendUnderPremul
 #endif
+    &RGB565_BE,  // siblingEndian
+    swap16       // swapEndian
 };
 
 const PixelFormatDescriptor RGB565_BE = {
@@ -994,12 +1030,14 @@ const PixelFormatDescriptor RGB565_BE = {
 #if 1  // RGBA16_Premultiplied サポート有効
     rgb565be_toPremul,
     rgb565be_fromPremul,
-    rgb565be_blendUnderPremul
+    rgb565be_blendUnderPremul,
 #else
     nullptr,  // toPremul
     nullptr,  // fromPremul
-    nullptr   // blendUnderPremul
+    nullptr,  // blendUnderPremul
 #endif
+    &RGB565_LE,  // siblingEndian
+    swap16       // swapEndian
 };
 
 const PixelFormatDescriptor RGB332 = {
@@ -1025,12 +1063,14 @@ const PixelFormatDescriptor RGB332 = {
 #if 1  // RGBA16_Premultiplied サポート有効
     rgb332_toPremul,
     rgb332_fromPremul,
-    rgb332_blendUnderPremul
+    rgb332_blendUnderPremul,
 #else
     nullptr,  // toPremul
     nullptr,  // fromPremul
-    nullptr   // blendUnderPremul
+    nullptr,  // blendUnderPremul
 #endif
+    nullptr,  // siblingEndian
+    nullptr   // swapEndian
 };
 
 const PixelFormatDescriptor RGB888 = {
@@ -1056,12 +1096,14 @@ const PixelFormatDescriptor RGB888 = {
 #if 1  // RGBA16_Premultiplied サポート有効
     rgb888_toPremul,
     rgb888_fromPremul,
-    rgb888_blendUnderPremul
+    rgb888_blendUnderPremul,
 #else
     nullptr,  // toPremul
     nullptr,  // fromPremul
-    nullptr   // blendUnderPremul
+    nullptr,  // blendUnderPremul
 #endif
+    &BGR888,  // siblingEndian
+    swap24    // swapEndian
 };
 
 const PixelFormatDescriptor BGR888 = {
@@ -1087,12 +1129,14 @@ const PixelFormatDescriptor BGR888 = {
 #if 1  // RGBA16_Premultiplied サポート有効
     bgr888_toPremul,
     bgr888_fromPremul,
-    bgr888_blendUnderPremul
+    bgr888_blendUnderPremul,
 #else
     nullptr,  // toPremul
     nullptr,  // fromPremul
-    nullptr   // blendUnderPremul
+    nullptr,  // blendUnderPremul
 #endif
+    &RGB888,  // siblingEndian
+    swap24    // swapEndian
 };
 
 const PixelFormatDescriptor Alpha8 = {
@@ -1115,7 +1159,9 @@ const PixelFormatDescriptor Alpha8 = {
     nullptr,  // fromStraightIndexed
     nullptr,  // toPremul
     nullptr,  // fromPremul
-    nullptr   // blendUnderPremul
+    nullptr,  // blendUnderPremul
+    nullptr,  // siblingEndian
+    nullptr   // swapEndian
 };
 
 } // namespace BuiltinFormats
