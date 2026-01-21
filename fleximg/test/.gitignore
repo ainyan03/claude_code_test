@@ -1,6 +1,7 @@
 # Test binaries
 *_test
 all_tests
+precision_analysis
 !*_test.cpp
 
 # Object files
