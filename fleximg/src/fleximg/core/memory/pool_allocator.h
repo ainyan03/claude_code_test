@@ -102,6 +102,7 @@ private:
     size_t blockCount_ = 0;             // ブロック数
     bool isPSRAM_ = false;              // PSRAMかどうか
     uint32_t allocatedBitmap_ = 0;      // ブロック使用状況
+    uint8_t blockCounts_[32] = {};      // 各ブロックの確保ブロック数（連続確保対応）
     bool searchFromHead_ = true;        // 探索方向（交互に切り替え）
     PoolStats stats_;
     bool initialized_ = false;

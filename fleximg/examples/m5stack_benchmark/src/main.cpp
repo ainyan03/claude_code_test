@@ -8,6 +8,7 @@
 #include "fleximg/core/common.h"
 #include "fleximg/core/types.h"
 #include "fleximg/core/perf_metrics.h"
+#include "fleximg/core/format_metrics.h"
 #include "fleximg/image/image_buffer.h"
 #include "fleximg/nodes/source_node.h"
 #include "fleximg/nodes/affine_node.h"
@@ -42,6 +43,7 @@ public:
     void* allocate(size_t bytes, size_t /* alignment */ = 16) override {
         void* ptr = pool_.allocate(bytes);
         if (ptr) return ptr;
+
         // プールから確保できない場合はDefaultAllocatorにフォールバック
         return memory::DefaultAllocator::instance().allocate(bytes);
     }
@@ -60,8 +62,8 @@ private:
 
 // PoolAllocator用のメモリプール
 // 画面幅320px × RGBA8(4bytes) = 1280bytes/line、余裕を持って4KB/block
-static constexpr size_t POOL_BLOCK_SIZE = 4 * 1024;  // 4KB per block
-static constexpr size_t POOL_BLOCK_COUNT = 8;        // 8 blocks = 32KB
+static constexpr size_t POOL_BLOCK_SIZE = 1 * 1024;  // 1KB per block
+static constexpr size_t POOL_BLOCK_COUNT = 32;        // 32 blocks = 32KB
 static uint8_t poolMemory[POOL_BLOCK_SIZE * POOL_BLOCK_COUNT];
 static memory::PoolAllocator internalPool;
 static PoolAllocatorAdapter* poolAdapter = nullptr;
@@ -372,6 +374,35 @@ static void printMetricsReport() {
     }
     M5_LOGI("Peak memory: %lu bytes", static_cast<unsigned long>(metrics.peakMemoryBytes));
 
+    // フォーマット変換統計
+    auto& fmtMetrics = FormatMetrics::instance();
+    M5_LOGI("--- Format Conversion ---");
+    static const char* fmtNames[] = {
+        "RGBA16P", "RGBA8", "RGB565LE", "RGB565BE", "RGB332", "RGB888", "BGR888", "Alpha8"
+    };
+    static const char* opNames[] = {
+        "ToStr", "FrStr", "ToPre", "FrPre", "BlnUn"
+    };
+    for (int f = 0; f < FormatIdx::Count; ++f) {
+        auto fmtTotal = fmtMetrics.totalByFormat(f);
+        if (fmtTotal.callCount > 0) {
+            M5_LOGI("  %s: calls=%lu px=%llu",
+                    fmtNames[f],
+                    static_cast<unsigned long>(fmtTotal.callCount),
+                    static_cast<unsigned long long>(fmtTotal.pixelCount));
+            // 操作別内訳
+            for (int o = 0; o < OpType::Count; ++o) {
+                const auto& entry = fmtMetrics.data[f][o];
+                if (entry.callCount > 0) {
+                    M5_LOGI("    %s: calls=%lu px=%llu",
+                            opNames[o],
+                            static_cast<unsigned long>(entry.callCount),
+                            static_cast<unsigned long long>(entry.pixelCount));
+                }
+            }
+        }
+    }
+
     // 画面表示
     M5.Display.fillRect(0, 0, screenW, drawY - 5, TFT_BLACK);
     M5.Display.setCursor(0, 0);
@@ -403,7 +434,9 @@ static void switchScenario() {
 
     M5_LOGI(">>> Switching to scenario: %s", scenarioNames[next]);
 
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
     PerfMetrics::instance().reset();
+#endif
     setupPipeline(currentScenario);
     frameCount = 0;
     lastReportTime = M5.millis();
@@ -480,7 +513,9 @@ void loop() {
     unsigned long now = M5.millis();
     if (frameCount >= FRAMES_PER_REPORT || (now - lastReportTime) >= REPORT_INTERVAL_MS) {
         printMetricsReport();
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
         PerfMetrics::instance().reset();
+#endif
         frameCount = 0;
         lastReportTime = now;
     }

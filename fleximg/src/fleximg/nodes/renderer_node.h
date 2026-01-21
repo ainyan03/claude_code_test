@@ -112,9 +112,11 @@ public:
     // 詳細API
     // 戻り値: ExecResult（Success = 0、エラー = 非0）
     ExecResult execPrepare() {
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
         // メトリクスをリセット
         PerfMetrics::instance().reset();
         FormatMetrics::instance().reset();
+#endif
 
         // スクリーン全体の情報をPrepareRequestとして作成
         RenderRequest screenInfo = createScreenRequest();
@@ -181,8 +183,10 @@ public:
     }
 
     void resetPerfMetrics() {
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
         PerfMetrics::instance().reset();
         FormatMetrics::instance().reset();
+#endif
     }
 
 protected:
