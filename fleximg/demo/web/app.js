@@ -4224,20 +4224,24 @@ function initDebugDetailsSection() {
                     <span class="debug-metric-value" id="debug-fmt-total">--</span>
                 </div>
                 <div class="debug-metric-row debug-metric-sub">
-                    <span class="debug-metric-label">├ toStandard</span>
-                    <span class="debug-metric-value" id="debug-fmt-toStandard">--</span>
+                    <span class="debug-metric-label">├ toStraight</span>
+                    <span class="debug-metric-value" id="debug-fmt-toStraight">--</span>
                 </div>
                 <div class="debug-metric-row debug-metric-sub">
-                    <span class="debug-metric-label">├ fromStandard</span>
-                    <span class="debug-metric-value" id="debug-fmt-fromStandard">--</span>
+                    <span class="debug-metric-label">├ fromStraight</span>
+                    <span class="debug-metric-value" id="debug-fmt-fromStraight">--</span>
                 </div>
                 <div class="debug-metric-row debug-metric-sub">
-                    <span class="debug-metric-label">├ blendUnder</span>
-                    <span class="debug-metric-value" id="debug-fmt-blendUnder">--</span>
+                    <span class="debug-metric-label">├ toPremul</span>
+                    <span class="debug-metric-value" id="debug-fmt-toPremul">--</span>
                 </div>
                 <div class="debug-metric-row debug-metric-sub">
-                    <span class="debug-metric-label">└ fromPremul</span>
+                    <span class="debug-metric-label">├ fromPremul</span>
                     <span class="debug-metric-value" id="debug-fmt-fromPremul">--</span>
+                </div>
+                <div class="debug-metric-row debug-metric-sub">
+                    <span class="debug-metric-label">└ blendUnder</span>
+                    <span class="debug-metric-value" id="debug-fmt-blendUnder">--</span>
                 </div>
                 <div id="debug-fmt-details"></div>
             </div>
@@ -4365,7 +4369,7 @@ function updateFormatMetrics() {
     };
 
     // 操作別合計
-    const opNames = ['toStandard', 'fromStandard', 'blendUnder', 'fromPremul'];
+    const opNames = ['toStraight', 'fromStraight', 'toPremul', 'fromPremul', 'blendUnder'];
     if (fmtMetrics.opTotals) {
         for (let i = 0; i < fmtMetrics.opTotals.length && i < opNames.length; i++) {
             const op = fmtMetrics.opTotals[i];
@@ -4394,7 +4398,7 @@ function updateFormatMetrics() {
     const detailContainer = document.getElementById('debug-fmt-details');
     if (detailContainer && fmtMetrics.formats) {
         let html = '';
-        const opLabels = ['toStd', 'fromStd', 'blend', 'fromPm'];
+        const opLabels = ['toStraight', 'fromStraight', 'toPremul', 'fromPremul', 'blendUnder'];
 
         for (const fmt of fmtMetrics.formats) {
             // 使用されているフォーマットのみ表示
