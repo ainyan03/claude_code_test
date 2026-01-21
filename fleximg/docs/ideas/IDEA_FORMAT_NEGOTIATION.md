@@ -63,6 +63,53 @@ RendererNode
 
 ### 実装案
 
+#### Phase 0: 変換プラン基盤（ConvertPlan）
+
+フォーマット交渉の前提として、フォーマットペア間の変換方法を事前に解決するAPI:
+
+```cpp
+struct ConvertPlan {
+    enum class Type {
+        Identity,       // 同一フォーマット（memcpy）
+        Direct,         // 直接変換（1関数）
+        TwoStage,       // 2段階変換（Straight経由、中間バッファ必要）
+        Unsupported     // 変換不可
+    };
+    Type type;
+    ConvertFunc stage1;      // Direct: 変換関数, TwoStage: toStraight
+    ConvertFunc stage2;      // TwoStage: fromStraight, それ以外: nullptr
+    uint8_t bytesPerPixel;   // Identity: コピーサイズ, TwoStage: 中間バッファサイズ
+};
+
+// フォーマットペアから変換プランを取得
+ConvertPlan getConvertPlan(PixelFormatID srcFormat, PixelFormatID dstFormat);
+```
+
+**利点:**
+- prepare時に変換方法を解決 → process時の分岐削減
+- 変換不可能なペアをprepare時点で検出
+- 2段階変換が必要な場合、中間バッファサイズを事前計算
+
+**使用イメージ:**
+```cpp
+// prepare時
+convertPlan_ = getConvertPlan(upstream_->outputFormat(), workingFormat_);
+
+// process時（分岐最小化）
+switch (convertPlan_.type) {
+    case ConvertPlan::Type::Identity:
+        std::memcpy(dst, src, pixelCount * convertPlan_.bytesPerPixel);
+        break;
+    case ConvertPlan::Type::Direct:
+        convertPlan_.stage1(dst, src, pixelCount, params);
+        break;
+    case ConvertPlan::Type::TwoStage:
+        convertPlan_.stage1(buffer_, src, pixelCount, params);
+        convertPlan_.stage2(dst, buffer_, pixelCount, params);
+        break;
+}
+```
+
 #### Phase 1: 静的宣言
 
 各ノードが静的に「入力希望」「出力可能」フォーマットを宣言:
