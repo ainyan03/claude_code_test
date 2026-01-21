@@ -4,6 +4,7 @@
 #include "../core/node.h"
 #include "../core/types.h"
 #include "../core/perf_metrics.h"
+#include "../core/format_metrics.h"
 #include "../image/render_types.h"
 #include <algorithm>
 
@@ -113,6 +114,7 @@ public:
     ExecResult execPrepare() {
         // メトリクスをリセット
         PerfMetrics::instance().reset();
+        FormatMetrics::instance().reset();
 
         // スクリーン全体の情報をPrepareRequestとして作成
         RenderRequest screenInfo = createScreenRequest();
@@ -180,6 +182,7 @@ public:
 
     void resetPerfMetrics() {
         PerfMetrics::instance().reset();
+        FormatMetrics::instance().reset();
     }
 
 protected:

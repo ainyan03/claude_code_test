@@ -17,15 +17,16 @@ namespace FLEXIMG_NAMESPACE {
 // - 入力: コンストラクタで指定（デフォルト2）
 // - 出力: 1ポート
 //
-// 合成順序:
-// - 入力ポート0が最背面（最初に描画）
-// - 入力ポート1以降が順に前面に合成
+// 合成順序（under合成）:
+// - 入力ポート0が最前面（最初に描画）
+// - 入力ポート1以降が順に背面に合成
+// - 既に不透明なピクセルは後のレイヤー処理をスキップ
 //
 // 使用例:
 //   CompositeNode composite(3);  // 3入力
-//   bg >> composite;             // ポート0（背景）
-//   fg1.connectTo(composite, 1); // ポート1（前景1）
-//   fg2.connectTo(composite, 2); // ポート2（前景2）
+//   fg >> composite;             // ポート0（最前面）
+//   mid.connectTo(composite, 1); // ポート1（中間）
+//   bg.connectTo(composite, 2);  // ポート2（最背面）
 //   composite >> sink;
 //
 
@@ -101,18 +102,27 @@ public:
         }
     }
 
-    // onPullProcess: 複数の上流から画像を取得して合成
+    // onPullProcess: 複数の上流から画像を取得してunder合成
+    // under合成: 手前から奥へ処理し、不透明な部分は後のレイヤーをスキップ
     RenderResult onPullProcess(const RenderRequest& request) override {
         int numInputs = inputCount();
         if (numInputs == 0) return RenderResult();
 
-        RenderResult canvas;
-        bool canvasInitialized = false;
         // バッファ内基準点位置（固定小数点 Q16.16）
         int_fixed canvasOriginX = request.origin.x;
         int_fixed canvasOriginY = request.origin.y;
 
-        // 逐次合成: 入力を1つずつ評価して合成
+        // Premul形式のキャンバスを作成（透明で初期化）
+        ImageBuffer canvasBuf = canvas_utils::createPremulCanvas(request.width, request.height, InitPolicy::Zero);
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        PerfMetrics::instance().nodes[NodeType::Composite].recordAlloc(
+            canvasBuf.totalBytes(), canvasBuf.width(), canvasBuf.height());
+#endif
+        ViewPort canvasView = canvasBuf.view();
+        bool hasContent = false;
+
+        // under合成: 入力を順に評価して合成
+        // 入力ポート0が最前面、以降が背面
         for (int i = 0; i < numInputs; i++) {
             Node* upstream = upstreamNode(i);
             if (!upstream) continue;
@@ -123,42 +133,30 @@ public:
             // 空入力はスキップ
             if (!inputResult.isValid()) continue;
 
+            hasContent = true;
+
             // ここからCompositeNode自身の処理を計測
             FLEXIMG_METRICS_SCOPE(NodeType::Composite);
 
-            // フォーマット変換: blend関数が対応していないフォーマットは変換
-            inputResult = canvas_utils::ensureBlendableFormat(std::move(inputResult));
-
-            if (!canvasInitialized) {
-                // 最初の非空入力 → 新しいキャンバスを作成（透明で初期化）
-                ImageBuffer canvasBuf = canvas_utils::createCanvas(request.width, request.height, InitPolicy::Zero);
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-                PerfMetrics::instance().nodes[NodeType::Composite].recordAlloc(
-                    canvasBuf.totalBytes(), canvasBuf.width(), canvasBuf.height());
-#endif
-                ViewPort canvasView = canvasBuf.view();
-
-                canvas_utils::placeFirst(canvasView, request.origin.x, request.origin.y,
-                                         inputResult.view(), inputResult.origin.x, inputResult.origin.y);
-
-                canvas = RenderResult(std::move(canvasBuf),
-                                     Point{canvasOriginX, canvasOriginY});
-                canvasInitialized = true;
-            } else {
-                // 2枚目以降 → ブレンド処理
-                ViewPort canvasView = canvas.view();
-
-                canvas_utils::placeOnto(canvasView, canvas.origin.x, canvas.origin.y,
-                                        inputResult.view(), inputResult.origin.x, inputResult.origin.y);
+            // フォーマット変換: blendUnderPremul関数がないフォーマットはRGBA8_Straightに変換
+            PixelFormatID inputFmt = inputResult.view().formatID;
+            if (!inputFmt->blendUnderPremul) {
+                inputResult = canvas_utils::ensureBlendableFormat(std::move(inputResult));
             }
+
+            // under合成: dstが不透明なら何もしない最適化が自動適用
+            canvas_utils::placeUnder(canvasView, canvasOriginX, canvasOriginY,
+                                     inputResult.view(), inputResult.origin.x, inputResult.origin.y);
         }
 
         // 全ての入力が空だった場合
-        if (!canvasInitialized) {
+        if (!hasContent) {
             return RenderResult(ImageBuffer(), Point{canvasOriginX, canvasOriginY});
         }
 
-        return canvas;
+        // Premul → RGBA8_Straight に変換して返す
+        ImageBuffer finalBuf = canvas_utils::finalizePremulCanvas(std::move(canvasBuf));
+        return RenderResult(std::move(finalBuf), Point{canvasOriginX, canvasOriginY});
     }
 
 protected:

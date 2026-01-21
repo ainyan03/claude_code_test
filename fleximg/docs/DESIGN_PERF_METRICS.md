@@ -189,13 +189,90 @@ console.log(metrics.filterTime, metrics.affineTime);
 
 リリースビルドでは計測コードが完全に除去され、パフォーマンスへの影響はゼロです。
 
+## フォーマット変換メトリクス（FormatMetrics）
+
+### 概要
+
+ピクセルフォーマット変換・ブレンド関数の呼び出し回数とピクセル数を計測。
+PerfMetricsと同様に `FLEXIMG_DEBUG_PERF_METRICS` マクロで有効化。
+
+### データ構造
+
+```cpp
+namespace FormatIdx {
+    constexpr int RGBA16_Premultiplied = 0;
+    constexpr int RGBA8_Straight = 1;
+    constexpr int RGB565_LE = 2;
+    constexpr int RGB565_BE = 3;
+    constexpr int RGB332 = 4;
+    constexpr int RGB888 = 5;
+    constexpr int BGR888 = 6;
+    constexpr int Alpha8 = 7;
+    constexpr int Count = 8;
+}
+
+namespace OpType {
+    constexpr int ToStandard = 0;    // 各フォーマット → RGBA8_Straight
+    constexpr int FromStandard = 1;  // RGBA8_Straight → 各フォーマット
+    constexpr int BlendUnder = 2;    // 各フォーマット → Premul dst (under合成)
+    constexpr int FromPremul = 3;    // Premul → 各フォーマット
+    constexpr int Count = 4;
+}
+
+struct FormatOpEntry {
+    uint32_t callCount = 0;   // 呼び出し回数
+    uint64_t pixelCount = 0;  // 処理ピクセル数
+};
+
+struct FormatMetrics {
+    FormatOpEntry data[FormatIdx::Count][OpType::Count];
+    static FormatMetrics& instance();  // シングルトン
+    void reset();
+    void record(int formatIdx, int opType, int pixels);
+    // 集計メソッド
+    FormatOpEntry totalByOp(int opType) const;
+    FormatOpEntry totalByFormat(int formatIdx) const;
+    FormatOpEntry total() const;
+    // スナップショット（UI変換除外用）
+    void saveSnapshot(FormatOpEntry snapshot[][]) const;
+    void restoreSnapshot(const FormatOpEntry snapshot[][]);
+};
+```
+
+### 計測マクロ
+
+```cpp
+// 各変換関数の先頭に追加
+static void rgb565le_toStandard(..., int pixelCount) {
+    FLEXIMG_FMT_METRICS(RGB565_LE, ToStandard, pixelCount);
+    // 処理...
+}
+```
+
+### WebUI表示
+
+デバッグセクションの「フォーマット変換」に以下を表示:
+- 操作別合計（toStandard, fromStandard, blendUnder, fromPremul）
+- フォーマット別内訳（各フォーマットの操作別ピクセル数・呼び出し回数）
+
+### UI変換の除外
+
+WebUIバインディング（JS↔C++間のフォーマット変換）はパイプライン処理ではないため、
+`saveSnapshot()` / `restoreSnapshot()` でメトリクスから除外。
+
+対象箇所:
+- `getSinkPreview()`: Sink出力 → RGBA8変換
+- `storeImageWithFormat()`: RGBA8 → 目標フォーマット変換
+- `exec()` 後のSink出力コピー: 全Sink → RGBA8変換
+
 ## 関連ファイル
 
 | ファイル | 内容 |
 |---------|------|
-| `src/fleximg/perf_metrics.h` | NodeType, NodeMetrics, PerfMetrics 定義（シングルトン） |
-| `src/fleximg/image_buffer.h` | ImageBuffer（自動統計記録） |
-| `src/fleximg/nodes/renderer_node.h` | RendererNode（パイプライン実行） |
-| `src/fleximg/nodes/*_node.h` | 各ノードの計測コード |
-| `demo/bindings.cpp` | WASM bindings |
-| `demo/web/app.js` | 表示UI（NODE_TYPES定義） |
+| `src/fleximg/core/perf_metrics.h` | NodeType, NodeMetrics, PerfMetrics 定義（シングルトン） |
+| `src/fleximg/core/format_metrics.h` | FormatMetrics 定義（シングルトン） |
+| `src/fleximg/image/image_buffer.h` | ImageBuffer（自動統計記録） |
+| `src/fleximg/nodes/renderer_node.h` | RendererNode（パイプライン実行、メトリクスリセット） |
+| `src/fleximg/image/pixel_format.cpp` | フォーマット変換関数（FLEXIMG_FMT_METRICSマクロ） |
+| `demo/bindings.cpp` | WASM bindings（snapshot/restore） |
+| `demo/web/app.js` | 表示UI（NODE_TYPES定義、updateFormatMetrics） |

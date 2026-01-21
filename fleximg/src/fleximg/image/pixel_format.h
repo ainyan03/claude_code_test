@@ -18,7 +18,7 @@ struct PixelFormatDescriptor;
 
 using PixelFormatID = const PixelFormatDescriptor*;
 
-#if 0  // RGBA16_Premultiplied サポート無効化
+#if 1  // RGBA16_Premultiplied サポート有効
 // RGBA16_Premultiplied用アルファ閾値
 namespace RGBA16Premul {
     constexpr uint16_t ALPHA_TRANSPARENT_MAX = 255;
@@ -28,6 +28,28 @@ namespace RGBA16Premul {
     inline constexpr bool isOpaque(uint16_t a) { return a >= ALPHA_OPAQUE_MIN; }
 }
 #endif
+
+// ========================================================================
+// ブレンドパラメータ（将来の拡張用）
+// ========================================================================
+
+struct BlendParams {
+    uint8_t srcAlphaMultiplier;  // src側のアルファ係数（0-255、レイヤー全体の透過率）
+    uint32_t transparentColor;   // 透過とみなすカラーコード
+    bool useTransparentColor;    // カラーキー有効フラグ
+
+    // デフォルトコンストラクタ（通常のブレンド）
+    constexpr BlendParams()
+        : srcAlphaMultiplier(255), transparentColor(0), useTransparentColor(false) {}
+
+    // アルファ係数指定コンストラクタ
+    constexpr explicit BlendParams(uint8_t alphaMultiplier)
+        : srcAlphaMultiplier(alphaMultiplier), transparentColor(0), useTransparentColor(false) {}
+
+    // カラーキー指定コンストラクタ
+    constexpr BlendParams(uint32_t transColor)
+        : srcAlphaMultiplier(255), transparentColor(transColor), useTransparentColor(true) {}
+};
 
 // ========================================================================
 // エンディアン情報
@@ -128,6 +150,24 @@ struct PixelFormatDescriptor {
     FromStandardIndexedFunc fromStandardIndexed;
 
     // ========================================================================
+    // Premul形式（RGBA16_Premultiplied）との変換・ブレンド関数
+    // ========================================================================
+
+    // 関数型定義
+    // BlendUnderPremulFunc: srcフォーマットからPremul形式のdstへunder合成
+    //   - dst が不透明なら何もしない（スキップ）
+    //   - dst が透明なら単純変換コピー（toPremul相当）
+    //   - dst が半透明ならunder合成
+    using BlendUnderPremulFunc = void(*)(void* dst, const void* src, int pixelCount, const BlendParams* params);
+
+    // FromPremulFunc: Premul形式のsrcからこのフォーマットのdstへ変換コピー
+    using FromPremulFunc = void(*)(void* dst, const void* src, int pixelCount);
+
+    // 関数ポインタ（Premul形式用、未実装の場合は nullptr）
+    BlendUnderPremulFunc blendUnderPremul;
+    FromPremulFunc fromPremul;
+
+    // ========================================================================
     // チャンネルアクセスメソッド（Phase 2で追加）
     // ========================================================================
 
@@ -167,7 +207,7 @@ struct PixelFormatDescriptor {
 // ========================================================================
 
 namespace BuiltinFormats {
-#if 0  // RGBA16_Premultiplied サポート無効化
+#if 1  // RGBA16_Premultiplied サポート有効
     extern const PixelFormatDescriptor RGBA16_Premultiplied;
 #endif
     extern const PixelFormatDescriptor RGBA8_Straight;
@@ -184,7 +224,7 @@ namespace BuiltinFormats {
 // ========================================================================
 
 namespace PixelFormatIDs {
-#if 0  // RGBA16_Premultiplied サポート無効化
+#if 1  // RGBA16_Premultiplied サポート有効
     // 16bit RGBA系
     inline const PixelFormatID RGBA16_Premultiplied  = &BuiltinFormats::RGBA16_Premultiplied;
 #endif
@@ -219,7 +259,7 @@ struct DirectConversion {
     DirectConvertFunc convert;
 };
 
-#if 0  // RGBA16_Premultiplied サポート無効化
+#if 1  // RGBA16_Premultiplied サポート有効
 // 直接変換関数（実体は pixel_format_registry.cpp で定義）
 namespace DirectConvertFuncs {
     extern void rgba16PremulToRgba8Straight(const void* src, void* dst, int pixelCount);
@@ -241,7 +281,7 @@ inline constexpr size_t directConversionsCount = 0;
 
 // 直接変換関数を取得（なければ nullptr）
 inline DirectConvertFunc getDirectConversion(PixelFormatID from, PixelFormatID to) {
-#if 0  // RGBA16_Premultiplied サポート無効化
+#if 1  // RGBA16_Premultiplied サポート有効
     for (size_t i = 0; i < directConversionsCount; ++i) {
         if (directConversions[i].from == from && directConversions[i].to == to) {
             return directConversions[i].convert;
@@ -268,7 +308,7 @@ inline int_fast8_t getBytesPerPixel(PixelFormatID formatID) {
 
 // 組み込みフォーマット一覧（名前検索用）
 inline const PixelFormatID builtinFormats[] = {
-    // PixelFormatIDs::RGBA16_Premultiplied,  // RGBA16_Premultiplied サポート無効化
+    PixelFormatIDs::RGBA16_Premultiplied,
     PixelFormatIDs::RGBA8_Straight,
     PixelFormatIDs::RGB565_LE,
     PixelFormatIDs::RGB565_BE,
