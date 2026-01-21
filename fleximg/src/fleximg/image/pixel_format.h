@@ -30,26 +30,28 @@ namespace RGBA16Premul {
 #endif
 
 // ========================================================================
-// ブレンドパラメータ（将来の拡張用）
+// 変換パラメータ
 // ========================================================================
 
-struct BlendParams {
-    uint8_t srcAlphaMultiplier;  // src側のアルファ係数（0-255、レイヤー全体の透過率）
-    uint32_t transparentColor;   // 透過とみなすカラーコード
-    bool useTransparentColor;    // カラーキー有効フラグ
+struct ConvertParams {
+    uint32_t colorKey = 0;          // 透過カラー（4 bytes）
+    uint8_t alphaMultiplier = 255;  // アルファ係数（1 byte）
+    bool useColorKey = false;       // カラーキー有効フラグ（1 byte）
 
-    // デフォルトコンストラクタ（通常のブレンド）
-    constexpr BlendParams()
-        : srcAlphaMultiplier(255), transparentColor(0), useTransparentColor(false) {}
+    // デフォルトコンストラクタ
+    constexpr ConvertParams() = default;
 
-    // アルファ係数指定コンストラクタ
-    constexpr explicit BlendParams(uint8_t alphaMultiplier)
-        : srcAlphaMultiplier(alphaMultiplier), transparentColor(0), useTransparentColor(false) {}
+    // アルファ係数指定
+    constexpr explicit ConvertParams(uint8_t alpha)
+        : alphaMultiplier(alpha) {}
 
-    // カラーキー指定コンストラクタ
-    constexpr BlendParams(uint32_t transColor)
-        : srcAlphaMultiplier(255), transparentColor(transColor), useTransparentColor(true) {}
+    // カラーキー指定
+    constexpr ConvertParams(uint32_t key, bool use)
+        : colorKey(key), useColorKey(use) {}
 };
+
+// 後方互換性のためBlendParamsをエイリアスとして残す
+using BlendParams = ConvertParams;
 
 // ========================================================================
 // エンディアン情報
@@ -135,33 +137,41 @@ struct PixelFormatDescriptor {
     BitOrder bitOrder;
     ByteOrder byteOrder;
 
-    // 変換関数の型定義（標準フォーマット RGBA8_Straight との相互変換）
-    using ToStandardFunc = void(*)(const void* src, uint8_t* dst, int pixelCount);
-    using FromStandardFunc = void(*)(const uint8_t* src, void* dst, int pixelCount);
-    using ToStandardIndexedFunc = void(*)(const void* src, uint8_t* dst, int pixelCount, const uint16_t* palette);
-    using FromStandardIndexedFunc = void(*)(const uint8_t* src, void* dst, int pixelCount, const uint16_t* palette);
+    // ========================================================================
+    // 変換関数の型定義
+    // ========================================================================
+    // 統一シグネチャ: void(*)(void* dst, const void* src, int pixelCount, const ConvertParams* params)
+
+    // Straight形式（RGBA8_Straight）との相互変換
+    using ConvertFunc = void(*)(void* dst, const void* src, int pixelCount, const ConvertParams* params);
+    using ToStraightFunc = ConvertFunc;
+    using FromStraightFunc = ConvertFunc;
+
+    // インデックスカラー用（パレット引数が必要なため別シグネチャ）
+    using ToStraightIndexedFunc = void(*)(void* dst, const void* src, int pixelCount, const uint16_t* palette);
+    using FromStraightIndexedFunc = void(*)(void* dst, const void* src, int pixelCount, const uint16_t* palette);
 
     // 変換関数ポインタ（ダイレクトカラー用）
-    ToStandardFunc toStandard;
-    FromStandardFunc fromStandard;
+    ToStraightFunc toStraight;
+    FromStraightFunc fromStraight;
 
     // 変換関数ポインタ（インデックスカラー用）
-    ToStandardIndexedFunc toStandardIndexed;
-    FromStandardIndexedFunc fromStandardIndexed;
+    ToStraightIndexedFunc toStraightIndexed;
+    FromStraightIndexedFunc fromStraightIndexed;
 
     // ========================================================================
     // Premul形式（RGBA16_Premultiplied）との変換・ブレンド関数
     // ========================================================================
 
-    // 関数型定義
+    // 関数型定義（統一シグネチャ）
     // BlendUnderPremulFunc: srcフォーマットからPremul形式のdstへunder合成
     //   - dst が不透明なら何もしない（スキップ）
     //   - dst が透明なら単純変換コピー（toPremul相当）
     //   - dst が半透明ならunder合成
-    using BlendUnderPremulFunc = void(*)(void* dst, const void* src, int pixelCount, const BlendParams* params);
+    using BlendUnderPremulFunc = ConvertFunc;
 
     // FromPremulFunc: Premul形式のsrcからこのフォーマットのdstへ変換コピー
-    using FromPremulFunc = void(*)(void* dst, const void* src, int pixelCount);
+    using FromPremulFunc = ConvertFunc;
 
     // 関数ポインタ（Premul形式用、未実装の場合は nullptr）
     BlendUnderPremulFunc blendUnderPremul;
@@ -343,10 +353,11 @@ inline const char* getFormatName(PixelFormatID formatID) {
 // 2つのフォーマット間で変換
 // - 同一フォーマット: 単純コピー
 // - 直接変換があれば使用（最適化パス）
-// - なければ標準フォーマット（RGBA8_Straight）経由で変換
+// - なければStraight形式（RGBA8_Straight）経由で変換
 inline void convertFormat(const void* src, PixelFormatID srcFormat,
                           void* dst, PixelFormatID dstFormat,
                           int pixelCount,
+                          const ConvertParams* params = nullptr,
                           const uint16_t* srcPalette = nullptr,
                           const uint16_t* dstPalette = nullptr) {
     // 同じフォーマットの場合はコピー
@@ -365,7 +376,7 @@ inline void convertFormat(const void* src, PixelFormatID srcFormat,
         return;
     }
 
-    // 標準フォーマット（RGBA8_Straight）経由で変換
+    // Straight形式（RGBA8_Straight）経由で変換
     if (!srcFormat || !dstFormat) return;
 
     // 一時バッファを確保（スレッドローカル）
@@ -373,17 +384,17 @@ inline void convertFormat(const void* src, PixelFormatID srcFormat,
     conversionBuffer.resize(static_cast<size_t>(pixelCount) * 4);
 
     // src → RGBA8_Straight
-    if (srcFormat->isIndexed && srcFormat->toStandardIndexed && srcPalette) {
-        srcFormat->toStandardIndexed(src, conversionBuffer.data(), pixelCount, srcPalette);
-    } else if (!srcFormat->isIndexed && srcFormat->toStandard) {
-        srcFormat->toStandard(src, conversionBuffer.data(), pixelCount);
+    if (srcFormat->isIndexed && srcFormat->toStraightIndexed && srcPalette) {
+        srcFormat->toStraightIndexed(conversionBuffer.data(), src, pixelCount, srcPalette);
+    } else if (!srcFormat->isIndexed && srcFormat->toStraight) {
+        srcFormat->toStraight(conversionBuffer.data(), src, pixelCount, params);
     }
 
     // RGBA8_Straight → dst
-    if (dstFormat->isIndexed && dstFormat->fromStandardIndexed && dstPalette) {
-        dstFormat->fromStandardIndexed(conversionBuffer.data(), dst, pixelCount, dstPalette);
-    } else if (!dstFormat->isIndexed && dstFormat->fromStandard) {
-        dstFormat->fromStandard(conversionBuffer.data(), dst, pixelCount);
+    if (dstFormat->isIndexed && dstFormat->fromStraightIndexed && dstPalette) {
+        dstFormat->fromStraightIndexed(dst, conversionBuffer.data(), pixelCount, dstPalette);
+    } else if (!dstFormat->isIndexed && dstFormat->fromStraight) {
+        dstFormat->fromStraight(dst, conversionBuffer.data(), pixelCount, params);
     }
 }
 

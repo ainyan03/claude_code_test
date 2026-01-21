@@ -10,14 +10,14 @@ namespace FLEXIMG_NAMESPACE {
 // 標準フォーマット: RGBA8_Straight（8bit RGBA、ストレートアルファ）
 // ========================================================================
 
-// RGBA8_Straight: 標準フォーマットなのでコピー
-static void rgba8Straight_toStandard(const void* src, uint8_t* dst, int pixelCount) {
-    FLEXIMG_FMT_METRICS(RGBA8_Straight, ToStandard, pixelCount);
+// RGBA8_Straight: Straight形式なのでコピー
+static void rgba8Straight_toStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(RGBA8_Straight, ToStraight, pixelCount);
     std::memcpy(dst, src, static_cast<size_t>(pixelCount) * 4);
 }
 
-static void rgba8Straight_fromStandard(const uint8_t* src, void* dst, int pixelCount) {
-    FLEXIMG_FMT_METRICS(RGBA8_Straight, FromStandard, pixelCount);
+static void rgba8Straight_fromStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(RGBA8_Straight, FromStraight, pixelCount);
     std::memcpy(dst, src, static_cast<size_t>(pixelCount) * 4);
 }
 
@@ -26,7 +26,7 @@ static void rgba8Straight_fromStandard(const uint8_t* src, void* dst, int pixelC
 
 // blendUnderPremul: srcフォーマット(RGBA8_Straight)からPremul形式のdstへunder合成
 // RGBA8_Straight → RGBA16_Premultiplied変換しながらunder合成
-static void rgba8Straight_blendUnderPremul(void* dst, const void* src, int pixelCount, const BlendParams* /*params*/) {
+static void rgba8Straight_blendUnderPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGBA8_Straight, BlendUnder, pixelCount);
     uint16_t* d = static_cast<uint16_t*>(dst);
     const uint8_t* s = static_cast<const uint8_t*>(src);
@@ -71,7 +71,7 @@ static void rgba8Straight_blendUnderPremul(void* dst, const void* src, int pixel
 }
 
 // fromPremul: Premul形式(RGBA16_Premultiplied)のsrcからRGBA8_Straightのdstへ変換コピー
-static void rgba8Straight_fromPremul(void* dst, const void* src, int pixelCount) {
+static void rgba8Straight_fromPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGBA8_Straight, FromPremul, pixelCount);
     uint8_t* d = static_cast<uint8_t*>(dst);
     const uint16_t* s = static_cast<const uint16_t*>(src);
@@ -102,22 +102,23 @@ static void rgba8Straight_fromPremul(void* dst, const void* src, int pixelCount)
 // ========================================================================
 
 // Alpha8 → RGBA8_Straight（可視化のため全チャンネルにアルファ値を展開）
-static void alpha8_toStandard(const void* src, uint8_t* dst, int pixelCount) {
-    FLEXIMG_FMT_METRICS(Alpha8, ToStandard, pixelCount);
+static void alpha8_toStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(Alpha8, ToStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
+    uint8_t* d = static_cast<uint8_t*>(dst);
     for (int i = 0; i < pixelCount; i++) {
         uint8_t alpha = s[i];
-        dst[i*4 + 0] = alpha;  // R
-        dst[i*4 + 1] = alpha;  // G
-        dst[i*4 + 2] = alpha;  // B
-        dst[i*4 + 3] = alpha;  // A
+        d[i*4 + 0] = alpha;  // R
+        d[i*4 + 1] = alpha;  // G
+        d[i*4 + 2] = alpha;  // B
+        d[i*4 + 3] = alpha;  // A
     }
 }
 
 // RGBA8_Straight → Alpha8（Aチャンネルのみ抽出）
-static void alpha8_fromStandard(const uint8_t* src, void* dst, int pixelCount) {
-    FLEXIMG_FMT_METRICS(Alpha8, FromStandard, pixelCount);
-    const uint8_t* s = src;
+static void alpha8_fromStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(Alpha8, FromStraight, pixelCount);
+    const uint8_t* s = static_cast<const uint8_t*>(src);
     uint8_t* d = static_cast<uint8_t*>(dst);
     for (int i = 0; i < pixelCount; i++) {
         d[i] = s[i*4 + 3];  // Aチャンネル抽出
@@ -133,9 +134,10 @@ static void alpha8_fromStandard(const uint8_t* src, void* dst, int pixelCount) {
 // - Reverse変換: 除数が1-256に限定（テーブル化やSIMD最適化が容易）
 // - A8=0 でもRGB情報を保持
 
-static void rgba16Premul_toStandard(const void* src, uint8_t* dst, int pixelCount) {
-    FLEXIMG_FMT_METRICS(RGBA16_Premultiplied, ToStandard, pixelCount);
+static void rgba16Premul_toStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(RGBA16_Premultiplied, ToStraight, pixelCount);
     const uint16_t* s = static_cast<const uint16_t*>(src);
+    uint8_t* d = static_cast<uint8_t*>(dst);
     for (int i = 0; i < pixelCount; i++) {
         int idx = i * 4;
         uint16_t r16 = s[idx];
@@ -149,22 +151,23 @@ static void rgba16Premul_toStandard(const void* src, uint8_t* dst, int pixelCoun
         uint16_t a_tmp = a8 + 1;
 
         // Unpremultiply: RGB / A_tmp（除数が1-256に限定）
-        dst[idx]     = static_cast<uint8_t>(r16 / a_tmp);
-        dst[idx + 1] = static_cast<uint8_t>(g16 / a_tmp);
-        dst[idx + 2] = static_cast<uint8_t>(b16 / a_tmp);
-        dst[idx + 3] = a8;
+        d[idx]     = static_cast<uint8_t>(r16 / a_tmp);
+        d[idx + 1] = static_cast<uint8_t>(g16 / a_tmp);
+        d[idx + 2] = static_cast<uint8_t>(b16 / a_tmp);
+        d[idx + 3] = a8;
     }
 }
 
-static void rgba16Premul_fromStandard(const uint8_t* src, void* dst, int pixelCount) {
-    FLEXIMG_FMT_METRICS(RGBA16_Premultiplied, FromStandard, pixelCount);
+static void rgba16Premul_fromStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(RGBA16_Premultiplied, FromStraight, pixelCount);
     uint16_t* d = static_cast<uint16_t*>(dst);
+    const uint8_t* s = static_cast<const uint8_t*>(src);
     for (int i = 0; i < pixelCount; i++) {
         int idx = i * 4;
-        uint16_t r8 = src[idx];
-        uint16_t g8 = src[idx + 1];
-        uint16_t b8 = src[idx + 2];
-        uint16_t a8 = src[idx + 3];
+        uint16_t r8 = s[idx];
+        uint16_t g8 = s[idx + 1];
+        uint16_t b8 = s[idx + 2];
+        uint16_t a8 = s[idx + 3];
 
         // A_tmp = A8 + 1 (範囲: 1-256)
         uint16_t a_tmp = a8 + 1;
@@ -234,7 +237,7 @@ void rgba8StraightToRgba16Premul(const void* src, void* dst, int pixelCount) {
 // - dst が不透明なら何もしない（スキップ）
 // - dst が透明なら単純コピー
 // - dst が半透明ならunder合成
-static void rgba16Premul_blendUnderPremul(void* dst, const void* src, int pixelCount, const BlendParams* /*params*/) {
+static void rgba16Premul_blendUnderPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGBA16_Premultiplied, BlendUnder, pixelCount);
     uint16_t* d = static_cast<uint16_t*>(dst);
     const uint16_t* s = static_cast<const uint16_t*>(src);
@@ -277,7 +280,7 @@ static void rgba16Premul_blendUnderPremul(void* dst, const void* src, int pixelC
 
 // fromPremul: Premul形式(RGBA16_Premultiplied)のsrcからRGBA16_Premultipliedのdstへ変換コピー
 // 同一フォーマットなので単純コピー
-static void rgba16Premul_fromPremul(void* dst, const void* src, int pixelCount) {
+static void rgba16Premul_fromPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGBA16_Premultiplied, FromPremul, pixelCount);
     std::memcpy(dst, src, static_cast<size_t>(pixelCount) * 8);
 }
@@ -287,9 +290,10 @@ static void rgba16Premul_fromPremul(void* dst, const void* src, int pixelCount) 
 // RGB565_LE: 16bit RGB (Little Endian)
 // ========================================================================
 
-static void rgb565le_toStandard(const void* src, uint8_t* dst, int pixelCount) {
-    FLEXIMG_FMT_METRICS(RGB565_LE, ToStandard, pixelCount);
+static void rgb565le_toStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(RGB565_LE, ToStraight, pixelCount);
     const uint16_t* s = static_cast<const uint16_t*>(src);
+    uint8_t* d = static_cast<uint8_t*>(dst);
     for (int i = 0; i < pixelCount; i++) {
         uint16_t pixel = s[i];
         uint8_t r5 = (pixel >> 11) & 0x1F;
@@ -297,20 +301,21 @@ static void rgb565le_toStandard(const void* src, uint8_t* dst, int pixelCount) {
         uint8_t b5 = pixel & 0x1F;
 
         // ビット拡張（5bit/6bit → 8bit）
-        dst[i*4 + 0] = static_cast<uint8_t>((r5 << 3) | (r5 >> 2));
-        dst[i*4 + 1] = static_cast<uint8_t>((g6 << 2) | (g6 >> 4));
-        dst[i*4 + 2] = static_cast<uint8_t>((b5 << 3) | (b5 >> 2));
-        dst[i*4 + 3] = 255;
+        d[i*4 + 0] = static_cast<uint8_t>((r5 << 3) | (r5 >> 2));
+        d[i*4 + 1] = static_cast<uint8_t>((g6 << 2) | (g6 >> 4));
+        d[i*4 + 2] = static_cast<uint8_t>((b5 << 3) | (b5 >> 2));
+        d[i*4 + 3] = 255;
     }
 }
 
-static void rgb565le_fromStandard(const uint8_t* src, void* dst, int pixelCount) {
-    FLEXIMG_FMT_METRICS(RGB565_LE, FromStandard, pixelCount);
+static void rgb565le_fromStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(RGB565_LE, FromStraight, pixelCount);
     uint16_t* d = static_cast<uint16_t*>(dst);
+    const uint8_t* s = static_cast<const uint8_t*>(src);
     for (int i = 0; i < pixelCount; i++) {
-        uint8_t r = src[i*4 + 0];
-        uint8_t g = src[i*4 + 1];
-        uint8_t b = src[i*4 + 2];
+        uint8_t r = s[i*4 + 0];
+        uint8_t g = s[i*4 + 1];
+        uint8_t b = s[i*4 + 2];
         d[i] = static_cast<uint16_t>(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
     }
 }
@@ -318,7 +323,7 @@ static void rgb565le_fromStandard(const uint8_t* src, void* dst, int pixelCount)
 #if 1  // RGBA16_Premultiplied サポート有効
 // blendUnderPremul: srcフォーマット(RGB565_LE)からPremul形式のdstへunder合成
 // RGB565はアルファなし→常に不透明として扱う
-static void rgb565le_blendUnderPremul(void* dst, const void* src, int pixelCount, const BlendParams* /*params*/) {
+static void rgb565le_blendUnderPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB565_LE, BlendUnder, pixelCount);
     uint16_t* d = static_cast<uint16_t*>(dst);
     const uint16_t* s = static_cast<const uint16_t*>(src);
@@ -369,9 +374,10 @@ static void rgb565le_blendUnderPremul(void* dst, const void* src, int pixelCount
 // RGB565_BE: 16bit RGB (Big Endian)
 // ========================================================================
 
-static void rgb565be_toStandard(const void* src, uint8_t* dst, int pixelCount) {
-    FLEXIMG_FMT_METRICS(RGB565_BE, ToStandard, pixelCount);
+static void rgb565be_toStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(RGB565_BE, ToStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
+    uint8_t* d = static_cast<uint8_t*>(dst);
     for (int i = 0; i < pixelCount; i++) {
         // ビッグエンディアン: 上位バイトが先
         uint16_t pixel = static_cast<uint16_t>((static_cast<uint16_t>(s[i*2]) << 8) | s[i*2 + 1]);
@@ -379,20 +385,21 @@ static void rgb565be_toStandard(const void* src, uint8_t* dst, int pixelCount) {
         uint8_t g6 = (pixel >> 5) & 0x3F;
         uint8_t b5 = pixel & 0x1F;
 
-        dst[i*4 + 0] = static_cast<uint8_t>((r5 << 3) | (r5 >> 2));
-        dst[i*4 + 1] = static_cast<uint8_t>((g6 << 2) | (g6 >> 4));
-        dst[i*4 + 2] = static_cast<uint8_t>((b5 << 3) | (b5 >> 2));
-        dst[i*4 + 3] = 255;
+        d[i*4 + 0] = static_cast<uint8_t>((r5 << 3) | (r5 >> 2));
+        d[i*4 + 1] = static_cast<uint8_t>((g6 << 2) | (g6 >> 4));
+        d[i*4 + 2] = static_cast<uint8_t>((b5 << 3) | (b5 >> 2));
+        d[i*4 + 3] = 255;
     }
 }
 
-static void rgb565be_fromStandard(const uint8_t* src, void* dst, int pixelCount) {
-    FLEXIMG_FMT_METRICS(RGB565_BE, FromStandard, pixelCount);
+static void rgb565be_fromStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(RGB565_BE, FromStraight, pixelCount);
     uint8_t* d = static_cast<uint8_t*>(dst);
+    const uint8_t* s = static_cast<const uint8_t*>(src);
     for (int i = 0; i < pixelCount; i++) {
-        uint8_t r = src[i*4 + 0];
-        uint8_t g = src[i*4 + 1];
-        uint8_t b = src[i*4 + 2];
+        uint8_t r = s[i*4 + 0];
+        uint8_t g = s[i*4 + 1];
+        uint8_t b = s[i*4 + 2];
         uint16_t pixel = static_cast<uint16_t>(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
         // ビッグエンディアン: 上位バイトを先に
         d[i*2] = static_cast<uint8_t>(pixel >> 8);
@@ -402,7 +409,7 @@ static void rgb565be_fromStandard(const uint8_t* src, void* dst, int pixelCount)
 
 #if 1  // RGBA16_Premultiplied サポート有効
 // blendUnderPremul: srcフォーマット(RGB565_BE)からPremul形式のdstへunder合成
-static void rgb565be_blendUnderPremul(void* dst, const void* src, int pixelCount, const BlendParams* /*params*/) {
+static void rgb565be_blendUnderPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB565_BE, BlendUnder, pixelCount);
     uint16_t* d = static_cast<uint16_t*>(dst);
     const uint8_t* s = static_cast<const uint8_t*>(src);
@@ -452,9 +459,10 @@ static void rgb565be_blendUnderPremul(void* dst, const void* src, int pixelCount
 // RGB332: 8bit RGB (3-3-2)
 // ========================================================================
 
-static void rgb332_toStandard(const void* src, uint8_t* dst, int pixelCount) {
-    FLEXIMG_FMT_METRICS(RGB332, ToStandard, pixelCount);
+static void rgb332_toStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(RGB332, ToStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
+    uint8_t* d = static_cast<uint8_t*>(dst);
     for (int i = 0; i < pixelCount; i++) {
         uint8_t pixel = s[i];
         uint8_t r3 = (pixel >> 5) & 0x07;
@@ -462,27 +470,28 @@ static void rgb332_toStandard(const void* src, uint8_t* dst, int pixelCount) {
         uint8_t b2 = pixel & 0x03;
 
         // 乗算＋少量シフト（マイコン最適化）
-        dst[i*4 + 0] = (r3 * 0x49) >> 1;  // 3bit → 8bit
-        dst[i*4 + 1] = (g3 * 0x49) >> 1;  // 3bit → 8bit
-        dst[i*4 + 2] = b2 * 0x55;          // 2bit → 8bit
-        dst[i*4 + 3] = 255;
+        d[i*4 + 0] = (r3 * 0x49) >> 1;  // 3bit → 8bit
+        d[i*4 + 1] = (g3 * 0x49) >> 1;  // 3bit → 8bit
+        d[i*4 + 2] = b2 * 0x55;          // 2bit → 8bit
+        d[i*4 + 3] = 255;
     }
 }
 
-static void rgb332_fromStandard(const uint8_t* src, void* dst, int pixelCount) {
-    FLEXIMG_FMT_METRICS(RGB332, FromStandard, pixelCount);
+static void rgb332_fromStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(RGB332, FromStraight, pixelCount);
     uint8_t* d = static_cast<uint8_t*>(dst);
+    const uint8_t* s = static_cast<const uint8_t*>(src);
     for (int i = 0; i < pixelCount; i++) {
-        uint8_t r = src[i*4 + 0];
-        uint8_t g = src[i*4 + 1];
-        uint8_t b = src[i*4 + 2];
+        uint8_t r = s[i*4 + 0];
+        uint8_t g = s[i*4 + 1];
+        uint8_t b = s[i*4 + 2];
         d[i] = static_cast<uint8_t>((r & 0xE0) | ((g >> 5) << 2) | (b >> 6));
     }
 }
 
 #if 1  // RGBA16_Premultiplied サポート有効
 // blendUnderPremul: srcフォーマット(RGB332)からPremul形式のdstへunder合成
-static void rgb332_blendUnderPremul(void* dst, const void* src, int pixelCount, const BlendParams* /*params*/) {
+static void rgb332_blendUnderPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB332, BlendUnder, pixelCount);
     uint16_t* d = static_cast<uint16_t*>(dst);
     const uint8_t* s = static_cast<const uint8_t*>(src);
@@ -532,30 +541,32 @@ static void rgb332_blendUnderPremul(void* dst, const void* src, int pixelCount, 
 // RGB888: 24bit RGB (mem[0]=R, mem[1]=G, mem[2]=B)
 // ========================================================================
 
-static void rgb888_toStandard(const void* src, uint8_t* dst, int pixelCount) {
-    FLEXIMG_FMT_METRICS(RGB888, ToStandard, pixelCount);
+static void rgb888_toStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(RGB888, ToStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
+    uint8_t* d = static_cast<uint8_t*>(dst);
     for (int i = 0; i < pixelCount; i++) {
-        dst[i*4 + 0] = s[i*3 + 0];  // R
-        dst[i*4 + 1] = s[i*3 + 1];  // G
-        dst[i*4 + 2] = s[i*3 + 2];  // B
-        dst[i*4 + 3] = 255;          // A
+        d[i*4 + 0] = s[i*3 + 0];  // R
+        d[i*4 + 1] = s[i*3 + 1];  // G
+        d[i*4 + 2] = s[i*3 + 2];  // B
+        d[i*4 + 3] = 255;          // A
     }
 }
 
-static void rgb888_fromStandard(const uint8_t* src, void* dst, int pixelCount) {
-    FLEXIMG_FMT_METRICS(RGB888, FromStandard, pixelCount);
+static void rgb888_fromStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(RGB888, FromStraight, pixelCount);
     uint8_t* d = static_cast<uint8_t*>(dst);
+    const uint8_t* s = static_cast<const uint8_t*>(src);
     for (int i = 0; i < pixelCount; i++) {
-        d[i*3 + 0] = src[i*4 + 0];  // R
-        d[i*3 + 1] = src[i*4 + 1];  // G
-        d[i*3 + 2] = src[i*4 + 2];  // B
+        d[i*3 + 0] = s[i*4 + 0];  // R
+        d[i*3 + 1] = s[i*4 + 1];  // G
+        d[i*3 + 2] = s[i*4 + 2];  // B
     }
 }
 
 #if 1  // RGBA16_Premultiplied サポート有効
 // blendUnderPremul: srcフォーマット(RGB888)からPremul形式のdstへunder合成
-static void rgb888_blendUnderPremul(void* dst, const void* src, int pixelCount, const BlendParams* /*params*/) {
+static void rgb888_blendUnderPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB888, BlendUnder, pixelCount);
     uint16_t* d = static_cast<uint16_t*>(dst);
     const uint8_t* s = static_cast<const uint8_t*>(src);
@@ -596,30 +607,32 @@ static void rgb888_blendUnderPremul(void* dst, const void* src, int pixelCount, 
 // BGR888: 24bit BGR (mem[0]=B, mem[1]=G, mem[2]=R)
 // ========================================================================
 
-static void bgr888_toStandard(const void* src, uint8_t* dst, int pixelCount) {
-    FLEXIMG_FMT_METRICS(BGR888, ToStandard, pixelCount);
+static void bgr888_toStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(BGR888, ToStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
+    uint8_t* d = static_cast<uint8_t*>(dst);
     for (int i = 0; i < pixelCount; i++) {
-        dst[i*4 + 0] = s[i*3 + 2];  // R (src の B 位置)
-        dst[i*4 + 1] = s[i*3 + 1];  // G
-        dst[i*4 + 2] = s[i*3 + 0];  // B (src の R 位置)
-        dst[i*4 + 3] = 255;
+        d[i*4 + 0] = s[i*3 + 2];  // R (src の B 位置)
+        d[i*4 + 1] = s[i*3 + 1];  // G
+        d[i*4 + 2] = s[i*3 + 0];  // B (src の R 位置)
+        d[i*4 + 3] = 255;
     }
 }
 
-static void bgr888_fromStandard(const uint8_t* src, void* dst, int pixelCount) {
-    FLEXIMG_FMT_METRICS(BGR888, FromStandard, pixelCount);
+static void bgr888_fromStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(BGR888, FromStraight, pixelCount);
     uint8_t* d = static_cast<uint8_t*>(dst);
+    const uint8_t* s = static_cast<const uint8_t*>(src);
     for (int i = 0; i < pixelCount; i++) {
-        d[i*3 + 0] = src[i*4 + 2];  // B
-        d[i*3 + 1] = src[i*4 + 1];  // G
-        d[i*3 + 2] = src[i*4 + 0];  // R
+        d[i*3 + 0] = s[i*4 + 2];  // B
+        d[i*3 + 1] = s[i*4 + 1];  // G
+        d[i*3 + 2] = s[i*4 + 0];  // R
     }
 }
 
 #if 1  // RGBA16_Premultiplied サポート有効
 // blendUnderPremul: srcフォーマット(BGR888)からPremul形式のdstへunder合成
-static void bgr888_blendUnderPremul(void* dst, const void* src, int pixelCount, const BlendParams* /*params*/) {
+static void bgr888_blendUnderPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(BGR888, BlendUnder, pixelCount);
     uint16_t* d = static_cast<uint16_t*>(dst);
     const uint8_t* s = static_cast<const uint8_t*>(src);
@@ -679,10 +692,10 @@ const PixelFormatDescriptor RGBA16_Premultiplied = {
     0,      // maxPaletteSize
     BitOrder::MSBFirst,
     ByteOrder::Native,
-    rgba16Premul_toStandard,
-    rgba16Premul_fromStandard,
-    nullptr,  // toStandardIndexed
-    nullptr,  // fromStandardIndexed
+    rgba16Premul_toStraight,
+    rgba16Premul_fromStraight,
+    nullptr,  // toStraightIndexed
+    nullptr,  // fromStraightIndexed
     rgba16Premul_blendUnderPremul,
     rgba16Premul_fromPremul
 };
@@ -704,10 +717,10 @@ const PixelFormatDescriptor RGBA8_Straight = {
     0,      // maxPaletteSize
     BitOrder::MSBFirst,
     ByteOrder::Native,
-    rgba8Straight_toStandard,
-    rgba8Straight_fromStandard,
-    nullptr,  // toStandardIndexed
-    nullptr,  // fromStandardIndexed
+    rgba8Straight_toStraight,
+    rgba8Straight_fromStraight,
+    nullptr,  // toStraightIndexed
+    nullptr,  // fromStraightIndexed
 #if 1  // RGBA16_Premultiplied サポート有効
     rgba8Straight_blendUnderPremul,
     rgba8Straight_fromPremul
@@ -733,10 +746,10 @@ const PixelFormatDescriptor RGB565_LE = {
     0,      // maxPaletteSize
     BitOrder::MSBFirst,
     ByteOrder::LittleEndian,
-    rgb565le_toStandard,
-    rgb565le_fromStandard,
-    nullptr,  // toStandardIndexed
-    nullptr,  // fromStandardIndexed
+    rgb565le_toStraight,
+    rgb565le_fromStraight,
+    nullptr,  // toStraightIndexed
+    nullptr,  // fromStraightIndexed
 #if 1  // RGBA16_Premultiplied サポート有効
     rgb565le_blendUnderPremul,
     nullptr   // fromPremul (RGB565にはアルファがないのでPremulからの変換は不要)
@@ -762,10 +775,10 @@ const PixelFormatDescriptor RGB565_BE = {
     0,      // maxPaletteSize
     BitOrder::MSBFirst,
     ByteOrder::BigEndian,
-    rgb565be_toStandard,
-    rgb565be_fromStandard,
-    nullptr,  // toStandardIndexed
-    nullptr,  // fromStandardIndexed
+    rgb565be_toStraight,
+    rgb565be_fromStraight,
+    nullptr,  // toStraightIndexed
+    nullptr,  // fromStraightIndexed
 #if 1  // RGBA16_Premultiplied サポート有効
     rgb565be_blendUnderPremul,
     nullptr   // fromPremul
@@ -791,10 +804,10 @@ const PixelFormatDescriptor RGB332 = {
     0,      // maxPaletteSize
     BitOrder::MSBFirst,
     ByteOrder::Native,
-    rgb332_toStandard,
-    rgb332_fromStandard,
-    nullptr,  // toStandardIndexed
-    nullptr,  // fromStandardIndexed
+    rgb332_toStraight,
+    rgb332_fromStraight,
+    nullptr,  // toStraightIndexed
+    nullptr,  // fromStraightIndexed
 #if 1  // RGBA16_Premultiplied サポート有効
     rgb332_blendUnderPremul,
     nullptr   // fromPremul
@@ -820,10 +833,10 @@ const PixelFormatDescriptor RGB888 = {
     0,      // maxPaletteSize
     BitOrder::MSBFirst,
     ByteOrder::Native,
-    rgb888_toStandard,
-    rgb888_fromStandard,
-    nullptr,  // toStandardIndexed
-    nullptr,  // fromStandardIndexed
+    rgb888_toStraight,
+    rgb888_fromStraight,
+    nullptr,  // toStraightIndexed
+    nullptr,  // fromStraightIndexed
 #if 1  // RGBA16_Premultiplied サポート有効
     rgb888_blendUnderPremul,
     nullptr   // fromPremul
@@ -849,10 +862,10 @@ const PixelFormatDescriptor BGR888 = {
     0,      // maxPaletteSize
     BitOrder::MSBFirst,
     ByteOrder::Native,
-    bgr888_toStandard,
-    bgr888_fromStandard,
-    nullptr,  // toStandardIndexed
-    nullptr,  // fromStandardIndexed
+    bgr888_toStraight,
+    bgr888_fromStraight,
+    nullptr,  // toStraightIndexed
+    nullptr,  // fromStraightIndexed
 #if 1  // RGBA16_Premultiplied サポート有効
     bgr888_blendUnderPremul,
     nullptr   // fromPremul
@@ -876,10 +889,10 @@ const PixelFormatDescriptor Alpha8 = {
     0,      // maxPaletteSize
     BitOrder::MSBFirst,
     ByteOrder::Native,
-    alpha8_toStandard,
-    alpha8_fromStandard,
-    nullptr,  // toStandardIndexed
-    nullptr,  // fromStandardIndexed
+    alpha8_toStraight,
+    alpha8_fromStraight,
+    nullptr,  // toStraightIndexed
+    nullptr,  // fromStraightIndexed
     nullptr,  // blendUnderPremul
     nullptr   // fromPremul
 };
