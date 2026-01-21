@@ -249,13 +249,13 @@ static void setupPipeline(Scenario scenario) {
             break;
 
         case Scenario::Composite:
-            // Source1 → Affine1 → Composite(0)
-            // Source2 → Affine2 → Composite(1)
+            // Source1 → Affine1 → Composite(1) 背面
+            // Source2 → Affine2 → Composite(0) 前面
             // Composite → Renderer → LCD
             source1 >> affine1;
-            affine1.connectTo(composite, 0);
+            affine1.connectTo(composite, 1);
             source2 >> affine2;
-            affine2.connectTo(composite, 1);
+            affine2.connectTo(composite, 0);
             composite >> renderer >> lcdSink;
             affine1.setRotationScale(0, baseScale, baseScale);
             affine2.setRotationScale(0, baseScale * 0.8f, baseScale * 0.8f);

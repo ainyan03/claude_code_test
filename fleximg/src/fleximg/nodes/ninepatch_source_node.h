@@ -223,8 +223,8 @@ public:
             updatePatchGeometry();
         }
 
-        // キャンバス作成（透明で初期化）
-        ImageBuffer canvasBuf = canvas_utils::createCanvas(request.width, request.height, InitPolicy::Zero);
+        // キャンバス作成（透明で初期化、ノードのアロケータを使用）
+        ImageBuffer canvasBuf = canvas_utils::createCanvas(request.width, request.height, InitPolicy::Zero, allocator());
         ViewPort canvasView = canvasBuf.view();
 
         // 全9区画を処理

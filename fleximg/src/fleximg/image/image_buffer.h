@@ -172,6 +172,12 @@ public:
         return ImageBuffer(view_ops::subView(view_, x, y, w, h));
     }
 
+    // ビューの有効範囲を縮小（メモリ所有権は維持）
+    // subViewと同じシグネチャ: (x, y, width, height)
+    void cropView(int_fast16_t x, int_fast16_t y, int_fast16_t w, int_fast16_t h) {
+        view_ = view_ops::subView(view_, x, y, w, h);
+    }
+
     // ========================================
     // アクセサ（ViewPortに委譲）
     // ========================================

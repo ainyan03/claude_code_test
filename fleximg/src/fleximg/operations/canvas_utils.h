@@ -24,9 +24,11 @@ namespace canvas_utils {
 // init: 初期化ポリシー（デフォルトはDefaultInitPolicy）
 //   - 全面を画像で埋める場合: DefaultInitPolicy（初期化スキップ可）
 //   - 部分的な描画の場合: InitPolicy::Zero（透明で初期化）
+// alloc: メモリアロケータ（nullptrの場合はDefaultAllocator使用）
 inline ImageBuffer createCanvas(int width, int height,
-                                InitPolicy init = DefaultInitPolicy) {
-    return ImageBuffer(width, height, PixelFormatIDs::RGBA8_Straight, init);
+                                InitPolicy init = DefaultInitPolicy,
+                                core::memory::IAllocator* alloc = nullptr) {
+    return ImageBuffer(width, height, PixelFormatIDs::RGBA8_Straight, init, alloc);
 }
 
 // 最初の画像をキャンバスに配置
@@ -133,9 +135,11 @@ inline RenderResult ensureBlendableFormat(RenderResult&& input) {
 
 // Premul形式のキャンバス作成（RGBA16_Premultiplied形式）
 // under合成に最適化されたフォーマットでバッファを確保
+// alloc: メモリアロケータ（nullptrの場合はDefaultAllocator使用）
 inline ImageBuffer createPremulCanvas(int width, int height,
-                                      InitPolicy init = InitPolicy::Zero) {
-    return ImageBuffer(width, height, PixelFormatIDs::RGBA16_Premultiplied, init);
+                                      InitPolicy init = InitPolicy::Zero,
+                                      core::memory::IAllocator* alloc = nullptr) {
+    return ImageBuffer(width, height, PixelFormatIDs::RGBA16_Premultiplied, init, alloc);
 }
 
 // under合成でレイヤーを配置

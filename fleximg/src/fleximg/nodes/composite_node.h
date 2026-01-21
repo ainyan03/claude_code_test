@@ -104,6 +104,7 @@ public:
 
     // onPullProcess: 複数の上流から画像を取得してunder合成
     // under合成: 手前から奥へ処理し、不透明な部分は後のレイヤーをスキップ
+    // 最適化: height=1 前提（パイプラインは常にスキャンライン単位で処理）
     RenderResult onPullProcess(const RenderRequest& request) override {
         int numInputs = inputCount();
         if (numInputs == 0) return RenderResult();
@@ -112,14 +113,20 @@ public:
         int_fixed canvasOriginX = request.origin.x;
         int_fixed canvasOriginY = request.origin.y;
 
-        // Premul形式のキャンバスを作成（透明で初期化）
-        ImageBuffer canvasBuf = canvas_utils::createPremulCanvas(request.width, request.height, InitPolicy::Zero);
+        // Premul形式のキャンバスを作成（height=1、未初期化）
+        // RGBA16_Premultiplied: 8バイト/ピクセル
+        constexpr size_t bytesPerPixel = 8;
+        ImageBuffer canvasBuf(request.width, 1, PixelFormatIDs::RGBA16_Premultiplied,
+                              InitPolicy::Uninitialized, allocator());
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         PerfMetrics::instance().nodes[NodeType::Composite].recordAlloc(
             canvasBuf.totalBytes(), canvasBuf.width(), canvasBuf.height());
 #endif
-        ViewPort canvasView = canvasBuf.view();
-        bool hasContent = false;
+        uint8_t* canvasRow = static_cast<uint8_t*>(canvasBuf.view().pixelAt(0, 0));
+
+        // 有効範囲を追跡（下流へ必要な範囲のみを返すため）
+        int validStartX = request.width;  // 左端（右端で初期化）
+        int validEndX = 0;                // 右端（左端で初期化）
 
         // under合成: 入力を順に評価して合成
         // 入力ポート0が最前面、以降が背面
@@ -134,36 +141,74 @@ public:
             // 空入力はスキップ
             if (!inputResult.isValid()) continue;
 
-            hasContent = true;
-
             // ここからCompositeNode自身の処理を計測
             FLEXIMG_METRICS_SCOPE(NodeType::Composite);
 
-            // フォーマット変換: blendUnderPremul関数がないフォーマットはRGBA8_Straightに変換
-            PixelFormatID inputFmt = inputResult.view().formatID;
-            if (!inputFmt->blendUnderPremul) {
-                inputResult = canvas_utils::ensureBlendableFormat(std::move(inputResult));
-            }
+            // X方向オフセット計算（Y方向は不要、height=1前提）
+            int offsetX = from_fixed(canvasOriginX - inputResult.origin.x);
+            int srcStartX = std::max(0, -offsetX);
+            int dstStartX = std::max(0, offsetX);
+            int copyWidth = std::min(inputResult.view().width - srcStartX,
+                                     request.width - dstStartX);
+            if (copyWidth <= 0) continue;
+
+            const void* srcRow = inputResult.view().pixelAt(srcStartX, 0);
+            uint8_t* dstRow = canvasRow + static_cast<size_t>(dstStartX) * bytesPerPixel;
+            PixelFormatID srcFmt = inputResult.view().formatID;
+
+            // 今回の描画範囲
+            int curEndX = dstStartX + copyWidth;
 
             if (isFirstContent) {
-                // 初回: 透明キャンバスへの描画なのでブレンド不要
-                // placeFirstはmemcpy最適化や条件分岐なしの変換を使用
-                canvas_utils::placeFirst(canvasView, canvasOriginX, canvasOriginY,
-                                         inputResult.view(), inputResult.origin.x, inputResult.origin.y);
+                // 初回: 変換コピーのみ（余白ゼロクリア不要、cropViewで切り捨て）
+                FLEXIMG_NAMESPACE::convertFormat(srcRow, srcFmt, dstRow,
+                              PixelFormatIDs::RGBA16_Premultiplied, copyWidth);
+                validStartX = dstStartX;
+                validEndX = curEndX;
                 isFirstContent = false;
             } else {
-                // 2回目以降: under合成（dstが不透明なら何もしない最適化が自動適用）
-                canvas_utils::placeUnder(canvasView, canvasOriginX, canvasOriginY,
-                                         inputResult.view(), inputResult.origin.x, inputResult.origin.y);
+                // 2回目以降: 範囲拡張があれば拡張部分をゼロクリア
+                if (dstStartX < validStartX) {
+                    std::memset(canvasRow + static_cast<size_t>(dstStartX) * bytesPerPixel, 0,
+                                static_cast<size_t>(validStartX - dstStartX) * bytesPerPixel);
+                    validStartX = dstStartX;
+                }
+                if (curEndX > validEndX) {
+                    std::memset(canvasRow + static_cast<size_t>(validEndX) * bytesPerPixel, 0,
+                                static_cast<size_t>(curEndX - validEndX) * bytesPerPixel);
+                    validEndX = curEndX;
+                }
+
+                // under合成
+                if (srcFmt->blendUnderPremul) {
+                    // blendUnderPremul関数がある場合は直接使用
+                    srcFmt->blendUnderPremul(dstRow, srcRow, copyWidth, nullptr);
+                } else if (srcFmt->toPremul) {
+                    // blendUnderPremulがない場合、一時バッファでPremul変換してからブレンド
+                    ImageBuffer tempBuf(copyWidth, 1, PixelFormatIDs::RGBA16_Premultiplied,
+                                        InitPolicy::Uninitialized, allocator());
+                    srcFmt->toPremul(tempBuf.view().pixelAt(0, 0), srcRow, copyWidth, nullptr);
+                    PixelFormatIDs::RGBA16_Premultiplied->blendUnderPremul(
+                        dstRow, tempBuf.view().pixelAt(0, 0), copyWidth, nullptr);
+                }
+                // toPremulもない場合はスキップ（対応フォーマットのみ処理）
             }
         }
 
         // 全ての入力が空だった場合
-        if (!hasContent) {
+        if (validStartX >= validEndX) {
             return RenderResult(ImageBuffer(), Point{canvasOriginX, canvasOriginY});
         }
 
-        // Premul形式のまま返す（変換は下流の責務）
+        // 余白をゼロクリアして全幅を返す
+        // TODO: cropViewで有効範囲のみを返す最適化（要調査）
+        if (validStartX > 0) {
+            std::memset(canvasRow, 0, static_cast<size_t>(validStartX) * bytesPerPixel);
+        }
+        if (validEndX < request.width) {
+            std::memset(canvasRow + static_cast<size_t>(validEndX) * bytesPerPixel, 0,
+                        static_cast<size_t>(request.width - validEndX) * bytesPerPixel);
+        }
         return RenderResult(std::move(canvasBuf), Point{canvasOriginX, canvasOriginY});
     }
 
