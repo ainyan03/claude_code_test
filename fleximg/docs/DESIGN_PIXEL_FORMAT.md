@@ -40,21 +40,31 @@ CompositeNodeは **under合成** を使用します。背景（dst）側がPremu
 ### 関数シグネチャ
 
 ```cpp
-// PixelFormatDescriptorに追加されたメンバ
-void (*blendUnderPremul)(
-    const void* src,           // ソースピクセル（各フォーマット）
-    uint8_t* dst,              // Premultiplied RGBA8 キャンバス
-    int pixelCount,            // ピクセル数
-    const BlendParams& params  // ブレンドパラメータ
-);
+// 統一シグネチャ（全変換関数共通）
+using ConvertFunc = void(*)(void* dst, const void* src, int pixelCount, const ConvertParams* params);
+
+// PixelFormatDescriptorのメンバ
+ConvertFunc toStraight;        // このフォーマット → RGBA8_Straight
+ConvertFunc fromStraight;      // RGBA8_Straight → このフォーマット
+ConvertFunc toPremul;          // このフォーマット → RGBA16_Premultiplied
+ConvertFunc fromPremul;        // RGBA16_Premultiplied → このフォーマット
+ConvertFunc blendUnderPremul;  // under合成（src → Premul dst）
+ConvertFunc swapEndian;        // エンディアン兄弟との変換
+
+const PixelFormatDescriptor* siblingEndian;  // エンディアン違いの兄弟フォーマット
 ```
 
-### BlendParams構造体
+### ConvertParams構造体
 
 ```cpp
-struct BlendParams {
-    uint8_t globalAlpha = 255;  // グローバルアルファ（将来用）
+struct ConvertParams {
+    uint32_t colorKey = 0;          // 透過カラー（4 bytes）
+    uint8_t alphaMultiplier = 255;  // アルファ係数（1 byte）
+    bool useColorKey = false;       // カラーキー有効フラグ（1 byte）
 };
+
+// 後方互換性のためBlendParamsをエイリアスとして残す
+using BlendParams = ConvertParams;
 ```
 
 ### 対応フォーマット
@@ -233,9 +243,13 @@ constexpr PixelFormatDescriptor MyCustomFormat = {
     "MyCustomFormat",
     32,  // bitsPerPixel
     // ... 他のフィールド
-    myToStandardFunc,
-    myFromStandardFunc,
-    nullptr, nullptr
+    myToStraightFunc,      // toStraight
+    myFromStraightFunc,    // fromStraight
+    nullptr, nullptr,      // toStraightIndexed, fromStraightIndexed
+    myToPremulFunc,        // toPremul（オプション）
+    myFromPremulFunc,      // fromPremul（オプション）
+    myBlendUnderPremulFunc,// blendUnderPremul（オプション）
+    nullptr, nullptr       // siblingEndian, swapEndian
 };
 
 // 使用
