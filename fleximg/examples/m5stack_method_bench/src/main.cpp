@@ -119,18 +119,54 @@ void initTestData(AlphaPattern pattern = AlphaPattern::Mixed) {
     }
 }
 
-// キャンバスを半透明で初期化（blendUnderPremul用）
-void initCanvasHalfTransparent() {
+// キャンバスを指定パターンで初期化（blendUnderPremul用、RGBA16_Premultiplied形式）
+void initCanvas(AlphaPattern pattern) {
     if (!canvasRGBA16) return;
-    // 半透明の緑色（Premultiplied形式）
-    // alpha = 32768 (約50%), G = 32768 (α×65535)
+
     for (int i = 0; i < BENCH_PIXELS; i++) {
         int idx = i * 4;
+        uint16_t alpha;
+
+        switch (pattern) {
+            case AlphaPattern::AllOpaque:
+                alpha = 65535;
+                break;
+            case AlphaPattern::AllTransparent:
+                alpha = 0;
+                break;
+            case AlphaPattern::AllSemi:
+                alpha = 32768;  // 約50%
+                break;
+            case AlphaPattern::Mixed:
+            default:
+                // srcと同じ96ピクセル周期パターン
+                {
+                    int phase = i % 96;
+                    if (phase < 32) {
+                        alpha = 0;
+                    } else if (phase < 48) {
+                        alpha = static_cast<uint16_t>(4096 + (phase - 32) * 3855);
+                    } else if (phase < 80) {
+                        alpha = 65535;
+                    } else {
+                        alpha = static_cast<uint16_t>(4096 + (95 - phase) * 3855);
+                    }
+                }
+                break;
+        }
+
+        // Premultiplied形式: RGB値もαでスケール
+        // 緑色ベース
         canvasRGBA16[idx + 0] = 0;      // R
-        canvasRGBA16[idx + 1] = 32768;  // G (premul)
+        canvasRGBA16[idx + 1] = alpha;  // G (premul: G * α / 65535 = α when G=65535)
         canvasRGBA16[idx + 2] = 0;      // B
-        canvasRGBA16[idx + 3] = 32768;  // A
+        canvasRGBA16[idx + 3] = alpha;  // A
     }
+}
+
+// 後方互換性のためのラッパー
+void initCanvasHalfTransparent() {
+    initCanvas(AlphaPattern::AllSemi);
 }
 
 template<typename Func>
@@ -374,17 +410,23 @@ void runAllBenchmarks() {
     M5.Display.println("Touch to rerun");
 }
 
+// 現在のベンチマーク用キャンバスパターン（グローバル、ラムダから参照）
+static AlphaPattern g_canvasPattern = AlphaPattern::AllSemi;
+
 // アルファパターン別ベンチマーク（blendUnderPremulの条件分岐影響測定）
+// src × dst の 4×4 総当たりテスト
 void runBlendUnderBenchByPattern() {
     Serial.println("\n========================================");
-    Serial.println("blendUnderPremul by Alpha Pattern");
+    Serial.println("blendUnderPremul: src x dst Matrix");
     Serial.println("========================================\n");
 
     M5.Display.fillScreen(TFT_BLACK);
     M5.Display.setCursor(0, 0);
-    M5.Display.println("BlendUnder by Pattern\n");
+    M5.Display.setTextSize(1);
+    M5.Display.println("BlendUnder src x dst\n");
 
-    const char* patternNames[] = {"Mixed", "Opaque", "Transparent", "Semi"};
+    const char* shortNames[] = {"Mix", "Opq", "Trn", "Sem"};
+    const char* patternNames[] = {"Mixed", "Opaque", "Transp", "Semi"};
     AlphaPattern patterns[] = {
         AlphaPattern::Mixed,
         AlphaPattern::AllOpaque,
@@ -392,24 +434,49 @@ void runBlendUnderBenchByPattern() {
         AlphaPattern::AllSemi
     };
 
-    for (int p = 0; p < 4; p++) {
-        Serial.printf("\n--- Pattern: %s ---\n", patternNames[p]);
-        M5.Display.printf("\n%s:\n", patternNames[p]);
+    // ヘッダー出力（シリアル）
+    Serial.printf("%-8s", "src\\dst");
+    for (int d = 0; d < 4; d++) {
+        Serial.printf(" %7s", shortNames[d]);
+    }
+    Serial.println(" (us/frame)");
+    Serial.println("----------------------------------------");
 
-        initTestData(patterns[p]);
+    // ヘッダー出力（ディスプレイ）
+    M5.Display.printf("src\\dst");
+    for (int d = 0; d < 4; d++) {
+        M5.Display.printf(" %4s", shortNames[d]);
+    }
+    M5.Display.println();
 
-        // RGBA8_Straight → blendUnderPremul
-        initCanvasHalfTransparent();
-        auto result = runBench("rgba8_blendUnder", []() {
-            initCanvasHalfTransparent();
-            BuiltinFormats::RGBA8_Straight.blendUnderPremul(
-                canvasRGBA16, srcRGBA8, BENCH_PIXELS, nullptr);
-        });
-        printResult(result);
+    // 4×4マトリクス測定
+    for (int s = 0; s < 4; s++) {
+        Serial.printf("%-8s", patternNames[s]);
+        M5.Display.printf("%-7s", shortNames[s]);
+
+        initTestData(patterns[s]);
+
+        for (int d = 0; d < 4; d++) {
+            g_canvasPattern = patterns[d];
+
+            auto result = runBench("", []() {
+                initCanvas(g_canvasPattern);
+                BuiltinFormats::RGBA8_Straight.blendUnderPremul(
+                    canvasRGBA16, srcRGBA8, BENCH_PIXELS, nullptr);
+            });
+
+            Serial.printf(" %7u", result.perFrameUs);
+            M5.Display.printf(" %4u", result.perFrameUs);
+        }
+        Serial.println();
+        M5.Display.println();
     }
 
-    Serial.println("\n========================================\n");
-    M5.Display.println("\nTouch for main bench");
+    Serial.println("----------------------------------------");
+    Serial.println("Row=src pattern, Col=dst(canvas) pattern");
+    Serial.println("========================================\n");
+
+    M5.Display.println("\nBtnA:main BtnB:matrix");
 }
 
 void setup() {
