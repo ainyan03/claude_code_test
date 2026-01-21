@@ -18,7 +18,6 @@ struct PixelFormatDescriptor;
 
 using PixelFormatID = const PixelFormatDescriptor*;
 
-#if 1  // RGBA16_Premultiplied サポート有効
 // RGBA16_Premultiplied用アルファ閾値
 namespace RGBA16Premul {
     constexpr uint16_t ALPHA_TRANSPARENT_MAX = 255;
@@ -27,7 +26,6 @@ namespace RGBA16Premul {
     inline constexpr bool isTransparent(uint16_t a) { return a <= ALPHA_TRANSPARENT_MAX; }
     inline constexpr bool isOpaque(uint16_t a) { return a >= ALPHA_OPAQUE_MIN; }
 }
-#endif
 
 // ========================================================================
 // 変換パラメータ
@@ -228,9 +226,7 @@ struct PixelFormatDescriptor {
 // ========================================================================
 
 namespace BuiltinFormats {
-#if 1  // RGBA16_Premultiplied サポート有効
     extern const PixelFormatDescriptor RGBA16_Premultiplied;
-#endif
     extern const PixelFormatDescriptor RGBA8_Straight;
     extern const PixelFormatDescriptor RGB565_LE;
     extern const PixelFormatDescriptor RGB565_BE;
@@ -245,10 +241,8 @@ namespace BuiltinFormats {
 // ========================================================================
 
 namespace PixelFormatIDs {
-#if 1  // RGBA16_Premultiplied サポート有効
     // 16bit RGBA系
     inline const PixelFormatID RGBA16_Premultiplied  = &BuiltinFormats::RGBA16_Premultiplied;
-#endif
 
     // 8bit RGBA系
     inline const PixelFormatID RGBA8_Straight        = &BuiltinFormats::RGBA8_Straight;
