@@ -51,20 +51,19 @@ static void rgba8Straight_fromStraight(void* dst, const void* src, int pixelCoun
 
 // blendUnderPremul: srcフォーマット(RGBA8_Straight)からPremul形式のdstへunder合成
 // RGBA8_Straight → RGBA16_Premultiplied変換しながらunder合成
-static void rgba8Straight_blendUnderPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+static void rgba8Straight_blendUnderPremul(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGBA8_Straight, BlendUnder, pixelCount);
-    uint16_t* d = static_cast<uint16_t*>(dst);
-    const uint8_t* s = static_cast<const uint8_t*>(src);
+    uint16_t* __restrict__ d = static_cast<uint16_t*>(dst);
+    const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
 
     for (int i = 0; i < pixelCount; i++) {
-        int idx16 = i * 4;
-        int idx8 = i * 4;
-        uint16_t dstA = d[idx16 + 3];
+        int idx = i * 4;
+        uint16_t dstA = d[idx + 3];
 
         // dst が不透明 → スキップ
         if (RGBA16Premul::isOpaque(dstA)) continue;
 
-        uint8_t srcA8 = s[idx8 + 3];
+        uint8_t srcA8 = s[idx + 3];
 
         // src が透明 → スキップ
         if (srcA8 == 0) continue;
@@ -72,26 +71,26 @@ static void rgba8Straight_blendUnderPremul(void* dst, const void* src, int pixel
         // RGBA8_Straight → RGBA16_Premultiplied 変換
         // A_tmp = A8 + 1 (範囲: 1-256)
         uint16_t a_tmp = srcA8 + 1;
-        uint16_t srcR = s[idx8 + 0] * a_tmp;
-        uint16_t srcG = s[idx8 + 1] * a_tmp;
-        uint16_t srcB = s[idx8 + 2] * a_tmp;
+        uint16_t srcR = s[idx + 0] * a_tmp;
+        uint16_t srcG = s[idx + 1] * a_tmp;
+        uint16_t srcB = s[idx + 2] * a_tmp;
         uint16_t srcA = 255 * a_tmp;
 
         // dst が透明 → 単純コピー
         if (RGBA16Premul::isTransparent(dstA)) {
-            d[idx16]     = srcR;
-            d[idx16 + 1] = srcG;
-            d[idx16 + 2] = srcB;
-            d[idx16 + 3] = srcA;
+            d[idx]     = srcR;
+            d[idx + 1] = srcG;
+            d[idx + 2] = srcB;
+            d[idx + 3] = srcA;
             continue;
         }
 
         // under合成: dst = dst + src * (1 - dstA)
         uint16_t invDstA = RGBA16Premul::ALPHA_OPAQUE_MIN - dstA;
-        d[idx16]     = static_cast<uint16_t>(d[idx16]     + ((srcR * invDstA) >> 16));
-        d[idx16 + 1] = static_cast<uint16_t>(d[idx16 + 1] + ((srcG * invDstA) >> 16));
-        d[idx16 + 2] = static_cast<uint16_t>(d[idx16 + 2] + ((srcB * invDstA) >> 16));
-        d[idx16 + 3] = static_cast<uint16_t>(dstA         + ((srcA * invDstA) >> 16));
+        d[idx]     = static_cast<uint16_t>(d[idx]     + ((srcR * invDstA) >> 16));
+        d[idx + 1] = static_cast<uint16_t>(d[idx + 1] + ((srcG * invDstA) >> 16));
+        d[idx + 2] = static_cast<uint16_t>(d[idx + 2] + ((srcB * invDstA) >> 16));
+        d[idx + 3] = static_cast<uint16_t>(dstA       + ((srcA * invDstA) >> 16));
     }
 }
 

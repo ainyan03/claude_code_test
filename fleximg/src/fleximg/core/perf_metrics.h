@@ -3,7 +3,13 @@
 
 #include "common.h"
 #include <cstdint>
+
+// ESP32向けには軽量なmicros()を使用、それ以外はstd::chronoを使用
+#ifdef ESP32
+extern "C" unsigned long micros();
+#else
 #include <chrono>
+#endif
 
 // ========================================================================
 // デバッグ機能制御マクロ
@@ -206,12 +212,20 @@ class MetricsGuard {
 public:
     explicit MetricsGuard(int nodeType)
         : nodeType_(nodeType)
+#ifdef ESP32
+        , start_(micros())
+#else
         , start_(std::chrono::high_resolution_clock::now())
+#endif
     {}
 
     ~MetricsGuard() {
+#ifdef ESP32
+        uint32_t elapsed = micros() - start_;
+#else
         auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::high_resolution_clock::now() - start_).count();
+#endif
         auto& metrics = PerfMetrics::instance().nodes[nodeType_];
         metrics.time_us += static_cast<uint32_t>(elapsed);
         metrics.count++;
@@ -225,7 +239,11 @@ public:
 
 private:
     int nodeType_;
+#ifdef ESP32
+    uint32_t start_;
+#else
     std::chrono::high_resolution_clock::time_point start_;
+#endif
 };
 
 #define FLEXIMG_METRICS_SCOPE(nodeType) \
@@ -248,7 +266,7 @@ struct PerfMetrics {
     }
     void reset() {}
     uint32_t totalTime() const { return 0; }
-    uint64_t totalNodeAllocatedBytes() const { return 0; }
+    uint32_t totalNodeAllocatedBytes() const { return 0; }
     void recordAlloc(size_t, int = 0, int = 0) {}
     void recordFree(size_t) {}
 };
