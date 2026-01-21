@@ -1,7 +1,7 @@
 #include "pixel_format.h"
 #include "../core/format_metrics.h"
 #include <cstring>
-#include <algorithm>
+#include <array>
 
 namespace FLEXIMG_NAMESPACE {
 
@@ -12,140 +12,23 @@ namespace FLEXIMG_NAMESPACE {
 // 使用: (r16 * invUnpremulTable[a8]) >> 16 ≈ r16 / (a8 + 1)
 //
 namespace {
-constexpr uint32_t calcInvUnpremul(int a) {
-    return 65536u / static_cast<uint32_t>(a + 1);
+
+// 逆数計算（a=0 の場合は 0 を返す安全策）
+constexpr uint16_t calcInvUnpremul(int a) {
+    return (a == 0) ? 0 : static_cast<uint16_t>(65536u / static_cast<uint32_t>(a + 1));
 }
 
-alignas(64) constexpr uint16_t invUnpremulTable[256] = {
-    static_cast<uint16_t>(calcInvUnpremul(0)),   static_cast<uint16_t>(calcInvUnpremul(1)),
-    static_cast<uint16_t>(calcInvUnpremul(2)),   static_cast<uint16_t>(calcInvUnpremul(3)),
-    static_cast<uint16_t>(calcInvUnpremul(4)),   static_cast<uint16_t>(calcInvUnpremul(5)),
-    static_cast<uint16_t>(calcInvUnpremul(6)),   static_cast<uint16_t>(calcInvUnpremul(7)),
-    static_cast<uint16_t>(calcInvUnpremul(8)),   static_cast<uint16_t>(calcInvUnpremul(9)),
-    static_cast<uint16_t>(calcInvUnpremul(10)),  static_cast<uint16_t>(calcInvUnpremul(11)),
-    static_cast<uint16_t>(calcInvUnpremul(12)),  static_cast<uint16_t>(calcInvUnpremul(13)),
-    static_cast<uint16_t>(calcInvUnpremul(14)),  static_cast<uint16_t>(calcInvUnpremul(15)),
-    static_cast<uint16_t>(calcInvUnpremul(16)),  static_cast<uint16_t>(calcInvUnpremul(17)),
-    static_cast<uint16_t>(calcInvUnpremul(18)),  static_cast<uint16_t>(calcInvUnpremul(19)),
-    static_cast<uint16_t>(calcInvUnpremul(20)),  static_cast<uint16_t>(calcInvUnpremul(21)),
-    static_cast<uint16_t>(calcInvUnpremul(22)),  static_cast<uint16_t>(calcInvUnpremul(23)),
-    static_cast<uint16_t>(calcInvUnpremul(24)),  static_cast<uint16_t>(calcInvUnpremul(25)),
-    static_cast<uint16_t>(calcInvUnpremul(26)),  static_cast<uint16_t>(calcInvUnpremul(27)),
-    static_cast<uint16_t>(calcInvUnpremul(28)),  static_cast<uint16_t>(calcInvUnpremul(29)),
-    static_cast<uint16_t>(calcInvUnpremul(30)),  static_cast<uint16_t>(calcInvUnpremul(31)),
-    static_cast<uint16_t>(calcInvUnpremul(32)),  static_cast<uint16_t>(calcInvUnpremul(33)),
-    static_cast<uint16_t>(calcInvUnpremul(34)),  static_cast<uint16_t>(calcInvUnpremul(35)),
-    static_cast<uint16_t>(calcInvUnpremul(36)),  static_cast<uint16_t>(calcInvUnpremul(37)),
-    static_cast<uint16_t>(calcInvUnpremul(38)),  static_cast<uint16_t>(calcInvUnpremul(39)),
-    static_cast<uint16_t>(calcInvUnpremul(40)),  static_cast<uint16_t>(calcInvUnpremul(41)),
-    static_cast<uint16_t>(calcInvUnpremul(42)),  static_cast<uint16_t>(calcInvUnpremul(43)),
-    static_cast<uint16_t>(calcInvUnpremul(44)),  static_cast<uint16_t>(calcInvUnpremul(45)),
-    static_cast<uint16_t>(calcInvUnpremul(46)),  static_cast<uint16_t>(calcInvUnpremul(47)),
-    static_cast<uint16_t>(calcInvUnpremul(48)),  static_cast<uint16_t>(calcInvUnpremul(49)),
-    static_cast<uint16_t>(calcInvUnpremul(50)),  static_cast<uint16_t>(calcInvUnpremul(51)),
-    static_cast<uint16_t>(calcInvUnpremul(52)),  static_cast<uint16_t>(calcInvUnpremul(53)),
-    static_cast<uint16_t>(calcInvUnpremul(54)),  static_cast<uint16_t>(calcInvUnpremul(55)),
-    static_cast<uint16_t>(calcInvUnpremul(56)),  static_cast<uint16_t>(calcInvUnpremul(57)),
-    static_cast<uint16_t>(calcInvUnpremul(58)),  static_cast<uint16_t>(calcInvUnpremul(59)),
-    static_cast<uint16_t>(calcInvUnpremul(60)),  static_cast<uint16_t>(calcInvUnpremul(61)),
-    static_cast<uint16_t>(calcInvUnpremul(62)),  static_cast<uint16_t>(calcInvUnpremul(63)),
-    static_cast<uint16_t>(calcInvUnpremul(64)),  static_cast<uint16_t>(calcInvUnpremul(65)),
-    static_cast<uint16_t>(calcInvUnpremul(66)),  static_cast<uint16_t>(calcInvUnpremul(67)),
-    static_cast<uint16_t>(calcInvUnpremul(68)),  static_cast<uint16_t>(calcInvUnpremul(69)),
-    static_cast<uint16_t>(calcInvUnpremul(70)),  static_cast<uint16_t>(calcInvUnpremul(71)),
-    static_cast<uint16_t>(calcInvUnpremul(72)),  static_cast<uint16_t>(calcInvUnpremul(73)),
-    static_cast<uint16_t>(calcInvUnpremul(74)),  static_cast<uint16_t>(calcInvUnpremul(75)),
-    static_cast<uint16_t>(calcInvUnpremul(76)),  static_cast<uint16_t>(calcInvUnpremul(77)),
-    static_cast<uint16_t>(calcInvUnpremul(78)),  static_cast<uint16_t>(calcInvUnpremul(79)),
-    static_cast<uint16_t>(calcInvUnpremul(80)),  static_cast<uint16_t>(calcInvUnpremul(81)),
-    static_cast<uint16_t>(calcInvUnpremul(82)),  static_cast<uint16_t>(calcInvUnpremul(83)),
-    static_cast<uint16_t>(calcInvUnpremul(84)),  static_cast<uint16_t>(calcInvUnpremul(85)),
-    static_cast<uint16_t>(calcInvUnpremul(86)),  static_cast<uint16_t>(calcInvUnpremul(87)),
-    static_cast<uint16_t>(calcInvUnpremul(88)),  static_cast<uint16_t>(calcInvUnpremul(89)),
-    static_cast<uint16_t>(calcInvUnpremul(90)),  static_cast<uint16_t>(calcInvUnpremul(91)),
-    static_cast<uint16_t>(calcInvUnpremul(92)),  static_cast<uint16_t>(calcInvUnpremul(93)),
-    static_cast<uint16_t>(calcInvUnpremul(94)),  static_cast<uint16_t>(calcInvUnpremul(95)),
-    static_cast<uint16_t>(calcInvUnpremul(96)),  static_cast<uint16_t>(calcInvUnpremul(97)),
-    static_cast<uint16_t>(calcInvUnpremul(98)),  static_cast<uint16_t>(calcInvUnpremul(99)),
-    static_cast<uint16_t>(calcInvUnpremul(100)), static_cast<uint16_t>(calcInvUnpremul(101)),
-    static_cast<uint16_t>(calcInvUnpremul(102)), static_cast<uint16_t>(calcInvUnpremul(103)),
-    static_cast<uint16_t>(calcInvUnpremul(104)), static_cast<uint16_t>(calcInvUnpremul(105)),
-    static_cast<uint16_t>(calcInvUnpremul(106)), static_cast<uint16_t>(calcInvUnpremul(107)),
-    static_cast<uint16_t>(calcInvUnpremul(108)), static_cast<uint16_t>(calcInvUnpremul(109)),
-    static_cast<uint16_t>(calcInvUnpremul(110)), static_cast<uint16_t>(calcInvUnpremul(111)),
-    static_cast<uint16_t>(calcInvUnpremul(112)), static_cast<uint16_t>(calcInvUnpremul(113)),
-    static_cast<uint16_t>(calcInvUnpremul(114)), static_cast<uint16_t>(calcInvUnpremul(115)),
-    static_cast<uint16_t>(calcInvUnpremul(116)), static_cast<uint16_t>(calcInvUnpremul(117)),
-    static_cast<uint16_t>(calcInvUnpremul(118)), static_cast<uint16_t>(calcInvUnpremul(119)),
-    static_cast<uint16_t>(calcInvUnpremul(120)), static_cast<uint16_t>(calcInvUnpremul(121)),
-    static_cast<uint16_t>(calcInvUnpremul(122)), static_cast<uint16_t>(calcInvUnpremul(123)),
-    static_cast<uint16_t>(calcInvUnpremul(124)), static_cast<uint16_t>(calcInvUnpremul(125)),
-    static_cast<uint16_t>(calcInvUnpremul(126)), static_cast<uint16_t>(calcInvUnpremul(127)),
-    static_cast<uint16_t>(calcInvUnpremul(128)), static_cast<uint16_t>(calcInvUnpremul(129)),
-    static_cast<uint16_t>(calcInvUnpremul(130)), static_cast<uint16_t>(calcInvUnpremul(131)),
-    static_cast<uint16_t>(calcInvUnpremul(132)), static_cast<uint16_t>(calcInvUnpremul(133)),
-    static_cast<uint16_t>(calcInvUnpremul(134)), static_cast<uint16_t>(calcInvUnpremul(135)),
-    static_cast<uint16_t>(calcInvUnpremul(136)), static_cast<uint16_t>(calcInvUnpremul(137)),
-    static_cast<uint16_t>(calcInvUnpremul(138)), static_cast<uint16_t>(calcInvUnpremul(139)),
-    static_cast<uint16_t>(calcInvUnpremul(140)), static_cast<uint16_t>(calcInvUnpremul(141)),
-    static_cast<uint16_t>(calcInvUnpremul(142)), static_cast<uint16_t>(calcInvUnpremul(143)),
-    static_cast<uint16_t>(calcInvUnpremul(144)), static_cast<uint16_t>(calcInvUnpremul(145)),
-    static_cast<uint16_t>(calcInvUnpremul(146)), static_cast<uint16_t>(calcInvUnpremul(147)),
-    static_cast<uint16_t>(calcInvUnpremul(148)), static_cast<uint16_t>(calcInvUnpremul(149)),
-    static_cast<uint16_t>(calcInvUnpremul(150)), static_cast<uint16_t>(calcInvUnpremul(151)),
-    static_cast<uint16_t>(calcInvUnpremul(152)), static_cast<uint16_t>(calcInvUnpremul(153)),
-    static_cast<uint16_t>(calcInvUnpremul(154)), static_cast<uint16_t>(calcInvUnpremul(155)),
-    static_cast<uint16_t>(calcInvUnpremul(156)), static_cast<uint16_t>(calcInvUnpremul(157)),
-    static_cast<uint16_t>(calcInvUnpremul(158)), static_cast<uint16_t>(calcInvUnpremul(159)),
-    static_cast<uint16_t>(calcInvUnpremul(160)), static_cast<uint16_t>(calcInvUnpremul(161)),
-    static_cast<uint16_t>(calcInvUnpremul(162)), static_cast<uint16_t>(calcInvUnpremul(163)),
-    static_cast<uint16_t>(calcInvUnpremul(164)), static_cast<uint16_t>(calcInvUnpremul(165)),
-    static_cast<uint16_t>(calcInvUnpremul(166)), static_cast<uint16_t>(calcInvUnpremul(167)),
-    static_cast<uint16_t>(calcInvUnpremul(168)), static_cast<uint16_t>(calcInvUnpremul(169)),
-    static_cast<uint16_t>(calcInvUnpremul(170)), static_cast<uint16_t>(calcInvUnpremul(171)),
-    static_cast<uint16_t>(calcInvUnpremul(172)), static_cast<uint16_t>(calcInvUnpremul(173)),
-    static_cast<uint16_t>(calcInvUnpremul(174)), static_cast<uint16_t>(calcInvUnpremul(175)),
-    static_cast<uint16_t>(calcInvUnpremul(176)), static_cast<uint16_t>(calcInvUnpremul(177)),
-    static_cast<uint16_t>(calcInvUnpremul(178)), static_cast<uint16_t>(calcInvUnpremul(179)),
-    static_cast<uint16_t>(calcInvUnpremul(180)), static_cast<uint16_t>(calcInvUnpremul(181)),
-    static_cast<uint16_t>(calcInvUnpremul(182)), static_cast<uint16_t>(calcInvUnpremul(183)),
-    static_cast<uint16_t>(calcInvUnpremul(184)), static_cast<uint16_t>(calcInvUnpremul(185)),
-    static_cast<uint16_t>(calcInvUnpremul(186)), static_cast<uint16_t>(calcInvUnpremul(187)),
-    static_cast<uint16_t>(calcInvUnpremul(188)), static_cast<uint16_t>(calcInvUnpremul(189)),
-    static_cast<uint16_t>(calcInvUnpremul(190)), static_cast<uint16_t>(calcInvUnpremul(191)),
-    static_cast<uint16_t>(calcInvUnpremul(192)), static_cast<uint16_t>(calcInvUnpremul(193)),
-    static_cast<uint16_t>(calcInvUnpremul(194)), static_cast<uint16_t>(calcInvUnpremul(195)),
-    static_cast<uint16_t>(calcInvUnpremul(196)), static_cast<uint16_t>(calcInvUnpremul(197)),
-    static_cast<uint16_t>(calcInvUnpremul(198)), static_cast<uint16_t>(calcInvUnpremul(199)),
-    static_cast<uint16_t>(calcInvUnpremul(200)), static_cast<uint16_t>(calcInvUnpremul(201)),
-    static_cast<uint16_t>(calcInvUnpremul(202)), static_cast<uint16_t>(calcInvUnpremul(203)),
-    static_cast<uint16_t>(calcInvUnpremul(204)), static_cast<uint16_t>(calcInvUnpremul(205)),
-    static_cast<uint16_t>(calcInvUnpremul(206)), static_cast<uint16_t>(calcInvUnpremul(207)),
-    static_cast<uint16_t>(calcInvUnpremul(208)), static_cast<uint16_t>(calcInvUnpremul(209)),
-    static_cast<uint16_t>(calcInvUnpremul(210)), static_cast<uint16_t>(calcInvUnpremul(211)),
-    static_cast<uint16_t>(calcInvUnpremul(212)), static_cast<uint16_t>(calcInvUnpremul(213)),
-    static_cast<uint16_t>(calcInvUnpremul(214)), static_cast<uint16_t>(calcInvUnpremul(215)),
-    static_cast<uint16_t>(calcInvUnpremul(216)), static_cast<uint16_t>(calcInvUnpremul(217)),
-    static_cast<uint16_t>(calcInvUnpremul(218)), static_cast<uint16_t>(calcInvUnpremul(219)),
-    static_cast<uint16_t>(calcInvUnpremul(220)), static_cast<uint16_t>(calcInvUnpremul(221)),
-    static_cast<uint16_t>(calcInvUnpremul(222)), static_cast<uint16_t>(calcInvUnpremul(223)),
-    static_cast<uint16_t>(calcInvUnpremul(224)), static_cast<uint16_t>(calcInvUnpremul(225)),
-    static_cast<uint16_t>(calcInvUnpremul(226)), static_cast<uint16_t>(calcInvUnpremul(227)),
-    static_cast<uint16_t>(calcInvUnpremul(228)), static_cast<uint16_t>(calcInvUnpremul(229)),
-    static_cast<uint16_t>(calcInvUnpremul(230)), static_cast<uint16_t>(calcInvUnpremul(231)),
-    static_cast<uint16_t>(calcInvUnpremul(232)), static_cast<uint16_t>(calcInvUnpremul(233)),
-    static_cast<uint16_t>(calcInvUnpremul(234)), static_cast<uint16_t>(calcInvUnpremul(235)),
-    static_cast<uint16_t>(calcInvUnpremul(236)), static_cast<uint16_t>(calcInvUnpremul(237)),
-    static_cast<uint16_t>(calcInvUnpremul(238)), static_cast<uint16_t>(calcInvUnpremul(239)),
-    static_cast<uint16_t>(calcInvUnpremul(240)), static_cast<uint16_t>(calcInvUnpremul(241)),
-    static_cast<uint16_t>(calcInvUnpremul(242)), static_cast<uint16_t>(calcInvUnpremul(243)),
-    static_cast<uint16_t>(calcInvUnpremul(244)), static_cast<uint16_t>(calcInvUnpremul(245)),
-    static_cast<uint16_t>(calcInvUnpremul(246)), static_cast<uint16_t>(calcInvUnpremul(247)),
-    static_cast<uint16_t>(calcInvUnpremul(248)), static_cast<uint16_t>(calcInvUnpremul(249)),
-    static_cast<uint16_t>(calcInvUnpremul(250)), static_cast<uint16_t>(calcInvUnpremul(251)),
-    static_cast<uint16_t>(calcInvUnpremul(252)), static_cast<uint16_t>(calcInvUnpremul(253)),
-    static_cast<uint16_t>(calcInvUnpremul(254)), static_cast<uint16_t>(calcInvUnpremul(255))
-};
+// constexpr テーブル生成関数
+constexpr std::array<uint16_t, 256> makeInvUnpremulTable() {
+    std::array<uint16_t, 256> table{};
+    for (int i = 0; i < 256; ++i) {
+        table[static_cast<size_t>(i)] = calcInvUnpremul(i);
+    }
+    return table;
+}
+
+alignas(64) constexpr std::array<uint16_t, 256> invUnpremulTable = makeInvUnpremulTable();
+
 } // namespace
 
 // ========================================================================
