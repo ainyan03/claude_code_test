@@ -1,5 +1,35 @@
 # Changelog
 
+## [2.37.0] - 2026-01-21
+
+### 追加
+
+- **Under合成（blendUnderPremul）**: CompositeNodeの合成方式を改善
+  - `BlendParams` 構造体: グローバルアルファ等のパラメータを保持
+  - `PixelFormatDescriptor::blendUnderPremul`: 各フォーマット用のunder合成関数
+  - 対応フォーマット: RGBA8, RGB565_LE/BE, RGB332, RGB888, BGR888, Alpha8
+  - 入力画像を標準形式に変換せず直接合成（メモリ効率・処理速度向上）
+
+- **フォーマット変換メトリクス（FormatMetrics）**: 変換関数の呼び出し統計
+  - `FormatMetrics` シングルトン: フォーマット×操作タイプ別の統計
+  - `FLEXIMG_FMT_METRICS` マクロ: 各変換関数で計測
+  - 操作タイプ: ToStandard, FromStandard, BlendUnder, FromPremul
+  - WebUI: デバッグセクションに「フォーマット変換」表示を追加
+  - snapshot/restore機能: UI用変換をメトリクスから除外
+
+### 変更
+
+- **CompositeNode**: over合成からunder合成に変更
+  - 背景をPremultiplied形式のキャンバスで管理
+  - 各入力を「下に敷く」形で順次合成
+
+### ドキュメント
+
+- **DESIGN_PERF_METRICS.md**: FormatMetricsセクションを追加
+- **DESIGN_PIXEL_FORMAT.md**: Under合成（blendUnderPremul）セクションを追加
+
+---
+
 ## [2.36.0] - 2026-01-20
 
 ### 変更

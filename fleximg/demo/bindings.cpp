@@ -23,6 +23,7 @@
 #include "../src/fleximg/nodes/renderer_node.h"
 #include "../src/fleximg/nodes/ninepatch_source_node.h"
 #include "../src/fleximg/nodes/matte_node.h"
+#include "../src/fleximg/core/format_metrics.h"
 
 using namespace emscripten;
 using namespace FLEXIMG_NAMESPACE;
@@ -237,13 +238,19 @@ public:
             );
             result.set("data", data);
         } else {
-            // フォーマット変換
+            // フォーマット変換（UI用 - メトリクスから除外）
+            FormatOpEntry snapshot[FormatIdx::Count][OpType::Count];
+            FormatMetrics::instance().saveSnapshot(snapshot);
+
             std::vector<uint8_t> rgba8Data(rgba8Size);
             convertFormat(
                 sinkOut.buffer.data(), sinkOut.format,
                 rgba8Data.data(), PixelFormatIDs::RGBA8_Straight,
                 static_cast<int>(pixelCount)
             );
+
+            FormatMetrics::instance().restoreSnapshot(snapshot);
+
             val data = val::global("Uint8ClampedArray").new_(
                 typed_memory_view(rgba8Data.size(), rgba8Data.data())
             );
@@ -275,7 +282,10 @@ public:
             // 変換不要
             imageViews_[id] = imageStore_.store(id, rgba8Data.data(), width, height, targetFormat);
         } else {
-            // フォーマット変換
+            // フォーマット変換（UI用 - メトリクスから除外）
+            FormatOpEntry snapshot[FormatIdx::Count][OpType::Count];
+            FormatMetrics::instance().saveSnapshot(snapshot);
+
             auto targetBpp = getBytesPerPixel(targetFormat);
             std::vector<uint8_t> converted(static_cast<size_t>(width) * static_cast<size_t>(height) * static_cast<size_t>(targetBpp));
 
@@ -284,6 +294,8 @@ public:
                 converted.data(), targetFormat,
                 static_cast<int>(static_cast<size_t>(width) * static_cast<size_t>(height))
             );
+
+            FormatMetrics::instance().restoreSnapshot(snapshot);
 
             imageViews_[id] = imageStore_.store(id, converted.data(), width, height, targetFormat);
         }
@@ -579,6 +591,72 @@ public:
         result.set("maxAllocBytes", 0);
         result.set("maxAllocWidth", 0);
         result.set("maxAllocHeight", 0);
+#endif
+
+        return result;
+    }
+
+    val getFormatMetrics() {
+        val result = val::object();
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        auto& metrics = FormatMetrics::instance();
+
+        // フォーマット名配列
+        static const char* formatNames[] = {
+            "RGBA16_Premul", "RGBA8_Straight", "RGB565_LE", "RGB565_BE",
+            "RGB332", "RGB888", "BGR888", "Alpha8"
+        };
+        static const char* opNames[] = {
+            "toStandard", "fromStandard", "blendUnder", "fromPremul"
+        };
+
+        // フォーマット別データ
+        val formats = val::array();
+        for (int f = 0; f < FormatIdx::Count; f++) {
+            val fmtData = val::object();
+            fmtData.set("name", formatNames[f]);
+
+            val ops = val::array();
+            for (int o = 0; o < OpType::Count; o++) {
+                val opData = val::object();
+                opData.set("name", opNames[o]);
+                opData.set("callCount", metrics.data[f][o].callCount);
+                opData.set("pixelCount", static_cast<double>(metrics.data[f][o].pixelCount));
+                ops.call<void>("push", opData);
+            }
+            fmtData.set("ops", ops);
+
+            // フォーマット合計
+            auto fmtTotal = metrics.totalByFormat(f);
+            fmtData.set("totalCalls", fmtTotal.callCount);
+            fmtData.set("totalPixels", static_cast<double>(fmtTotal.pixelCount));
+
+            formats.call<void>("push", fmtData);
+        }
+        result.set("formats", formats);
+
+        // 操作別合計
+        val opTotals = val::array();
+        for (int o = 0; o < OpType::Count; o++) {
+            val opTotal = val::object();
+            opTotal.set("name", opNames[o]);
+            auto t = metrics.totalByOp(o);
+            opTotal.set("callCount", t.callCount);
+            opTotal.set("pixelCount", static_cast<double>(t.pixelCount));
+            opTotals.call<void>("push", opTotal);
+        }
+        result.set("opTotals", opTotals);
+
+        // 全体合計
+        auto total = metrics.total();
+        result.set("totalCalls", total.callCount);
+        result.set("totalPixels", static_cast<double>(total.pixelCount));
+#else
+        result.set("formats", val::array());
+        result.set("opTotals", val::array());
+        result.set("totalCalls", 0);
+        result.set("totalPixels", 0.0);
 #endif
 
         return result;
@@ -987,7 +1065,10 @@ private:
         // パフォーマンスメトリクスを保存
         lastPerfMetrics_ = rendererNode->getPerfMetrics();
 
-        // 全てのSink出力をJS表示用バッファにコピー
+        // 全てのSink出力をJS表示用バッファにコピー（UI用 - メトリクスから除外）
+        FormatOpEntry snapshot[FormatIdx::Count][OpType::Count];
+        FormatMetrics::instance().saveSnapshot(snapshot);
+
         for (auto& info : sinkInfos) {
             const auto& sinkOut = sinkOutputs_[info.graphNode->id];
             if (info.format == PixelFormatIDs::RGBA8_Straight) {
@@ -1004,6 +1085,8 @@ private:
                 );
             }
         }
+
+        FormatMetrics::instance().restoreSnapshot(snapshot);
 
         return static_cast<int>(result);
     }
@@ -1028,6 +1111,7 @@ EMSCRIPTEN_BINDINGS(image_transform) {
         .function("setConnections", &NodeGraphEvaluatorWrapper::setConnections)
         .function("evaluateGraph", &NodeGraphEvaluatorWrapper::evaluateGraph)
         .function("getPerfMetrics", &NodeGraphEvaluatorWrapper::getPerfMetrics)
+        .function("getFormatMetrics", &NodeGraphEvaluatorWrapper::getFormatMetrics)
         .function("setSinkFormat", &NodeGraphEvaluatorWrapper::setSinkFormat)
         .function("getSinkPreview", &NodeGraphEvaluatorWrapper::getSinkPreview);
 }

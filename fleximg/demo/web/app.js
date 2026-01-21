@@ -4214,7 +4214,36 @@ function initDebugDetailsSection() {
             </div>
         </div>`;
 
-    container.innerHTML = timeHtml + memHtml;
+    // フォーマット変換セクション
+    let fmtHtml = `
+        <div class="debug-section">
+            <div class="debug-section-header">フォーマット変換</div>
+            <div class="debug-metrics" id="debug-format-metrics">
+                <div class="debug-metric-row">
+                    <span class="debug-metric-label">合計</span>
+                    <span class="debug-metric-value" id="debug-fmt-total">--</span>
+                </div>
+                <div class="debug-metric-row debug-metric-sub">
+                    <span class="debug-metric-label">├ toStandard</span>
+                    <span class="debug-metric-value" id="debug-fmt-toStandard">--</span>
+                </div>
+                <div class="debug-metric-row debug-metric-sub">
+                    <span class="debug-metric-label">├ fromStandard</span>
+                    <span class="debug-metric-value" id="debug-fmt-fromStandard">--</span>
+                </div>
+                <div class="debug-metric-row debug-metric-sub">
+                    <span class="debug-metric-label">├ blendUnder</span>
+                    <span class="debug-metric-value" id="debug-fmt-blendUnder">--</span>
+                </div>
+                <div class="debug-metric-row debug-metric-sub">
+                    <span class="debug-metric-label">└ fromPremul</span>
+                    <span class="debug-metric-value" id="debug-fmt-fromPremul">--</span>
+                </div>
+                <div id="debug-fmt-details"></div>
+            </div>
+        </div>`;
+
+    container.innerHTML = timeHtml + memHtml + fmtHtml;
 }
 
 // サイドバーのデバッグ詳細セクションを更新
@@ -4316,6 +4345,78 @@ function updateDebugDetails(metrics) {
         } else {
             maxAllocEl.textContent = '--';
         }
+    }
+
+    // フォーマット変換メトリクスを更新
+    updateFormatMetrics();
+}
+
+// フォーマット変換メトリクスを更新
+function updateFormatMetrics() {
+    if (!graphEvaluator) return;
+
+    const fmtMetrics = graphEvaluator.getFormatMetrics();
+    if (!fmtMetrics) return;
+
+    const formatPixels = (pixels) => {
+        if (pixels < 1000) return `${pixels}`;
+        if (pixels < 1000000) return `${(pixels / 1000).toFixed(1)}K`;
+        return `${(pixels / 1000000).toFixed(2)}M`;
+    };
+
+    // 操作別合計
+    const opNames = ['toStandard', 'fromStandard', 'blendUnder', 'fromPremul'];
+    if (fmtMetrics.opTotals) {
+        for (let i = 0; i < fmtMetrics.opTotals.length && i < opNames.length; i++) {
+            const op = fmtMetrics.opTotals[i];
+            const el = document.getElementById(`debug-fmt-${opNames[i]}`);
+            if (el) {
+                if (op.callCount > 0) {
+                    el.textContent = `${formatPixels(op.pixelCount)}px (x${op.callCount})`;
+                } else {
+                    el.textContent = '--';
+                }
+            }
+        }
+    }
+
+    // 全体合計
+    const totalEl = document.getElementById('debug-fmt-total');
+    if (totalEl) {
+        if (fmtMetrics.totalCalls > 0) {
+            totalEl.textContent = `${formatPixels(fmtMetrics.totalPixels)}px (x${fmtMetrics.totalCalls})`;
+        } else {
+            totalEl.textContent = '--';
+        }
+    }
+
+    // フォーマット別詳細を動的更新
+    const detailContainer = document.getElementById('debug-fmt-details');
+    if (detailContainer && fmtMetrics.formats) {
+        let html = '';
+        const opLabels = ['toStd', 'fromStd', 'blend', 'fromPm'];
+
+        for (const fmt of fmtMetrics.formats) {
+            // 使用されているフォーマットのみ表示
+            if (fmt.totalCalls === 0) continue;
+
+            html += `<div class="debug-metric-row debug-metric-sub">
+                <span class="debug-metric-label">├ ${fmt.name}</span>
+                <span class="debug-metric-value">${formatPixels(fmt.totalPixels)}px (x${fmt.totalCalls})</span>
+            </div>`;
+
+            // 操作別詳細
+            for (let i = 0; i < fmt.ops.length; i++) {
+                const op = fmt.ops[i];
+                if (op.callCount === 0) continue;
+                html += `<div class="debug-metric-row debug-metric-sub debug-metric-max">
+                    <span class="debug-metric-label">│  └ ${opLabels[i]}</span>
+                    <span class="debug-metric-value">${formatPixels(op.pixelCount)}px (x${op.callCount})</span>
+                </div>`;
+            }
+        }
+
+        detailContainer.innerHTML = html;
     }
 }
 

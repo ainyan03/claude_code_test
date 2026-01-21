@@ -26,6 +26,77 @@
 
 ---
 
+## Under合成（blendUnderPremul）
+
+### 概要
+
+CompositeNodeは **under合成** を使用します。背景（dst）側がPremultiplied形式のキャンバスバッファで、
+前景（src）を「下に敷く」形で合成します。
+
+```
+結果 = src + dst × (1 - srcAlpha)
+```
+
+### 関数シグネチャ
+
+```cpp
+// PixelFormatDescriptorに追加されたメンバ
+void (*blendUnderPremul)(
+    const void* src,           // ソースピクセル（各フォーマット）
+    uint8_t* dst,              // Premultiplied RGBA8 キャンバス
+    int pixelCount,            // ピクセル数
+    const BlendParams& params  // ブレンドパラメータ
+);
+```
+
+### BlendParams構造体
+
+```cpp
+struct BlendParams {
+    uint8_t globalAlpha = 255;  // グローバルアルファ（将来用）
+};
+```
+
+### 対応フォーマット
+
+| フォーマット | 関数 | 特徴 |
+|-------------|------|------|
+| RGBA8_Straight | rgba8_blendUnderPremul | ストレートアルファを内部でPremulに変換 |
+| RGB565_LE | rgb565le_blendUnderPremul | 不透明として処理（α=255） |
+| RGB565_BE | rgb565be_blendUnderPremul | 不透明として処理（α=255） |
+| RGB332 | rgb332_blendUnderPremul | 不透明として処理（α=255） |
+| RGB888 | rgb888_blendUnderPremul | 不透明として処理（α=255） |
+| BGR888 | bgr888_blendUnderPremul | 不透明として処理（α=255） |
+| Alpha8 | alpha8_blendUnderPremul | グレースケール×α |
+
+### 使用例（CompositeNode）
+
+```cpp
+// キャンバスはPremultiplied形式で初期化
+ImageBuffer canvas = createCanvas(width, height);  // RGBA8_Premul相当
+
+// 各入力を順にunder合成
+for (auto& input : inputs) {
+    const auto* desc = input.buffer.formatID();
+    if (desc && desc->blendUnderPremul) {
+        desc->blendUnderPremul(
+            input.buffer.data(),
+            canvas.data() + offset,
+            pixelCount,
+            params
+        );
+    }
+}
+```
+
+### 設計意図
+
+- **フォーマット変換の削減**: 入力画像を標準形式に変換せず、直接合成
+- **メモリ効率**: 中間バッファ不要
+- **拡張性**: 新フォーマット追加時は `blendUnderPremul` 関数を実装するだけ
+
+---
+
 ## 参考: RGBA16_Premultiplied 仕様（無効化中）
 
 以下はRGBA16_Premultiplied使用時の仕様です。現在は`#if 0`で無効化されていますが、
