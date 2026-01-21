@@ -120,7 +120,7 @@ void first(ViewPort& dst, int_fixed dstOriginX, int_fixed dstOriginY,
         return;
     }
 
-#if 0  // RGBA16_Premultiplied サポート無効化
+#if 1  // RGBA16_Premultiplied サポート有効
     // RGBA8_Straight → RGBA16_Premultiplied 変換
     if (src.formatID == PixelFormatIDs::RGBA8_Straight &&
         dst.formatID == PixelFormatIDs::RGBA16_Premultiplied) {
@@ -191,7 +191,7 @@ void onto(ViewPort& dst, int_fixed dstOriginX, int_fixed dstOriginY,
 
     if (yStart >= yEnd || xStart >= xEnd) return;
 
-#if 0  // RGBA16_Premultiplied サポート無効化
+#if 1  // RGBA16_Premultiplied サポート有効
     // 閾値定数
     constexpr uint16_t ALPHA_TRANS_MAX = RGBA16Premul::ALPHA_TRANSPARENT_MAX;
     constexpr uint16_t ALPHA_OPAQUE_MIN = RGBA16Premul::ALPHA_OPAQUE_MIN;
@@ -321,10 +321,10 @@ void onto(ViewPort& dst, int_fixed dstOriginX, int_fixed dstOriginY,
         return;
     }
 
-#if 0  // RGBA16_Premultiplied サポート無効化
+#if 1  // RGBA16_Premultiplied サポート有効
     // 閾値定数（16bit用）
-    constexpr uint16_t ALPHA_TRANS_MAX = RGBA16Premul::ALPHA_TRANSPARENT_MAX;
-    constexpr uint16_t ALPHA_OPAQUE_MIN = RGBA16Premul::ALPHA_OPAQUE_MIN;
+    constexpr uint16_t ALPHA_TRANS_MAX_16 = RGBA16Premul::ALPHA_TRANSPARENT_MAX;
+    constexpr uint16_t ALPHA_OPAQUE_MIN_16 = RGBA16Premul::ALPHA_OPAQUE_MIN;
 
     // 16bit Premultiplied 同士のブレンド
     for (int y = yStart; y < yEnd; y++) {
@@ -339,15 +339,15 @@ void onto(ViewPort& dst, int_fixed dstOriginX, int_fixed dstOriginY,
             uint16_t dstA = dstPixel[3];
 
             // dst に描画があり src が透明 → スキップ
-            if (dstA > ALPHA_TRANS_MAX && srcA <= ALPHA_TRANS_MAX) continue;
+            if (dstA > ALPHA_TRANS_MAX_16 && srcA <= ALPHA_TRANS_MAX_16) continue;
 
             uint16_t srcR = srcPixel[0];
             uint16_t srcG = srcPixel[1];
             uint16_t srcB = srcPixel[2];
 
             // 半透明ブレンド（dst に描画があり src が半透明の場合）
-            if (dstA > ALPHA_TRANS_MAX && srcA < ALPHA_OPAQUE_MIN) {
-                uint16_t invSrcA = ALPHA_OPAQUE_MIN - srcA;
+            if (dstA > ALPHA_TRANS_MAX_16 && srcA < ALPHA_OPAQUE_MIN_16) {
+                uint16_t invSrcA = ALPHA_OPAQUE_MIN_16 - srcA;
                 srcR += (dstPixel[0] * invSrcA) >> 16;
                 srcG += (dstPixel[1] * invSrcA) >> 16;
                 srcB += (dstPixel[2] * invSrcA) >> 16;
