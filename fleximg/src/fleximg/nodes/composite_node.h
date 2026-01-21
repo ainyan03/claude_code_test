@@ -154,9 +154,8 @@ public:
             return RenderResult(ImageBuffer(), Point{canvasOriginX, canvasOriginY});
         }
 
-        // Premul → RGBA8_Straight に変換して返す
-        ImageBuffer finalBuf = canvas_utils::finalizePremulCanvas(std::move(canvasBuf));
-        return RenderResult(std::move(finalBuf), Point{canvasOriginX, canvasOriginY});
+        // Premul形式のまま返す（変換は下流の責務）
+        return RenderResult(std::move(canvasBuf), Point{canvasOriginX, canvasOriginY});
     }
 
 protected:
