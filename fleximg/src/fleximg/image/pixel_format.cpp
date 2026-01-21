@@ -6,6 +6,149 @@
 namespace FLEXIMG_NAMESPACE {
 
 // ========================================================================
+// 逆数テーブル（fromPremul除算回避用）
+// ========================================================================
+// invUnpremulTable[a8] = 65536 / (a8 + 1)  (a8 = 0..255)
+// 使用: (r16 * invUnpremulTable[a8]) >> 16 ≈ r16 / (a8 + 1)
+//
+namespace {
+constexpr uint32_t calcInvUnpremul(int a) {
+    return 65536u / static_cast<uint32_t>(a + 1);
+}
+
+alignas(64) constexpr uint16_t invUnpremulTable[256] = {
+    static_cast<uint16_t>(calcInvUnpremul(0)),   static_cast<uint16_t>(calcInvUnpremul(1)),
+    static_cast<uint16_t>(calcInvUnpremul(2)),   static_cast<uint16_t>(calcInvUnpremul(3)),
+    static_cast<uint16_t>(calcInvUnpremul(4)),   static_cast<uint16_t>(calcInvUnpremul(5)),
+    static_cast<uint16_t>(calcInvUnpremul(6)),   static_cast<uint16_t>(calcInvUnpremul(7)),
+    static_cast<uint16_t>(calcInvUnpremul(8)),   static_cast<uint16_t>(calcInvUnpremul(9)),
+    static_cast<uint16_t>(calcInvUnpremul(10)),  static_cast<uint16_t>(calcInvUnpremul(11)),
+    static_cast<uint16_t>(calcInvUnpremul(12)),  static_cast<uint16_t>(calcInvUnpremul(13)),
+    static_cast<uint16_t>(calcInvUnpremul(14)),  static_cast<uint16_t>(calcInvUnpremul(15)),
+    static_cast<uint16_t>(calcInvUnpremul(16)),  static_cast<uint16_t>(calcInvUnpremul(17)),
+    static_cast<uint16_t>(calcInvUnpremul(18)),  static_cast<uint16_t>(calcInvUnpremul(19)),
+    static_cast<uint16_t>(calcInvUnpremul(20)),  static_cast<uint16_t>(calcInvUnpremul(21)),
+    static_cast<uint16_t>(calcInvUnpremul(22)),  static_cast<uint16_t>(calcInvUnpremul(23)),
+    static_cast<uint16_t>(calcInvUnpremul(24)),  static_cast<uint16_t>(calcInvUnpremul(25)),
+    static_cast<uint16_t>(calcInvUnpremul(26)),  static_cast<uint16_t>(calcInvUnpremul(27)),
+    static_cast<uint16_t>(calcInvUnpremul(28)),  static_cast<uint16_t>(calcInvUnpremul(29)),
+    static_cast<uint16_t>(calcInvUnpremul(30)),  static_cast<uint16_t>(calcInvUnpremul(31)),
+    static_cast<uint16_t>(calcInvUnpremul(32)),  static_cast<uint16_t>(calcInvUnpremul(33)),
+    static_cast<uint16_t>(calcInvUnpremul(34)),  static_cast<uint16_t>(calcInvUnpremul(35)),
+    static_cast<uint16_t>(calcInvUnpremul(36)),  static_cast<uint16_t>(calcInvUnpremul(37)),
+    static_cast<uint16_t>(calcInvUnpremul(38)),  static_cast<uint16_t>(calcInvUnpremul(39)),
+    static_cast<uint16_t>(calcInvUnpremul(40)),  static_cast<uint16_t>(calcInvUnpremul(41)),
+    static_cast<uint16_t>(calcInvUnpremul(42)),  static_cast<uint16_t>(calcInvUnpremul(43)),
+    static_cast<uint16_t>(calcInvUnpremul(44)),  static_cast<uint16_t>(calcInvUnpremul(45)),
+    static_cast<uint16_t>(calcInvUnpremul(46)),  static_cast<uint16_t>(calcInvUnpremul(47)),
+    static_cast<uint16_t>(calcInvUnpremul(48)),  static_cast<uint16_t>(calcInvUnpremul(49)),
+    static_cast<uint16_t>(calcInvUnpremul(50)),  static_cast<uint16_t>(calcInvUnpremul(51)),
+    static_cast<uint16_t>(calcInvUnpremul(52)),  static_cast<uint16_t>(calcInvUnpremul(53)),
+    static_cast<uint16_t>(calcInvUnpremul(54)),  static_cast<uint16_t>(calcInvUnpremul(55)),
+    static_cast<uint16_t>(calcInvUnpremul(56)),  static_cast<uint16_t>(calcInvUnpremul(57)),
+    static_cast<uint16_t>(calcInvUnpremul(58)),  static_cast<uint16_t>(calcInvUnpremul(59)),
+    static_cast<uint16_t>(calcInvUnpremul(60)),  static_cast<uint16_t>(calcInvUnpremul(61)),
+    static_cast<uint16_t>(calcInvUnpremul(62)),  static_cast<uint16_t>(calcInvUnpremul(63)),
+    static_cast<uint16_t>(calcInvUnpremul(64)),  static_cast<uint16_t>(calcInvUnpremul(65)),
+    static_cast<uint16_t>(calcInvUnpremul(66)),  static_cast<uint16_t>(calcInvUnpremul(67)),
+    static_cast<uint16_t>(calcInvUnpremul(68)),  static_cast<uint16_t>(calcInvUnpremul(69)),
+    static_cast<uint16_t>(calcInvUnpremul(70)),  static_cast<uint16_t>(calcInvUnpremul(71)),
+    static_cast<uint16_t>(calcInvUnpremul(72)),  static_cast<uint16_t>(calcInvUnpremul(73)),
+    static_cast<uint16_t>(calcInvUnpremul(74)),  static_cast<uint16_t>(calcInvUnpremul(75)),
+    static_cast<uint16_t>(calcInvUnpremul(76)),  static_cast<uint16_t>(calcInvUnpremul(77)),
+    static_cast<uint16_t>(calcInvUnpremul(78)),  static_cast<uint16_t>(calcInvUnpremul(79)),
+    static_cast<uint16_t>(calcInvUnpremul(80)),  static_cast<uint16_t>(calcInvUnpremul(81)),
+    static_cast<uint16_t>(calcInvUnpremul(82)),  static_cast<uint16_t>(calcInvUnpremul(83)),
+    static_cast<uint16_t>(calcInvUnpremul(84)),  static_cast<uint16_t>(calcInvUnpremul(85)),
+    static_cast<uint16_t>(calcInvUnpremul(86)),  static_cast<uint16_t>(calcInvUnpremul(87)),
+    static_cast<uint16_t>(calcInvUnpremul(88)),  static_cast<uint16_t>(calcInvUnpremul(89)),
+    static_cast<uint16_t>(calcInvUnpremul(90)),  static_cast<uint16_t>(calcInvUnpremul(91)),
+    static_cast<uint16_t>(calcInvUnpremul(92)),  static_cast<uint16_t>(calcInvUnpremul(93)),
+    static_cast<uint16_t>(calcInvUnpremul(94)),  static_cast<uint16_t>(calcInvUnpremul(95)),
+    static_cast<uint16_t>(calcInvUnpremul(96)),  static_cast<uint16_t>(calcInvUnpremul(97)),
+    static_cast<uint16_t>(calcInvUnpremul(98)),  static_cast<uint16_t>(calcInvUnpremul(99)),
+    static_cast<uint16_t>(calcInvUnpremul(100)), static_cast<uint16_t>(calcInvUnpremul(101)),
+    static_cast<uint16_t>(calcInvUnpremul(102)), static_cast<uint16_t>(calcInvUnpremul(103)),
+    static_cast<uint16_t>(calcInvUnpremul(104)), static_cast<uint16_t>(calcInvUnpremul(105)),
+    static_cast<uint16_t>(calcInvUnpremul(106)), static_cast<uint16_t>(calcInvUnpremul(107)),
+    static_cast<uint16_t>(calcInvUnpremul(108)), static_cast<uint16_t>(calcInvUnpremul(109)),
+    static_cast<uint16_t>(calcInvUnpremul(110)), static_cast<uint16_t>(calcInvUnpremul(111)),
+    static_cast<uint16_t>(calcInvUnpremul(112)), static_cast<uint16_t>(calcInvUnpremul(113)),
+    static_cast<uint16_t>(calcInvUnpremul(114)), static_cast<uint16_t>(calcInvUnpremul(115)),
+    static_cast<uint16_t>(calcInvUnpremul(116)), static_cast<uint16_t>(calcInvUnpremul(117)),
+    static_cast<uint16_t>(calcInvUnpremul(118)), static_cast<uint16_t>(calcInvUnpremul(119)),
+    static_cast<uint16_t>(calcInvUnpremul(120)), static_cast<uint16_t>(calcInvUnpremul(121)),
+    static_cast<uint16_t>(calcInvUnpremul(122)), static_cast<uint16_t>(calcInvUnpremul(123)),
+    static_cast<uint16_t>(calcInvUnpremul(124)), static_cast<uint16_t>(calcInvUnpremul(125)),
+    static_cast<uint16_t>(calcInvUnpremul(126)), static_cast<uint16_t>(calcInvUnpremul(127)),
+    static_cast<uint16_t>(calcInvUnpremul(128)), static_cast<uint16_t>(calcInvUnpremul(129)),
+    static_cast<uint16_t>(calcInvUnpremul(130)), static_cast<uint16_t>(calcInvUnpremul(131)),
+    static_cast<uint16_t>(calcInvUnpremul(132)), static_cast<uint16_t>(calcInvUnpremul(133)),
+    static_cast<uint16_t>(calcInvUnpremul(134)), static_cast<uint16_t>(calcInvUnpremul(135)),
+    static_cast<uint16_t>(calcInvUnpremul(136)), static_cast<uint16_t>(calcInvUnpremul(137)),
+    static_cast<uint16_t>(calcInvUnpremul(138)), static_cast<uint16_t>(calcInvUnpremul(139)),
+    static_cast<uint16_t>(calcInvUnpremul(140)), static_cast<uint16_t>(calcInvUnpremul(141)),
+    static_cast<uint16_t>(calcInvUnpremul(142)), static_cast<uint16_t>(calcInvUnpremul(143)),
+    static_cast<uint16_t>(calcInvUnpremul(144)), static_cast<uint16_t>(calcInvUnpremul(145)),
+    static_cast<uint16_t>(calcInvUnpremul(146)), static_cast<uint16_t>(calcInvUnpremul(147)),
+    static_cast<uint16_t>(calcInvUnpremul(148)), static_cast<uint16_t>(calcInvUnpremul(149)),
+    static_cast<uint16_t>(calcInvUnpremul(150)), static_cast<uint16_t>(calcInvUnpremul(151)),
+    static_cast<uint16_t>(calcInvUnpremul(152)), static_cast<uint16_t>(calcInvUnpremul(153)),
+    static_cast<uint16_t>(calcInvUnpremul(154)), static_cast<uint16_t>(calcInvUnpremul(155)),
+    static_cast<uint16_t>(calcInvUnpremul(156)), static_cast<uint16_t>(calcInvUnpremul(157)),
+    static_cast<uint16_t>(calcInvUnpremul(158)), static_cast<uint16_t>(calcInvUnpremul(159)),
+    static_cast<uint16_t>(calcInvUnpremul(160)), static_cast<uint16_t>(calcInvUnpremul(161)),
+    static_cast<uint16_t>(calcInvUnpremul(162)), static_cast<uint16_t>(calcInvUnpremul(163)),
+    static_cast<uint16_t>(calcInvUnpremul(164)), static_cast<uint16_t>(calcInvUnpremul(165)),
+    static_cast<uint16_t>(calcInvUnpremul(166)), static_cast<uint16_t>(calcInvUnpremul(167)),
+    static_cast<uint16_t>(calcInvUnpremul(168)), static_cast<uint16_t>(calcInvUnpremul(169)),
+    static_cast<uint16_t>(calcInvUnpremul(170)), static_cast<uint16_t>(calcInvUnpremul(171)),
+    static_cast<uint16_t>(calcInvUnpremul(172)), static_cast<uint16_t>(calcInvUnpremul(173)),
+    static_cast<uint16_t>(calcInvUnpremul(174)), static_cast<uint16_t>(calcInvUnpremul(175)),
+    static_cast<uint16_t>(calcInvUnpremul(176)), static_cast<uint16_t>(calcInvUnpremul(177)),
+    static_cast<uint16_t>(calcInvUnpremul(178)), static_cast<uint16_t>(calcInvUnpremul(179)),
+    static_cast<uint16_t>(calcInvUnpremul(180)), static_cast<uint16_t>(calcInvUnpremul(181)),
+    static_cast<uint16_t>(calcInvUnpremul(182)), static_cast<uint16_t>(calcInvUnpremul(183)),
+    static_cast<uint16_t>(calcInvUnpremul(184)), static_cast<uint16_t>(calcInvUnpremul(185)),
+    static_cast<uint16_t>(calcInvUnpremul(186)), static_cast<uint16_t>(calcInvUnpremul(187)),
+    static_cast<uint16_t>(calcInvUnpremul(188)), static_cast<uint16_t>(calcInvUnpremul(189)),
+    static_cast<uint16_t>(calcInvUnpremul(190)), static_cast<uint16_t>(calcInvUnpremul(191)),
+    static_cast<uint16_t>(calcInvUnpremul(192)), static_cast<uint16_t>(calcInvUnpremul(193)),
+    static_cast<uint16_t>(calcInvUnpremul(194)), static_cast<uint16_t>(calcInvUnpremul(195)),
+    static_cast<uint16_t>(calcInvUnpremul(196)), static_cast<uint16_t>(calcInvUnpremul(197)),
+    static_cast<uint16_t>(calcInvUnpremul(198)), static_cast<uint16_t>(calcInvUnpremul(199)),
+    static_cast<uint16_t>(calcInvUnpremul(200)), static_cast<uint16_t>(calcInvUnpremul(201)),
+    static_cast<uint16_t>(calcInvUnpremul(202)), static_cast<uint16_t>(calcInvUnpremul(203)),
+    static_cast<uint16_t>(calcInvUnpremul(204)), static_cast<uint16_t>(calcInvUnpremul(205)),
+    static_cast<uint16_t>(calcInvUnpremul(206)), static_cast<uint16_t>(calcInvUnpremul(207)),
+    static_cast<uint16_t>(calcInvUnpremul(208)), static_cast<uint16_t>(calcInvUnpremul(209)),
+    static_cast<uint16_t>(calcInvUnpremul(210)), static_cast<uint16_t>(calcInvUnpremul(211)),
+    static_cast<uint16_t>(calcInvUnpremul(212)), static_cast<uint16_t>(calcInvUnpremul(213)),
+    static_cast<uint16_t>(calcInvUnpremul(214)), static_cast<uint16_t>(calcInvUnpremul(215)),
+    static_cast<uint16_t>(calcInvUnpremul(216)), static_cast<uint16_t>(calcInvUnpremul(217)),
+    static_cast<uint16_t>(calcInvUnpremul(218)), static_cast<uint16_t>(calcInvUnpremul(219)),
+    static_cast<uint16_t>(calcInvUnpremul(220)), static_cast<uint16_t>(calcInvUnpremul(221)),
+    static_cast<uint16_t>(calcInvUnpremul(222)), static_cast<uint16_t>(calcInvUnpremul(223)),
+    static_cast<uint16_t>(calcInvUnpremul(224)), static_cast<uint16_t>(calcInvUnpremul(225)),
+    static_cast<uint16_t>(calcInvUnpremul(226)), static_cast<uint16_t>(calcInvUnpremul(227)),
+    static_cast<uint16_t>(calcInvUnpremul(228)), static_cast<uint16_t>(calcInvUnpremul(229)),
+    static_cast<uint16_t>(calcInvUnpremul(230)), static_cast<uint16_t>(calcInvUnpremul(231)),
+    static_cast<uint16_t>(calcInvUnpremul(232)), static_cast<uint16_t>(calcInvUnpremul(233)),
+    static_cast<uint16_t>(calcInvUnpremul(234)), static_cast<uint16_t>(calcInvUnpremul(235)),
+    static_cast<uint16_t>(calcInvUnpremul(236)), static_cast<uint16_t>(calcInvUnpremul(237)),
+    static_cast<uint16_t>(calcInvUnpremul(238)), static_cast<uint16_t>(calcInvUnpremul(239)),
+    static_cast<uint16_t>(calcInvUnpremul(240)), static_cast<uint16_t>(calcInvUnpremul(241)),
+    static_cast<uint16_t>(calcInvUnpremul(242)), static_cast<uint16_t>(calcInvUnpremul(243)),
+    static_cast<uint16_t>(calcInvUnpremul(244)), static_cast<uint16_t>(calcInvUnpremul(245)),
+    static_cast<uint16_t>(calcInvUnpremul(246)), static_cast<uint16_t>(calcInvUnpremul(247)),
+    static_cast<uint16_t>(calcInvUnpremul(248)), static_cast<uint16_t>(calcInvUnpremul(249)),
+    static_cast<uint16_t>(calcInvUnpremul(250)), static_cast<uint16_t>(calcInvUnpremul(251)),
+    static_cast<uint16_t>(calcInvUnpremul(252)), static_cast<uint16_t>(calcInvUnpremul(253)),
+    static_cast<uint16_t>(calcInvUnpremul(254)), static_cast<uint16_t>(calcInvUnpremul(255))
+};
+} // namespace
+
+// ========================================================================
 // 組み込みフォーマットの変換関数
 // 標準フォーマット: RGBA8_Straight（8bit RGBA、ストレートアルファ）
 // ========================================================================
@@ -70,55 +213,81 @@ static void rgba8Straight_blendUnderPremul(void* dst, const void* src, int pixel
 }
 
 // fromPremul: Premul形式(RGBA16_Premultiplied)のsrcからRGBA8_Straightのdstへ変換コピー
-static void rgba8Straight_fromPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+// RGBA16_Premul→RGBA8_Straight 1ピクセル変換マクロ（リトルエンディアン前提）
+// s: uint16_t*, d: uint8_t*, s_off: srcオフセット(uint16_t単位), d_off: dstオフセット, a_off: アルファバイトオフセット
+#define RGBA8_FROM_PREMUL_PIXEL(s_off, d_off, a_off) \
+    do { \
+        uint8_t a8 = reinterpret_cast<const uint8_t*>(s)[a_off]; \
+        uint32_t inv = invUnpremulTable[a8]; \
+        d[d_off]     = static_cast<uint8_t>((s[s_off] * inv) >> 16); \
+        d[d_off + 1] = static_cast<uint8_t>((s[s_off + 1] * inv) >> 16); \
+        d[d_off + 2] = static_cast<uint8_t>((s[s_off + 2] * inv) >> 16); \
+        d[d_off + 3] = a8; \
+    } while(0)
+
+static void rgba8Straight_fromPremul(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGBA8_Straight, FromPremul, pixelCount);
-    uint8_t* d = static_cast<uint8_t*>(dst);
-    const uint16_t* s = static_cast<const uint16_t*>(src);
+    uint8_t* __restrict__ d = static_cast<uint8_t*>(dst);
+    const uint16_t* __restrict__ s = static_cast<const uint16_t*>(src);
 
-    for (int i = 0; i < pixelCount; i++) {
-        int idx = i * 4;
-        uint16_t r16 = s[idx];
-        uint16_t g16 = s[idx + 1];
-        uint16_t b16 = s[idx + 2];
-        uint16_t a16 = s[idx + 3];
+    // 端数処理（1〜3ピクセル）
+    int remainder = pixelCount & 3;
+    while (remainder--) {
+        RGBA8_FROM_PREMUL_PIXEL(0, 0, 7);
+        s += 4;
+        d += 4;
+    }
 
-        // A8 = A16 >> 8 (範囲: 0-255)
-        // A_tmp = A8 + 1 (範囲: 1-256) - ゼロ除算回避
-        uint8_t a8 = a16 >> 8;
-        uint16_t a_tmp = a8 + 1;
-
-        // Unpremultiply: RGB / A_tmp
-        d[idx]     = static_cast<uint8_t>(r16 / a_tmp);
-        d[idx + 1] = static_cast<uint8_t>(g16 / a_tmp);
-        d[idx + 2] = static_cast<uint8_t>(b16 / a_tmp);
-        d[idx + 3] = a8;
+    // 4ピクセル単位でループ
+    pixelCount >>= 2;
+    while (pixelCount--) {
+        RGBA8_FROM_PREMUL_PIXEL(0, 0, 7);
+        RGBA8_FROM_PREMUL_PIXEL(4, 4, 15);
+        RGBA8_FROM_PREMUL_PIXEL(8, 8, 23);
+        RGBA8_FROM_PREMUL_PIXEL(12, 12, 31);
+        s += 16;
+        d += 16;
     }
 }
+#undef RGBA8_FROM_PREMUL_PIXEL
 
 // toPremul: RGBA8_StraightのsrcからPremul形式(RGBA16_Premultiplied)のdstへ変換コピー
-static void rgba8Straight_toPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+// RGBA8_Straight→RGBA16_Premul 1ピクセル変換マクロ
+// s: uint8_t*, d: uint16_t*, s_off: srcオフセット, d_off: dstオフセット(uint16_t単位)
+#define RGBA8_TO_PREMUL_PIXEL(s_off, d_off) \
+    do { \
+        uint16_t a_tmp = s[s_off + 3] + 1; \
+        d[d_off]     = static_cast<uint16_t>(s[s_off] * a_tmp); \
+        d[d_off + 1] = static_cast<uint16_t>(s[s_off + 1] * a_tmp); \
+        d[d_off + 2] = static_cast<uint16_t>(s[s_off + 2] * a_tmp); \
+        d[d_off + 3] = static_cast<uint16_t>(255 * a_tmp); \
+    } while(0)
+
+static void rgba8Straight_toPremul(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGBA8_Straight, ToPremul, pixelCount);
-    uint16_t* d = static_cast<uint16_t*>(dst);
-    const uint8_t* s = static_cast<const uint8_t*>(src);
+    uint16_t* __restrict__ d = static_cast<uint16_t*>(dst);
+    const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
 
-    for (int i = 0; i < pixelCount; i++) {
-        int idx = i * 4;
-        uint16_t r8 = s[idx];
-        uint16_t g8 = s[idx + 1];
-        uint16_t b8 = s[idx + 2];
-        uint16_t a8 = s[idx + 3];
+    // 端数処理（1〜3ピクセル）
+    int remainder = pixelCount & 3;
+    while (remainder--) {
+        RGBA8_TO_PREMUL_PIXEL(0, 0);
+        s += 4;
+        d += 4;
+    }
 
-        // A_tmp = A8 + 1 (範囲: 1-256)
-        uint16_t a_tmp = a8 + 1;
-
-        // Premultiply: RGB * A_tmp
-        // A16 = 255 * A_tmp (範囲: 255-65280)
-        d[idx]     = static_cast<uint16_t>(r8 * a_tmp);
-        d[idx + 1] = static_cast<uint16_t>(g8 * a_tmp);
-        d[idx + 2] = static_cast<uint16_t>(b8 * a_tmp);
-        d[idx + 3] = static_cast<uint16_t>(255 * a_tmp);
+    // 4ピクセル単位でループ
+    pixelCount >>= 2;
+    while (pixelCount--) {
+        RGBA8_TO_PREMUL_PIXEL(0, 0);
+        RGBA8_TO_PREMUL_PIXEL(4, 4);
+        RGBA8_TO_PREMUL_PIXEL(8, 8);
+        RGBA8_TO_PREMUL_PIXEL(12, 12);
+        s += 16;
+        d += 16;
     }
 }
+#undef RGBA8_TO_PREMUL_PIXEL
 
 // ========================================================================
 // Alpha8: 単一アルファチャンネル ↔ RGBA8_Straight 変換
@@ -282,22 +451,38 @@ static void rgb565le_toStraight(void* dst, const void* src, int pixelCount, cons
         uint8_t b5 = pixel & 0x1F;
 
         // ビット拡張（5bit/6bit → 8bit）
-        d[i*4 + 0] = static_cast<uint8_t>((r5 << 3) | (r5 >> 2));
-        d[i*4 + 1] = static_cast<uint8_t>((g6 << 2) | (g6 >> 4));
-        d[i*4 + 2] = static_cast<uint8_t>((b5 << 3) | (b5 >> 2));
+        d[i*4 + 0] = static_cast<uint8_t>((r5 << 3) + (r5 >> 2));
+        d[i*4 + 1] = static_cast<uint8_t>((g6 << 2) + (g6 >> 4));
+        d[i*4 + 2] = static_cast<uint8_t>((b5 << 3) + (b5 >> 2));
         d[i*4 + 3] = 255;
     }
 }
 
-static void rgb565le_fromStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+static void rgb565le_fromStraight(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB565_LE, FromStraight, pixelCount);
-    uint16_t* d = static_cast<uint16_t*>(dst);
-    const uint8_t* s = static_cast<const uint8_t*>(src);
-    for (int i = 0; i < pixelCount; i++) {
-        uint8_t r = s[i*4 + 0];
-        uint8_t g = s[i*4 + 1];
-        uint8_t b = s[i*4 + 2];
-        d[i] = static_cast<uint16_t>(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+    uint16_t* __restrict__ d = static_cast<uint16_t*>(dst);
+    const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
+
+    // 端数処理（1〜3ピクセル）
+    int remainder = pixelCount & 3;
+    while (remainder--) {
+        *d++ = static_cast<uint16_t>(((s[0] >> 3) << 11) | ((s[1] >> 2) << 5) | (s[2] >> 3));
+        s += 4;
+    }
+
+    // 4ピクセル単位でループ
+    pixelCount >>= 2;
+    while (pixelCount--) {
+        // ピクセル0
+        d[0] = static_cast<uint16_t>(((s[0] >> 3) << 11) | ((s[1] >> 2) << 5) | (s[2] >> 3));
+        // ピクセル1
+        d[1] = static_cast<uint16_t>(((s[4] >> 3) << 11) | ((s[5] >> 2) << 5) | (s[6] >> 3));
+        // ピクセル2
+        d[2] = static_cast<uint16_t>(((s[8] >> 3) << 11) | ((s[9] >> 2) << 5) | (s[10] >> 3));
+        // ピクセル3
+        d[3] = static_cast<uint16_t>(((s[12] >> 3) << 11) | ((s[13] >> 2) << 5) | (s[14] >> 3));
+        s += 16;
+        d += 4;
     }
 }
 
@@ -320,9 +505,9 @@ static void rgb565le_blendUnderPremul(void* dst, const void* src, int pixelCount
         uint8_t r5 = (pixel >> 11) & 0x1F;
         uint8_t g6 = (pixel >> 5) & 0x3F;
         uint8_t b5 = pixel & 0x1F;
-        uint16_t r8 = static_cast<uint16_t>((r5 << 3) | (r5 >> 2));
-        uint16_t g8 = static_cast<uint16_t>((g6 << 2) | (g6 >> 4));
-        uint16_t b8 = static_cast<uint16_t>((b5 << 3) | (b5 >> 2));
+        uint16_t r8 = static_cast<uint16_t>((r5 << 3) + (r5 >> 2));
+        uint16_t g8 = static_cast<uint16_t>((g6 << 2) + (g6 >> 4));
+        uint16_t b8 = static_cast<uint16_t>((b5 << 3) + (b5 >> 2));
 
         // RGB8 → RGBA16_Premultiplied 変換（A=255、完全不透明）
         // A_tmp = 256, A16 = 65280
@@ -351,55 +536,84 @@ static void rgb565le_blendUnderPremul(void* dst, const void* src, int pixelCount
 
 // toPremul: RGB565_LEのsrcからPremul形式のdstへ変換コピー
 // アルファなし→完全不透明として変換
-static void rgb565le_toPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+// RGB565_LE→RGBA16_Premul 1ピクセル変換マクロ
+// s: uint16_t*, d: uint16_t*, s_off: srcオフセット, d_off: dstオフセット(uint16_t単位)
+#define RGB565LE_TO_PREMUL_PIXEL(s_off, d_off) \
+    do { \
+        uint16_t pixel = s[s_off]; \
+        uint8_t r5 = (pixel >> 11) & 0x1F; \
+        uint8_t g6 = (pixel >> 5) & 0x3F; \
+        uint8_t b5 = pixel & 0x1F; \
+        d[d_off]     = static_cast<uint16_t>(((r5 << 3) + (r5 >> 2)) << 8); \
+        d[d_off + 1] = static_cast<uint16_t>(((g6 << 2) + (g6 >> 4)) << 8); \
+        d[d_off + 2] = static_cast<uint16_t>(((b5 << 3) + (b5 >> 2)) << 8); \
+        d[d_off + 3] = RGBA16Premul::ALPHA_OPAQUE_MIN; \
+    } while(0)
+
+static void rgb565le_toPremul(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB565_LE, ToPremul, pixelCount);
-    uint16_t* d = static_cast<uint16_t*>(dst);
-    const uint16_t* s = static_cast<const uint16_t*>(src);
+    uint16_t* __restrict__ d = static_cast<uint16_t*>(dst);
+    const uint16_t* __restrict__ s = static_cast<const uint16_t*>(src);
 
-    for (int i = 0; i < pixelCount; i++) {
-        uint16_t pixel = s[i];
-        uint8_t r5 = (pixel >> 11) & 0x1F;
-        uint8_t g6 = (pixel >> 5) & 0x3F;
-        uint8_t b5 = pixel & 0x1F;
+    // 端数処理（1〜3ピクセル）
+    int remainder = pixelCount & 3;
+    while (remainder--) {
+        RGB565LE_TO_PREMUL_PIXEL(0, 0);
+        s += 1;
+        d += 4;
+    }
 
-        // RGB565 → RGB8 → RGBA16_Premultiplied（A=255、完全不透明）
-        uint16_t r8 = static_cast<uint16_t>((r5 << 3) | (r5 >> 2));
-        uint16_t g8 = static_cast<uint16_t>((g6 << 2) | (g6 >> 4));
-        uint16_t b8 = static_cast<uint16_t>((b5 << 3) | (b5 >> 2));
-
-        int idx = i * 4;
-        d[idx]     = static_cast<uint16_t>(r8 << 8);
-        d[idx + 1] = static_cast<uint16_t>(g8 << 8);
-        d[idx + 2] = static_cast<uint16_t>(b8 << 8);
-        d[idx + 3] = RGBA16Premul::ALPHA_OPAQUE_MIN;
+    // 4ピクセル単位でループ
+    pixelCount >>= 2;
+    while (pixelCount--) {
+        RGB565LE_TO_PREMUL_PIXEL(0, 0);
+        RGB565LE_TO_PREMUL_PIXEL(1, 4);
+        RGB565LE_TO_PREMUL_PIXEL(2, 8);
+        RGB565LE_TO_PREMUL_PIXEL(3, 12);
+        s += 4;
+        d += 16;
     }
 }
+#undef RGB565LE_TO_PREMUL_PIXEL
 
 // fromPremul: Premul形式のsrcからRGB565_LEのdstへ変換コピー
 // アルファ情報は破棄
-static void rgb565le_fromPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+// RGBA16_Premul→RGB565_LE 1ピクセル変換マクロ（リトルエンディアン前提）
+// s: uint16_t*, d: uint16_t*, s_off: srcオフセット(uint16_t単位), d_off: dstオフセット, a_off: アルファバイトオフセット
+#define RGB565LE_FROM_PREMUL_PIXEL(s_off, d_off, a_off) \
+    do { \
+        uint32_t inv = invUnpremulTable[reinterpret_cast<const uint8_t*>(s)[a_off]]; \
+        uint8_t r = static_cast<uint8_t>((s[s_off] * inv) >> 16); \
+        uint8_t g = static_cast<uint8_t>((s[s_off + 1] * inv) >> 16); \
+        uint8_t b = static_cast<uint8_t>((s[s_off + 2] * inv) >> 16); \
+        d[d_off] = static_cast<uint16_t>(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)); \
+    } while(0)
+
+static void rgb565le_fromPremul(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB565_LE, FromPremul, pixelCount);
-    uint16_t* d = static_cast<uint16_t*>(dst);
-    const uint16_t* s = static_cast<const uint16_t*>(src);
+    uint16_t* __restrict__ d = static_cast<uint16_t*>(dst);
+    const uint16_t* __restrict__ s = static_cast<const uint16_t*>(src);
 
-    for (int i = 0; i < pixelCount; i++) {
-        int idx = i * 4;
-        uint16_t r16 = s[idx];
-        uint16_t g16 = s[idx + 1];
-        uint16_t b16 = s[idx + 2];
-        uint16_t a16 = s[idx + 3];
+    // 端数処理（1〜3ピクセル）
+    int remainder = pixelCount & 3;
+    while (remainder--) {
+        RGB565LE_FROM_PREMUL_PIXEL(0, 0, 7);
+        s += 4;
+        d += 1;
+    }
 
-        // Unpremultiply
-        uint8_t a8 = a16 >> 8;
-        uint16_t a_tmp = a8 + 1;
-        uint8_t r = static_cast<uint8_t>(r16 / a_tmp);
-        uint8_t g = static_cast<uint8_t>(g16 / a_tmp);
-        uint8_t b = static_cast<uint8_t>(b16 / a_tmp);
-
-        // RGB565にパック
-        d[i] = static_cast<uint16_t>(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+    // 4ピクセル単位でループ
+    pixelCount >>= 2;
+    while (pixelCount--) {
+        RGB565LE_FROM_PREMUL_PIXEL(0, 0, 7);
+        RGB565LE_FROM_PREMUL_PIXEL(4, 1, 15);
+        RGB565LE_FROM_PREMUL_PIXEL(8, 2, 23);
+        RGB565LE_FROM_PREMUL_PIXEL(12, 3, 31);
+        s += 16;
+        d += 4;
     }
 }
+#undef RGB565LE_FROM_PREMUL_PIXEL
 
 // ========================================================================
 // RGB565_BE: 16bit RGB (Big Endian)
@@ -416,25 +630,45 @@ static void rgb565be_toStraight(void* dst, const void* src, int pixelCount, cons
         uint8_t g6 = (pixel >> 5) & 0x3F;
         uint8_t b5 = pixel & 0x1F;
 
-        d[i*4 + 0] = static_cast<uint8_t>((r5 << 3) | (r5 >> 2));
-        d[i*4 + 1] = static_cast<uint8_t>((g6 << 2) | (g6 >> 4));
-        d[i*4 + 2] = static_cast<uint8_t>((b5 << 3) | (b5 >> 2));
+        d[i*4 + 0] = static_cast<uint8_t>((r5 << 3) + (r5 >> 2));
+        d[i*4 + 1] = static_cast<uint8_t>((g6 << 2) + (g6 >> 4));
+        d[i*4 + 2] = static_cast<uint8_t>((b5 << 3) + (b5 >> 2));
         d[i*4 + 3] = 255;
     }
 }
 
-static void rgb565be_fromStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+static void rgb565be_fromStraight(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB565_BE, FromStraight, pixelCount);
-    uint8_t* d = static_cast<uint8_t*>(dst);
-    const uint8_t* s = static_cast<const uint8_t*>(src);
-    for (int i = 0; i < pixelCount; i++) {
-        uint8_t r = s[i*4 + 0];
-        uint8_t g = s[i*4 + 1];
-        uint8_t b = s[i*4 + 2];
-        uint16_t pixel = static_cast<uint16_t>(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
-        // ビッグエンディアン: 上位バイトを先に
-        d[i*2] = static_cast<uint8_t>(pixel >> 8);
-        d[i*2 + 1] = static_cast<uint8_t>(pixel & 0xFF);
+    uint8_t* __restrict__ d = static_cast<uint8_t*>(dst);
+    const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
+
+    // 端数処理（1〜3ピクセル）
+    int remainder = pixelCount & 3;
+    while (remainder--) {
+        // RGB565_BE: RRRRRGGG GGGBBBBB
+        d[0] = (s[0] & 0xF8) | (s[1] >> 5);           // 上位: R[7:3] | G[7:5]
+        d[1] = ((s[1] << 3) & 0xE0) | (s[2] >> 3);    // 下位: G[4:2] | B[7:3]
+        s += 4;
+        d += 2;
+    }
+
+    // 4ピクセル単位でループ
+    pixelCount >>= 2;
+    while (pixelCount--) {
+        // ピクセル0
+        d[0] = (s[0] & 0xF8) | (s[1] >> 5);
+        d[1] = ((s[1] << 3) & 0xE0) | (s[2] >> 3);
+        // ピクセル1
+        d[2] = (s[4] & 0xF8) | (s[5] >> 5);
+        d[3] = ((s[5] << 3) & 0xE0) | (s[6] >> 3);
+        // ピクセル2
+        d[4] = (s[8] & 0xF8) | (s[9] >> 5);
+        d[5] = ((s[9] << 3) & 0xE0) | (s[10] >> 3);
+        // ピクセル3
+        d[6] = (s[12] & 0xF8) | (s[13] >> 5);
+        d[7] = ((s[13] << 3) & 0xE0) | (s[14] >> 3);
+        s += 16;
+        d += 8;
     }
 }
 
@@ -456,9 +690,9 @@ static void rgb565be_blendUnderPremul(void* dst, const void* src, int pixelCount
         uint8_t r5 = (pixel >> 11) & 0x1F;
         uint8_t g6 = (pixel >> 5) & 0x3F;
         uint8_t b5 = pixel & 0x1F;
-        uint16_t r8 = static_cast<uint16_t>((r5 << 3) | (r5 >> 2));
-        uint16_t g8 = static_cast<uint16_t>((g6 << 2) | (g6 >> 4));
-        uint16_t b8 = static_cast<uint16_t>((b5 << 3) | (b5 >> 2));
+        uint16_t r8 = static_cast<uint16_t>((r5 << 3) + (r5 >> 2));
+        uint16_t g8 = static_cast<uint16_t>((g6 << 2) + (g6 >> 4));
+        uint16_t b8 = static_cast<uint16_t>((b5 << 3) + (b5 >> 2));
 
         // RGB8 → RGBA16_Premultiplied 変換（A=255）
         uint16_t srcR = static_cast<uint16_t>(r8 << 8);
@@ -485,53 +719,84 @@ static void rgb565be_blendUnderPremul(void* dst, const void* src, int pixelCount
 }
 
 // toPremul: RGB565_BEのsrcからPremul形式のdstへ変換コピー
-static void rgb565be_toPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+// RGB565_BE→RGBA16_Premul 1ピクセル変換マクロ
+// s: uint8_t*, d: uint16_t*, s_off: srcオフセット, d_off: dstオフセット(uint16_t単位)
+#define RGB565BE_TO_PREMUL_PIXEL(s_off, d_off) \
+    do { \
+        uint16_t pixel = static_cast<uint16_t>((static_cast<uint16_t>(s[s_off]) << 8) | s[s_off + 1]); \
+        uint8_t r5 = (pixel >> 11) & 0x1F; \
+        uint8_t g6 = (pixel >> 5) & 0x3F; \
+        uint8_t b5 = pixel & 0x1F; \
+        d[d_off]     = static_cast<uint16_t>(((r5 << 3) + (r5 >> 2)) << 8); \
+        d[d_off + 1] = static_cast<uint16_t>(((g6 << 2) + (g6 >> 4)) << 8); \
+        d[d_off + 2] = static_cast<uint16_t>(((b5 << 3) + (b5 >> 2)) << 8); \
+        d[d_off + 3] = RGBA16Premul::ALPHA_OPAQUE_MIN; \
+    } while(0)
+
+static void rgb565be_toPremul(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB565_BE, ToPremul, pixelCount);
-    uint16_t* d = static_cast<uint16_t*>(dst);
-    const uint8_t* s = static_cast<const uint8_t*>(src);
+    uint16_t* __restrict__ d = static_cast<uint16_t*>(dst);
+    const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
 
-    for (int i = 0; i < pixelCount; i++) {
-        uint16_t pixel = static_cast<uint16_t>((static_cast<uint16_t>(s[i*2]) << 8) | s[i*2 + 1]);
-        uint8_t r5 = (pixel >> 11) & 0x1F;
-        uint8_t g6 = (pixel >> 5) & 0x3F;
-        uint8_t b5 = pixel & 0x1F;
+    // 端数処理（1〜3ピクセル）
+    int remainder = pixelCount & 3;
+    while (remainder--) {
+        RGB565BE_TO_PREMUL_PIXEL(0, 0);
+        s += 2;
+        d += 4;
+    }
 
-        uint16_t r8 = static_cast<uint16_t>((r5 << 3) | (r5 >> 2));
-        uint16_t g8 = static_cast<uint16_t>((g6 << 2) | (g6 >> 4));
-        uint16_t b8 = static_cast<uint16_t>((b5 << 3) | (b5 >> 2));
-
-        int idx = i * 4;
-        d[idx]     = static_cast<uint16_t>(r8 << 8);
-        d[idx + 1] = static_cast<uint16_t>(g8 << 8);
-        d[idx + 2] = static_cast<uint16_t>(b8 << 8);
-        d[idx + 3] = RGBA16Premul::ALPHA_OPAQUE_MIN;
+    // 4ピクセル単位でループ
+    pixelCount >>= 2;
+    while (pixelCount--) {
+        RGB565BE_TO_PREMUL_PIXEL(0, 0);
+        RGB565BE_TO_PREMUL_PIXEL(2, 4);
+        RGB565BE_TO_PREMUL_PIXEL(4, 8);
+        RGB565BE_TO_PREMUL_PIXEL(6, 12);
+        s += 8;
+        d += 16;
     }
 }
+#undef RGB565BE_TO_PREMUL_PIXEL
 
 // fromPremul: Premul形式のsrcからRGB565_BEのdstへ変換コピー
-static void rgb565be_fromPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+// RGB565_BE 1ピクセル変換マクロ（リトルエンディアン前提）
+// s: uint16_t*, d: uint8_t*, s_off: srcオフセット(uint16_t単位), d_off: dstオフセット, a_off: アルファバイトオフセット
+#define RGB565BE_FROM_PREMUL_PIXEL(s_off, d_off, a_off) \
+    do { \
+        uint32_t inv = invUnpremulTable[reinterpret_cast<const uint8_t*>(s)[a_off]]; \
+        uint8_t r = static_cast<uint8_t>((s[s_off] * inv) >> 16); \
+        uint8_t g = static_cast<uint8_t>((s[s_off + 1] * inv) >> 16); \
+        uint8_t b = static_cast<uint8_t>((s[s_off + 2] * inv) >> 16); \
+        d[d_off] = (r & 0xF8) | (g >> 5); \
+        d[d_off + 1] = ((g << 3) & 0xE0) | (b >> 3); \
+    } while(0)
+
+static void rgb565be_fromPremul(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB565_BE, FromPremul, pixelCount);
-    uint8_t* d = static_cast<uint8_t*>(dst);
-    const uint16_t* s = static_cast<const uint16_t*>(src);
+    uint8_t* __restrict__ d = static_cast<uint8_t*>(dst);
+    const uint16_t* __restrict__ s = static_cast<const uint16_t*>(src);
 
-    for (int i = 0; i < pixelCount; i++) {
-        int idx = i * 4;
-        uint16_t r16 = s[idx];
-        uint16_t g16 = s[idx + 1];
-        uint16_t b16 = s[idx + 2];
-        uint16_t a16 = s[idx + 3];
+    // 端数処理（1〜3ピクセル）
+    int remainder = pixelCount & 3;
+    while (remainder--) {
+        RGB565BE_FROM_PREMUL_PIXEL(0, 0, 7);
+        s += 4;
+        d += 2;
+    }
 
-        uint8_t a8 = a16 >> 8;
-        uint16_t a_tmp = a8 + 1;
-        uint8_t r = static_cast<uint8_t>(r16 / a_tmp);
-        uint8_t g = static_cast<uint8_t>(g16 / a_tmp);
-        uint8_t b = static_cast<uint8_t>(b16 / a_tmp);
-
-        uint16_t pixel = static_cast<uint16_t>(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
-        d[i*2] = static_cast<uint8_t>(pixel >> 8);
-        d[i*2 + 1] = static_cast<uint8_t>(pixel & 0xFF);
+    // 4ピクセル単位でループ
+    pixelCount >>= 2;
+    while (pixelCount--) {
+        RGB565BE_FROM_PREMUL_PIXEL(0, 0, 7);
+        RGB565BE_FROM_PREMUL_PIXEL(4, 2, 15);
+        RGB565BE_FROM_PREMUL_PIXEL(8, 4, 23);
+        RGB565BE_FROM_PREMUL_PIXEL(12, 6, 31);
+        s += 16;
+        d += 8;
     }
 }
+#undef RGB565BE_FROM_PREMUL_PIXEL
 
 // ========================================================================
 // RGB332: 8bit RGB (3-3-2)
