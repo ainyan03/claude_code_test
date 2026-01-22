@@ -21,6 +21,9 @@ cli/imgproc
 # Emscripten cache
 .emscripten_cache/
 
+# PlatformIO build outputs
+.pio/
+
 # OS files
 .DS_Store
 Thumbs.db

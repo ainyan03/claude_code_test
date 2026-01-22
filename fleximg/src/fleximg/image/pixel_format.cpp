@@ -413,23 +413,106 @@ static void rgba16Premul_toPremul(void* dst, const void* src, int pixelCount, co
 // RGB565_LE: 16bit RGB (Little Endian)
 // ========================================================================
 
-static void rgb565le_toStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
-    FLEXIMG_FMT_METRICS(RGB565_LE, ToStraight, pixelCount);
-    const uint16_t* s = static_cast<const uint16_t*>(src);
-    uint8_t* d = static_cast<uint8_t*>(dst);
-    for (int i = 0; i < pixelCount; i++) {
-        uint16_t pixel = s[i];
-        uint8_t r5 = (pixel >> 11) & 0x1F;
-        uint8_t g6 = (pixel >> 5) & 0x3F;
-        uint8_t b5 = pixel & 0x1F;
+// RGB565 → RGB8 変換ルックアップテーブル
+// RGB565の16bit値を上位バイトと下位バイトに分けて処理
+//
+// RGB565構造 (16bit): RRRRR GGGGGG BBBBB
+//   high_byte: RRRRRGGG (R5全部 + G6上位3bit)
+//   low_byte:  GGGBBBBB (G6下位3bit + B5全部)
+//
+// G8の分離計算:
+//   G8 = (G6 << 2) | (G6 >> 4)
+//      = (high_G3 << 5) + (high_G3 >> 1) + (low_G3 << 2) + (low_G3 >> 4)
+//   ※ low_G3 >> 4 は low_G3 が 0-7 なので常に 0
+//
+// テーブル構成:
+//   high_table[high_byte] = { R8, G_high }  where G_high = (high_G3 << 5) + (high_G3 >> 1)
+//   low_table[low_byte]   = { G_low, B8 }   where G_low  = low_G3 << 2
+//
+namespace {
 
-        // ビット拡張（5bit/6bit → 8bit）
-        d[i*4 + 0] = static_cast<uint8_t>((r5 << 3) + (r5 >> 2));
-        d[i*4 + 1] = static_cast<uint8_t>((g6 << 2) + (g6 >> 4));
-        d[i*4 + 2] = static_cast<uint8_t>((b5 << 3) + (b5 >> 2));
-        d[i*4 + 3] = 255;
+// 上位バイト用エントリ: R8とG_highを計算
+#define RGB565_HIGH_ENTRY(h) \
+    static_cast<uint8_t>((((h) >> 3) << 3) | (((h) >> 3) >> 2)), \
+    static_cast<uint8_t>((((h) & 0x07) << 5) | (((h) & 0x07) >> 1))
+
+// 下位バイト用エントリ: G_lowとB8を計算
+#define RGB565_LOW_ENTRY(l) \
+    static_cast<uint8_t>((((l) >> 5) & 0x07) << 2), \
+    static_cast<uint8_t>((((l) & 0x1F) << 3) | (((l) & 0x1F) >> 2))
+
+#define RGB565_HIGH_ROW(base) \
+    RGB565_HIGH_ENTRY(base+0), RGB565_HIGH_ENTRY(base+1), RGB565_HIGH_ENTRY(base+2), RGB565_HIGH_ENTRY(base+3), \
+    RGB565_HIGH_ENTRY(base+4), RGB565_HIGH_ENTRY(base+5), RGB565_HIGH_ENTRY(base+6), RGB565_HIGH_ENTRY(base+7), \
+    RGB565_HIGH_ENTRY(base+8), RGB565_HIGH_ENTRY(base+9), RGB565_HIGH_ENTRY(base+10), RGB565_HIGH_ENTRY(base+11), \
+    RGB565_HIGH_ENTRY(base+12), RGB565_HIGH_ENTRY(base+13), RGB565_HIGH_ENTRY(base+14), RGB565_HIGH_ENTRY(base+15)
+
+#define RGB565_LOW_ROW(base) \
+    RGB565_LOW_ENTRY(base+0), RGB565_LOW_ENTRY(base+1), RGB565_LOW_ENTRY(base+2), RGB565_LOW_ENTRY(base+3), \
+    RGB565_LOW_ENTRY(base+4), RGB565_LOW_ENTRY(base+5), RGB565_LOW_ENTRY(base+6), RGB565_LOW_ENTRY(base+7), \
+    RGB565_LOW_ENTRY(base+8), RGB565_LOW_ENTRY(base+9), RGB565_LOW_ENTRY(base+10), RGB565_LOW_ENTRY(base+11), \
+    RGB565_LOW_ENTRY(base+12), RGB565_LOW_ENTRY(base+13), RGB565_LOW_ENTRY(base+14), RGB565_LOW_ENTRY(base+15)
+
+// RGB565上位バイト用テーブル (256 × 2 = 512 bytes): [R8, G_high]
+alignas(64) static const uint8_t rgb565HighTable[256 * 2] = {
+    RGB565_HIGH_ROW(0x00), RGB565_HIGH_ROW(0x10), RGB565_HIGH_ROW(0x20), RGB565_HIGH_ROW(0x30),
+    RGB565_HIGH_ROW(0x40), RGB565_HIGH_ROW(0x50), RGB565_HIGH_ROW(0x60), RGB565_HIGH_ROW(0x70),
+    RGB565_HIGH_ROW(0x80), RGB565_HIGH_ROW(0x90), RGB565_HIGH_ROW(0xa0), RGB565_HIGH_ROW(0xb0),
+    RGB565_HIGH_ROW(0xc0), RGB565_HIGH_ROW(0xd0), RGB565_HIGH_ROW(0xe0), RGB565_HIGH_ROW(0xf0)
+};
+
+// RGB565下位バイト用テーブル (256 × 2 = 512 bytes): [G_low, B8]
+alignas(64) static const uint8_t rgb565LowTable[256 * 2] = {
+    RGB565_LOW_ROW(0x00), RGB565_LOW_ROW(0x10), RGB565_LOW_ROW(0x20), RGB565_LOW_ROW(0x30),
+    RGB565_LOW_ROW(0x40), RGB565_LOW_ROW(0x50), RGB565_LOW_ROW(0x60), RGB565_LOW_ROW(0x70),
+    RGB565_LOW_ROW(0x80), RGB565_LOW_ROW(0x90), RGB565_LOW_ROW(0xa0), RGB565_LOW_ROW(0xb0),
+    RGB565_LOW_ROW(0xc0), RGB565_LOW_ROW(0xd0), RGB565_LOW_ROW(0xe0), RGB565_LOW_ROW(0xf0)
+};
+
+#undef RGB565_HIGH_ENTRY
+#undef RGB565_LOW_ENTRY
+#undef RGB565_HIGH_ROW
+#undef RGB565_LOW_ROW
+
+} // namespace
+
+// RGB565_LE→RGBA8_Straight 1ピクセル変換マクロ（ルックアップテーブル使用）
+// s: uint8_t*, d: uint8_t*, s_off: srcオフセット, d_off: dstオフセット
+#define RGB565LE_TO_STRAIGHT_PIXEL(s_off, d_off) \
+    do { \
+        const uint8_t* h = &rgb565HighTable[s[s_off + 1] * 2]; \
+        const uint8_t* l = &rgb565LowTable[s[s_off] * 2]; \
+        d[d_off]     = h[0]; \
+        d[d_off + 1] = h[1] + l[0]; \
+        d[d_off + 2] = l[1]; \
+        d[d_off + 3] = 255; \
+    } while(0)
+
+static void rgb565le_toStraight(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(RGB565_LE, ToStraight, pixelCount);
+    const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
+    uint8_t* __restrict__ d = static_cast<uint8_t*>(dst);
+
+    // 端数処理（1〜3ピクセル）
+    int remainder = pixelCount & 3;
+    while (remainder--) {
+        RGB565LE_TO_STRAIGHT_PIXEL(0, 0);
+        s += 2;
+        d += 4;
+    }
+
+    // 4ピクセル単位でループ
+    pixelCount >>= 2;
+    while (pixelCount--) {
+        RGB565LE_TO_STRAIGHT_PIXEL(0, 0);
+        RGB565LE_TO_STRAIGHT_PIXEL(2, 4);
+        RGB565LE_TO_STRAIGHT_PIXEL(4, 8);
+        RGB565LE_TO_STRAIGHT_PIXEL(6, 12);
+        s += 8;
+        d += 16;
     }
 }
+#undef RGB565LE_TO_STRAIGHT_PIXEL
 
 static void rgb565le_fromStraight(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB565_LE, FromStraight, pixelCount);
@@ -461,11 +544,11 @@ static void rgb565le_fromStraight(void* __restrict__ dst, const void* __restrict
 
 // blendUnderPremul: srcフォーマット(RGB565_LE)からPremul形式のdstへunder合成
 // RGB565はアルファなし→常に不透明として扱う
-// 8bit精度方式（rgba8Straight_blendUnderPremulと同様のアプローチ）
-static void rgb565le_blendUnderPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+// 最適化: ルックアップテーブル使用
+static void rgb565le_blendUnderPremul(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB565_LE, BlendUnder, pixelCount);
-    uint16_t* d = static_cast<uint16_t*>(dst);
-    const uint16_t* s = static_cast<const uint16_t*>(src);
+    uint16_t* __restrict__ d = static_cast<uint16_t*>(dst);
+    const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
 
     for (int i = 0; i < pixelCount; i++) {
         int idx16 = i * 4;
@@ -475,14 +558,14 @@ static void rgb565le_blendUnderPremul(void* dst, const void* src, int pixelCount
         // dst が不透明 → スキップ
         if (dstA8 == 255) continue;
 
-        // RGB565 → RGB8 変換
-        uint16_t pixel = s[i];
-        uint_fast8_t r5 = (pixel >> 11) & 0x1F;
-        uint_fast8_t g6 = (pixel >> 5) & 0x3F;
-        uint_fast8_t b5 = pixel & 0x1F;
-        uint_fast8_t srcR8 = static_cast<uint_fast8_t>((r5 << 3) + (r5 >> 2));
-        uint_fast8_t srcG8 = static_cast<uint_fast8_t>((g6 << 2) + (g6 >> 4));
-        uint_fast8_t srcB8 = static_cast<uint_fast8_t>((b5 << 3) + (b5 >> 2));
+        // RGB565_LE → RGB8 変換（ルックアップテーブル使用）
+        uint8_t low = s[i * 2];
+        uint8_t high = s[i * 2 + 1];
+        const uint8_t* h = &rgb565HighTable[high * 2];
+        const uint8_t* l = &rgb565LowTable[low * 2];
+        uint_fast8_t srcR8 = h[0];
+        uint_fast8_t srcG8 = static_cast<uint_fast8_t>(h[1] + l[0]);
+        uint_fast8_t srcB8 = l[1];
 
         // dst が透明 → 単純コピー（16bit形式で）
         if (dstA8 == 0) {
@@ -503,31 +586,29 @@ static void rgb565le_blendUnderPremul(void* dst, const void* src, int pixelCount
 }
 
 // toPremul: RGB565_LEのsrcからPremul形式のdstへ変換コピー
-// アルファなし→完全不透明として変換
+// アルファなし→完全不透明として変換（ルックアップテーブル使用）
 // RGB565_LE→RGBA16_Premul 1ピクセル変換マクロ
-// s: uint16_t*, d: uint16_t*, s_off: srcオフセット, d_off: dstオフセット(uint16_t単位)
+// s: uint8_t*, d: uint16_t*, s_off: srcオフセット, d_off: dstオフセット(uint16_t単位)
 #define RGB565LE_TO_PREMUL_PIXEL(s_off, d_off) \
     do { \
-        uint16_t pixel = s[s_off]; \
-        uint8_t r5 = (pixel >> 11) & 0x1F; \
-        uint8_t g6 = (pixel >> 5) & 0x3F; \
-        uint8_t b5 = pixel & 0x1F; \
-        d[d_off]     = static_cast<uint16_t>(((r5 << 3) + (r5 >> 2)) << 8); \
-        d[d_off + 1] = static_cast<uint16_t>(((g6 << 2) + (g6 >> 4)) << 8); \
-        d[d_off + 2] = static_cast<uint16_t>(((b5 << 3) + (b5 >> 2)) << 8); \
+        const uint8_t* h = &rgb565HighTable[s[s_off + 1] * 2]; \
+        const uint8_t* l = &rgb565LowTable[s[s_off] * 2]; \
+        d[d_off]     = static_cast<uint16_t>(h[0] << 8); \
+        d[d_off + 1] = static_cast<uint16_t>((h[1] + l[0]) << 8); \
+        d[d_off + 2] = static_cast<uint16_t>(l[1] << 8); \
         d[d_off + 3] = RGBA16Premul::ALPHA_OPAQUE_MIN; \
     } while(0)
 
 static void rgb565le_toPremul(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB565_LE, ToPremul, pixelCount);
     uint16_t* __restrict__ d = static_cast<uint16_t*>(dst);
-    const uint16_t* __restrict__ s = static_cast<const uint16_t*>(src);
+    const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
 
     // 端数処理（1〜3ピクセル）
     int remainder = pixelCount & 3;
     while (remainder--) {
         RGB565LE_TO_PREMUL_PIXEL(0, 0);
-        s += 1;
+        s += 2;
         d += 4;
     }
 
@@ -535,10 +616,10 @@ static void rgb565le_toPremul(void* __restrict__ dst, const void* __restrict__ s
     pixelCount >>= 2;
     while (pixelCount--) {
         RGB565LE_TO_PREMUL_PIXEL(0, 0);
-        RGB565LE_TO_PREMUL_PIXEL(1, 4);
-        RGB565LE_TO_PREMUL_PIXEL(2, 8);
-        RGB565LE_TO_PREMUL_PIXEL(3, 12);
-        s += 4;
+        RGB565LE_TO_PREMUL_PIXEL(2, 4);
+        RGB565LE_TO_PREMUL_PIXEL(4, 8);
+        RGB565LE_TO_PREMUL_PIXEL(6, 12);
+        s += 8;
         d += 16;
     }
 }
@@ -587,23 +668,44 @@ static void rgb565le_fromPremul(void* __restrict__ dst, const void* __restrict__
 // RGB565_BE: 16bit RGB (Big Endian)
 // ========================================================================
 
-static void rgb565be_toStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
-    FLEXIMG_FMT_METRICS(RGB565_BE, ToStraight, pixelCount);
-    const uint8_t* s = static_cast<const uint8_t*>(src);
-    uint8_t* d = static_cast<uint8_t*>(dst);
-    for (int i = 0; i < pixelCount; i++) {
-        // ビッグエンディアン: 上位バイトが先
-        uint16_t pixel = static_cast<uint16_t>((static_cast<uint16_t>(s[i*2]) << 8) | s[i*2 + 1]);
-        uint8_t r5 = (pixel >> 11) & 0x1F;
-        uint8_t g6 = (pixel >> 5) & 0x3F;
-        uint8_t b5 = pixel & 0x1F;
+// RGB565_BE→RGBA8_Straight 1ピクセル変換マクロ（ルックアップテーブル使用）
+// s: uint8_t*, d: uint8_t*, s_off: srcオフセット, d_off: dstオフセット
+// RGB565_BE: [high_byte, low_byte] in memory（LEとは逆）
+#define RGB565BE_TO_STRAIGHT_PIXEL(s_off, d_off) \
+    do { \
+        const uint8_t* h = &rgb565HighTable[s[s_off] * 2]; \
+        const uint8_t* l = &rgb565LowTable[s[s_off + 1] * 2]; \
+        d[d_off]     = h[0]; \
+        d[d_off + 1] = h[1] + l[0]; \
+        d[d_off + 2] = l[1]; \
+        d[d_off + 3] = 255; \
+    } while(0)
 
-        d[i*4 + 0] = static_cast<uint8_t>((r5 << 3) + (r5 >> 2));
-        d[i*4 + 1] = static_cast<uint8_t>((g6 << 2) + (g6 >> 4));
-        d[i*4 + 2] = static_cast<uint8_t>((b5 << 3) + (b5 >> 2));
-        d[i*4 + 3] = 255;
+static void rgb565be_toStraight(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(RGB565_BE, ToStraight, pixelCount);
+    const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
+    uint8_t* __restrict__ d = static_cast<uint8_t*>(dst);
+
+    // 端数処理（1〜3ピクセル）
+    int remainder = pixelCount & 3;
+    while (remainder--) {
+        RGB565BE_TO_STRAIGHT_PIXEL(0, 0);
+        s += 2;
+        d += 4;
+    }
+
+    // 4ピクセル単位でループ
+    pixelCount >>= 2;
+    while (pixelCount--) {
+        RGB565BE_TO_STRAIGHT_PIXEL(0, 0);
+        RGB565BE_TO_STRAIGHT_PIXEL(2, 4);
+        RGB565BE_TO_STRAIGHT_PIXEL(4, 8);
+        RGB565BE_TO_STRAIGHT_PIXEL(6, 12);
+        s += 8;
+        d += 16;
     }
 }
+#undef RGB565BE_TO_STRAIGHT_PIXEL
 
 static void rgb565be_fromStraight(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB565_BE, FromStraight, pixelCount);
@@ -641,11 +743,11 @@ static void rgb565be_fromStraight(void* __restrict__ dst, const void* __restrict
 }
 
 // blendUnderPremul: srcフォーマット(RGB565_BE)からPremul形式のdstへunder合成
-// 8bit精度方式（rgba8Straight_blendUnderPremulと同様のアプローチ）
-static void rgb565be_blendUnderPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+// 最適化: ルックアップテーブル使用
+static void rgb565be_blendUnderPremul(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB565_BE, BlendUnder, pixelCount);
-    uint16_t* d = static_cast<uint16_t*>(dst);
-    const uint8_t* s = static_cast<const uint8_t*>(src);
+    uint16_t* __restrict__ d = static_cast<uint16_t*>(dst);
+    const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
 
     for (int i = 0; i < pixelCount; i++) {
         int idx16 = i * 4;
@@ -655,14 +757,14 @@ static void rgb565be_blendUnderPremul(void* dst, const void* src, int pixelCount
         // dst が不透明 → スキップ
         if (dstA8 == 255) continue;
 
-        // RGB565_BE → RGB8 変換
-        uint16_t pixel = static_cast<uint16_t>((static_cast<uint16_t>(s[i*2]) << 8) | s[i*2 + 1]);
-        uint_fast8_t r5 = (pixel >> 11) & 0x1F;
-        uint_fast8_t g6 = (pixel >> 5) & 0x3F;
-        uint_fast8_t b5 = pixel & 0x1F;
-        uint_fast8_t srcR8 = static_cast<uint_fast8_t>((r5 << 3) + (r5 >> 2));
-        uint_fast8_t srcG8 = static_cast<uint_fast8_t>((g6 << 2) + (g6 >> 4));
-        uint_fast8_t srcB8 = static_cast<uint_fast8_t>((b5 << 3) + (b5 >> 2));
+        // RGB565_BE → RGB8 変換（ルックアップテーブル使用）
+        uint8_t high = s[i * 2];
+        uint8_t low = s[i * 2 + 1];
+        const uint8_t* h = &rgb565HighTable[high * 2];
+        const uint8_t* l = &rgb565LowTable[low * 2];
+        uint_fast8_t srcR8 = h[0];
+        uint_fast8_t srcG8 = static_cast<uint_fast8_t>(h[1] + l[0]);
+        uint_fast8_t srcB8 = l[1];
 
         // dst が透明 → 単純コピー（16bit形式で）
         if (dstA8 == 0) {
@@ -683,17 +785,17 @@ static void rgb565be_blendUnderPremul(void* dst, const void* src, int pixelCount
 }
 
 // toPremul: RGB565_BEのsrcからPremul形式のdstへ変換コピー
+// アルファなし→完全不透明として変換（ルックアップテーブル使用）
 // RGB565_BE→RGBA16_Premul 1ピクセル変換マクロ
 // s: uint8_t*, d: uint16_t*, s_off: srcオフセット, d_off: dstオフセット(uint16_t単位)
+// RGB565_BE: [high_byte, low_byte] in memory（LEとは逆）
 #define RGB565BE_TO_PREMUL_PIXEL(s_off, d_off) \
     do { \
-        uint16_t pixel = static_cast<uint16_t>((static_cast<uint16_t>(s[s_off]) << 8) | s[s_off + 1]); \
-        uint8_t r5 = (pixel >> 11) & 0x1F; \
-        uint8_t g6 = (pixel >> 5) & 0x3F; \
-        uint8_t b5 = pixel & 0x1F; \
-        d[d_off]     = static_cast<uint16_t>(((r5 << 3) + (r5 >> 2)) << 8); \
-        d[d_off + 1] = static_cast<uint16_t>(((g6 << 2) + (g6 >> 4)) << 8); \
-        d[d_off + 2] = static_cast<uint16_t>(((b5 << 3) + (b5 >> 2)) << 8); \
+        const uint8_t* h = &rgb565HighTable[s[s_off] * 2]; \
+        const uint8_t* l = &rgb565LowTable[s[s_off + 1] * 2]; \
+        d[d_off]     = static_cast<uint16_t>(h[0] << 8); \
+        d[d_off + 1] = static_cast<uint16_t>((h[1] + l[0]) << 8); \
+        d[d_off + 2] = static_cast<uint16_t>(l[1] << 8); \
         d[d_off + 3] = RGBA16Premul::ALPHA_OPAQUE_MIN; \
     } while(0)
 
@@ -766,20 +868,46 @@ static void rgb565be_fromPremul(void* __restrict__ dst, const void* __restrict__
 // RGB332: 8bit RGB (3-3-2)
 // ========================================================================
 
+// RGB332 → RGB8 変換ルックアップテーブル
+// RGB332の256通りの値に対して、RGB8値を事前計算
+// 各エントリ: [R8, G8, B8] の3バイト（1024バイト未満でキャッシュフレンドリー）
+namespace {
+
+// テーブル生成用マクロ（constexpr配列生成の代替）
+#define RGB332_ENTRY(p) \
+    static_cast<uint8_t>((((p) >> 5) & 0x07) * 0x49 >> 1), \
+    static_cast<uint8_t>((((p) >> 2) & 0x07) * 0x49 >> 1), \
+    static_cast<uint8_t>(((p) & 0x03) * 0x55)
+
+#define RGB332_ROW(base) \
+    RGB332_ENTRY(base+0), RGB332_ENTRY(base+1), RGB332_ENTRY(base+2), RGB332_ENTRY(base+3), \
+    RGB332_ENTRY(base+4), RGB332_ENTRY(base+5), RGB332_ENTRY(base+6), RGB332_ENTRY(base+7), \
+    RGB332_ENTRY(base+8), RGB332_ENTRY(base+9), RGB332_ENTRY(base+10), RGB332_ENTRY(base+11), \
+    RGB332_ENTRY(base+12), RGB332_ENTRY(base+13), RGB332_ENTRY(base+14), RGB332_ENTRY(base+15)
+
+// RGB332 → RGB8 変換テーブル (256 × 3 = 768 bytes)
+alignas(64) static const uint8_t rgb332ToRgb8[256 * 3] = {
+    RGB332_ROW(0x00), RGB332_ROW(0x10), RGB332_ROW(0x20), RGB332_ROW(0x30),
+    RGB332_ROW(0x40), RGB332_ROW(0x50), RGB332_ROW(0x60), RGB332_ROW(0x70),
+    RGB332_ROW(0x80), RGB332_ROW(0x90), RGB332_ROW(0xa0), RGB332_ROW(0xb0),
+    RGB332_ROW(0xc0), RGB332_ROW(0xd0), RGB332_ROW(0xe0), RGB332_ROW(0xf0)
+};
+
+#undef RGB332_ENTRY
+#undef RGB332_ROW
+
+} // namespace
+
 static void rgb332_toStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB332, ToStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
     uint8_t* d = static_cast<uint8_t*>(dst);
     for (int i = 0; i < pixelCount; i++) {
-        uint8_t pixel = s[i];
-        uint8_t r3 = (pixel >> 5) & 0x07;
-        uint8_t g3 = (pixel >> 2) & 0x07;
-        uint8_t b2 = pixel & 0x03;
-
-        // 乗算＋少量シフト（マイコン最適化）
-        d[i*4 + 0] = (r3 * 0x49) >> 1;  // 3bit → 8bit
-        d[i*4 + 1] = (g3 * 0x49) >> 1;  // 3bit → 8bit
-        d[i*4 + 2] = b2 * 0x55;          // 2bit → 8bit
+        // RGB332 → RGB8 変換（ルックアップテーブル使用）
+        const uint8_t* rgb = &rgb332ToRgb8[s[i] * 3];
+        d[i*4 + 0] = rgb[0];
+        d[i*4 + 1] = rgb[1];
+        d[i*4 + 2] = rgb[2];
         d[i*4 + 3] = 255;
     }
 }
@@ -797,45 +925,58 @@ static void rgb332_fromStraight(void* dst, const void* src, int pixelCount, cons
 }
 
 // blendUnderPremul: srcフォーマット(RGB332)からPremul形式のdstへunder合成
-// 8bit精度方式（rgba8Straight_blendUnderPremulと同様のアプローチ）
-static void rgb332_blendUnderPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+// 最適化: ルックアップテーブル + SWAR (SIMD Within A Register)
+static void rgb332_blendUnderPremul(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB332, BlendUnder, pixelCount);
-    uint16_t* d = static_cast<uint16_t*>(dst);
-    const uint8_t* s = static_cast<const uint8_t*>(src);
+    uint16_t* __restrict__ d = static_cast<uint16_t*>(dst);
+    const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
+
+    // プリデクリメント方式（RGBA8_Straightと同様のパターン）
+    s -= 1;
+    d -= 4;
 
     for (int i = 0; i < pixelCount; i++) {
-        int idx16 = i * 4;
-        // 8bit精度でアルファ取得（16bitの上位バイト）
-        uint_fast8_t dstA8 = static_cast<uint_fast8_t>(d[idx16 + 3] >> 8);
+        d += 4;
+        s += 1;
+
+        // dstアルファを8bit精度で取得（リトルエンディアン前提で上位バイト直接読み取り）
+        uint_fast8_t dstA8 = reinterpret_cast<uint8_t*>(d)[7];
 
         // dst が不透明 → スキップ
         if (dstA8 == 255) continue;
 
-        // RGB332 → RGB8 変換
-        uint8_t pixel = s[i];
-        uint8_t r3 = (pixel >> 5) & 0x07;
-        uint8_t g3 = (pixel >> 2) & 0x07;
-        uint8_t b2 = pixel & 0x03;
-        uint_fast8_t srcR8 = static_cast<uint_fast8_t>((r3 * 0x49) >> 1);
-        uint_fast8_t srcG8 = static_cast<uint_fast8_t>((g3 * 0x49) >> 1);
-        uint_fast8_t srcB8 = static_cast<uint_fast8_t>(b2 * 0x55);
+        // RGB332 → RGB8 変換（ルックアップテーブル使用）
+        uint8_t pixel = *s;
+        const uint8_t* rgb = &rgb332ToRgb8[pixel * 3];
+        uint_fast8_t srcR8 = rgb[0];
+        uint_fast8_t srcG8 = rgb[1];
+        uint_fast8_t srcB8 = rgb[2];
 
-        // dst が透明 → 単純コピー（16bit形式で）
+        // dst が透明 → 単純コピー（16bit形式で、alphaは不透明扱い）
         if (dstA8 == 0) {
-            d[idx16]     = static_cast<uint16_t>(srcR8 << 8);
-            d[idx16 + 1] = static_cast<uint16_t>(srcG8 << 8);
-            d[idx16 + 2] = static_cast<uint16_t>(srcB8 << 8);
-            d[idx16 + 3] = RGBA16Premul::ALPHA_OPAQUE_MIN;
+            d[0] = static_cast<uint16_t>(srcR8 << 8);
+            d[1] = static_cast<uint16_t>(srcG8 << 8);
+            d[2] = static_cast<uint16_t>(srcB8 << 8);
+            d[3] = RGBA16Premul::ALPHA_OPAQUE_MIN;
             continue;
         }
 
-        // under合成（8bit精度）
+        // under合成（SWAR最適化: RGとBAを32bitにパックして同時演算）
         uint_fast16_t invDstA8 = 255 - dstA8;
-        // src(8bit) * invDstA(8bit) = 16bit、そのまま加算
-        d[idx16]     = static_cast<uint16_t>(d[idx16]     + srcR8 * invDstA8);
-        d[idx16 + 1] = static_cast<uint16_t>(d[idx16 + 1] + srcG8 * invDstA8);
-        d[idx16 + 2] = static_cast<uint16_t>(d[idx16 + 2] + srcB8 * invDstA8);
-        d[idx16 + 3] = static_cast<uint16_t>(d[idx16 + 3] + 255 * invDstA8);
+
+        // RGチャンネル: srcRG * invDstA8 を計算して加算
+        uint32_t srcRG = srcR8 + (static_cast<uint32_t>(srcG8) << 16);
+        uint32_t dstRG = d[0] + (static_cast<uint32_t>(d[1]) << 16);
+        uint32_t blendRG = dstRG + srcRG * invDstA8;
+        d[0] = static_cast<uint16_t>(blendRG);
+        d[1] = static_cast<uint16_t>(blendRG >> 16);
+
+        // BAチャンネル: srcBA * invDstA8 を計算して加算（RGB332は不透明なのでsrcA=255）
+        uint32_t srcBA = srcB8 + (static_cast<uint32_t>(255) << 16);
+        uint32_t dstBA = d[2] + (static_cast<uint32_t>(d[3]) << 16);
+        uint32_t blendBA = dstBA + srcBA * invDstA8;
+        d[2] = static_cast<uint16_t>(blendBA);
+        d[3] = static_cast<uint16_t>(blendBA >> 16);
     }
 }
 
@@ -846,19 +987,13 @@ static void rgb332_toPremul(void* dst, const void* src, int pixelCount, const Co
     const uint8_t* s = static_cast<const uint8_t*>(src);
 
     for (int i = 0; i < pixelCount; i++) {
-        uint8_t pixel = s[i];
-        uint8_t r3 = (pixel >> 5) & 0x07;
-        uint8_t g3 = (pixel >> 2) & 0x07;
-        uint8_t b2 = pixel & 0x03;
-
-        uint16_t r8 = static_cast<uint16_t>((r3 * 0x49) >> 1);
-        uint16_t g8 = static_cast<uint16_t>((g3 * 0x49) >> 1);
-        uint16_t b8 = static_cast<uint16_t>(b2 * 0x55);
+        // RGB332 → RGB8 変換（ルックアップテーブル使用）
+        const uint8_t* rgb = &rgb332ToRgb8[s[i] * 3];
 
         int idx = i * 4;
-        d[idx]     = static_cast<uint16_t>(r8 << 8);
-        d[idx + 1] = static_cast<uint16_t>(g8 << 8);
-        d[idx + 2] = static_cast<uint16_t>(b8 << 8);
+        d[idx]     = static_cast<uint16_t>(rgb[0] << 8);
+        d[idx + 1] = static_cast<uint16_t>(rgb[1] << 8);
+        d[idx + 2] = static_cast<uint16_t>(rgb[2] << 8);
         d[idx + 3] = RGBA16Premul::ALPHA_OPAQUE_MIN;
     }
 }

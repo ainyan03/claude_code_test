@@ -11,6 +11,11 @@
 #   ./all_tests --list-test-cases     テストケース一覧
 #   ./all_tests --test-case="*viewport*"  特定テストのみ実行
 #   ./all_tests -s                    成功テストも表示
+#
+# ベンチマーク:
+#   ベンチマークは examples/bench/ に統合されました
+#   pio run -e native && .pio/build/native/program  (PC)
+#   pio run -e m5stack_core2 -t upload              (M5Stack)
 
 CXX = g++
 CXXFLAGS = -std=c++17 -Wall -Wextra -Wpedantic \
