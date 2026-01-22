@@ -298,3 +298,10 @@ constexpr PixelFormatDescriptor MyCustomFormat = {
 // 使用
 PixelFormatID myFormat = &MyCustomFormat;
 ```
+
+---
+
+## 関連ドキュメント
+
+- [BENCHMARK_BLEND_UNDER.md](BENCHMARK_BLEND_UNDER.md) - blendUnder関数のベンチマーク結果
+- [ARCHITECTURE.md](ARCHITECTURE.md) - 全体アーキテクチャ

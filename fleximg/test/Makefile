@@ -33,10 +33,17 @@ ALL_LIB_SRCS = $(MEMORY_SRCS) $(CORE_SRCS) $(OPS_SRCS)
 TEST_SRCS = $(filter-out test_main.cpp, $(wildcard *_test.cpp))
 TEST_BINS = $(TEST_SRCS:.cpp=)
 
-.PHONY: all test clean list
+# ベンチマークソース
+BENCH_SRCS = $(wildcard *_bench.cpp)
+BENCH_BINS = $(BENCH_SRCS:.cpp=)
+
+.PHONY: all test bench clean list
 
 # デフォルト: 全テストバイナリをビルド
 all: $(TEST_BINS) all_tests
+
+# ベンチマークをビルド
+bench: $(BENCH_BINS)
 
 # 全テスト実行
 test: all
@@ -57,6 +64,10 @@ all_tests: test_main.cpp $(TEST_SRCS) $(ALL_LIB_SRCS)
 %_test: %_test.cpp test_main.cpp $(ALL_LIB_SRCS)
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
+# ベンチマークバイナリのパターンルール
+%_bench: %_bench.cpp test_main.cpp $(ALL_LIB_SRCS)
+	$(CXX) $(CXXFLAGS) -O3 -o $@ $^
+
 # テスト一覧表示
 list:
 	@echo "Available tests:"
@@ -67,4 +78,4 @@ list:
 
 # クリーンアップ
 clean:
-	rm -f $(TEST_BINS) all_tests *.o
+	rm -f $(TEST_BINS) $(BENCH_BINS) all_tests *.o
