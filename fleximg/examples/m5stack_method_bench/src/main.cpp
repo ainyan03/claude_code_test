@@ -616,13 +616,37 @@ struct PathCompareResult {
     uint32_t directUs;
     uint32_t indirectUs;
     float ratio;
+    bool correctnessOk;
+    int mismatchCount;
 };
+
+// RGBA16バッファ比較（ピクセル単位でミスマッチ数をカウント）
+int compareRGBA16Buffers(const uint16_t* a, const uint16_t* b, int pixelCount) {
+    int mismatches = 0;
+    for (int i = 0; i < pixelCount; i++) {
+        for (int c = 0; c < 4; c++) {
+            int idx = i * 4 + c;
+            if (a[idx] != b[idx]) {
+                mismatches++;
+                break;  // ピクセル単位でカウント
+            }
+        }
+    }
+    return mismatches;
+}
 
 // 直接パス vs 間接パス比較（blendUnderPremul）
 void runBlendUnderPremulPathCompare() {
     Serial.println("\n========================================");
     Serial.println("blendUnderPremul: Direct vs Indirect");
     Serial.println("========================================\n");
+
+    // tempPremulが確保されていない場合はエラー
+    if (!tempPremul) {
+        Serial.println("ERROR: tempPremul buffer not allocated!");
+        Serial.printf("Free heap: %d bytes\n", ESP.getFreeHeap());
+        return;
+    }
 
     M5.Display.fillScreen(TFT_BLACK);
     M5.Display.setCursor(0, 0);
@@ -668,9 +692,24 @@ void runBlendUnderPremulPathCompare() {
     };
     constexpr int numFormats = sizeof(formats) / sizeof(formats[0]);
 
-    Serial.printf("%-12s %8s %8s %6s\n", "Format", "Direct", "Indirect", "Ratio");
-    Serial.println("--------------------------------------------");
-    M5.Display.printf("%-10s %5s %5s %5s\n", "Format", "Dir", "Ind", "Rat");
+    // 正確性チェック用の追加バッファ（遅延確保）
+    // メモリ節約のため、canvasRGBA16を一時的に正確性チェックに再利用
+    // verifyDirectにはcanvasRGBA16をコピーして使い、verifyIndirectは新規確保
+    static uint16_t* verifyIndirect = nullptr;
+    bool canVerify = true;
+    if (!verifyIndirect) {
+        verifyIndirect = static_cast<uint16_t*>(malloc(BENCH_PIXELS * 8));
+        if (!verifyIndirect) {
+            Serial.println("Warning: Could not allocate verify buffer, skipping correctness check");
+            canVerify = false;
+        }
+    }
+
+    Serial.printf("%-12s %8s %8s %6s %s\n", "Format", "Direct", "Indirect", "Ratio", "Check");
+    Serial.println("------------------------------------------------------");
+    M5.Display.printf("%-8s %4s %4s %4s %s\n", "Format", "Dir", "Ind", "Rat", "Chk");
+
+    bool allCorrect = true;
 
     for (int f = 0; f < numFormats; f++) {
         const auto& fmt = formats[f];
@@ -695,19 +734,58 @@ void runBlendUnderPremulPathCompare() {
                 canvasRGBA16, tempPremul, BENCH_PIXELS, nullptr);
         });
 
+        // 正確性チェック
+        bool correctnessOk = true;
+        int mismatches = 0;
+        const char* checkStr = "-";
+
+        if (canVerify && verifyIndirect) {
+            // canvasRGBA16を直接パス結果用に使用
+            initCanvas(AlphaPattern::AllSemi);
+            // 直接パス: canvasRGBA16に結果を格納
+            fmt.format->blendUnderPremul(canvasRGBA16, fmt.srcData, BENCH_PIXELS, nullptr);
+
+            // 間接パス: verifyIndirectに結果を格納
+            initCanvas(AlphaPattern::AllSemi);
+            memcpy(verifyIndirect, canvasRGBA16, BENCH_PIXELS * 8);
+            fmt.format->toPremul(tempPremul, fmt.srcData, BENCH_PIXELS, nullptr);
+            BuiltinFormats::RGBA16_Premultiplied.blendUnderPremul(
+                verifyIndirect, tempPremul, BENCH_PIXELS, nullptr);
+
+            // 再度直接パスを実行（canvasRGBA16がinitCanvasで上書きされたため）
+            initCanvas(AlphaPattern::AllSemi);
+            fmt.format->blendUnderPremul(canvasRGBA16, fmt.srcData, BENCH_PIXELS, nullptr);
+
+            mismatches = compareRGBA16Buffers(canvasRGBA16, verifyIndirect, BENCH_PIXELS);
+            correctnessOk = (mismatches == 0);
+            if (!correctnessOk) allCorrect = false;
+            checkStr = correctnessOk ? "OK" : "FAIL";
+        }
+
         float ratio = (directResult.perFrameUs > 0)
             ? static_cast<float>(indirectResult.perFrameUs) / directResult.perFrameUs
             : 0;
 
-        Serial.printf("%-12s %8u %8u %5.2fx\n",
-                      fmt.name, directResult.perFrameUs, indirectResult.perFrameUs, ratio);
-        M5.Display.printf("%-10s %5u %5u %4.1f\n",
-                          fmt.name, directResult.perFrameUs, indirectResult.perFrameUs, ratio);
+        Serial.printf("%-12s %8u %8u %5.2fx %s",
+                      fmt.name, directResult.perFrameUs, indirectResult.perFrameUs, ratio, checkStr);
+        if (!correctnessOk && mismatches > 0) {
+            Serial.printf(" (%d px)", mismatches);
+        }
+        Serial.println();
+
+        M5.Display.printf("%-8s %4u %4u %3.1f %s\n",
+                          fmt.name, directResult.perFrameUs, indirectResult.perFrameUs, ratio, checkStr);
     }
 
-    Serial.println("--------------------------------------------");
+    Serial.println("------------------------------------------------------");
+    if (canVerify) {
+        Serial.printf("Correctness: %s\n", allCorrect ? "ALL OK" : "SOME FAILED");
+    } else {
+        Serial.println("Correctness: SKIPPED (insufficient memory)");
+    }
     Serial.println("Ratio = Indirect / Direct (>1 means Direct is faster)");
-    M5.Display.println("\nBtnA:main BtnC:path");
+    M5.Display.printf("\nResult: %s\n", canVerify ? (allCorrect ? "ALL OK" : "FAIL") : "NO CHK");
+    M5.Display.println("BtnA:main BtnC:path");
 }
 
 // ========================================================================

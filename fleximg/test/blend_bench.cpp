@@ -225,7 +225,47 @@ struct BenchResult {
     double directUs;    // Direct path time (microseconds)
     double indirectUs;  // Indirect path time (microseconds)
     double ratio;       // indirectUs / directUs
+    bool correctnessOk; // Direct and indirect paths produce same result
+    int mismatchCount;  // Number of mismatched pixels (0 if correctnessOk)
 };
+
+// =============================================================================
+// Correctness Verification
+// =============================================================================
+
+// Compare two RGBA16 buffers, return number of mismatched pixels
+int compareRGBA16Buffers(const uint16_t* a, const uint16_t* b, int pixelCount, uint16_t tolerance = 0) {
+    int mismatches = 0;
+    for (int i = 0; i < pixelCount; i++) {
+        for (int c = 0; c < 4; c++) {
+            int idx = i * 4 + c;
+            int diff = static_cast<int>(a[idx]) - static_cast<int>(b[idx]);
+            if (diff < 0) diff = -diff;
+            if (diff > tolerance) {
+                mismatches++;
+                break;  // Count pixel, not channel
+            }
+        }
+    }
+    return mismatches;
+}
+
+// Compare two RGBA8 buffers, return number of mismatched pixels
+int compareRGBA8Buffers(const uint8_t* a, const uint8_t* b, int pixelCount, uint8_t tolerance = 0) {
+    int mismatches = 0;
+    for (int i = 0; i < pixelCount; i++) {
+        for (int c = 0; c < 4; c++) {
+            int idx = i * 4 + c;
+            int diff = static_cast<int>(a[idx]) - static_cast<int>(b[idx]);
+            if (diff < 0) diff = -diff;
+            if (diff > tolerance) {
+                mismatches++;
+                break;  // Count pixel, not channel
+            }
+        }
+    }
+    return mismatches;
+}
 
 // =============================================================================
 // blendUnderPremul Benchmark
@@ -293,7 +333,25 @@ BenchResult benchBlendUnderPremul(const FormatTestData& testData) {
     double indirectUs = toMicroseconds(elapsed(startIndirect, endIndirect)) / ITERATIONS;
     double ratio = (directUs > 0) ? (indirectUs / directUs) : 0;
 
-    return {testData.name, directUs, indirectUs, ratio};
+    // Correctness verification: run both paths once and compare results
+    initDstPremul(dstDirect.data(), PIXEL_COUNT);
+    initDstPremul(dstIndirect.data(), PIXEL_COUNT);
+
+    // Direct path
+    testData.format->blendUnderPremul(
+        dstDirect.data(), testData.srcData.data(), PIXEL_COUNT, nullptr);
+
+    // Indirect path
+    testData.format->toPremul(
+        tempPremul.data(), testData.srcData.data(), PIXEL_COUNT, nullptr);
+    PixelFormatIDs::RGBA16_Premultiplied->blendUnderPremul(
+        dstIndirect.data(), tempPremul.data(), PIXEL_COUNT, nullptr);
+
+    // Compare results
+    int mismatches = compareRGBA16Buffers(dstDirect.data(), dstIndirect.data(), PIXEL_COUNT);
+    bool correctnessOk = (mismatches == 0);
+
+    return {testData.name, directUs, indirectUs, ratio, correctnessOk, mismatches};
 }
 
 // =============================================================================
@@ -362,7 +420,25 @@ BenchResult benchBlendUnderStraight(const FormatTestData& testData) {
     double indirectUs = toMicroseconds(elapsed(startIndirect, endIndirect)) / ITERATIONS;
     double ratio = (directUs > 0) ? (indirectUs / directUs) : 0;
 
-    return {testData.name, directUs, indirectUs, ratio};
+    // Correctness verification: run both paths once and compare results
+    initDstStraight(dstDirect.data(), PIXEL_COUNT);
+    initDstStraight(dstIndirect.data(), PIXEL_COUNT);
+
+    // Direct path
+    testData.format->blendUnderStraight(
+        dstDirect.data(), testData.srcData.data(), PIXEL_COUNT, nullptr);
+
+    // Indirect path
+    testData.format->toStraight(
+        tempStraight.data(), testData.srcData.data(), PIXEL_COUNT, nullptr);
+    PixelFormatIDs::RGBA8_Straight->blendUnderStraight(
+        dstIndirect.data(), tempStraight.data(), PIXEL_COUNT, nullptr);
+
+    // Compare results
+    int mismatches = compareRGBA8Buffers(dstDirect.data(), dstIndirect.data(), PIXEL_COUNT);
+    bool correctnessOk = (mismatches == 0);
+
+    return {testData.name, directUs, indirectUs, ratio, correctnessOk, mismatches};
 }
 
 // =============================================================================
@@ -371,13 +447,19 @@ BenchResult benchBlendUnderStraight(const FormatTestData& testData) {
 
 void printResults(const char* title, const std::vector<BenchResult>& results) {
     MESSAGE(std::string(title));
-    MESSAGE(std::string("Format          Direct(us)  Indirect(us)  Ratio"));
-    MESSAGE(std::string("------          ----------  ------------  -----"));
+    MESSAGE(std::string("Format          Direct(us)  Indirect(us)  Ratio  Correctness"));
+    MESSAGE(std::string("------          ----------  ------------  -----  -----------"));
 
     for (const auto& r : results) {
         char buf[128];
-        std::snprintf(buf, sizeof(buf), "%-15s %10.2f  %12.2f  %.2fx",
-                      r.formatName, r.directUs, r.indirectUs, r.ratio);
+        const char* correctStr = r.correctnessOk ? "OK" : "FAIL";
+        if (r.correctnessOk) {
+            std::snprintf(buf, sizeof(buf), "%-15s %10.2f  %12.2f  %.2fx  %s",
+                          r.formatName, r.directUs, r.indirectUs, r.ratio, correctStr);
+        } else {
+            std::snprintf(buf, sizeof(buf), "%-15s %10.2f  %12.2f  %.2fx  %s (%d px)",
+                          r.formatName, r.directUs, r.indirectUs, r.ratio, correctStr, r.mismatchCount);
+        }
         MESSAGE(std::string(buf));
     }
     MESSAGE(std::string(""));
@@ -423,6 +505,10 @@ TEST_CASE("blendUnderPremul benchmark" * doctest::skip(false) * doctest::timeout
         // Basic sanity check
         CHECK(result.directUs > 0);
         CHECK(result.indirectUs > 0);
+
+        // Correctness check
+        CHECK_MESSAGE(result.correctnessOk,
+            "Direct/Indirect mismatch for " << testData.name << ": " << result.mismatchCount << " pixels differ");
     }
 
     printResults("[blendUnderPremul]", results);
@@ -462,6 +548,10 @@ TEST_CASE("blendUnderStraight benchmark" * doctest::skip(false) * doctest::timeo
         // Basic sanity check
         CHECK(result.directUs > 0);
         CHECK(result.indirectUs > 0);
+
+        // Correctness check
+        CHECK_MESSAGE(result.correctnessOk,
+            "Direct/Indirect mismatch for " << testData.name << ": " << result.mismatchCount << " pixels differ");
     }
 
     printResults("[blendUnderStraight]", results);
