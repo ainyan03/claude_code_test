@@ -596,6 +596,121 @@ void benchBlendUnderComparison() {
 }
 
 // ========================================================================
+// 直接パス vs 間接パス比較ベンチマーク
+// Direct: srcFormat->blendUnderPremul(dst, src, ...)
+// Indirect: srcFormat->toPremul(tmp, src, ...) + RGBA16Premul->blendUnderPremul(dst, tmp, ...)
+// ========================================================================
+
+// 間接パス用の一時バッファ
+static uint16_t* tempPremul = nullptr;
+static uint8_t* tempStraight = nullptr;
+
+bool allocatePathCompareBuffers() {
+    tempPremul = static_cast<uint16_t*>(malloc(BENCH_PIXELS * 8));
+    tempStraight = static_cast<uint8_t*>(malloc(BENCH_PIXELS * 4));
+    return (tempPremul != nullptr && tempStraight != nullptr);
+}
+
+struct PathCompareResult {
+    const char* formatName;
+    uint32_t directUs;
+    uint32_t indirectUs;
+    float ratio;
+};
+
+// 直接パス vs 間接パス比較（blendUnderPremul）
+void runBlendUnderPremulPathCompare() {
+    Serial.println("\n========================================");
+    Serial.println("blendUnderPremul: Direct vs Indirect");
+    Serial.println("========================================\n");
+
+    M5.Display.fillScreen(TFT_BLACK);
+    M5.Display.setCursor(0, 0);
+    M5.Display.println("Direct vs Indirect\n");
+
+    // テストフォーマット
+    struct FormatInfo {
+        const char* name;
+        const PixelFormatDescriptor* format;
+        uint8_t* srcData;
+        size_t bytesPerPixel;
+    };
+
+    // RGB332データ生成
+    static uint8_t srcRGB332[BENCH_PIXELS];
+    for (int i = 0; i < BENCH_PIXELS; i++) {
+        srcRGB332[i] = static_cast<uint8_t>((i * 37) & 0xFF);
+    }
+
+    // RGB565データ生成
+    static uint8_t srcRGB565[BENCH_PIXELS * 2];
+    for (int i = 0; i < BENCH_PIXELS; i++) {
+        uint16_t val = static_cast<uint16_t>((i * 37) & 0xFFFF);
+        srcRGB565[i * 2] = static_cast<uint8_t>(val & 0xFF);
+        srcRGB565[i * 2 + 1] = static_cast<uint8_t>(val >> 8);
+    }
+
+    // RGB888データ生成
+    static uint8_t srcRGB888[BENCH_PIXELS * 3];
+    for (int i = 0; i < BENCH_PIXELS; i++) {
+        srcRGB888[i * 3 + 0] = static_cast<uint8_t>((i * 37) & 0xFF);
+        srcRGB888[i * 3 + 1] = static_cast<uint8_t>((i * 73) & 0xFF);
+        srcRGB888[i * 3 + 2] = static_cast<uint8_t>((i * 111) & 0xFF);
+    }
+
+    FormatInfo formats[] = {
+        {"RGB332", &BuiltinFormats::RGB332, srcRGB332, 1},
+        {"RGB565_LE", &BuiltinFormats::RGB565_LE, srcRGB565, 2},
+        {"RGB565_BE", &BuiltinFormats::RGB565_BE, srcRGB565, 2},
+        {"RGB888", &BuiltinFormats::RGB888, srcRGB888, 3},
+        {"BGR888", &BuiltinFormats::BGR888, srcRGB888, 3},
+        {"RGBA8_St", &BuiltinFormats::RGBA8_Straight, srcRGBA8, 4},
+    };
+    constexpr int numFormats = sizeof(formats) / sizeof(formats[0]);
+
+    Serial.printf("%-12s %8s %8s %6s\n", "Format", "Direct", "Indirect", "Ratio");
+    Serial.println("--------------------------------------------");
+    M5.Display.printf("%-10s %5s %5s %5s\n", "Format", "Dir", "Ind", "Rat");
+
+    for (int f = 0; f < numFormats; f++) {
+        const auto& fmt = formats[f];
+
+        // 関数が存在するか確認
+        if (!fmt.format->blendUnderPremul || !fmt.format->toPremul) {
+            Serial.printf("%-12s SKIP (no function)\n", fmt.name);
+            continue;
+        }
+
+        // 直接パス計測
+        auto directResult = runBench("direct", [&]() {
+            initCanvas(AlphaPattern::AllSemi);
+            fmt.format->blendUnderPremul(canvasRGBA16, fmt.srcData, BENCH_PIXELS, nullptr);
+        });
+
+        // 間接パス計測
+        auto indirectResult = runBench("indirect", [&]() {
+            initCanvas(AlphaPattern::AllSemi);
+            fmt.format->toPremul(tempPremul, fmt.srcData, BENCH_PIXELS, nullptr);
+            BuiltinFormats::RGBA16_Premultiplied.blendUnderPremul(
+                canvasRGBA16, tempPremul, BENCH_PIXELS, nullptr);
+        });
+
+        float ratio = (directResult.perFrameUs > 0)
+            ? static_cast<float>(indirectResult.perFrameUs) / directResult.perFrameUs
+            : 0;
+
+        Serial.printf("%-12s %8u %8u %5.2fx\n",
+                      fmt.name, directResult.perFrameUs, indirectResult.perFrameUs, ratio);
+        M5.Display.printf("%-10s %5u %5u %4.1f\n",
+                          fmt.name, directResult.perFrameUs, indirectResult.perFrameUs, ratio);
+    }
+
+    Serial.println("--------------------------------------------");
+    Serial.println("Ratio = Indirect / Direct (>1 means Direct is faster)");
+    M5.Display.println("\nBtnA:main BtnC:path");
+}
+
+// ========================================================================
 // CompositeNode関連ベンチマーク（追加）
 // ========================================================================
 
@@ -782,6 +897,10 @@ void setup() {
         return;
     }
 
+    if (!allocatePathCompareBuffers()) {
+        Serial.println("Warning: Path compare buffers allocation failed");
+    }
+
     Serial.printf("Free heap after alloc: %d bytes\n", ESP.getFreeHeap());
 
     initTestData();
@@ -790,13 +909,48 @@ void setup() {
 
 void loop() {
     M5.update();
-#if 0
-    // タッチで再実行
-    if (M5.Touch.getCount() > 0) {
-        delay(500);  // デバウンス
-        runAllBenchmarks();
+
+    // シリアル入力による制御
+    if (Serial.available()) {
+        char cmd = Serial.read();
+        switch (cmd) {
+            case 'a':
+            case 'A':
+            case '1':
+                Serial.println(">> Running main benchmark...");
+                runAllBenchmarks();
+                break;
+            case 'b':
+            case 'B':
+            case '2':
+                Serial.println(">> Running alpha pattern matrix...");
+                runBlendUnderBenchByPattern();
+                break;
+            case 'c':
+            case 'C':
+            case '3':
+                Serial.println(">> Running direct vs indirect comparison...");
+                runBlendUnderPremulPathCompare();
+                break;
+            case 'h':
+            case 'H':
+            case '?':
+                Serial.println("\n=== Serial Commands ===");
+                Serial.println("  a/1: Main benchmark");
+                Serial.println("  b/2: Alpha pattern matrix");
+                Serial.println("  c/3: Direct vs Indirect comparison");
+                Serial.println("  h/?: Show this help");
+                Serial.println("=======================\n");
+                break;
+            default:
+                // 改行等は無視
+                if (cmd >= ' ') {
+                    Serial.printf("Unknown command: '%c'. Type 'h' for help.\n", cmd);
+                }
+                break;
+        }
     }
-#endif
+
     // ボタンAで通常ベンチマーク
     if (M5.BtnA.wasPressed()) {
         runAllBenchmarks();
@@ -805,6 +959,11 @@ void loop() {
     // ボタンBでアルファパターン別ベンチマーク
     if (M5.BtnB.wasPressed()) {
         runBlendUnderBenchByPattern();
+    }
+
+    // ボタンCで直接パス vs 間接パス比較
+    if (M5.BtnC.wasPressed()) {
+        runBlendUnderPremulPathCompare();
     }
 
     delay(10);
