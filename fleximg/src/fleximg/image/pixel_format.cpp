@@ -801,15 +801,11 @@ static void rgb332_toStraight(void* dst, const void* src, int pixelCount, const 
     const uint8_t* s = static_cast<const uint8_t*>(src);
     uint8_t* d = static_cast<uint8_t*>(dst);
     for (int i = 0; i < pixelCount; i++) {
-        uint8_t pixel = s[i];
-        uint8_t r3 = (pixel >> 5) & 0x07;
-        uint8_t g3 = (pixel >> 2) & 0x07;
-        uint8_t b2 = pixel & 0x03;
-
-        // 乗算＋少量シフト（マイコン最適化）
-        d[i*4 + 0] = (r3 * 0x49) >> 1;  // 3bit → 8bit
-        d[i*4 + 1] = (g3 * 0x49) >> 1;  // 3bit → 8bit
-        d[i*4 + 2] = b2 * 0x55;          // 2bit → 8bit
+        // RGB332 → RGB8 変換（ルックアップテーブル使用）
+        const uint8_t* rgb = &rgb332ToRgb8[s[i] * 3];
+        d[i*4 + 0] = rgb[0];
+        d[i*4 + 1] = rgb[1];
+        d[i*4 + 2] = rgb[2];
         d[i*4 + 3] = 255;
     }
 }
@@ -889,19 +885,13 @@ static void rgb332_toPremul(void* dst, const void* src, int pixelCount, const Co
     const uint8_t* s = static_cast<const uint8_t*>(src);
 
     for (int i = 0; i < pixelCount; i++) {
-        uint8_t pixel = s[i];
-        uint8_t r3 = (pixel >> 5) & 0x07;
-        uint8_t g3 = (pixel >> 2) & 0x07;
-        uint8_t b2 = pixel & 0x03;
-
-        uint16_t r8 = static_cast<uint16_t>((r3 * 0x49) >> 1);
-        uint16_t g8 = static_cast<uint16_t>((g3 * 0x49) >> 1);
-        uint16_t b8 = static_cast<uint16_t>(b2 * 0x55);
+        // RGB332 → RGB8 変換（ルックアップテーブル使用）
+        const uint8_t* rgb = &rgb332ToRgb8[s[i] * 3];
 
         int idx = i * 4;
-        d[idx]     = static_cast<uint16_t>(r8 << 8);
-        d[idx + 1] = static_cast<uint16_t>(g8 << 8);
-        d[idx + 2] = static_cast<uint16_t>(b8 << 8);
+        d[idx]     = static_cast<uint16_t>(rgb[0] << 8);
+        d[idx + 1] = static_cast<uint16_t>(rgb[1] << 8);
+        d[idx + 2] = static_cast<uint16_t>(rgb[2] << 8);
         d[idx + 3] = RGBA16Premul::ALPHA_OPAQUE_MIN;
     }
 }
