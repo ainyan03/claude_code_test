@@ -105,6 +105,23 @@ for (auto& input : inputs) {
 - **メモリ効率**: 中間バッファ不要
 - **拡張性**: 新フォーマット追加時は `blendUnderPremul` 関数を実装するだけ
 
+### 8bit精度ブレンド
+
+全てのblendUnderPremul関数は**8bit精度**でブレンド計算を行います。
+これにより、全フォーマット間で一貫した動作が保証されます。
+
+```cpp
+// 8bit精度ブレンド（全blendUnderPremul共通）
+uint_fast8_t dstA8 = d[idx + 3] >> 8;   // 16bit→8bit
+uint_fast16_t invDstA8 = 255 - dstA8;
+d[idx] = d[idx] + src8 * invDstA8;       // 結果は16bitに蓄積
+```
+
+**設計意図**:
+- 全フォーマットで同一のブレンド結果を保証
+- SWAR最適化との整合性（8bit単位での処理）
+- 16bit蓄積により多層合成での丸め誤差累積を軽減
+
 ### SWAR最適化
 
 blendUnderPremulおよびtoPremul関数にはSWAR（SIMD Within A Register）最適化が適用されています。
@@ -115,6 +132,8 @@ blendUnderPremulおよびtoPremul関数にはSWAR（SIMD Within A Register）最
 uint32_t rg = (r + (static_cast<uint32_t>(g) << 16)) * a_tmp;
 // rg & 0xFFFF = R16, rg >> 16 = G16
 ```
+
+> **TODO**: rgba16Premul_blendUnderPremulにもSWAR最適化を適用予定
 
 ### ラウンドトリップ精度
 
