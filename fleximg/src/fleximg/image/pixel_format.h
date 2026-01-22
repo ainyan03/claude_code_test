@@ -174,6 +174,12 @@ struct PixelFormatDescriptor {
     //   - dst が半透明ならunder合成
     using BlendUnderPremulFunc = ConvertFunc;
 
+    // BlendUnderStraightFunc: srcフォーマットからStraight形式(RGBA8)のdstへunder合成
+    //   - dst が不透明なら何もしない（スキップ）
+    //   - dst が透明なら単純コピー
+    //   - dst が半透明ならunder合成（unpremultiply含む）
+    using BlendUnderStraightFunc = ConvertFunc;
+
     // SwapEndianFunc: エンディアン違いの兄弟フォーマットとの変換
     using SwapEndianFunc = ConvertFunc;
 
@@ -181,6 +187,9 @@ struct PixelFormatDescriptor {
     ToPremulFunc toPremul;
     FromPremulFunc fromPremul;
     BlendUnderPremulFunc blendUnderPremul;
+
+    // 関数ポインタ（Straight形式用、未実装の場合は nullptr）
+    BlendUnderStraightFunc blendUnderStraight;
 
     // エンディアン変換（兄弟フォーマットがある場合）
     const PixelFormatDescriptor* siblingEndian;  // エンディアン違いの兄弟（なければnullptr）

@@ -107,6 +107,66 @@ static void rgba8Straight_blendUnderPremul(void* __restrict__ dst, const void* _
     }
 }
 
+// blendUnderStraight: srcフォーマット(RGBA8_Straight)からStraight形式(RGBA8_Straight)のdstへunder合成
+// under合成: dst = dst + src * (1 - dstA)
+// - dst が不透明なら何もしない（スキップ）
+// - dst が透明なら単純コピー
+// - dst が半透明ならunder合成（unpremultiply含む）
+//
+// 最適化:
+// - ポインタインクリメント方式（idx計算削減）
+// - 32bitメモリアクセス（透明→コピー時）
+// - ESP32: 除算パイプラインを活用（RGB計算でレイテンシ隠蔽）
+static void rgba8Straight_blendUnderStraight(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
+    FLEXIMG_FMT_METRICS(RGBA8_Straight, BlendUnderStraight, pixelCount);
+    uint8_t* __restrict__ d = static_cast<uint8_t*>(dst);
+    const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
+
+    // プリデクリメント: ループ先頭でインクリメントするため事前に戻す
+    d -= 4;
+    s -= 4;
+
+    for (int i = 0; i < pixelCount; i++) {
+        d += 4;
+        s += 4;
+
+        uint_fast16_t dstA = d[3];
+
+        // dst が不透明 → スキップ
+        if (dstA == 255) continue;
+
+        uint_fast16_t srcA = s[3];
+
+        // src が透明 → スキップ
+        if (srcA == 0) continue;
+
+        // dst が透明 → 32bit単位で単純コピー
+        if (dstA == 0) {
+            *reinterpret_cast<uint32_t*>(d) = *reinterpret_cast<const uint32_t*>(s);
+            continue;
+        }
+
+        // under合成（Straight形式）
+        uint_fast16_t invDstA = 255 - dstA;
+
+        // resultA = dstA + srcA * invDstA / 255
+        uint_fast16_t resultA = dstA + (srcA * invDstA + 127) / 255;
+
+        // Premultiplied計算:
+        // resultC_premul = dstC * dstA + srcC * srcA * invDstA / 255
+        // ESP32: 除算パイプラインがRGB計算でレイテンシ隠蔽
+        uint_fast32_t resultR_premul = d[0] * dstA + (s[0] * srcA * invDstA + 127) / 255;
+        uint_fast32_t resultG_premul = d[1] * dstA + (s[1] * srcA * invDstA + 127) / 255;
+        uint_fast32_t resultB_premul = d[2] * dstA + (s[2] * srcA * invDstA + 127) / 255;
+
+        // Unpremultiply (除算)
+        d[0] = static_cast<uint8_t>(resultR_premul / resultA);
+        d[1] = static_cast<uint8_t>(resultG_premul / resultA);
+        d[2] = static_cast<uint8_t>(resultB_premul / resultA);
+        d[3] = static_cast<uint8_t>(resultA);
+    }
+}
+
 // fromPremul: Premul形式(RGBA16_Premultiplied)のsrcからRGBA8_Straightのdstへ変換コピー
 // RGBA16_Premul→RGBA8_Straight 1ピクセル変換マクロ（リトルエンディアン前提）
 // s: uint16_t*, d: uint8_t*, s_off: srcオフセット(uint16_t単位), d_off: dstオフセット, a_off: アルファバイトオフセット
@@ -1088,6 +1148,7 @@ const PixelFormatDescriptor RGBA16_Premultiplied = {
     rgba16Premul_toPremul,
     rgba16Premul_fromPremul,
     rgba16Premul_blendUnderPremul,
+    nullptr,  // blendUnderStraight
     nullptr,  // siblingEndian
     nullptr   // swapEndian
 };
@@ -1115,6 +1176,7 @@ const PixelFormatDescriptor RGBA8_Straight = {
     rgba8Straight_toPremul,
     rgba8Straight_fromPremul,
     rgba8Straight_blendUnderPremul,
+    rgba8Straight_blendUnderStraight,  // blendUnderStraight
     nullptr,  // siblingEndian
     nullptr   // swapEndian
 };
@@ -1142,6 +1204,7 @@ const PixelFormatDescriptor RGB565_LE = {
     rgb565le_toPremul,
     rgb565le_fromPremul,
     rgb565le_blendUnderPremul,
+    nullptr,  // blendUnderStraight
     &RGB565_BE,  // siblingEndian
     swap16       // swapEndian
 };
@@ -1169,6 +1232,7 @@ const PixelFormatDescriptor RGB565_BE = {
     rgb565be_toPremul,
     rgb565be_fromPremul,
     rgb565be_blendUnderPremul,
+    nullptr,  // blendUnderStraight
     &RGB565_LE,  // siblingEndian
     swap16       // swapEndian
 };
@@ -1196,6 +1260,7 @@ const PixelFormatDescriptor RGB332 = {
     rgb332_toPremul,
     rgb332_fromPremul,
     rgb332_blendUnderPremul,
+    nullptr,  // blendUnderStraight
     nullptr,  // siblingEndian
     nullptr   // swapEndian
 };
@@ -1223,6 +1288,7 @@ const PixelFormatDescriptor RGB888 = {
     rgb888_toPremul,
     rgb888_fromPremul,
     rgb888_blendUnderPremul,
+    nullptr,  // blendUnderStraight
     &BGR888,  // siblingEndian
     swap24    // swapEndian
 };
@@ -1250,6 +1316,7 @@ const PixelFormatDescriptor BGR888 = {
     bgr888_toPremul,
     bgr888_fromPremul,
     bgr888_blendUnderPremul,
+    nullptr,  // blendUnderStraight
     &RGB888,  // siblingEndian
     swap24    // swapEndian
 };
@@ -1275,6 +1342,7 @@ const PixelFormatDescriptor Alpha8 = {
     nullptr,  // toPremul
     nullptr,  // fromPremul
     nullptr,  // blendUnderPremul
+    nullptr,  // blendUnderStraight
     nullptr,  // siblingEndian
     nullptr   // swapEndian
 };
