@@ -7,7 +7,7 @@
 | フォーマット | 用途 | ステータス |
 |-------------|------|-----------|
 | RGBA8_Straight | 入出力、合成、フィルタ処理 | **デフォルト** |
-| RGBA16_Premultiplied | （無効化） | `#if 0` で封印 |
+| RGBA16_Premultiplied | 高精度合成 | `FLEXIMG_ENABLE_PREMUL` で有効化 |
 
 ### RGBA8_Straight への移行理由
 
@@ -150,10 +150,10 @@ constexpr uint16_t calcInvUnpremul(int a) {
 
 ---
 
-## 参考: RGBA16_Premultiplied 仕様（無効化中）
+## 参考: RGBA16_Premultiplied 仕様（オプション）
 
-以下はRGBA16_Premultiplied使用時の仕様です。現在は`#if 0`で無効化されていますが、
-将来必要になった場合に備えて仕様を残しています。
+以下はRGBA16_Premultiplied使用時の仕様です。`FLEXIMG_ENABLE_PREMUL` を定義することで有効化できます。
+高精度な合成が必要な場合に使用してください（C++17必須、メモリ使用量2倍）。
 
 ### RGBA8_Straight ↔ RGBA16_Premultiplied 変換
 
