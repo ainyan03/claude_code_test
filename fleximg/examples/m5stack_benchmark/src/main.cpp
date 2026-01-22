@@ -1,5 +1,5 @@
-// fleximg M5Stack Benchmark Example
-// パフォーマンス計測サンプル
+// fleximg M5Stack Format Matrix Benchmark
+// ソース/シンク フォーマット総当たり性能計測
 
 #include <M5Unified.h>
 
@@ -13,8 +13,8 @@
 #include "fleximg/nodes/source_node.h"
 #include "fleximg/nodes/affine_node.h"
 #include "fleximg/nodes/composite_node.h"
-#include "fleximg/nodes/matte_node.h"
 #include "fleximg/nodes/renderer_node.h"
+#include "fleximg/nodes/sink_node.h"
 
 // fleximg implementation files (header-only style inclusion for simplicity)
 #include "fleximg/image/pixel_format.cpp"
@@ -23,11 +23,6 @@
 #include "fleximg/operations/filters.cpp"
 #include "fleximg/core/memory/platform.cpp"
 #include "fleximg/core/memory/pool_allocator.cpp"
-
-// カスタムSinkNode
-#include "lcd_sink_node.h"
-
-#include <cmath>
 
 using namespace fleximg;
 using namespace fleximg::core;
@@ -61,340 +56,431 @@ private:
 };
 
 // PoolAllocator用のメモリプール
-// 画面幅320px × RGBA8(4bytes) = 1280bytes/line、余裕を持って4KB/block
-static constexpr size_t POOL_BLOCK_SIZE = 1 * 1024;  // 1KB per block
-static constexpr size_t POOL_BLOCK_COUNT = 32;        // 32 blocks = 32KB
+static constexpr size_t POOL_BLOCK_SIZE = 2 * 1024;   // 2KB per block
+static constexpr size_t POOL_BLOCK_COUNT = 32;        // 32 blocks = 64KB
 static uint8_t poolMemory[POOL_BLOCK_SIZE * POOL_BLOCK_COUNT];
 static memory::PoolAllocator internalPool;
 static PoolAllocatorAdapter* poolAdapter = nullptr;
 
 // ========================================================================
-// テストシナリオ
+// テスト対象フォーマット
 // ========================================================================
-enum class Scenario {
-    Source,         // 画像表示のみ（ベースライン）
-    Affine,         // アフィン変換
-    Composite,      // 2画像合成
-    Matte,          // マット合成（3入力）
-    Count
+
+struct FormatInfo {
+    PixelFormatID id;
+    const char* name;
+    const char* shortName;  // 8文字以内
 };
 
-static const char* scenarioNames[] = {
-    "Source",
-    "Affine",
-    "Composite",
-    "Matte"
+static const FormatInfo testFormats[] = {
+    { PixelFormatIDs::RGBA8_Straight, "RGBA8_Straight", "RGBA8" },
+    { PixelFormatIDs::RGB888,         "RGB888",         "RGB888" },
+    { PixelFormatIDs::RGB565_LE,      "RGB565_LE",      "RGB565" },
+    { PixelFormatIDs::RGB332,         "RGB332",         "RGB332" },
 };
+static constexpr int FORMAT_COUNT = sizeof(testFormats) / sizeof(testFormats[0]);
 
 // ========================================================================
-// ROM上の固定テスト画像（ヒープを使わない）
+// ベンチマーク設定
+// ========================================================================
+
+static constexpr int WARMUP_FRAMES = 10;      // ウォームアップフレーム数
+static constexpr int BENCHMARK_FRAMES = 50;   // 計測フレーム数
+static constexpr int16_t RENDER_WIDTH = 64;   // レンダリング幅
+static constexpr int16_t RENDER_HEIGHT = 64;  // レンダリング高さ
+
+// ========================================================================
+// ROM上の固定テスト画像（RGBA8マスターデータ）
 // ========================================================================
 
 // 8x8 チェッカーボード RGBA8 (256 bytes) - 赤/黄
 static const uint8_t checkerData[8 * 8 * 4] = {
-    // Row 0: R Y R Y R Y R Y
+    // Row 0-7: チェッカーパターン
     255,50,50,255,  255,220,50,255, 255,50,50,255,  255,220,50,255,
     255,50,50,255,  255,220,50,255, 255,50,50,255,  255,220,50,255,
-    // Row 1: Y R Y R Y R Y R
     255,220,50,255, 255,50,50,255,  255,220,50,255, 255,50,50,255,
     255,220,50,255, 255,50,50,255,  255,220,50,255, 255,50,50,255,
-    // Row 2
     255,50,50,255,  255,220,50,255, 255,50,50,255,  255,220,50,255,
     255,50,50,255,  255,220,50,255, 255,50,50,255,  255,220,50,255,
-    // Row 3
     255,220,50,255, 255,50,50,255,  255,220,50,255, 255,50,50,255,
     255,220,50,255, 255,50,50,255,  255,220,50,255, 255,50,50,255,
-    // Row 4
     255,50,50,255,  255,220,50,255, 255,50,50,255,  255,220,50,255,
     255,50,50,255,  255,220,50,255, 255,50,50,255,  255,220,50,255,
-    // Row 5
     255,220,50,255, 255,50,50,255,  255,220,50,255, 255,50,50,255,
     255,220,50,255, 255,50,50,255,  255,220,50,255, 255,50,50,255,
-    // Row 6
     255,50,50,255,  255,220,50,255, 255,50,50,255,  255,220,50,255,
     255,50,50,255,  255,220,50,255, 255,50,50,255,  255,220,50,255,
-    // Row 7
     255,220,50,255, 255,50,50,255,  255,220,50,255, 255,50,50,255,
     255,220,50,255, 255,50,50,255,  255,220,50,255, 255,50,50,255,
-};
-
-// 8x8 青/シアン ストライプ RGBA8 (256 bytes)
-static const uint8_t stripeData[8 * 8 * 4] = {
-    // 縦ストライプ: 青 青 シアン シアン 青 青 シアン シアン
-    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
-    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
-    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
-    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
-    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
-    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
-    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
-    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
-    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
-    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
-    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
-    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
-    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
-    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
-    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
-    50,100,200,255, 50,100,200,255, 80,180,200,255, 80,180,200,255,
-};
-
-// 8x8 円形マスク Alpha8 (64 bytes)
-static const uint8_t circleMaskData[8 * 8] = {
-    0,   0,   128, 255, 255, 128, 0,   0,
-    0,   200, 255, 255, 255, 255, 200, 0,
-    128, 255, 255, 255, 255, 255, 255, 128,
-    255, 255, 255, 255, 255, 255, 255, 255,
-    255, 255, 255, 255, 255, 255, 255, 255,
-    128, 255, 255, 255, 255, 255, 255, 128,
-    0,   200, 255, 255, 255, 255, 200, 0,
-    0,   0,   128, 255, 255, 128, 0,   0,
 };
 
 // ROM画像用のViewPort作成ヘルパー
 static ViewPort createRomView(const uint8_t* data, int w, int h, PixelFormatID fmt) {
     ViewPort vp;
     vp.data = const_cast<uint8_t*>(data);  // ROM参照のためconst_cast
-    vp.width = w;
-    vp.height = h;
-    vp.stride = w * getBytesPerPixel(fmt);
+    vp.width = static_cast<int16_t>(w);
+    vp.height = static_cast<int16_t>(h);
+    vp.stride = static_cast<int16_t>(w * getBytesPerPixel(fmt));
     vp.formatID = fmt;
     return vp;
 }
 
 // ========================================================================
-// グローバル変数
+// ソース画像バッファ（各フォーマット用）
 // ========================================================================
 
-// ROM画像用ViewPort（動的メモリ確保なし）
-static ViewPort image1View;
-static ViewPort image2View;
-static ViewPort maskView;
+static ImageBuffer sourceBuffers[FORMAT_COUNT];
+static ViewPort sourceViews[FORMAT_COUNT];
 
+// 背景画像用（青/シアンストライプ、半透明）
+static const uint8_t bgData[8 * 8 * 4] = {
+    // 縦ストライプ: 青 青 シアン シアン（alpha=200で半透明）
+    50,100,200,200, 50,100,200,200, 80,180,200,200, 80,180,200,200,
+    50,100,200,200, 50,100,200,200, 80,180,200,200, 80,180,200,200,
+    50,100,200,200, 50,100,200,200, 80,180,200,200, 80,180,200,200,
+    50,100,200,200, 50,100,200,200, 80,180,200,200, 80,180,200,200,
+    50,100,200,200, 50,100,200,200, 80,180,200,200, 80,180,200,200,
+    50,100,200,200, 50,100,200,200, 80,180,200,200, 80,180,200,200,
+    50,100,200,200, 50,100,200,200, 80,180,200,200, 80,180,200,200,
+    50,100,200,200, 50,100,200,200, 80,180,200,200, 80,180,200,200,
+    50,100,200,200, 50,100,200,200, 80,180,200,200, 80,180,200,200,
+    50,100,200,200, 50,100,200,200, 80,180,200,200, 80,180,200,200,
+    50,100,200,200, 50,100,200,200, 80,180,200,200, 80,180,200,200,
+    50,100,200,200, 50,100,200,200, 80,180,200,200, 80,180,200,200,
+    50,100,200,200, 50,100,200,200, 80,180,200,200, 80,180,200,200,
+    50,100,200,200, 50,100,200,200, 80,180,200,200, 80,180,200,200,
+    50,100,200,200, 50,100,200,200, 80,180,200,200, 80,180,200,200,
+    50,100,200,200, 50,100,200,200, 80,180,200,200, 80,180,200,200,
+};
+
+static ImageBuffer bgBuffers[FORMAT_COUNT];
+static ViewPort bgViews[FORMAT_COUNT];
+
+// マスターデータから各フォーマットのソースを準備
+static void prepareSourceImages() {
+    ViewPort masterView = createRomView(checkerData, 8, 8, PixelFormatIDs::RGBA8_Straight);
+    ViewPort bgMasterView = createRomView(bgData, 8, 8, PixelFormatIDs::RGBA8_Straight);
+
+    for (int i = 0; i < FORMAT_COUNT; ++i) {
+        // 前景画像（チェッカー）
+        sourceBuffers[i] = ImageBuffer(8, 8, testFormats[i].id);
+        sourceViews[i] = sourceBuffers[i].view();
+        view_ops::copy(sourceViews[i], 0, 0, masterView, 0, 0, 8, 8);
+
+        // 背景画像（ストライプ）
+        bgBuffers[i] = ImageBuffer(8, 8, testFormats[i].id);
+        bgViews[i] = bgBuffers[i].view();
+        view_ops::copy(bgViews[i], 0, 0, bgMasterView, 0, 0, 8, 8);
+    }
+}
+
+// ========================================================================
+// シンクバッファ（出力先）
+// ========================================================================
+
+static ImageBuffer sinkBuffer;
+
+static void prepareSinkBuffer(PixelFormatID format) {
+    sinkBuffer = ImageBuffer(RENDER_WIDTH, RENDER_HEIGHT, format);
+}
+
+// ========================================================================
 // ノード
-static SourceNode source1;
-static SourceNode source2;
-static SourceNode maskSource;
+// ========================================================================
+
+static SourceNode source1;   // 前景
+static SourceNode source2;   // 背景
 static AffineNode affine1;
 static AffineNode affine2;
-static AffineNode maskAffine;
 static CompositeNode composite;
-static MatteNode matte;
 static RendererNode renderer;
-static LcdSinkNode lcdSink;
+static SinkNode sink;
 
-// 計測状態
-static Scenario currentScenario = Scenario::Source;
-static float animationTime = 0.0f;
-static int frameCount = 0;
-static unsigned long lastReportTime = 0;
-static const int REPORT_INTERVAL_MS = 2000;  // 2秒ごとにレポート
-static const int FRAMES_PER_REPORT = 60;     // または60フレームごと
-
-// 画面サイズ
-static int16_t screenW, screenH;
-static int16_t drawW, drawH;
-static int16_t drawX, drawY;
-
-// ========================================================================
-// パイプライン構築
-// ========================================================================
-
-// ノード初期化（setup()から1回だけ呼ぶ）
-static void initializeNodes() {
-    // 共通設定
-    renderer.setVirtualScreen(drawW, drawH);
-    renderer.setAllocator(poolAdapter);  // 内部バッファ用アロケータを設定
-    lcdSink.setTarget(&M5.Display, drawX, drawY, drawW, drawH);
-    lcdSink.setOrigin(float_to_fixed(drawW / 2.0f), float_to_fixed(drawH / 2.0f));
+// シンプルパイプライン構築（合成なし）
+static void setupSimplePipeline(int sourceFormatIdx, int sinkFormatIdx) {
+    // 全ノードの接続をクリア
+    source1.disconnectAll();
+    affine1.disconnectAll();
+    renderer.disconnectAll();
+    sink.disconnectAll();
 
     // ソース設定
-    // ROM画像をソースに設定
-    source1.setSource(image1View);
-    source1.setOrigin(float_to_fixed(image1View.width / 2.0f), float_to_fixed(image1View.height / 2.0f));
+    source1.setSource(sourceViews[sourceFormatIdx]);
+    source1.setOrigin(float_to_fixed(4.0f), float_to_fixed(4.0f));
 
-    source2.setSource(image2View);
-    source2.setOrigin(float_to_fixed(image2View.width / 2.0f), float_to_fixed(image2View.height / 2.0f));
+    // シンクバッファ準備
+    prepareSinkBuffer(testFormats[sinkFormatIdx].id);
+    sink.setTarget(sinkBuffer.view());
+    sink.setOrigin(float_to_fixed(RENDER_WIDTH / 2.0f), float_to_fixed(RENDER_HEIGHT / 2.0f));
 
-    maskSource.setSource(maskView);
-    maskSource.setOrigin(float_to_fixed(maskView.width / 2.0f), float_to_fixed(maskView.height / 2.0f));
+    // レンダラー設定
+    renderer.setVirtualScreen(RENDER_WIDTH, RENDER_HEIGHT);
+    renderer.setAllocator(poolAdapter);
+
+    // パイプライン接続: Source → Affine → Renderer → Sink
+    source1 >> affine1 >> renderer >> sink;
+
+    // 8x8を画面いっぱいに拡大（8倍 → 64x64）
+    affine1.setRotationScale(0.0f, 8.0f, 8.0f);
 }
 
-static void setupPipeline(Scenario scenario) {
-    // 全ノードの接続をクリア（ノード自体は再生成しない）
+// 合成パイプライン構築
+static void setupCompositePipeline(int fgFormatIdx, int bgFormatIdx, int sinkFormatIdx) {
+    // 全ノードの接続をクリア
     source1.disconnectAll();
     source2.disconnectAll();
-    maskSource.disconnectAll();
     affine1.disconnectAll();
     affine2.disconnectAll();
-    maskAffine.disconnectAll();
     composite.disconnectAll();
-    matte.disconnectAll();
     renderer.disconnectAll();
-    lcdSink.disconnectAll();
+    sink.disconnectAll();
 
-    // シナリオ別パイプライン構築
-    // 8x8画像を画面いっぱいに拡大（約40倍）して描画負荷を高める
-    constexpr float baseScale = 40.0f;
+    // 前景ソース設定
+    source1.setSource(sourceViews[fgFormatIdx]);
+    source1.setOrigin(float_to_fixed(4.0f), float_to_fixed(4.0f));
 
-    switch (scenario) {
-        case Scenario::Source:
-            // Source → Affine → Renderer → LCD（静止画、最大スケール）
-            source1 >> affine1 >> renderer >> lcdSink;
-            affine1.setRotationScale(0, baseScale, baseScale);
-            break;
+    // 背景ソース設定
+    source2.setSource(bgViews[bgFormatIdx]);
+    source2.setOrigin(float_to_fixed(4.0f), float_to_fixed(4.0f));
 
-        case Scenario::Affine:
-            // Source → Affine(回転+スケール変動) → Renderer → LCD
-            source1 >> affine1 >> renderer >> lcdSink;
-            affine1.setRotationScale(0, baseScale, baseScale);
-            break;
+    // シンクバッファ準備
+    prepareSinkBuffer(testFormats[sinkFormatIdx].id);
+    sink.setTarget(sinkBuffer.view());
+    sink.setOrigin(float_to_fixed(RENDER_WIDTH / 2.0f), float_to_fixed(RENDER_HEIGHT / 2.0f));
 
-        case Scenario::Composite:
-            // Source1 → Affine1 → Composite(1) 背面
-            // Source2 → Affine2 → Composite(0) 前面
-            // Composite → Renderer → LCD
-            source1 >> affine1;
-            affine1.connectTo(composite, 1);
-            source2 >> affine2;
-            affine2.connectTo(composite, 0);
-            composite >> renderer >> lcdSink;
-            affine1.setRotationScale(0, baseScale, baseScale);
-            affine2.setRotationScale(0, baseScale * 0.8f, baseScale * 0.8f);
-            break;
+    // レンダラー設定
+    renderer.setVirtualScreen(RENDER_WIDTH, RENDER_HEIGHT);
+    renderer.setAllocator(poolAdapter);
 
-        case Scenario::Matte:
-            // Source1 → Affine1 → Matte(0) 前景
-            // Source2 → Affine2 → Matte(1) 背景
-            // Mask → MaskAffine → Matte(2) マスク
-            // Matte → Renderer → LCD
-            source1 >> affine1;
-            affine1.connectTo(matte, 0);
-            source2 >> affine2;
-            affine2.connectTo(matte, 1);
-            maskSource >> maskAffine;
-            maskAffine.connectTo(matte, 2);
-            matte >> renderer >> lcdSink;
-            affine1.setRotationScale(0, baseScale, baseScale);
-            affine2.setRotationScale(0, baseScale * 0.9f, baseScale * 0.9f);
-            maskAffine.setRotationScale(0, baseScale, baseScale);
-            break;
+    // パイプライン接続:
+    // Source1(前景) → Affine1 → Composite(0)
+    // Source2(背景) → Affine2 → Composite(1)
+    // Composite → Renderer → Sink
+    source1 >> affine1;
+    affine1.connectTo(composite, 0);  // 前景
+    source2 >> affine2;
+    affine2.connectTo(composite, 1);  // 背景
+    composite >> renderer >> sink;
 
-        default:
-            break;
-    }
+    // 8x8を画面いっぱいに拡大（8倍 → 64x64）
+    affine1.setRotationScale(0.0f, 8.0f, 8.0f);
+    affine2.setRotationScale(0.0f, 8.0f, 8.0f);
 }
 
 // ========================================================================
-// アニメーション更新
+// ベンチマーク実行
 // ========================================================================
 
-static void updateAnimation() {
-    animationTime += 0.03f;
-    if (animationTime > 2.0f * static_cast<float>(M_PI)) {
-        animationTime -= 2.0f * static_cast<float>(M_PI);
+// 結果格納用マトリクス [source][sink]
+static uint32_t simpleMatrix[FORMAT_COUNT][FORMAT_COUNT];
+static uint32_t compositeMatrix[FORMAT_COUNT][FORMAT_COUNT];
+
+static void runSimpleBenchmark(int srcIdx, int sinkIdx) {
+    setupSimplePipeline(srcIdx, sinkIdx);
+
+    // ウォームアップ
+    for (int i = 0; i < WARMUP_FRAMES; ++i) {
+        renderer.exec();
+        M5.delay(1);  // WDTフィード
     }
 
-    // 画面いっぱいのスケール（8x8 → 320x320相当）
-    constexpr float baseScale = 40.0f;
-    float rotation = animationTime;
-    float scaleVar = baseScale + 5.0f * std::sin(animationTime * 2.0f);
-
-    switch (currentScenario) {
-        case Scenario::Source:
-            // 静止（setupPipelineで設定済み）
-            break;
-
-        case Scenario::Affine:
-            // 回転+スケール変動
-            affine1.setRotationScale(rotation, scaleVar, scaleVar);
-            break;
-
-        case Scenario::Composite:
-            // 2画像を異なる回転で合成
-            affine1.setRotationScale(rotation, baseScale, baseScale);
-            affine2.setRotationScale(-rotation * 0.5f, baseScale * 0.8f, baseScale * 0.8f);
-            break;
-
-        case Scenario::Matte:
-            // 前景、背景、マスクを異なるパラメータで変換
-            affine1.setRotationScale(rotation, baseScale, baseScale);
-            affine2.setRotationScale(-rotation * 0.3f, baseScale * 0.9f, baseScale * 0.9f);
-            maskAffine.setRotationScale(rotation * 0.5f, scaleVar, scaleVar);
-            break;
-
-        default:
-            break;
-    }
-}
-
-// ========================================================================
-// メトリクスレポート
-// ========================================================================
-
-static void printMetricsHeader() {
-    M5_LOGI("=== fleximg Benchmark ===");
-    M5_LOGI("Screen: %dx%d, Draw: %dx%d", screenW, screenH, drawW, drawH);
-    M5_LOGI("CSV Format: Scenario,Frames,TotalTime_us,AvgFrame_us,FPS,AllocBytes,AllocCount");
-}
-
-static void printMetricsReport() {
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
-    auto& metrics = PerfMetrics::instance();
+    PerfMetrics::instance().reset();
+#endif
 
-    // 合計時間とフレーム数
-    uint32_t rendererTime = metrics.nodes[NodeType::Renderer].time_us;
-    int frames = metrics.nodes[NodeType::Renderer].count;
+    // 計測
+    unsigned long startTime = micros();
+    for (int i = 0; i < BENCHMARK_FRAMES; ++i) {
+        renderer.exec();
+        if ((i & 0x0F) == 0) M5.delay(1);  // 16フレームごとにWDTフィード
+    }
+    unsigned long endTime = micros();
 
-    if (frames == 0) return;
+    uint32_t totalTime = static_cast<uint32_t>(endTime - startTime);
+    simpleMatrix[srcIdx][sinkIdx] = totalTime / BENCHMARK_FRAMES;
+}
 
-    float avgFrameTime = static_cast<float>(rendererTime) / static_cast<float>(frames);
-    float fps = (avgFrameTime > 0) ? 1000000.0f / avgFrameTime : 0;
+static void runCompositeBenchmark(int fgIdx, int sinkIdx) {
+    // 背景は RGBA8 固定（前景フォーマットの影響を見やすくする）
+    setupCompositePipeline(fgIdx, 0, sinkIdx);
 
-    // CSV出力
-    M5_LOGI("%s,%d,%lu,%.1f,%.1f,%lu,%d",
-            scenarioNames[static_cast<int>(currentScenario)],
-            frames,
-            static_cast<unsigned long>(rendererTime),
-            static_cast<double>(avgFrameTime),
-            static_cast<double>(fps),
-            static_cast<unsigned long>(metrics.totalAllocatedBytes),
-            static_cast<int>(metrics.totalNodeAllocatedBytes()));
+    // ウォームアップ
+    for (int i = 0; i < WARMUP_FRAMES; ++i) {
+        renderer.exec();
+        M5.delay(1);  // WDTフィード
+    }
 
-    // 詳細出力
-    M5_LOGI("--- Node Details ---");
-    for (int i = 0; i < NodeType::Count; ++i) {
-        const auto& n = metrics.nodes[i];
-        if (n.count > 0) {
-            float avgTime = static_cast<float>(n.time_us) / static_cast<float>(n.count);
-            M5_LOGI("  [%2d] time=%6luus cnt=%4d avg=%.1fus alloc=%luB",
-                    i, static_cast<unsigned long>(n.time_us), n.count,
-                    static_cast<double>(avgTime), static_cast<unsigned long>(n.allocatedBytes));
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    PerfMetrics::instance().reset();
+#endif
+
+    // 計測
+    unsigned long startTime = micros();
+    for (int i = 0; i < BENCHMARK_FRAMES; ++i) {
+        renderer.exec();
+        if ((i & 0x0F) == 0) M5.delay(1);  // 16フレームごとにWDTフィード
+    }
+    unsigned long endTime = micros();
+
+    uint32_t totalTime = static_cast<uint32_t>(endTime - startTime);
+    compositeMatrix[fgIdx][sinkIdx] = totalTime / BENCHMARK_FRAMES;
+}
+
+static void runAllBenchmarks() {
+    M5_LOGI("=== Format Matrix Benchmark ===");
+    M5_LOGI("Render: %dx%d, Frames: %d", RENDER_WIDTH, RENDER_HEIGHT, BENCHMARK_FRAMES);
+#ifdef FLEXIMG_COMPOSITE_USE_STRAIGHT
+    M5_LOGI("Composite Mode: 8bit Straight");
+#else
+    M5_LOGI("Composite Mode: 16bit Premul");
+#endif
+    M5_LOGI("");
+
+    int total = FORMAT_COUNT * FORMAT_COUNT * 2;  // Simple + Composite
+    int current = 0;
+
+    // Simple パイプライン (Source → Affine → Sink)
+    M5_LOGI("--- Simple Pipeline ---");
+    for (int srcIdx = 0; srcIdx < FORMAT_COUNT; ++srcIdx) {
+        for (int sinkIdx = 0; sinkIdx < FORMAT_COUNT; ++sinkIdx) {
+            current++;
+            M5_LOGI("Simple [%d/%d]: %s -> %s",
+                    current, total,
+                    testFormats[srcIdx].shortName,
+                    testFormats[sinkIdx].shortName);
+
+            M5.Display.fillRect(0, 40, 320, 20, TFT_BLACK);
+            M5.Display.setCursor(0, 40);
+            M5.Display.printf("Simple %d/%d: %s->%s",
+                              current, total,
+                              testFormats[srcIdx].shortName,
+                              testFormats[sinkIdx].shortName);
+
+            runSimpleBenchmark(srcIdx, sinkIdx);
+
+            M5_LOGI("  Result: %lu us/frame", static_cast<unsigned long>(simpleMatrix[srcIdx][sinkIdx]));
         }
     }
-    M5_LOGI("Peak memory: %lu bytes", static_cast<unsigned long>(metrics.peakMemoryBytes));
 
+    // Composite パイプライン (Source1 + Source2 → Composite → Sink)
+    M5_LOGI("");
+    M5_LOGI("--- Composite Pipeline (BG=RGBA8) ---");
+    for (int fgIdx = 0; fgIdx < FORMAT_COUNT; ++fgIdx) {
+        for (int sinkIdx = 0; sinkIdx < FORMAT_COUNT; ++sinkIdx) {
+            current++;
+            M5_LOGI("Composite [%d/%d]: FG=%s -> %s",
+                    current, total,
+                    testFormats[fgIdx].shortName,
+                    testFormats[sinkIdx].shortName);
+
+            M5.Display.fillRect(0, 40, 320, 20, TFT_BLACK);
+            M5.Display.setCursor(0, 40);
+            M5.Display.printf("Comp %d/%d: %s->%s",
+                              current, total,
+                              testFormats[fgIdx].shortName,
+                              testFormats[sinkIdx].shortName);
+
+            runCompositeBenchmark(fgIdx, sinkIdx);
+
+            M5_LOGI("  Result: %lu us/frame", static_cast<unsigned long>(compositeMatrix[fgIdx][sinkIdx]));
+        }
+    }
+}
+
+static void printMatrix(const char* title, uint32_t matrix[FORMAT_COUNT][FORMAT_COUNT]) {
+    M5_LOGI("");
+    M5_LOGI("=== %s (us/frame) ===", title);
+    M5_LOGI("");
+
+    // ヘッダー行
+    char header[128];
+    int pos = snprintf(header, sizeof(header), "Src\\Sink  ");
+    for (int i = 0; i < FORMAT_COUNT; ++i) {
+        pos += snprintf(header + pos, sizeof(header) - static_cast<size_t>(pos), "%8s", testFormats[i].shortName);
+    }
+    M5_LOGI("%s", header);
+
+    // 区切り線
+    M5_LOGI("--------  --------------------------------");
+
+    // データ行
+    for (int srcIdx = 0; srcIdx < FORMAT_COUNT; ++srcIdx) {
+        char row[128];
+        int rowPos = snprintf(row, sizeof(row), "%-8s  ", testFormats[srcIdx].shortName);
+        for (int sinkIdx = 0; sinkIdx < FORMAT_COUNT; ++sinkIdx) {
+            rowPos += snprintf(row + rowPos, sizeof(row) - static_cast<size_t>(rowPos), "%8lu",
+                               static_cast<unsigned long>(matrix[srcIdx][sinkIdx]));
+        }
+        M5_LOGI("%s", row);
+    }
+}
+
+static void printResultMatrix() {
+#ifdef FLEXIMG_COMPOSITE_USE_STRAIGHT
+    M5_LOGI("=== Composite Mode: 8bit Straight ===");
+#else
+    M5_LOGI("=== Composite Mode: 16bit Premul ===");
+#endif
+
+    printMatrix("Simple Pipeline", simpleMatrix);
+    printMatrix("Composite Pipeline (BG=RGBA8)", compositeMatrix);
+
+    // CSV形式も出力
+    M5_LOGI("");
+    M5_LOGI("=== CSV Format (Simple) ===");
+    char csvHeader[128];
+    int csvPos = snprintf(csvHeader, sizeof(csvHeader), "Source");
+    for (int i = 0; i < FORMAT_COUNT; ++i) {
+        csvPos += snprintf(csvHeader + csvPos, sizeof(csvHeader) - static_cast<size_t>(csvPos), ",%s", testFormats[i].shortName);
+    }
+    M5_LOGI("%s", csvHeader);
+
+    for (int srcIdx = 0; srcIdx < FORMAT_COUNT; ++srcIdx) {
+        char csvRow[128];
+        int csvRowPos = snprintf(csvRow, sizeof(csvRow), "%s", testFormats[srcIdx].shortName);
+        for (int sinkIdx = 0; sinkIdx < FORMAT_COUNT; ++sinkIdx) {
+            csvRowPos += snprintf(csvRow + csvRowPos, sizeof(csvRow) - static_cast<size_t>(csvRowPos), ",%lu",
+                                  static_cast<unsigned long>(simpleMatrix[srcIdx][sinkIdx]));
+        }
+        M5_LOGI("%s", csvRow);
+    }
+
+    M5_LOGI("");
+    M5_LOGI("=== CSV Format (Composite) ===");
+    M5_LOGI("%s", csvHeader);
+
+    for (int srcIdx = 0; srcIdx < FORMAT_COUNT; ++srcIdx) {
+        char csvRow[128];
+        int csvRowPos = snprintf(csvRow, sizeof(csvRow), "%s", testFormats[srcIdx].shortName);
+        for (int sinkIdx = 0; sinkIdx < FORMAT_COUNT; ++sinkIdx) {
+            csvRowPos += snprintf(csvRow + csvRowPos, sizeof(csvRow) - static_cast<size_t>(csvRowPos), ",%lu",
+                                  static_cast<unsigned long>(compositeMatrix[srcIdx][sinkIdx]));
+        }
+        M5_LOGI("%s", csvRow);
+    }
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
     // フォーマット変換統計
     auto& fmtMetrics = FormatMetrics::instance();
-    M5_LOGI("--- Format Conversion ---");
+    M5_LOGI("");
+    M5_LOGI("=== Format Conversion Stats ===");
     static const char* fmtNames[] = {
         "RGBA16P", "RGBA8", "RGB565LE", "RGB565BE", "RGB332", "RGB888", "BGR888", "Alpha8"
     };
     static const char* opNames[] = {
-        "ToStr", "FrStr", "ToPre", "FrPre", "BlnUn"
+        "ToStr", "FrStr", "ToPre", "FrPre", "BlnUn", "BlnUnS"
     };
     for (int f = 0; f < FormatIdx::Count; ++f) {
         auto fmtTotal = fmtMetrics.totalByFormat(f);
         if (fmtTotal.callCount > 0) {
-            M5_LOGI("  %s: calls=%lu px=%llu",
+            M5_LOGI("%s: calls=%lu px=%llu",
                     fmtNames[f],
                     static_cast<unsigned long>(fmtTotal.callCount),
                     static_cast<unsigned long long>(fmtTotal.pixelCount));
-            // 操作別内訳
             for (int o = 0; o < OpType::Count; ++o) {
                 const auto& entry = fmtMetrics.data[f][o];
                 if (entry.callCount > 0) {
-                    M5_LOGI("    %s: calls=%lu px=%llu",
+                    M5_LOGI("  %s: calls=%lu px=%llu",
                             opNames[o],
                             static_cast<unsigned long>(entry.callCount),
                             static_cast<unsigned long long>(entry.pixelCount));
@@ -402,49 +488,53 @@ static void printMetricsReport() {
             }
         }
     }
-
-    // 画面表示
-    M5.Display.fillRect(0, 0, screenW, drawY - 5, TFT_BLACK);
-    M5.Display.setCursor(0, 0);
-    M5.Display.setTextSize(1);
-    M5.Display.printf("[%s] FPS:%.1f\n", scenarioNames[static_cast<int>(currentScenario)],
-                      static_cast<double>(fps));
-    M5.Display.printf("Frame:%uus Peak:%luB\n",
-                      static_cast<unsigned int>(avgFrameTime),
-                      static_cast<unsigned long>(metrics.peakMemoryBytes));
-#else
-    // FLEXIMG_DEBUG無効時は簡易FPS表示のみ
-    static unsigned long lastMs = 0;
-    unsigned long now = M5.millis();
-    float fps = (now > lastMs) ? 1000.0f * static_cast<float>(frameCount) / static_cast<float>(now - lastMs) : 0;
-    lastMs = now;
-
-    M5_LOGI("%s: FPS=%.1f", scenarioNames[static_cast<int>(currentScenario)], static_cast<double>(fps));
-
-    M5.Display.fillRect(0, 0, screenW, drawY - 5, TFT_BLACK);
-    M5.Display.setCursor(0, 0);
-    M5.Display.setTextSize(1);
-    M5.Display.printf("[%s] FPS:%.1f\n", scenarioNames[static_cast<int>(currentScenario)], static_cast<double>(fps));
 #endif
 }
 
-static void switchScenario() {
-    int next = (static_cast<int>(currentScenario) + 1) % static_cast<int>(Scenario::Count);
-    currentScenario = static_cast<Scenario>(next);
+static int displayPage = 0;  // 0: Simple, 1: Composite
 
-    M5_LOGI(">>> Switching to scenario: %s", scenarioNames[next]);
+static void displayResultMatrix() {
+    M5.Display.fillScreen(TFT_BLACK);
+    M5.Display.setCursor(0, 0);
+    M5.Display.setTextSize(1);
 
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-    PerfMetrics::instance().reset();
+#ifdef FLEXIMG_COMPOSITE_USE_STRAIGHT
+    M5.Display.print("Mode: 8bit Straight  ");
+#else
+    M5.Display.print("Mode: 16bit Premul  ");
 #endif
-    setupPipeline(currentScenario);
-    frameCount = 0;
-    lastReportTime = M5.millis();
+
+    uint32_t (*matrix)[FORMAT_COUNT] = (displayPage == 0) ? simpleMatrix : compositeMatrix;
+    const char* pageName = (displayPage == 0) ? "[Simple]" : "[Composite]";
+    M5.Display.println(pageName);
+    M5.Display.println("");
+
+    // ヘッダー
+    M5.Display.print("Src\\Snk ");
+    for (int i = 0; i < FORMAT_COUNT; ++i) {
+        M5.Display.printf("%6s", testFormats[i].shortName);
+    }
+    M5.Display.println("");
+
+    // データ
+    for (int srcIdx = 0; srcIdx < FORMAT_COUNT; ++srcIdx) {
+        M5.Display.printf("%-7s ", testFormats[srcIdx].shortName);
+        for (int sinkIdx = 0; sinkIdx < FORMAT_COUNT; ++sinkIdx) {
+            M5.Display.printf("%6lu", static_cast<unsigned long>(matrix[srcIdx][sinkIdx]));
+        }
+        M5.Display.println("");
+    }
+
+    M5.Display.println("");
+    M5.Display.println("Unit: us/frame");
+    M5.Display.println("BtnA:Re-run BtnB:Toggle");
 }
 
 // ========================================================================
 // Arduino Entry Points
 // ========================================================================
+
+static bool benchmarkDone = false;
 
 void setup() {
     auto cfg = M5.config();
@@ -455,68 +545,69 @@ void setup() {
 
     M5.Display.setRotation(1);
     M5.Display.fillScreen(TFT_BLACK);
+    M5.Display.setTextSize(1);
 
-    screenW = static_cast<int16_t>(M5.Display.width());
-    screenH = static_cast<int16_t>(M5.Display.height());
+    M5.Display.setCursor(0, 0);
+    M5.Display.println("Format Matrix Benchmark");
+    M5.Display.println("");
+#ifdef FLEXIMG_COMPOSITE_USE_STRAIGHT
+    M5.Display.println("Mode: 8bit Straight");
+#else
+    M5.Display.println("Mode: 16bit Premul");
+#endif
+    M5.Display.println("");
+    M5.Display.println("Preparing...");
 
-    // 描画領域（画面いっぱい、上部にメトリクス表示領域を確保）
-    drawW = screenW;
-    drawH = screenH - 20;  // 上部20pxをメトリクス表示に使用
-    drawX = 0;
-    drawY = 20;
-
-    // PoolAllocatorを初期化（fleximg内部バッファ用）
+    // PoolAllocatorを初期化
     internalPool.initialize(poolMemory, POOL_BLOCK_SIZE, POOL_BLOCK_COUNT, false);
     static PoolAllocatorAdapter adapter(internalPool);
     poolAdapter = &adapter;
 
-    // ROM上の固定画像をViewPortとして参照（ヒープ確保なし）
-    image1View = createRomView(checkerData, 8, 8, PixelFormatIDs::RGBA8_Straight);
-    image2View = createRomView(stripeData, 8, 8, PixelFormatIDs::RGBA8_Straight);
-    maskView = createRomView(circleMaskData, 8, 8, PixelFormatIDs::Alpha8);
+    // ソース画像を各フォーマットで準備
+    prepareSourceImages();
 
-    // ノード初期化（1回だけ）
-    initializeNodes();
+    M5.Display.println("Starting benchmark...");
+    M5.delay(500);
 
-    // 初期パイプライン構築
-    setupPipeline(currentScenario);
+    // ベンチマーク実行
+    runAllBenchmarks();
 
-    printMetricsHeader();
+    // 結果出力
+    printResultMatrix();
+    displayResultMatrix();
 
-    M5.Display.setCursor(0, 0);
-    M5.Display.println("fleximg Benchmark");
-    M5.Display.println("BtnA: Switch scenario");
-
-    lastReportTime = M5.millis();
-
-    M5.Display.startWrite();
+    benchmarkDone = true;
 }
 
 void loop() {
-    // nativeビルド時は16ms待機、ESP32時はWDTフィード
-    M5.delay(M5.getBoard() == m5::board_t::board_unknown ? 16 : 1);
+    M5.delay(100);
     M5.update();
 
-    // ボタンでシナリオ切り替え
+    if (!benchmarkDone) return;
+
+    // BtnA: 再実行
     if (M5.BtnA.wasPressed()) {
-        switchScenario();
-    }
+        benchmarkDone = false;
 
-    // アニメーション更新
-    updateAnimation();
+        M5.Display.fillScreen(TFT_BLACK);
+        M5.Display.setCursor(0, 0);
+        M5.Display.println("Re-running benchmark...");
 
-    // レンダリング実行
-    renderer.exec();
-    frameCount++;
-
-    // 定期レポート
-    unsigned long now = M5.millis();
-    if (frameCount >= FRAMES_PER_REPORT || (now - lastReportTime) >= REPORT_INTERVAL_MS) {
-        printMetricsReport();
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         PerfMetrics::instance().reset();
+        FormatMetrics::instance().reset();
 #endif
-        frameCount = 0;
-        lastReportTime = now;
+
+        runAllBenchmarks();
+        printResultMatrix();
+        displayResultMatrix();
+
+        benchmarkDone = true;
+    }
+
+    // BtnB: 表示切り替え（Simple / Composite）
+    if (M5.BtnB.wasPressed()) {
+        displayPage = 1 - displayPage;
+        displayResultMatrix();
     }
 }

@@ -4,14 +4,17 @@
 # このスクリプトはC++コードをWebAssemblyにコンパイルします
 #
 # Usage:
-#   ./build.sh          リリースビルド
-#   ./build.sh --debug  デバッグビルド（性能計測有効）
+#   ./build.sh            リリースビルド（16bit Premul合成）
+#   ./build.sh --debug    デバッグビルド（性能計測有効）
+#   ./build.sh --straight 8bit Straight合成モード（省メモリ）
 
 set -e
 
-# デバッグモード判定
+# オプション判定
 DEBUG_MODE=0
+STRAIGHT_MODE=0
 DEBUG_FLAGS=""
+STRAIGHT_FLAGS=""
 RELEASE_FLAGS="-DNDEBUG"  # リリースビルドではassertを無効化
 for arg in "$@"; do
     case $arg in
@@ -20,11 +23,27 @@ for arg in "$@"; do
             DEBUG_FLAGS="-DFLEXIMG_DEBUG"
             RELEASE_FLAGS=""  # デバッグビルドではassertを有効化
             ;;
+        --straight)
+            STRAIGHT_MODE=1
+            STRAIGHT_FLAGS="-DFLEXIMG_COMPOSITE_USE_STRAIGHT"
+            ;;
     esac
 done
 
+# ビルドモード表示
+BUILD_MODE=""
 if [ $DEBUG_MODE -eq 1 ]; then
-    echo "🔨 Building fleximg WebAssembly demo (DEBUG mode)..."
+    BUILD_MODE="DEBUG"
+fi
+if [ $STRAIGHT_MODE -eq 1 ]; then
+    if [ -n "$BUILD_MODE" ]; then
+        BUILD_MODE="$BUILD_MODE + STRAIGHT"
+    else
+        BUILD_MODE="STRAIGHT"
+    fi
+fi
+if [ -n "$BUILD_MODE" ]; then
+    echo "🔨 Building fleximg WebAssembly demo ($BUILD_MODE mode)..."
 else
     echo "🔨 Building fleximg WebAssembly demo..."
 fi
@@ -49,12 +68,20 @@ BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
 GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
 
+# 合成モード判定
+if [ $STRAIGHT_MODE -eq 1 ]; then
+    COMPOSITE_MODE="8bit Straight"
+else
+    COMPOSITE_MODE="16bit Premul"
+fi
+
 echo "// Build information - auto-generated" > demo/web/version.js
 echo "const BUILD_INFO = {" >> demo/web/version.js
 echo "  buildDate: '$BUILD_DATE'," >> demo/web/version.js
 echo "  gitCommit: '$GIT_COMMIT'," >> demo/web/version.js
 echo "  gitBranch: '$GIT_BRANCH'," >> demo/web/version.js
-echo "  backend: 'WebAssembly'" >> demo/web/version.js
+echo "  backend: 'WebAssembly'," >> demo/web/version.js
+echo "  compositeMode: '$COMPOSITE_MODE'" >> demo/web/version.js
 echo "};" >> demo/web/version.js
 
 echo "📝 Build info: $BUILD_DATE (commit: $GIT_COMMIT)"
@@ -76,6 +103,7 @@ emcc src/fleximg/core/memory/platform.cpp \
     -O3 \
     $RELEASE_FLAGS \
     $DEBUG_FLAGS \
+    $STRAIGHT_FLAGS \
     -s WASM=1 \
     -s ALLOW_MEMORY_GROWTH=1 \
     -s MODULARIZE=1 \

@@ -17,6 +17,10 @@ namespace FLEXIMG_NAMESPACE {
 // - 入力: コンストラクタで指定（デフォルト2）
 // - 出力: 1ポート
 //
+// 合成方式:
+// - デフォルト: 16bit Premultiplied形式（高精度、8バイト/ピクセル）
+// - FLEXIMG_COMPOSITE_USE_STRAIGHT定義時: 8bit Straight形式（省メモリ、4バイト/ピクセル）
+//
 // 合成順序（under合成）:
 // - 入力ポート0が最前面（最初に描画）
 // - 入力ポート1以降が順に背面に合成
@@ -113,10 +117,17 @@ public:
         int_fixed canvasOriginX = request.origin.x;
         int_fixed canvasOriginY = request.origin.y;
 
-        // Premul形式のキャンバスを作成（height=1、未初期化）
-        // RGBA16_Premultiplied: 8バイト/ピクセル
+        // キャンバスを作成（height=1、未初期化）
+#ifdef FLEXIMG_COMPOSITE_USE_STRAIGHT
+        // 8bit Straight形式: 4バイト/ピクセル（省メモリ、除算あり）
+        constexpr size_t bytesPerPixel = 4;
+        PixelFormatID canvasFormat = PixelFormatIDs::RGBA8_Straight;
+#else
+        // 16bit Premultiplied形式: 8バイト/ピクセル（高精度）
         constexpr size_t bytesPerPixel = 8;
-        ImageBuffer canvasBuf(request.width, 1, PixelFormatIDs::RGBA16_Premultiplied,
+        PixelFormatID canvasFormat = PixelFormatIDs::RGBA16_Premultiplied;
+#endif
+        ImageBuffer canvasBuf(request.width, 1, canvasFormat,
                               InitPolicy::Uninitialized, allocator());
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         PerfMetrics::instance().nodes[NodeType::Composite].recordAlloc(
@@ -161,8 +172,7 @@ public:
 
             if (isFirstContent) {
                 // 初回: 変換コピーのみ（余白ゼロクリア不要、cropViewで切り捨て）
-                FLEXIMG_NAMESPACE::convertFormat(srcRow, srcFmt, dstRow,
-                              PixelFormatIDs::RGBA16_Premultiplied, copyWidth);
+                FLEXIMG_NAMESPACE::convertFormat(srcRow, srcFmt, dstRow, canvasFormat, copyWidth);
                 validStartX = dstStartX;
                 validEndX = curEndX;
                 isFirstContent = false;
@@ -180,8 +190,21 @@ public:
                 }
 
                 // under合成
+#ifdef FLEXIMG_COMPOSITE_USE_STRAIGHT
+                // 8bit Straight形式でのunder合成
+                if (srcFmt->blendUnderStraight) {
+                    srcFmt->blendUnderStraight(dstRow, srcRow, copyWidth, nullptr);
+                } else if (srcFmt->toStraight) {
+                    // blendUnderStraightがない場合、一時バッファでStraight変換してからブレンド
+                    ImageBuffer tempBuf(copyWidth, 1, PixelFormatIDs::RGBA8_Straight,
+                                        InitPolicy::Uninitialized, allocator());
+                    srcFmt->toStraight(tempBuf.view().pixelAt(0, 0), srcRow, copyWidth, nullptr);
+                    PixelFormatIDs::RGBA8_Straight->blendUnderStraight(
+                        dstRow, tempBuf.view().pixelAt(0, 0), copyWidth, nullptr);
+                }
+#else
+                // 16bit Premultiplied形式でのunder合成
                 if (srcFmt->blendUnderPremul) {
-                    // blendUnderPremul関数がある場合は直接使用
                     srcFmt->blendUnderPremul(dstRow, srcRow, copyWidth, nullptr);
                 } else if (srcFmt->toPremul) {
                     // blendUnderPremulがない場合、一時バッファでPremul変換してからブレンド
@@ -191,7 +214,8 @@ public:
                     PixelFormatIDs::RGBA16_Premultiplied->blendUnderPremul(
                         dstRow, tempBuf.view().pixelAt(0, 0), copyWidth, nullptr);
                 }
-                // toPremulもない場合はスキップ（対応フォーマットのみ処理）
+#endif
+                // 対応関数がない場合はスキップ
             }
         }
 
