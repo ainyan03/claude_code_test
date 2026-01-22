@@ -141,24 +141,43 @@ static void benchDelay(int) { /* no-op on PC */ }
 // =============================================================================
 
 static uint8_t* bufRGBA8 = nullptr;      // RGBA8 buffer
+static uint8_t* bufRGBA8_2 = nullptr;    // Second RGBA8 buffer (canvas for Straight)
 static uint8_t* bufRGB888 = nullptr;     // RGB888/BGR888 buffer
 static uint8_t* bufRGB565 = nullptr;     // RGB565 buffer
 static uint8_t* bufRGB332 = nullptr;     // RGB332 buffer
 static uint16_t* bufRGBA16 = nullptr;    // RGBA16_Premultiplied buffer
 static uint16_t* bufRGBA16_2 = nullptr;  // Second RGBA16 buffer for blending
 
-static bool allocateBuffers() {
-    bufRGBA8 = static_cast<uint8_t*>(malloc(BENCH_PIXELS * 4));
-    bufRGB888 = static_cast<uint8_t*>(malloc(BENCH_PIXELS * 3));
-    bufRGB565 = static_cast<uint8_t*>(malloc(BENCH_PIXELS * 2));
-    bufRGB332 = static_cast<uint8_t*>(malloc(BENCH_PIXELS * 1));
-    bufRGBA16 = static_cast<uint16_t*>(malloc(BENCH_PIXELS * 8));
-    bufRGBA16_2 = static_cast<uint16_t*>(malloc(BENCH_PIXELS * 8));
+// Platform-specific memory allocation
+// ESP32: Use internal SRAM (not PSRAM) for accurate benchmarking
+// PC: Use standard malloc
+#ifdef BENCH_M5STACK
+    #define BENCH_MALLOC(size) heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
+#else
+    #define BENCH_MALLOC(size) malloc(size)
+#endif
 
-    if (!bufRGBA8 || !bufRGB888 || !bufRGB565 || !bufRGB332 || !bufRGBA16 || !bufRGBA16_2) {
+static bool allocateBuffers() {
+    bufRGBA8 = static_cast<uint8_t*>(BENCH_MALLOC(BENCH_PIXELS * 4));
+    bufRGBA8_2 = static_cast<uint8_t*>(BENCH_MALLOC(BENCH_PIXELS * 4));
+    bufRGB888 = static_cast<uint8_t*>(BENCH_MALLOC(BENCH_PIXELS * 3));
+    bufRGB565 = static_cast<uint8_t*>(BENCH_MALLOC(BENCH_PIXELS * 2));
+    bufRGB332 = static_cast<uint8_t*>(BENCH_MALLOC(BENCH_PIXELS * 1));
+    bufRGBA16 = static_cast<uint16_t*>(BENCH_MALLOC(BENCH_PIXELS * 8));
+    bufRGBA16_2 = static_cast<uint16_t*>(BENCH_MALLOC(BENCH_PIXELS * 8));
+
+    if (!bufRGBA8 || !bufRGBA8_2 || !bufRGB888 || !bufRGB565 || !bufRGB332 || !bufRGBA16 || !bufRGBA16_2) {
         benchPrintln("ERROR: Buffer allocation failed!");
+#ifdef BENCH_M5STACK
+        benchPrintf("Internal SRAM may be insufficient. Free: %u bytes\n",
+                    heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+#endif
         return false;
     }
+#ifdef BENCH_M5STACK
+    benchPrintf("Buffers allocated in internal SRAM (Free: %u bytes)\n",
+                heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+#endif
     return true;
 }
 
@@ -201,6 +220,16 @@ static void initCanvasRGBA16() {
         bufRGBA16[i * 4 + 1] = alpha;  // Green (premultiplied)
         bufRGBA16[i * 4 + 2] = 0;
         bufRGBA16[i * 4 + 3] = alpha;
+    }
+}
+
+// Initialize RGBA8 canvas with semi-transparent green (Straight alpha)
+static void initCanvasRGBA8() {
+    for (int i = 0; i < BENCH_PIXELS; i++) {
+        bufRGBA8_2[i * 4 + 0] = 0;
+        bufRGBA8_2[i * 4 + 1] = 255;   // Green
+        bufRGBA8_2[i * 4 + 2] = 0;
+        bufRGBA8_2[i * 4 + 3] = 128;   // ~50% alpha
     }
 }
 
@@ -405,6 +434,123 @@ static void runBlendBenchmark(const char* fmtName) {
 }
 
 // =============================================================================
+// Premul vs Straight Pathway Comparison
+// =============================================================================
+// Compare full blending pipeline:
+//   Premul:   toPremul → blendUnderPremul → fromPremul
+//   Straight: toStraight → blendUnderStraight → fromStraight
+
+// Number of blend operations to simulate multi-layer compositing
+static constexpr int BLEND_LAYERS = 10;
+
+static void benchPathwayFormat(int idx) {
+    const auto& fmt = formats[idx];
+
+    // Skip formats without necessary functions
+    if (!fmt.format->toPremul || !fmt.format->fromPremul ||
+        !fmt.format->toStraight || !fmt.format->fromStraight) {
+        benchPrintf("%-16s   (missing conversion)\n", fmt.name);
+        return;
+    }
+
+    // Skip RGBA16_Premul (it's the Premul canvas format)
+    if (idx == 6) {
+        benchPrintf("%-16s   (canvas format)\n", fmt.name);
+        return;
+    }
+
+    benchPrintf("%-16s", fmt.name);
+
+    // Premul pathway: toPremul → (blendUnderPremul × N) → fromPremul
+    uint32_t premulUs = runBenchmark([&]() {
+        // Convert src to temp Premul (1回)
+        fmt.format->toPremul(bufRGBA16_2, fmt.srcBuffer, BENCH_PIXELS, nullptr);
+        // Initialize canvas
+        initCanvasRGBA16();
+        // Blend N times (複数レイヤー合成をシミュレート)
+        for (int layer = 0; layer < BLEND_LAYERS; layer++) {
+            BuiltinFormats::RGBA16_Premultiplied.blendUnderPremul(
+                bufRGBA16, bufRGBA16_2, BENCH_PIXELS, nullptr);
+        }
+        // Convert back to dst format (1回)
+        fmt.format->fromPremul(fmt.srcBuffer, bufRGBA16, BENCH_PIXELS, nullptr);
+    });
+    benchPrintf(" %6u", premulUs);
+
+    // Straight pathway: toStraight → (blendUnderStraight × N) → fromStraight
+    uint32_t straightUs = runBenchmark([&]() {
+        // Convert src to temp Straight (1回)
+        fmt.format->toStraight(bufRGBA8, fmt.srcBuffer, BENCH_PIXELS, nullptr);
+        // Initialize canvas
+        initCanvasRGBA8();
+        // Blend N times (複数レイヤー合成をシミュレート)
+        for (int layer = 0; layer < BLEND_LAYERS; layer++) {
+            BuiltinFormats::RGBA8_Straight.blendUnderStraight(
+                bufRGBA8_2, bufRGBA8, BENCH_PIXELS, nullptr);
+        }
+        // Convert back to dst format (1回)
+        fmt.format->fromStraight(fmt.srcBuffer, bufRGBA8_2, BENCH_PIXELS, nullptr);
+    });
+    benchPrintf(" %6u", straightUs);
+
+    // Ratio
+    float ratio = (premulUs > 0) ? static_cast<float>(straightUs) / static_cast<float>(premulUs) : 0;
+    benchPrintf("  %5.2fx\n", ratio);
+}
+
+static void runPathwayBenchmark(const char* fmtName) {
+    benchPrintln();
+    benchPrintln("=== Pathway Comparison (Premul vs Straight) ===");
+    benchPrintf("Pixels: %d, Iterations: %d, Layers: %d\n", BENCH_PIXELS, ITERATIONS, BLEND_LAYERS);
+    benchPrintln();
+    benchPrintln("Pipeline: convert → blend x N → convert back");
+    benchPrintln();
+    benchPrintln("Format           Premul Straig  Ratio");
+    benchPrintln("---------------- ------ ------ ------");
+
+    if (strcmp(fmtName, "all") == 0) {
+        for (int i = 0; i < NUM_FORMATS; i++) {
+            benchPathwayFormat(i);
+        }
+    } else {
+        int idx = findFormat(fmtName);
+        if (idx >= 0) {
+            benchPathwayFormat(idx);
+        } else {
+            benchPrintf("Unknown format: %s\n", fmtName);
+        }
+    }
+    benchPrintln("(Ratio > 1 means Premul is faster)");
+    benchPrintln();
+
+    // Pure blend comparison
+    benchPrintln("=== Pure Blend Comparison ===");
+    benchPrintf("Pixels: %d, Iterations: %d\n", BENCH_PIXELS, ITERATIONS);
+    benchPrintln();
+
+    // RGBA16_Premul blendUnderPremul
+    uint32_t premulBlendUs = runBenchmark([&]() {
+        initCanvasRGBA16();
+        // Use bufRGBA16_2 as src (initialize with semi-transparent data)
+        BuiltinFormats::RGBA16_Premultiplied.blendUnderPremul(
+            bufRGBA16, bufRGBA16_2, BENCH_PIXELS, nullptr);
+    });
+
+    // RGBA8_Straight blendUnderStraight
+    uint32_t straightBlendUs = runBenchmark([&]() {
+        initCanvasRGBA8();
+        BuiltinFormats::RGBA8_Straight.blendUnderStraight(
+            bufRGBA8_2, bufRGBA8, BENCH_PIXELS, nullptr);
+    });
+
+    benchPrintf("RGBA16_Premul.blendUnderPremul:     %6u us\n", premulBlendUs);
+    benchPrintf("RGBA8_Straight.blendUnderStraight:  %6u us\n", straightBlendUs);
+    float blendRatio = (premulBlendUs > 0) ? static_cast<float>(straightBlendUs) / static_cast<float>(premulBlendUs) : 0;
+    benchPrintf("Ratio (Straight/Premul):            %5.2fx\n", blendRatio);
+    benchPrintln();
+}
+
+// =============================================================================
 // Command Interface
 // =============================================================================
 
@@ -414,7 +560,8 @@ static void printHelp() {
     benchPrintln();
     benchPrintln("Commands:");
     benchPrintln("  c [fmt]  : Conversion benchmark");
-    benchPrintln("  b [fmt]  : BlendUnder benchmark");
+    benchPrintln("  b [fmt]  : BlendUnder benchmark (Direct vs Indirect)");
+    benchPrintln("  s [fmt]  : Pathway comparison (Premul vs Straight)");
     benchPrintln("  a        : All benchmarks");
     benchPrintln("  l        : List formats");
     benchPrintln("  h        : This help");
@@ -431,6 +578,7 @@ static void printHelp() {
     benchPrintln("  c all     - All conversion benchmarks");
     benchPrintln("  c rgb332  - RGB332 conversion only");
     benchPrintln("  b rgba8   - RGBA8 blend benchmark");
+    benchPrintln("  s rgb565le - RGB565_LE pathway comparison");
     benchPrintln();
 }
 
@@ -465,10 +613,15 @@ static void processCommand(const char* cmd) {
         case 'B':
             runBlendBenchmark(arg);
             break;
+        case 's':
+        case 'S':
+            runPathwayBenchmark(arg);
+            break;
         case 'a':
         case 'A':
             runConvertBenchmark("all");
             runBlendBenchmark("all");
+            runPathwayBenchmark("all");
             break;
         case 'l':
         case 'L':

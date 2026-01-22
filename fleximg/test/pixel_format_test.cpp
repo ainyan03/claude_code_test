@@ -134,34 +134,10 @@ TEST_CASE("getBytesPerPixel") {
 }
 
 // =============================================================================
-// Direct Conversion Tests
+// Direct Conversion Tests (disabled - getDirectConversion API removed)
 // =============================================================================
-
-TEST_CASE("getDirectConversion") {
-    SUBCASE("RGBA16_Premul to RGBA8_Straight has direct conversion") {
-        auto func = getDirectConversion(
-            PixelFormatIDs::RGBA16_Premultiplied,
-            PixelFormatIDs::RGBA8_Straight
-        );
-        CHECK(func != nullptr);
-    }
-
-    SUBCASE("RGBA8_Straight to RGBA16_Premul has direct conversion") {
-        auto func = getDirectConversion(
-            PixelFormatIDs::RGBA8_Straight,
-            PixelFormatIDs::RGBA16_Premultiplied
-        );
-        CHECK(func != nullptr);
-    }
-
-    SUBCASE("unsupported conversion returns nullptr") {
-        auto func = getDirectConversion(
-            PixelFormatIDs::RGB565_LE,
-            PixelFormatIDs::RGB888
-        );
-        CHECK(func == nullptr);
-    }
-}
+// NOTE: getDirectConversion function was removed from the API
+// These tests are commented out until the API is restored or tests are updated
 
 // =============================================================================
 // getFormatByName Tests
