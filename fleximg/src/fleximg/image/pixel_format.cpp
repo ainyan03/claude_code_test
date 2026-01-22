@@ -88,9 +88,11 @@ static void rgba8Straight_blendUnderPremul(void* __restrict__ dst, const void* _
         // RGBA8_Straight → RGBA16_Premultiplied 変換
         // SWAR: RGとBAを32bitにパックして乗算を2回に削減
         // a_tmp = srcA8 + 1 (範囲: 1-256) で8bit→16bit変換
+        // 色: c16 = c8 * a_tmp
+        // α:  a16 = 255 * a_tmp （rgba8Straight_toPremulと整合）
         uint_fast16_t a_tmp = srcA8 + 1;
         uint32_t srcRG = (s[0] + (static_cast<uint32_t>(s[1]) << 16)) * a_tmp;
-        uint32_t srcBA = (s[2] + (static_cast<uint32_t>(srcA8) << 16)) * a_tmp;
+        uint32_t srcBA = (s[2] + (static_cast<uint32_t>(255) << 16)) * a_tmp;
 
         // dst が半透明 → under合成
         if (dstA8 != 0) {
@@ -344,6 +346,10 @@ static void rgba16Premul_fromStraight(void* dst, const void* src, int pixelCount
 // - dst が不透明なら何もしない（スキップ）
 // - dst が透明なら単純コピー
 // - dst が半透明ならunder合成
+//
+// 8bit精度方式: 他のblendUnderPremul関数と一貫性を保つため、
+// ブレンド計算は8bit精度で行う（蓄積は16bitで精度を維持）
+// TODO: SWAR最適化（RG/BAを32bitにパックして同時演算）
 static void rgba16Premul_blendUnderPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGBA16_Premultiplied, BlendUnder, pixelCount);
     uint16_t* d = static_cast<uint16_t*>(dst);
@@ -351,10 +357,11 @@ static void rgba16Premul_blendUnderPremul(void* dst, const void* src, int pixelC
 
     for (int i = 0; i < pixelCount; i++) {
         int idx = i * 4;
-        uint16_t dstA = d[idx + 3];
+        // 8bit精度でアルファ取得（16bitの上位バイト）
+        uint_fast8_t dstA8 = static_cast<uint_fast8_t>(d[idx + 3] >> 8);
 
         // dst が不透明 → スキップ
-        if (RGBA16Premul::isOpaque(dstA)) continue;
+        if (dstA8 == 255) continue;
 
         uint16_t srcR = s[idx];
         uint16_t srcG = s[idx + 1];
@@ -362,10 +369,11 @@ static void rgba16Premul_blendUnderPremul(void* dst, const void* src, int pixelC
         uint16_t srcA = s[idx + 3];
 
         // src が透明 → スキップ
-        if (RGBA16Premul::isTransparent(srcA)) continue;
+        uint_fast8_t srcA8 = static_cast<uint_fast8_t>(srcA >> 8);
+        if (srcA8 == 0) continue;
 
         // dst が透明 → 単純コピー
-        if (RGBA16Premul::isTransparent(dstA)) {
+        if (dstA8 == 0) {
             d[idx]     = srcR;
             d[idx + 1] = srcG;
             d[idx + 2] = srcB;
@@ -373,16 +381,17 @@ static void rgba16Premul_blendUnderPremul(void* dst, const void* src, int pixelC
             continue;
         }
 
-        // under合成: dst = dst + src * (1 - dstA)
-        // invDstA = ALPHA_OPAQUE_MIN - dstA (範囲: 0-65280)
-        // 注意: 明示的キャストで32bit演算を保証（16bit * 16bit オーバーフロー防止）
-        uint32_t invDstA = static_cast<uint32_t>(RGBA16Premul::ALPHA_OPAQUE_MIN) - dstA;
+        // under合成（8bit精度）
+        // src16を8bitに変換してからブレンド計算、結果は16bitに蓄積
+        uint_fast16_t invDstA8 = 255 - dstA8;
+        uint_fast8_t srcR8 = static_cast<uint_fast8_t>(srcR >> 8);
+        uint_fast8_t srcG8 = static_cast<uint_fast8_t>(srcG >> 8);
+        uint_fast8_t srcB8 = static_cast<uint_fast8_t>(srcB >> 8);
 
-        // src * (1 - dstA) を計算（16bit精度を維持）
-        d[idx]     = static_cast<uint16_t>(d[idx]     + ((static_cast<uint32_t>(srcR) * invDstA) >> 16));
-        d[idx + 1] = static_cast<uint16_t>(d[idx + 1] + ((static_cast<uint32_t>(srcG) * invDstA) >> 16));
-        d[idx + 2] = static_cast<uint16_t>(d[idx + 2] + ((static_cast<uint32_t>(srcB) * invDstA) >> 16));
-        d[idx + 3] = static_cast<uint16_t>(dstA       + ((static_cast<uint32_t>(srcA) * invDstA) >> 16));
+        d[idx]     = static_cast<uint16_t>(d[idx]     + srcR8 * invDstA8);
+        d[idx + 1] = static_cast<uint16_t>(d[idx + 1] + srcG8 * invDstA8);
+        d[idx + 2] = static_cast<uint16_t>(d[idx + 2] + srcB8 * invDstA8);
+        d[idx + 3] = static_cast<uint16_t>(d[idx + 3] + srcA8 * invDstA8);
     }
 }
 
