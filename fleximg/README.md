@@ -201,9 +201,9 @@ C++コアは以下の特徴により組込み環境への移植が容易です�
 `examples/m5stack_basic/` に M5Stack Core2/CoreS3 向けのサンプルがあります。
 
 ```bash
-cd examples/m5stack_basic
-pio run -e m5stack_core2 -t upload  # Core2に書き込み
-pio run -e native                    # macOS/Linux/Windowsでテスト（SDL使用）
+# プロジェクトルートからビルド（platformio.ini参照）
+pio run -e basic_m5stack_core2 -t upload  # Core2に書き込み
+pio run -e basic_native                    # macOS/Linux/Windowsでテスト（SDL使用）
 ```
 
 - LcdSinkNode: M5GFX経由でLCDにスキャンライン転送するカスタムSinkNode
