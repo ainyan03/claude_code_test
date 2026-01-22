@@ -18,6 +18,7 @@ struct PixelFormatDescriptor;
 
 using PixelFormatID = const PixelFormatDescriptor*;
 
+#ifdef FLEXIMG_ENABLE_PREMUL
 // RGBA16_Premultiplied用アルファ閾値
 namespace RGBA16Premul {
     constexpr uint16_t ALPHA_TRANSPARENT_MAX = 255;
@@ -26,6 +27,7 @@ namespace RGBA16Premul {
     inline constexpr bool isTransparent(uint16_t a) { return a <= ALPHA_TRANSPARENT_MAX; }
     inline constexpr bool isOpaque(uint16_t a) { return a >= ALPHA_OPAQUE_MIN; }
 }
+#endif
 
 // ========================================================================
 // 変換パラメータ
@@ -235,7 +237,9 @@ struct PixelFormatDescriptor {
 // ========================================================================
 
 namespace BuiltinFormats {
+#ifdef FLEXIMG_ENABLE_PREMUL
     extern const PixelFormatDescriptor RGBA16_Premultiplied;
+#endif
     extern const PixelFormatDescriptor RGBA8_Straight;
     extern const PixelFormatDescriptor RGB565_LE;
     extern const PixelFormatDescriptor RGB565_BE;
@@ -250,8 +254,10 @@ namespace BuiltinFormats {
 // ========================================================================
 
 namespace PixelFormatIDs {
+#ifdef FLEXIMG_ENABLE_PREMUL
     // 16bit RGBA系
     inline const PixelFormatID RGBA16_Premultiplied  = &BuiltinFormats::RGBA16_Premultiplied;
+#endif
 
     // 8bit RGBA系
     inline const PixelFormatID RGBA8_Straight        = &BuiltinFormats::RGBA8_Straight;
@@ -283,7 +289,9 @@ inline int_fast8_t getBytesPerPixel(PixelFormatID formatID) {
 
 // 組み込みフォーマット一覧（名前検索用）
 inline const PixelFormatID builtinFormats[] = {
+#ifdef FLEXIMG_ENABLE_PREMUL
     PixelFormatIDs::RGBA16_Premultiplied,
+#endif
     PixelFormatIDs::RGBA8_Straight,
     PixelFormatIDs::RGB565_LE,
     PixelFormatIDs::RGB565_BE,
@@ -343,6 +351,7 @@ inline void convertFormat(const void* src, PixelFormatID srcFormat,
         return;
     }
 
+#ifdef FLEXIMG_ENABLE_PREMUL
     // Premul形式への直接変換（toPremul）
     if (dstFormat == PixelFormatIDs::RGBA16_Premultiplied && srcFormat->toPremul) {
         srcFormat->toPremul(dst, src, pixelCount, params);
@@ -354,6 +363,7 @@ inline void convertFormat(const void* src, PixelFormatID srcFormat,
         dstFormat->fromPremul(dst, src, pixelCount, params);
         return;
     }
+#endif
 
     // Straight形式（RGBA8_Straight）経由で変換
     // 一時バッファを確保（スレッドローカル）

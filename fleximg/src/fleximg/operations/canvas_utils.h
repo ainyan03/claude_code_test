@@ -63,6 +63,7 @@ inline void placeFirst(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canv
         return;
     }
 
+#ifdef FLEXIMG_ENABLE_PREMUL
     // キャンバスがRGBA16_Premultiplied → toPremul関数を使用
     if (canvas.formatID == PixelFormatIDs::RGBA16_Premultiplied && src.formatID->toPremul) {
         for (int y = 0; y < copyHeight; y++) {
@@ -72,6 +73,7 @@ inline void placeFirst(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canv
         }
         return;
     }
+#endif
 
     // キャンバスがRGBA8_Straight → toStraight関数を使用
     if (canvas.formatID == PixelFormatIDs::RGBA8_Straight && src.formatID->toStraight) {
@@ -124,6 +126,7 @@ inline RenderResult ensureBlendableFormat(RenderResult&& input) {
     );
 }
 
+#ifdef FLEXIMG_ENABLE_PREMUL
 // ========================================================================
 // RGBA16_Premultiplied 形式のキャンバス操作（under合成用）
 // ========================================================================
@@ -187,6 +190,7 @@ inline ImageBuffer finalizePremulCanvas(ImageBuffer&& canvas) {
 
     return std::move(canvas).toFormat(PixelFormatIDs::RGBA8_Straight);
 }
+#endif // FLEXIMG_ENABLE_PREMUL
 
 } // namespace canvas_utils
 } // namespace FLEXIMG_NAMESPACE

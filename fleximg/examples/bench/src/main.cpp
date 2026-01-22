@@ -273,7 +273,9 @@ static FormatInfo formats[] = {
     {"RGB888",          "rgb888",   &BuiltinFormats::RGB888,              nullptr, 3},
     {"BGR888",          "bgr888",   &BuiltinFormats::BGR888,              nullptr, 3},
     {"RGBA8_Straight",  "rgba8",    &BuiltinFormats::RGBA8_Straight,      nullptr, 4},
+#ifdef FLEXIMG_ENABLE_PREMUL
     {"RGBA16_Premul",   "rgba16p",  &BuiltinFormats::RGBA16_Premultiplied, nullptr, 8},
+#endif
 };
 static constexpr int NUM_FORMATS = sizeof(formats) / sizeof(formats[0]);
 
@@ -284,7 +286,9 @@ static void initFormatBuffers() {
     formats[3].srcBuffer = bufRGB888;   // RGB888
     formats[4].srcBuffer = bufRGB888;   // BGR888
     formats[5].srcBuffer = bufRGBA8;    // RGBA8_Straight
+#ifdef FLEXIMG_ENABLE_PREMUL
     formats[6].srcBuffer = reinterpret_cast<uint8_t*>(bufRGBA16_2);  // RGBA16_Premul
+#endif
 }
 
 static int findFormat(const char* name) {
@@ -368,8 +372,9 @@ static void runConvertBenchmark(const char* fmtName) {
     benchPrintln();
 }
 
+#ifdef FLEXIMG_ENABLE_PREMUL
 // =============================================================================
-// BlendUnder Benchmark
+// BlendUnder Benchmark (Premul mode only)
 // =============================================================================
 
 static void benchBlendFormat(int idx) {
@@ -432,9 +437,11 @@ static void runBlendBenchmark(const char* fmtName) {
     benchPrintln("(Ratio > 1 means Direct is faster)");
     benchPrintln();
 }
+#endif // FLEXIMG_ENABLE_PREMUL
 
+#ifdef FLEXIMG_ENABLE_PREMUL
 // =============================================================================
-// Premul vs Straight Pathway Comparison
+// Premul vs Straight Pathway Comparison (Premul mode only)
 // =============================================================================
 // Compare full blending pipeline:
 //   Premul:   toPremul → blendUnderPremul → fromPremul
@@ -549,6 +556,7 @@ static void runPathwayBenchmark(const char* fmtName) {
     benchPrintf("Ratio (Straight/Premul):            %5.2fx\n", blendRatio);
     benchPrintln();
 }
+#endif // FLEXIMG_ENABLE_PREMUL
 
 // =============================================================================
 // Command Interface
@@ -609,6 +617,7 @@ static void processCommand(const char* cmd) {
         case 'C':
             runConvertBenchmark(arg);
             break;
+#ifdef FLEXIMG_ENABLE_PREMUL
         case 'b':
         case 'B':
             runBlendBenchmark(arg);
@@ -617,11 +626,14 @@ static void processCommand(const char* cmd) {
         case 'S':
             runPathwayBenchmark(arg);
             break;
+#endif
         case 'a':
         case 'A':
             runConvertBenchmark("all");
+#ifdef FLEXIMG_ENABLE_PREMUL
             runBlendBenchmark("all");
             runPathwayBenchmark("all");
+#endif
             break;
         case 'l':
         case 'L':
@@ -671,8 +683,10 @@ void setup() {
     initTestData();
     initFormatBuffers();
 
+#ifdef FLEXIMG_ENABLE_PREMUL
     // Prepare RGBA16_2 buffer with premul data for RGBA16_Premul tests
     BuiltinFormats::RGBA8_Straight.toPremul(bufRGBA16_2, bufRGBA8, BENCH_PIXELS, nullptr);
+#endif
 
     printHelp();
 
@@ -719,8 +733,10 @@ int main(int argc, char* argv[]) {
     initTestData();
     initFormatBuffers();
 
-    // Prepare RGBA16_2 buffer
+#ifdef FLEXIMG_ENABLE_PREMUL
+    // Prepare RGBA16_2 buffer for Premul benchmarks
     BuiltinFormats::RGBA8_Straight.toPremul(bufRGBA16_2, bufRGBA8, BENCH_PIXELS, nullptr);
+#endif
 
     // If command-line arguments provided, run those
     if (argc > 1) {

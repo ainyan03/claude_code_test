@@ -5,6 +5,7 @@
 
 namespace FLEXIMG_NAMESPACE {
 
+#ifdef FLEXIMG_ENABLE_PREMUL
 // ========================================================================
 // 逆数テーブル（fromPremul除算回避用）
 // ========================================================================
@@ -36,6 +37,7 @@ constexpr std::array<uint16_t, 256> makeInvUnpremulTable() {
 alignas(64) constexpr std::array<uint16_t, 256> invUnpremulTable = makeInvUnpremulTable();
 
 } // namespace
+#endif // FLEXIMG_ENABLE_PREMUL
 
 // ========================================================================
 // 組み込みフォーマットの変換関数
@@ -53,6 +55,7 @@ static void rgba8Straight_fromStraight(void* dst, const void* src, int pixelCoun
     std::memcpy(dst, src, static_cast<size_t>(pixelCount) * 4);
 }
 
+#ifdef FLEXIMG_ENABLE_PREMUL
 // RGBA8_Straight: Premul形式のブレンド・変換関数
 
 // blendUnderPremul: srcフォーマット(RGBA8_Straight)からPremul形式のdstへunder合成
@@ -108,6 +111,7 @@ static void rgba8Straight_blendUnderPremul(void* __restrict__ dst, const void* _
         reinterpret_cast<uint32_t*>(d)[1] = srcBA;
     }
 }
+#endif // FLEXIMG_ENABLE_PREMUL
 
 // blendUnderStraight: srcフォーマット(RGBA8_Straight)からStraight形式(RGBA8_Straight)のdstへunder合成
 // under合成: dst = dst + src * (1 - dstA)
@@ -170,6 +174,7 @@ static void rgba8Straight_blendUnderStraight(void* __restrict__ dst, const void*
     }
 }
 
+#ifdef FLEXIMG_ENABLE_PREMUL
 // fromPremul: Premul形式(RGBA16_Premultiplied)のsrcからRGBA8_Straightのdstへ変換コピー
 // RGBA16_Premul→RGBA8_Straight 1ピクセル変換マクロ（リトルエンディアン前提）
 // s: uint16_t*, d: uint8_t*, s_off: srcオフセット(uint16_t単位), d_off: dstオフセット, a_off: アルファバイトオフセット
@@ -253,6 +258,7 @@ static void rgba8Straight_toPremul(void* __restrict__ dst, const void* __restric
     }
 }
 #undef RGBA8_TO_PREMUL_SWAR
+#endif // FLEXIMG_ENABLE_PREMUL
 
 // ========================================================================
 // Alpha8: 単一アルファチャンネル ↔ RGBA8_Straight 変換
@@ -282,6 +288,7 @@ static void alpha8_fromStraight(void* dst, const void* src, int pixelCount, cons
     }
 }
 
+#ifdef FLEXIMG_ENABLE_PREMUL
 // ========================================================================
 // RGBA16_Premultiplied: 16bit Premultiplied ↔ 8bit Straight 変換
 // ========================================================================
@@ -408,6 +415,7 @@ static void rgba16Premul_toPremul(void* dst, const void* src, int pixelCount, co
     FLEXIMG_FMT_METRICS(RGBA16_Premultiplied, ToPremul, pixelCount);
     std::memcpy(dst, src, static_cast<size_t>(pixelCount) * 8);
 }
+#endif // FLEXIMG_ENABLE_PREMUL
 
 // ========================================================================
 // RGB565_LE: 16bit RGB (Little Endian)
@@ -542,6 +550,7 @@ static void rgb565le_fromStraight(void* __restrict__ dst, const void* __restrict
     }
 }
 
+#ifdef FLEXIMG_ENABLE_PREMUL
 // blendUnderPremul: srcフォーマット(RGB565_LE)からPremul形式のdstへunder合成
 // RGB565はアルファなし→常に不透明として扱う
 // 最適化: ルックアップテーブル使用
@@ -663,6 +672,7 @@ static void rgb565le_fromPremul(void* __restrict__ dst, const void* __restrict__
     }
 }
 #undef RGB565LE_FROM_PREMUL_PIXEL
+#endif // FLEXIMG_ENABLE_PREMUL
 
 // ========================================================================
 // RGB565_BE: 16bit RGB (Big Endian)
@@ -742,6 +752,7 @@ static void rgb565be_fromStraight(void* __restrict__ dst, const void* __restrict
     }
 }
 
+#ifdef FLEXIMG_ENABLE_PREMUL
 // blendUnderPremul: srcフォーマット(RGB565_BE)からPremul形式のdstへunder合成
 // 最適化: ルックアップテーブル使用
 static void rgb565be_blendUnderPremul(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
@@ -863,6 +874,7 @@ static void rgb565be_fromPremul(void* __restrict__ dst, const void* __restrict__
     }
 }
 #undef RGB565BE_FROM_PREMUL_PIXEL
+#endif // FLEXIMG_ENABLE_PREMUL
 
 // ========================================================================
 // RGB332: 8bit RGB (3-3-2)
@@ -924,6 +936,7 @@ static void rgb332_fromStraight(void* dst, const void* src, int pixelCount, cons
     }
 }
 
+#ifdef FLEXIMG_ENABLE_PREMUL
 // blendUnderPremul: srcフォーマット(RGB332)からPremul形式のdstへunder合成
 // 最適化: ルックアップテーブル + SWAR (SIMD Within A Register)
 static void rgb332_blendUnderPremul(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
@@ -1020,6 +1033,7 @@ static void rgb332_fromPremul(void* dst, const void* src, int pixelCount, const 
         d[i] = static_cast<uint8_t>((r & 0xE0) | ((g >> 5) << 2) | (b >> 6));
     }
 }
+#endif // FLEXIMG_ENABLE_PREMUL
 
 // ========================================================================
 // RGB888: 24bit RGB (mem[0]=R, mem[1]=G, mem[2]=B)
@@ -1048,6 +1062,7 @@ static void rgb888_fromStraight(void* dst, const void* src, int pixelCount, cons
     }
 }
 
+#ifdef FLEXIMG_ENABLE_PREMUL
 // blendUnderPremul: srcフォーマット(RGB888)からPremul形式のdstへunder合成
 // 8bit精度方式（rgba8Straight_blendUnderPremulと同様のアプローチ）
 static void rgb888_blendUnderPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
@@ -1123,6 +1138,7 @@ static void rgb888_fromPremul(void* dst, const void* src, int pixelCount, const 
         d[i*3 + 2] = static_cast<uint8_t>(b16 / a_tmp);
     }
 }
+#endif // FLEXIMG_ENABLE_PREMUL
 
 // ========================================================================
 // BGR888: 24bit BGR (mem[0]=B, mem[1]=G, mem[2]=R)
@@ -1151,6 +1167,7 @@ static void bgr888_fromStraight(void* dst, const void* src, int pixelCount, cons
     }
 }
 
+#ifdef FLEXIMG_ENABLE_PREMUL
 // blendUnderPremul: srcフォーマット(BGR888)からPremul形式のdstへunder合成
 // 8bit精度方式（rgba8Straight_blendUnderPremulと同様のアプローチ）
 static void bgr888_blendUnderPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
@@ -1226,6 +1243,7 @@ static void bgr888_fromPremul(void* dst, const void* src, int pixelCount, const 
         d[i*3 + 2] = static_cast<uint8_t>(r16 / a_tmp);  // R
     }
 }
+#endif // FLEXIMG_ENABLE_PREMUL
 
 // ========================================================================
 // エンディアン・バイトスワップ関数
@@ -1263,6 +1281,7 @@ namespace BuiltinFormats {
 extern const PixelFormatDescriptor RGB565_BE;
 extern const PixelFormatDescriptor BGR888;
 
+#ifdef FLEXIMG_ENABLE_PREMUL
 const PixelFormatDescriptor RGBA16_Premultiplied = {
     "RGBA16_Premultiplied",
     64,  // bitsPerPixel
@@ -1290,6 +1309,7 @@ const PixelFormatDescriptor RGBA16_Premultiplied = {
     nullptr,  // siblingEndian
     nullptr   // swapEndian
 };
+#endif // FLEXIMG_ENABLE_PREMUL
 
 const PixelFormatDescriptor RGBA8_Straight = {
     "RGBA8_Straight",
@@ -1311,9 +1331,15 @@ const PixelFormatDescriptor RGBA8_Straight = {
     rgba8Straight_fromStraight,
     nullptr,  // toStraightIndexed
     nullptr,  // fromStraightIndexed
+#ifdef FLEXIMG_ENABLE_PREMUL
     rgba8Straight_toPremul,
     rgba8Straight_fromPremul,
     rgba8Straight_blendUnderPremul,
+#else
+    nullptr,  // toPremul
+    nullptr,  // fromPremul
+    nullptr,  // blendUnderPremul
+#endif
     rgba8Straight_blendUnderStraight,  // blendUnderStraight
     nullptr,  // siblingEndian
     nullptr   // swapEndian
@@ -1339,9 +1365,15 @@ const PixelFormatDescriptor RGB565_LE = {
     rgb565le_fromStraight,
     nullptr,  // toStraightIndexed
     nullptr,  // fromStraightIndexed
+#ifdef FLEXIMG_ENABLE_PREMUL
     rgb565le_toPremul,
     rgb565le_fromPremul,
     rgb565le_blendUnderPremul,
+#else
+    nullptr,  // toPremul
+    nullptr,  // fromPremul
+    nullptr,  // blendUnderPremul
+#endif
     nullptr,  // blendUnderStraight
     &RGB565_BE,  // siblingEndian
     swap16       // swapEndian
@@ -1367,9 +1399,15 @@ const PixelFormatDescriptor RGB565_BE = {
     rgb565be_fromStraight,
     nullptr,  // toStraightIndexed
     nullptr,  // fromStraightIndexed
+#ifdef FLEXIMG_ENABLE_PREMUL
     rgb565be_toPremul,
     rgb565be_fromPremul,
     rgb565be_blendUnderPremul,
+#else
+    nullptr,  // toPremul
+    nullptr,  // fromPremul
+    nullptr,  // blendUnderPremul
+#endif
     nullptr,  // blendUnderStraight
     &RGB565_LE,  // siblingEndian
     swap16       // swapEndian
@@ -1395,9 +1433,15 @@ const PixelFormatDescriptor RGB332 = {
     rgb332_fromStraight,
     nullptr,  // toStraightIndexed
     nullptr,  // fromStraightIndexed
+#ifdef FLEXIMG_ENABLE_PREMUL
     rgb332_toPremul,
     rgb332_fromPremul,
     rgb332_blendUnderPremul,
+#else
+    nullptr,  // toPremul
+    nullptr,  // fromPremul
+    nullptr,  // blendUnderPremul
+#endif
     nullptr,  // blendUnderStraight
     nullptr,  // siblingEndian
     nullptr   // swapEndian
@@ -1423,9 +1467,15 @@ const PixelFormatDescriptor RGB888 = {
     rgb888_fromStraight,
     nullptr,  // toStraightIndexed
     nullptr,  // fromStraightIndexed
+#ifdef FLEXIMG_ENABLE_PREMUL
     rgb888_toPremul,
     rgb888_fromPremul,
     rgb888_blendUnderPremul,
+#else
+    nullptr,  // toPremul
+    nullptr,  // fromPremul
+    nullptr,  // blendUnderPremul
+#endif
     nullptr,  // blendUnderStraight
     &BGR888,  // siblingEndian
     swap24    // swapEndian
@@ -1451,9 +1501,15 @@ const PixelFormatDescriptor BGR888 = {
     bgr888_fromStraight,
     nullptr,  // toStraightIndexed
     nullptr,  // fromStraightIndexed
+#ifdef FLEXIMG_ENABLE_PREMUL
     bgr888_toPremul,
     bgr888_fromPremul,
     bgr888_blendUnderPremul,
+#else
+    nullptr,  // toPremul
+    nullptr,  // fromPremul
+    nullptr,  // blendUnderPremul
+#endif
     nullptr,  // blendUnderStraight
     &RGB888,  // siblingEndian
     swap24    // swapEndian

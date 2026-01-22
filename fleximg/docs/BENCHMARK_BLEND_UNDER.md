@@ -118,8 +118,8 @@ make blend_bench
 ### M5Stack
 
 ```bash
-cd fleximg/examples/m5stack_method_bench
-pio run -e m5stack_core2 -t upload
+# プロジェクトルートから実行
+pio run -e bench_m5stack_core2 -t upload
 # シリアルで 'c' コマンドを送信
 ```
 

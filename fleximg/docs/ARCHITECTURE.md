@@ -278,12 +278,12 @@ struct RenderResult {
 
 ### 使用するフォーマット
 
-| フォーマット | 用途 |
-|-------------|------|
-| RGBA8_Straight | 入出力、画像保存 |
-| RGBA16_Premultiplied | 合成・アフィン変換処理 |
+| フォーマット | 用途 | 備考 |
+|-------------|------|------|
+| RGBA8_Straight | 入出力、合成、フィルタ処理 | **デフォルト** |
+| RGBA16_Premultiplied | 高精度合成・アフィン変換 | `FLEXIMG_ENABLE_PREMUL` 定義時のみ |
 
-### 変換方式
+### 変換方式（FLEXIMG_ENABLE_PREMUL時）
 
 ```cpp
 // RGBA8_Straight → RGBA16_Premultiplied
