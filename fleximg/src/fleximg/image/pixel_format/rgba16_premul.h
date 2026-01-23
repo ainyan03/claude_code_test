@@ -28,8 +28,6 @@ namespace PixelFormatIDs {
 // 実装部
 // =============================================================================
 #ifdef FLEXIMG_IMPLEMENTATION
-#ifndef FLEXIMG_PIXEL_FORMAT_RGBA16_PREMUL_IMPL_INCLUDED
-#define FLEXIMG_PIXEL_FORMAT_RGBA16_PREMUL_IMPL_INCLUDED
 
 #ifdef FLEXIMG_ENABLE_PREMUL
 
@@ -204,7 +202,6 @@ const PixelFormatDescriptor RGBA16_Premultiplied = {
 
 #endif // FLEXIMG_ENABLE_PREMUL
 
-#endif // FLEXIMG_PIXEL_FORMAT_RGBA16_PREMUL_IMPL_INCLUDED
 #endif // FLEXIMG_IMPLEMENTATION
 
 #endif // FLEXIMG_PIXEL_FORMAT_RGBA16_PREMUL_H

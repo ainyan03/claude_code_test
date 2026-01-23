@@ -93,8 +93,6 @@ void clear(ViewPort& dst, int x, int y, int width, int height);
 // 実装部
 // =============================================================================
 #ifdef FLEXIMG_IMPLEMENTATION
-#ifndef FLEXIMG_VIEWPORT_IMPL_INCLUDED
-#define FLEXIMG_VIEWPORT_IMPL_INCLUDED
 
 #include <cstring>
 #include <algorithm>
@@ -150,7 +148,6 @@ void clear(ViewPort& dst, int x, int y, int width, int height) {
 } // namespace view_ops
 } // namespace FLEXIMG_NAMESPACE
 
-#endif // FLEXIMG_VIEWPORT_IMPL_INCLUDED
 #endif // FLEXIMG_IMPLEMENTATION
 
 #endif // FLEXIMG_VIEWPORT_H

@@ -380,6 +380,35 @@ fleximg は [stb ライブラリ](https://github.com/nothings/stb) と同様の�
 **WASM/テストビルド:**
 `src/fleximg/fleximg.cpp` が唯一のコンパイル単位として全実装を含みます。
 
+**実装分離の方針:**
+
+各ヘッダファイルは以下の構造を持ちます：
+
+```cpp
+#ifndef FLEXIMG_XXX_H
+#define FLEXIMG_XXX_H
+
+// クラス宣言（ヘッダ部）
+// - コンストラクタ、デストラクタ
+// - 短いアクセサ（1-2行）
+// - 短いpublicメソッド
+
+#ifdef FLEXIMG_IMPLEMENTATION
+// 実装部
+// - 仮想オーバーライドメソッド（vtable linkage問題の回避）
+// - privateヘルパーメソッド
+// - 複雑なロジック
+#endif
+
+#endif
+```
+
+**実装を含むファイル一覧:**
+- `core/node.h`, `core/memory/platform.h`, `core/memory/pool_allocator.h`
+- `image/pixel_format.h`, `image/viewport.h`
+- `operations/filters.h`
+- 全ノードファイル（`nodes/*.h`）
+
 ## ファイル構成
 
 ```

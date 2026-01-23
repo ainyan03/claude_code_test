@@ -16,6 +16,7 @@
 // =============================================================================
 #include "core/memory/platform.h"
 #include "core/memory/pool_allocator.h"
+#include "core/node.h"
 
 // =============================================================================
 // Image
@@ -27,3 +28,18 @@
 // Operations
 // =============================================================================
 #include "operations/filters.h"
+
+// =============================================================================
+// Nodes
+// =============================================================================
+#include "nodes/vertical_blur_node.h"
+#include "nodes/matte_node.h"
+#include "nodes/source_node.h"
+#include "nodes/ninepatch_source_node.h"
+#include "nodes/composite_node.h"
+#include "nodes/horizontal_blur_node.h"
+#include "nodes/renderer_node.h"
+#include "nodes/sink_node.h"
+#include "nodes/filter_node_base.h"
+#include "nodes/affine_node.h"
+#include "nodes/distributor_node.h"

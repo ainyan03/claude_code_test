@@ -111,57 +111,8 @@ public:
 
     // 詳細API
     // 戻り値: ExecResult（Success = 0、エラー = 非0）
-    ExecResult execPrepare() {
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-        // メトリクスをリセット
-        PerfMetrics::instance().reset();
-        FormatMetrics::instance().reset();
-#endif
-
-        // スクリーン全体の情報をPrepareRequestとして作成
-        RenderRequest screenInfo = createScreenRequest();
-        PrepareRequest prepReq;
-        prepReq.width = screenInfo.width;
-        prepReq.height = screenInfo.height;
-        prepReq.origin = screenInfo.origin;
-        prepReq.hasAffine = false;
-        prepReq.allocator = pipelineAllocator_;  // アロケータを設定
-
-        // 上流へ準備を伝播（プル型、循環参照検出付き）
-        Node* upstream = upstreamNode(0);
-        if (!upstream) {
-            return ExecResult::NoUpstream;
-        }
-        if (!upstream->pullPrepare(prepReq)) {
-            return ExecResult::CycleDetected;
-        }
-
-        // 下流へ準備を伝播（プッシュ型、循環参照検出付き）
-        Node* downstream = downstreamNode(0);
-        if (!downstream) {
-            return ExecResult::NoDownstream;
-        }
-        if (!downstream->pushPrepare(prepReq)) {
-            return ExecResult::CycleDetected;
-        }
-
-        return ExecResult::Success;
-    }
-
-    void execProcess() {
-        int tileCountX = calcTileCountX();
-        int tileCountY = calcTileCountY();
-
-        for (int ty = 0; ty < tileCountY; ++ty) {
-            for (int tx = 0; tx < tileCountX; ++tx) {
-                // デバッグ用チェッカーボード: 市松模様でタイルをスキップ
-                if (debugCheckerboard_ && ((tx + ty) % 2 == 1)) {
-                    continue;
-                }
-                processTile(tx, ty);
-            }
-        }
-    }
+    ExecResult execPrepare();
+    void execProcess();
 
     void execFinalize() {
         // 上流へ終了を伝播（プル型）
@@ -273,5 +224,72 @@ private:
 };
 
 } // namespace FLEXIMG_NAMESPACE
+
+// =============================================================================
+// 実装部
+// =============================================================================
+#ifdef FLEXIMG_IMPLEMENTATION
+
+namespace FLEXIMG_NAMESPACE {
+
+// ============================================================================
+// RendererNode - 実行API実装
+// ============================================================================
+
+ExecResult RendererNode::execPrepare() {
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    // メトリクスをリセット
+    PerfMetrics::instance().reset();
+    FormatMetrics::instance().reset();
+#endif
+
+    // スクリーン全体の情報をPrepareRequestとして作成
+    RenderRequest screenInfo = createScreenRequest();
+    PrepareRequest prepReq;
+    prepReq.width = screenInfo.width;
+    prepReq.height = screenInfo.height;
+    prepReq.origin = screenInfo.origin;
+    prepReq.hasAffine = false;
+    prepReq.allocator = pipelineAllocator_;  // アロケータを設定
+
+    // 上流へ準備を伝播（プル型、循環参照検出付き）
+    Node* upstream = upstreamNode(0);
+    if (!upstream) {
+        return ExecResult::NoUpstream;
+    }
+    if (!upstream->pullPrepare(prepReq)) {
+        return ExecResult::CycleDetected;
+    }
+
+    // 下流へ準備を伝播（プッシュ型、循環参照検出付き）
+    Node* downstream = downstreamNode(0);
+    if (!downstream) {
+        return ExecResult::NoDownstream;
+    }
+    if (!downstream->pushPrepare(prepReq)) {
+        return ExecResult::CycleDetected;
+    }
+
+    return ExecResult::Success;
+}
+
+void RendererNode::execProcess() {
+    int tileCountX = calcTileCountX();
+    int tileCountY = calcTileCountY();
+
+    for (int ty = 0; ty < tileCountY; ++ty) {
+        for (int tx = 0; tx < tileCountX; ++tx) {
+            // デバッグ用チェッカーボード: 市松模様でタイルをスキップ
+            if (debugCheckerboard_ && ((tx + ty) % 2 == 1)) {
+                continue;
+            }
+            processTile(tx, ty);
+        }
+    }
+}
+
+} // namespace FLEXIMG_NAMESPACE
+
+#endif // FLEXIMG_IMPLEMENTATION
 
 #endif // FLEXIMG_RENDERER_NODE_H

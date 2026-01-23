@@ -359,16 +359,4 @@ inline void convertFormat(const void* src, PixelFormatID srcFormat,
 } // namespace FLEXIMG_NAMESPACE
 
 
-// =============================================================================
-// 実装部（空、各フォーマットファイルに移動済み）
-// =============================================================================
-#ifdef FLEXIMG_IMPLEMENTATION
-#ifndef FLEXIMG_PIXEL_FORMAT_IMPL_INCLUDED
-#define FLEXIMG_PIXEL_FORMAT_IMPL_INCLUDED
-
-// 実装は各フォーマットの個別ヘッダに移動済み
-
-#endif // FLEXIMG_PIXEL_FORMAT_IMPL_INCLUDED
-#endif // FLEXIMG_IMPLEMENTATION
-
 #endif // FLEXIMG_PIXEL_FORMAT_H

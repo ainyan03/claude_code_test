@@ -116,8 +116,6 @@ void alpha(ViewPort& dst, const ViewPort& src, float scale);
 // 実装部
 // =============================================================================
 #ifdef FLEXIMG_IMPLEMENTATION
-#ifndef FLEXIMG_FILTERS_IMPL_INCLUDED
-#define FLEXIMG_FILTERS_IMPL_INCLUDED
 
 #include "../image/image_buffer.h"
 #include <algorithm>
@@ -453,7 +451,6 @@ void alpha(ViewPort& dst, const ViewPort& src, float scale) {
 } // namespace filters
 } // namespace FLEXIMG_NAMESPACE
 
-#endif // FLEXIMG_FILTERS_IMPL_INCLUDED
 #endif // FLEXIMG_IMPLEMENTATION
 
 #endif // FLEXIMG_OPERATIONS_FILTERS_H
