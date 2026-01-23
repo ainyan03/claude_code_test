@@ -74,7 +74,7 @@ static void rgba8Straight_blendUnderPremul(void* __restrict__ dst, const void* _
     s -= 4;
     d -= 4;
 
-    for (int i = 0; i < pixelCount; i++) {
+    for (int i = 0; i < pixelCount; ++i) {
         d += 4;
         // dstアルファを8bit精度で取得（上位バイト直接読み取り、リトルエンディアン前提）
         uint_fast8_t dstA8 = reinterpret_cast<uint8_t*>(d)[7];
@@ -132,7 +132,7 @@ static void rgba8Straight_blendUnderStraight(void* __restrict__ dst, const void*
     d -= 4;
     s -= 4;
 
-    for (int i = 0; i < pixelCount; i++) {
+    for (int i = 0; i < pixelCount; ++i) {
         d += 4;
         s += 4;
 
@@ -269,7 +269,7 @@ static void alpha8_toStraight(void* dst, const void* src, int pixelCount, const 
     FLEXIMG_FMT_METRICS(Alpha8, ToStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
     uint8_t* d = static_cast<uint8_t*>(dst);
-    for (int i = 0; i < pixelCount; i++) {
+    for (int i = 0; i < pixelCount; ++i) {
         uint8_t alpha = s[i];
         d[i*4 + 0] = alpha;  // R
         d[i*4 + 1] = alpha;  // G
@@ -283,7 +283,7 @@ static void alpha8_fromStraight(void* dst, const void* src, int pixelCount, cons
     FLEXIMG_FMT_METRICS(Alpha8, FromStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
     uint8_t* d = static_cast<uint8_t*>(dst);
-    for (int i = 0; i < pixelCount; i++) {
+    for (int i = 0; i < pixelCount; ++i) {
         d[i] = s[i*4 + 3];  // Aチャンネル抽出
     }
 }
@@ -301,7 +301,7 @@ static void rgba16Premul_toStraight(void* dst, const void* src, int pixelCount, 
     FLEXIMG_FMT_METRICS(RGBA16_Premultiplied, ToStraight, pixelCount);
     const uint16_t* s = static_cast<const uint16_t*>(src);
     uint8_t* d = static_cast<uint8_t*>(dst);
-    for (int i = 0; i < pixelCount; i++) {
+    for (int i = 0; i < pixelCount; ++i) {
         int idx = i * 4;
         uint16_t r16 = s[idx];
         uint16_t g16 = s[idx + 1];
@@ -325,7 +325,7 @@ static void rgba16Premul_fromStraight(void* dst, const void* src, int pixelCount
     FLEXIMG_FMT_METRICS(RGBA16_Premultiplied, FromStraight, pixelCount);
     uint16_t* d = static_cast<uint16_t*>(dst);
     const uint8_t* s = static_cast<const uint8_t*>(src);
-    for (int i = 0; i < pixelCount; i++) {
+    for (int i = 0; i < pixelCount; ++i) {
         int idx = i * 4;
         uint16_t r8 = s[idx];
         uint16_t g8 = s[idx + 1];
@@ -362,7 +362,7 @@ static void rgba16Premul_blendUnderPremul(void* dst, const void* src, int pixelC
     uint16_t* d = static_cast<uint16_t*>(dst);
     const uint16_t* s = static_cast<const uint16_t*>(src);
 
-    for (int i = 0; i < pixelCount; i++) {
+    for (int i = 0; i < pixelCount; ++i) {
         int idx = i * 4;
         // 8bit精度でアルファ取得（16bitの上位バイト）
         uint_fast8_t dstA8 = static_cast<uint_fast8_t>(d[idx + 3] >> 8);
@@ -559,7 +559,7 @@ static void rgb565le_blendUnderPremul(void* __restrict__ dst, const void* __rest
     uint16_t* __restrict__ d = static_cast<uint16_t*>(dst);
     const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
 
-    for (int i = 0; i < pixelCount; i++) {
+    for (int i = 0; i < pixelCount; ++i) {
         int idx16 = i * 4;
         // 8bit精度でアルファ取得（16bitの上位バイト）
         uint_fast8_t dstA8 = static_cast<uint_fast8_t>(d[idx16 + 3] >> 8);
@@ -760,7 +760,7 @@ static void rgb565be_blendUnderPremul(void* __restrict__ dst, const void* __rest
     uint16_t* __restrict__ d = static_cast<uint16_t*>(dst);
     const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
 
-    for (int i = 0; i < pixelCount; i++) {
+    for (int i = 0; i < pixelCount; ++i) {
         int idx16 = i * 4;
         // 8bit精度でアルファ取得（16bitの上位バイト）
         uint_fast8_t dstA8 = static_cast<uint_fast8_t>(d[idx16 + 3] >> 8);
@@ -914,7 +914,7 @@ static void rgb332_toStraight(void* dst, const void* src, int pixelCount, const 
     FLEXIMG_FMT_METRICS(RGB332, ToStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
     uint8_t* d = static_cast<uint8_t*>(dst);
-    for (int i = 0; i < pixelCount; i++) {
+    for (int i = 0; i < pixelCount; ++i) {
         // RGB332 → RGB8 変換（ルックアップテーブル使用）
         const uint8_t* rgb = &rgb332ToRgb8[s[i] * 3];
         d[i*4 + 0] = rgb[0];
@@ -928,7 +928,7 @@ static void rgb332_fromStraight(void* dst, const void* src, int pixelCount, cons
     FLEXIMG_FMT_METRICS(RGB332, FromStraight, pixelCount);
     uint8_t* d = static_cast<uint8_t*>(dst);
     const uint8_t* s = static_cast<const uint8_t*>(src);
-    for (int i = 0; i < pixelCount; i++) {
+    for (int i = 0; i < pixelCount; ++i) {
         uint8_t r = s[i*4 + 0];
         uint8_t g = s[i*4 + 1];
         uint8_t b = s[i*4 + 2];
@@ -948,7 +948,7 @@ static void rgb332_blendUnderPremul(void* __restrict__ dst, const void* __restri
     s -= 1;
     d -= 4;
 
-    for (int i = 0; i < pixelCount; i++) {
+    for (int i = 0; i < pixelCount; ++i) {
         d += 4;
         s += 1;
 
@@ -999,7 +999,7 @@ static void rgb332_toPremul(void* dst, const void* src, int pixelCount, const Co
     uint16_t* d = static_cast<uint16_t*>(dst);
     const uint8_t* s = static_cast<const uint8_t*>(src);
 
-    for (int i = 0; i < pixelCount; i++) {
+    for (int i = 0; i < pixelCount; ++i) {
         // RGB332 → RGB8 変換（ルックアップテーブル使用）
         const uint8_t* rgb = &rgb332ToRgb8[s[i] * 3];
 
@@ -1017,7 +1017,7 @@ static void rgb332_fromPremul(void* dst, const void* src, int pixelCount, const 
     uint8_t* d = static_cast<uint8_t*>(dst);
     const uint16_t* s = static_cast<const uint16_t*>(src);
 
-    for (int i = 0; i < pixelCount; i++) {
+    for (int i = 0; i < pixelCount; ++i) {
         int idx = i * 4;
         uint16_t r16 = s[idx];
         uint16_t g16 = s[idx + 1];
@@ -1043,7 +1043,7 @@ static void rgb888_toStraight(void* dst, const void* src, int pixelCount, const 
     FLEXIMG_FMT_METRICS(RGB888, ToStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
     uint8_t* d = static_cast<uint8_t*>(dst);
-    for (int i = 0; i < pixelCount; i++) {
+    for (int i = 0; i < pixelCount; ++i) {
         d[i*4 + 0] = s[i*3 + 0];  // R
         d[i*4 + 1] = s[i*3 + 1];  // G
         d[i*4 + 2] = s[i*3 + 2];  // B
@@ -1055,7 +1055,7 @@ static void rgb888_fromStraight(void* dst, const void* src, int pixelCount, cons
     FLEXIMG_FMT_METRICS(RGB888, FromStraight, pixelCount);
     uint8_t* d = static_cast<uint8_t*>(dst);
     const uint8_t* s = static_cast<const uint8_t*>(src);
-    for (int i = 0; i < pixelCount; i++) {
+    for (int i = 0; i < pixelCount; ++i) {
         d[i*3 + 0] = s[i*4 + 0];  // R
         d[i*3 + 1] = s[i*4 + 1];  // G
         d[i*3 + 2] = s[i*4 + 2];  // B
@@ -1070,7 +1070,7 @@ static void rgb888_blendUnderPremul(void* dst, const void* src, int pixelCount, 
     uint16_t* d = static_cast<uint16_t*>(dst);
     const uint8_t* s = static_cast<const uint8_t*>(src);
 
-    for (int i = 0; i < pixelCount; i++) {
+    for (int i = 0; i < pixelCount; ++i) {
         int idx16 = i * 4;
         // 8bit精度でアルファ取得（16bitの上位バイト）
         uint_fast8_t dstA8 = static_cast<uint_fast8_t>(d[idx16 + 3] >> 8);
@@ -1108,7 +1108,7 @@ static void rgb888_toPremul(void* dst, const void* src, int pixelCount, const Co
     uint16_t* d = static_cast<uint16_t*>(dst);
     const uint8_t* s = static_cast<const uint8_t*>(src);
 
-    for (int i = 0; i < pixelCount; i++) {
+    for (int i = 0; i < pixelCount; ++i) {
         int idx = i * 4;
         d[idx]     = static_cast<uint16_t>(s[i*3 + 0] << 8);
         d[idx + 1] = static_cast<uint16_t>(s[i*3 + 1] << 8);
@@ -1123,7 +1123,7 @@ static void rgb888_fromPremul(void* dst, const void* src, int pixelCount, const 
     uint8_t* d = static_cast<uint8_t*>(dst);
     const uint16_t* s = static_cast<const uint16_t*>(src);
 
-    for (int i = 0; i < pixelCount; i++) {
+    for (int i = 0; i < pixelCount; ++i) {
         int idx = i * 4;
         uint16_t r16 = s[idx];
         uint16_t g16 = s[idx + 1];
@@ -1148,7 +1148,7 @@ static void bgr888_toStraight(void* dst, const void* src, int pixelCount, const 
     FLEXIMG_FMT_METRICS(BGR888, ToStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
     uint8_t* d = static_cast<uint8_t*>(dst);
-    for (int i = 0; i < pixelCount; i++) {
+    for (int i = 0; i < pixelCount; ++i) {
         d[i*4 + 0] = s[i*3 + 2];  // R (src の B 位置)
         d[i*4 + 1] = s[i*3 + 1];  // G
         d[i*4 + 2] = s[i*3 + 0];  // B (src の R 位置)
@@ -1160,7 +1160,7 @@ static void bgr888_fromStraight(void* dst, const void* src, int pixelCount, cons
     FLEXIMG_FMT_METRICS(BGR888, FromStraight, pixelCount);
     uint8_t* d = static_cast<uint8_t*>(dst);
     const uint8_t* s = static_cast<const uint8_t*>(src);
-    for (int i = 0; i < pixelCount; i++) {
+    for (int i = 0; i < pixelCount; ++i) {
         d[i*3 + 0] = s[i*4 + 2];  // B
         d[i*3 + 1] = s[i*4 + 1];  // G
         d[i*3 + 2] = s[i*4 + 0];  // R
@@ -1175,7 +1175,7 @@ static void bgr888_blendUnderPremul(void* dst, const void* src, int pixelCount, 
     uint16_t* d = static_cast<uint16_t*>(dst);
     const uint8_t* s = static_cast<const uint8_t*>(src);
 
-    for (int i = 0; i < pixelCount; i++) {
+    for (int i = 0; i < pixelCount; ++i) {
         int idx16 = i * 4;
         // 8bit精度でアルファ取得（16bitの上位バイト）
         uint_fast8_t dstA8 = static_cast<uint_fast8_t>(d[idx16 + 3] >> 8);
@@ -1213,7 +1213,7 @@ static void bgr888_toPremul(void* dst, const void* src, int pixelCount, const Co
     uint16_t* d = static_cast<uint16_t*>(dst);
     const uint8_t* s = static_cast<const uint8_t*>(src);
 
-    for (int i = 0; i < pixelCount; i++) {
+    for (int i = 0; i < pixelCount; ++i) {
         int idx = i * 4;
         d[idx]     = static_cast<uint16_t>(s[i*3 + 2] << 8);  // R
         d[idx + 1] = static_cast<uint16_t>(s[i*3 + 1] << 8);  // G
@@ -1228,7 +1228,7 @@ static void bgr888_fromPremul(void* dst, const void* src, int pixelCount, const 
     uint8_t* d = static_cast<uint8_t*>(dst);
     const uint16_t* s = static_cast<const uint16_t*>(src);
 
-    for (int i = 0; i < pixelCount; i++) {
+    for (int i = 0; i < pixelCount; ++i) {
         int idx = i * 4;
         uint16_t r16 = s[idx];
         uint16_t g16 = s[idx + 1];
@@ -1253,7 +1253,7 @@ static void bgr888_fromPremul(void* dst, const void* src, int pixelCount, const 
 static void swap16(void* dst, const void* src, int pixelCount, const ConvertParams*) {
     const uint16_t* srcPtr = static_cast<const uint16_t*>(src);
     uint16_t* dstPtr = static_cast<uint16_t*>(dst);
-    for (int i = 0; i < pixelCount; i++) {
+    for (int i = 0; i < pixelCount; ++i) {
         uint16_t v = srcPtr[i];
         dstPtr[i] = static_cast<uint16_t>((v >> 8) | (v << 8));
     }
@@ -1263,7 +1263,7 @@ static void swap16(void* dst, const void* src, int pixelCount, const ConvertPara
 static void swap24(void* dst, const void* src, int pixelCount, const ConvertParams*) {
     const uint8_t* srcPtr = static_cast<const uint8_t*>(src);
     uint8_t* dstPtr = static_cast<uint8_t*>(dst);
-    for (int i = 0; i < pixelCount; i++) {
+    for (int i = 0; i < pixelCount; ++i) {
         int idx = i * 3;
         dstPtr[idx + 0] = srcPtr[idx + 2];
         dstPtr[idx + 1] = srcPtr[idx + 1];

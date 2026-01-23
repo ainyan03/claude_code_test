@@ -11,6 +11,7 @@
  * Commands:
  *   c [fmt]  : Conversion benchmark (toStraight/fromStraight/toPremul/fromPremul)
  *   b [fmt]  : BlendUnder benchmark (direct vs indirect path)
+ *   s [fmt]  : Pathway comparison (Premul vs Straight) [FLEXIMG_ENABLE_PREMUL]
  *   a        : All benchmarks
  *   l        : List available formats
  *   h        : Help

@@ -2,7 +2,7 @@
 
 **ステータス**: 構想段階
 
-**用途**: [IDEA_AFFINE_REQUEST_SPLITTING.md](IDEA_AFFINE_REQUEST_SPLITTING.md) での分割要否判定
+**用途**: アフィン変換の入力要求分割時の分割要否判定
 
 ## 概要
 
@@ -157,7 +157,7 @@ TileConfig Node::selectTileConfig() const {
 
 ### 循環参照との関係
 
-- [IDEA_CYCLE_DETECTION.md](IDEA_CYCLE_DETECTION.md) の PrepareState と併用
+- PrepareState と併用して循環検出
 - pullPrepare() で両方の情報を伝播
 
 ### オーバーヘッド

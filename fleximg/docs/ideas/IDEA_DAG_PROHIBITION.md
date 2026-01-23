@@ -109,5 +109,5 @@ DAG禁止は動画処理（映像/音声分離・合成）への拡張を妨げ�
 - 同期機構（タイムスタンプ管理）
 
 ## 参考資料
-- 評価レポート: `.work/reports/fleximg-pipeline-evaluation-2026-01-13.md`
+
 - 類似システム比較: GEGL, Halide, libvips, Skia
