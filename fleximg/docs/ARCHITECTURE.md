@@ -400,7 +400,14 @@ src/fleximg/
 │       └── buffer_handle.h   # BufferHandle（RAII）
 │
 ├── image/                    # 画像処理
-│   ├── pixel_format.h        # ピクセルフォーマット定義・変換
+│   ├── pixel_format.h        # ピクセルフォーマット共通定義・ユーティリティ
+│   ├── pixel_format/         # 各フォーマットの個別実装
+│   │   ├── rgba8_straight.h  # RGBA8_Straight + invUnpremulTable
+│   │   ├── alpha8.h          # Alpha8
+│   │   ├── rgba16_premul.h   # RGBA16_Premultiplied（PREMUL条件）
+│   │   ├── rgb565.h          # RGB565_LE/BE + ルックアップテーブル + swap16
+│   │   ├── rgb332.h          # RGB332 + ルックアップテーブル
+│   │   └── rgb888.h          # RGB888/BGR888 + swap24
 │   ├── viewport.h            # ViewPort
 │   ├── image_buffer.h        # ImageBuffer
 │   └── render_types.h        # RenderRequest, RenderResult
