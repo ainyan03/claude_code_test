@@ -60,6 +60,7 @@ renderer.exec();
 Node (基底クラス)
 │
 ├── SourceNode        # 画像データを提供（入力端点）
+├── NinePatchSourceNode # 9パッチ画像を提供（伸縮可能な入力端点）
 ├── SinkNode          # 出力先を保持（出力端点）
 ├── AffineNode        # アフィン変換（プル/プッシュ両対応）
 ├── FilterNodeBase    # フィルタ共通基底
@@ -313,22 +314,39 @@ namespace filters {
 
 ### アフィン変換 (operations/transform.h)
 
+AffineNode が内部で使用する低レベル関数群です。通常はノードAPIを使用してください。
+
 ```cpp
 namespace transform {
-    void affine(ViewPort& dst, int_fixed dstOriginX, int_fixed dstOriginY,
-                const ViewPort& src, int_fixed srcOriginX, int_fixed srcOriginY,
-                const FixedPointInverseMatrix& invMatrix);
+    // DDA有効範囲計算
+    std::pair<int, int> calcValidRange(int32_t coeff, int32_t base, int srcSize, int canvasSize);
+
+    // DDAによるアフィン変換転写
+    void applyAffineDDA(ViewPort& dst, const ViewPort& src, ...);
 }
 ```
 
-### ブレンド (operations/blend.h)
+### キャンバス操作 (operations/canvas_utils.h)
+
+CompositeNode や NinePatchSourceNode など、複数画像を合成するノードで使用するユーティリティです。
 
 ```cpp
-namespace blend {
-    void first(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canvasOriginY,
-               const ViewPort& src, int_fixed srcOriginX, int_fixed srcOriginY);
-    void onto(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canvasOriginY,
-              const ViewPort& src, int_fixed srcOriginX, int_fixed srcOriginY);
+namespace canvas_utils {
+    // キャンバス作成（RGBA8_Straight形式）
+    ImageBuffer createCanvas(int width, int height, InitPolicy init, IAllocator* alloc);
+
+    // 最初の画像をキャンバスに配置（ブレンド不要）
+    void placeFirst(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canvasOriginY,
+                    const ViewPort& src, int_fixed srcOriginX, int_fixed srcOriginY);
+
+#ifdef FLEXIMG_ENABLE_PREMUL
+    // Premul形式のキャンバス作成
+    ImageBuffer createPremulCanvas(int width, int height, InitPolicy init, IAllocator* alloc);
+
+    // under合成でレイヤーを配置
+    void placeUnder(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canvasOriginY,
+                    const ViewPort& src, int_fixed srcOriginX, int_fixed srcOriginY);
+#endif
 }
 ```
 
@@ -343,7 +361,8 @@ src/fleximg/
 │   ├── types.h               # 固定小数点型、数学型、AffineMatrix
 │   ├── port.h                # Port（ノード接続）
 │   ├── node.h                # Node 基底クラス
-│   ├── perf_metrics.h        # パフォーマンス計測
+│   ├── perf_metrics.h        # パフォーマンス計測（ノード別）
+│   ├── format_metrics.h      # パフォーマンス計測（フォーマット変換別）
 │   └── memory/               # メモリ管理（fleximg::core::memory 名前空間）
 │       ├── allocator.h       # IAllocator, DefaultAllocator
 │       ├── platform.h/cpp    # IPlatformMemory（組込み環境対応）
@@ -351,8 +370,7 @@ src/fleximg/
 │       └── buffer_handle.h   # BufferHandle（RAII）
 │
 ├── image/                    # 画像処理
-│   ├── pixel_format.h        # ピクセルフォーマット定義
-│   ├── pixel_format_registry.h/cpp  # フォーマット変換レジストリ
+│   ├── pixel_format.h/cpp    # ピクセルフォーマット定義・変換
 │   ├── viewport.h/cpp        # ViewPort
 │   ├── image_buffer.h        # ImageBuffer
 │   ├── image_allocator.h     # [DEPRECATED] 旧アロケータ
@@ -360,6 +378,7 @@ src/fleximg/
 │
 ├── nodes/
 │   ├── source_node.h         # SourceNode
+│   ├── ninepatch_source_node.h # NinePatchSourceNode（9パッチ画像）
 │   ├── sink_node.h           # SinkNode
 │   ├── affine_node.h         # AffineNode
 │   ├── distributor_node.h    # DistributorNode
@@ -374,9 +393,10 @@ src/fleximg/
 │   └── renderer_node.h         # RendererNode（発火点）
 │
 └── operations/
-    ├── transform.h/cpp       # アフィン変換
+    ├── transform.h           # アフィン変換（DDA処理）
     ├── filters.h/cpp         # フィルタ処理
-    └── blend.h/cpp           # ブレンド処理
+    ├── canvas_utils.h        # キャンバス操作（合成ユーティリティ）
+    └── blend.h/cpp           # [DEPRECATED] ブレンド処理（canvas_utilsに移行）
 ```
 
 ## 使用例

@@ -23,6 +23,7 @@
 | アフィン伝播最適化 | SourceNodeへのアフィン伝播、有効範囲のみ返却 | v2.30.0 |
 | プッシュ型アフィン変換 | Renderer下流でのアフィン変換 | v2.19.0 |
 | NinePatchSourceNode | Android 9patch互換の伸縮可能画像ソース | - |
+| DAG禁止（木構造制限） | ノードグラフを木構造に制限し、DAGを禁止 | - |
 | 固定小数点型基盤 | int_fixed8/int_fixed16、Point構造体、座標計算 | v2.5.0 |
 | マイグレーションAPI削除 | Point2f, setOriginf() 等の削除 | v2.18.0 |
 | doctestテスト環境 | 91テストケース | v2.20.0 |

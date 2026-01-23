@@ -233,6 +233,6 @@ src/fleximg/nodes/
 
 ## 関連ドキュメント
 
-- [docs/ideas/IDEA_GAUSSIAN_BLUR_UPGRADE.md](ideas/IDEA_GAUSSIAN_BLUR_UPGRADE.md) - ガウシアン近似の理論と実装提案
+- [ideas/archived/IDEA_GAUSSIAN_BLUR_UPGRADE.md](ideas/archived/IDEA_GAUSSIAN_BLUR_UPGRADE.md) - ガウシアン近似の理論と実装提案
 - [CHANGELOG.md](../CHANGELOG.md#2340---2026-01-18) - v2.34.0での追加機能
 - [DESIGN_RENDERER_NODE.md](DESIGN_RENDERER_NODE.md) - originとマージンの扱い
