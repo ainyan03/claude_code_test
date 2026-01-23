@@ -91,7 +91,6 @@ emcc src/fleximg/core/memory/platform.cpp \
      src/fleximg/core/memory/pool_allocator.cpp \
      src/fleximg/image/viewport.cpp \
      src/fleximg/image/pixel_format.cpp \
-     src/fleximg/operations/blend.cpp \
      src/fleximg/operations/filters.cpp \
      demo/bindings.cpp \
     -I src \

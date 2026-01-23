@@ -373,7 +373,6 @@ src/fleximg/
 │   ├── pixel_format.h/cpp    # ピクセルフォーマット定義・変換
 │   ├── viewport.h/cpp        # ViewPort
 │   ├── image_buffer.h        # ImageBuffer
-│   ├── image_allocator.h     # [DEPRECATED] 旧アロケータ
 │   └── render_types.h        # RenderRequest, RenderResult
 │
 ├── nodes/
@@ -395,8 +394,7 @@ src/fleximg/
 └── operations/
     ├── transform.h           # アフィン変換（DDA処理）
     ├── filters.h/cpp         # フィルタ処理
-    ├── canvas_utils.h        # キャンバス操作（合成ユーティリティ）
-    └── blend.h/cpp           # [DEPRECATED] ブレンド処理（canvas_utilsに移行）
+    └── canvas_utils.h        # キャンバス操作（合成ユーティリティ）
 ```
 
 ## 使用例

@@ -259,8 +259,7 @@ for (int i = 0; i < pixelCount; i++) {
 |---------|------|-----------|
 | `src/fleximg/image/pixel_format.h` | フォーマットID、変換関数 | `#if 0` で無効化 |
 | `src/fleximg/image/pixel_format.cpp` | Descriptor実体、変換関数実装 | `#if 0` で無効化 |
-| `src/fleximg/operations/blend.cpp` | 合成処理 | RGBA8同士のブレンドのみ有効 |
-| `src/fleximg/operations/canvas_utils.h` | キャンバス作成 | RGBA8_Straight固定 |
+| `src/fleximg/operations/canvas_utils.h` | キャンバス作成・合成 | RGBA8_Straight固定 |
 
 ## PixelFormatID
 

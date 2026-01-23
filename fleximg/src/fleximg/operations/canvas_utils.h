@@ -3,7 +3,6 @@
 
 #include "../image/image_buffer.h"
 #include "../image/render_types.h"
-#include "../operations/blend.h"
 
 namespace FLEXIMG_NAMESPACE {
 namespace canvas_utils {

@@ -15,7 +15,6 @@
 // fleximg implementation files (header-only style inclusion for simplicity)
 #include "fleximg/image/pixel_format.cpp"
 #include "fleximg/image/viewport.cpp"
-#include "fleximg/operations/blend.cpp"
 #include "fleximg/operations/filters.cpp"
 #include "fleximg/core/memory/platform.cpp"
 #include "fleximg/core/memory/pool_allocator.cpp"
