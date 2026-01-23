@@ -24,8 +24,6 @@ namespace PixelFormatIDs {
 // 実装部
 // =============================================================================
 #ifdef FLEXIMG_IMPLEMENTATION
-#ifndef FLEXIMG_PIXEL_FORMAT_ALPHA8_IMPL_INCLUDED
-#define FLEXIMG_PIXEL_FORMAT_ALPHA8_IMPL_INCLUDED
 
 #include "../../core/format_metrics.h"
 
@@ -95,7 +93,6 @@ const PixelFormatDescriptor Alpha8 = {
 
 } // namespace FLEXIMG_NAMESPACE
 
-#endif // FLEXIMG_PIXEL_FORMAT_ALPHA8_IMPL_INCLUDED
 #endif // FLEXIMG_IMPLEMENTATION
 
 #endif // FLEXIMG_PIXEL_FORMAT_ALPHA8_H

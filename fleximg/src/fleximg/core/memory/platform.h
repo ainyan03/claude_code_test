@@ -108,8 +108,6 @@ public:
 // 実装部
 // =============================================================================
 #ifdef FLEXIMG_IMPLEMENTATION
-#ifndef FLEXIMG_PLATFORM_IMPL_INCLUDED
-#define FLEXIMG_PLATFORM_IMPL_INCLUDED
 
 #include "allocator.h"
 
@@ -144,7 +142,6 @@ void DefaultPlatformMemory::deallocate(void* ptr) {
 } // namespace core
 } // namespace FLEXIMG_NAMESPACE
 
-#endif // FLEXIMG_PLATFORM_IMPL_INCLUDED
 #endif // FLEXIMG_IMPLEMENTATION
 
 #endif // FLEXIMG_CORE_MEMORY_PLATFORM_H

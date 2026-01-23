@@ -116,8 +116,6 @@ private:
 // 実装部
 // =============================================================================
 #ifdef FLEXIMG_IMPLEMENTATION
-#ifndef FLEXIMG_POOL_ALLOCATOR_IMPL_INCLUDED
-#define FLEXIMG_POOL_ALLOCATOR_IMPL_INCLUDED
 
 namespace FLEXIMG_NAMESPACE {
 namespace core {
@@ -251,7 +249,6 @@ size_t PoolAllocator::usedBlockCount() const {
 } // namespace core
 } // namespace FLEXIMG_NAMESPACE
 
-#endif // FLEXIMG_POOL_ALLOCATOR_IMPL_INCLUDED
 #endif // FLEXIMG_IMPLEMENTATION
 
 #endif // FLEXIMG_CORE_MEMORY_POOL_ALLOCATOR_H

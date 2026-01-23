@@ -26,8 +26,6 @@ namespace PixelFormatIDs {
 // 実装部
 // =============================================================================
 #ifdef FLEXIMG_IMPLEMENTATION
-#ifndef FLEXIMG_PIXEL_FORMAT_RGB888_IMPL_INCLUDED
-#define FLEXIMG_PIXEL_FORMAT_RGB888_IMPL_INCLUDED
 
 #include "../../core/format_metrics.h"
 
@@ -340,7 +338,6 @@ const PixelFormatDescriptor BGR888 = {
 
 } // namespace FLEXIMG_NAMESPACE
 
-#endif // FLEXIMG_PIXEL_FORMAT_RGB888_IMPL_INCLUDED
 #endif // FLEXIMG_IMPLEMENTATION
 
 #endif // FLEXIMG_PIXEL_FORMAT_RGB888_H
