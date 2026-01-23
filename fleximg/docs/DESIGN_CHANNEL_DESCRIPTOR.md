@@ -346,5 +346,12 @@ const PixelFormatDescriptor Gray8 = {
 
 | ファイル | 役割 |
 |---------|------|
-| `src/fleximg/image/pixel_format.h` | ChannelType enum、ChannelDescriptor、アクセサメソッド、Alpha8定義、変換関数実装、全フォーマット定義（stb-style） |
-| `test/pixel_format_test.cpp` | 42テストケース |
+| `src/fleximg/image/pixel_format.h` | ChannelType enum、ChannelDescriptor、アクセサメソッド、ユーティリティ関数 |
+| `src/fleximg/image/pixel_format/` | 各フォーマット実装（stb-style） |
+| ├── `rgba8_straight.h` | RGBA8_Straight + invUnpremulTable |
+| ├── `alpha8.h` | Alpha8 |
+| ├── `rgba16_premul.h` | RGBA16_Premultiplied（`FLEXIMG_ENABLE_PREMUL`ガード） |
+| ├── `rgb565.h` | RGB565_LE/BE + ルックアップテーブル |
+| ├── `rgb332.h` | RGB332 + ルックアップテーブル |
+| └── `rgb888.h` | RGB888/BGR888 |
+| `test/pixel_format_test.cpp` | 94テストケース |
