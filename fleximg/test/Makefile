@@ -31,7 +31,7 @@ OPS_DIR = ../src/fleximg/operations
 # ライブラリソース
 MEMORY_SRCS = $(MEMORY_DIR)/platform.cpp $(MEMORY_DIR)/pool_allocator.cpp
 CORE_SRCS = $(SRC_DIR)/image/viewport.cpp $(SRC_DIR)/image/pixel_format.cpp
-OPS_SRCS = $(OPS_DIR)/blend.cpp $(OPS_DIR)/filters.cpp
+OPS_SRCS = $(OPS_DIR)/filters.cpp
 ALL_LIB_SRCS = $(MEMORY_SRCS) $(CORE_SRCS) $(OPS_SRCS)
 
 # テストソース（test_main.cpp以外）

@@ -129,7 +129,7 @@ fleximg/
 │   └── operations/               # 操作実装
 │       ├── transform.h           # DDA範囲計算
 │       ├── filters.h/cpp         # フィルタ処理
-│       └── blend.h/cpp           # ブレンド処理
+│       └── canvas_utils.h        # キャンバス操作
 ├── demo/                         # デモアプリケーション
 │   ├── bindings.cpp              # WASMバインディング
 │   └── web/                      # Webフロントエンド

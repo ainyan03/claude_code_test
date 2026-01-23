@@ -119,7 +119,7 @@ namespace view_ops {
 }
 ```
 
-ブレンド操作は `blend` 名前空間で提供されます（`operations/blend.h`）。
+合成操作は `canvas_utils` 名前空間で提供されます（`operations/canvas_utils.h`）。
 
 ## ImageBuffer（メモリ所有画像）
 
