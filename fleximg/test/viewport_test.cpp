@@ -45,6 +45,7 @@ TEST_CASE("ViewPort simple construction with auto stride") {
     CHECK(v.isValid());
 }
 
+#ifdef FLEXIMG_ENABLE_PREMUL
 TEST_CASE("ViewPort with RGBA16 format") {
     uint8_t buffer[800];  // 10x10 RGBA16
     ViewPort v(buffer, 10, 10, PixelFormatIDs::RGBA16_Premultiplied);
@@ -52,6 +53,7 @@ TEST_CASE("ViewPort with RGBA16 format") {
     CHECK(v.stride == 80);  // 10 * 8 bytes
     CHECK(v.bytesPerPixel() == 8);
 }
+#endif
 
 // =============================================================================
 // ViewPort Validity Tests
@@ -134,10 +136,12 @@ TEST_CASE("ViewPort byte info") {
         CHECK(v.bytesPerPixel() == 4);
     }
 
+#ifdef FLEXIMG_ENABLE_PREMUL
     SUBCASE("bytesPerPixel for RGBA16") {
         ViewPort v(buffer, 5, 5, PixelFormatIDs::RGBA16_Premultiplied);
         CHECK(v.bytesPerPixel() == 8);
     }
+#endif
 
     SUBCASE("rowBytes with positive stride") {
         ViewPort v(buffer, PixelFormatIDs::RGBA8_Straight, 48, 10, 10);
@@ -175,9 +179,11 @@ TEST_CASE("view_ops::subView") {
         CHECK(sub.stride == v.stride);
     }
 
+#ifdef FLEXIMG_ENABLE_PREMUL
     SUBCASE("subView preserves format") {
         ViewPort v16(buffer, 5, 5, PixelFormatIDs::RGBA16_Premultiplied);
         auto sub = view_ops::subView(v16, 1, 1, 3, 3);
         CHECK(sub.formatID == PixelFormatIDs::RGBA16_Premultiplied);
     }
+#endif
 }

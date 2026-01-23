@@ -20,6 +20,8 @@
 #define FLEXIMG_NAMESPACE fleximg
 #include "fleximg/image/pixel_format.h"
 
+#ifdef FLEXIMG_ENABLE_PREMUL
+
 using namespace fleximg;
 
 // =============================================================================
@@ -745,3 +747,5 @@ TEST_CASE("RGBA8_Straight blendUnderStraight verification") {
         }
     }
 }
+
+#endif // FLEXIMG_ENABLE_PREMUL

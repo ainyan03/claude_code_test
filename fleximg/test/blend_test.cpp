@@ -92,6 +92,7 @@ TEST_CASE("placeFirst with offset") {
     CHECK(a == 0);
 }
 
+#ifdef FLEXIMG_ENABLE_PREMUL
 TEST_CASE("placeFirst format conversion RGBA8 to RGBA16") {
     ImageBuffer src(4, 4, PixelFormatIDs::RGBA8_Straight);
     ImageBuffer dst(4, 4, PixelFormatIDs::RGBA16_Premultiplied);
@@ -114,6 +115,7 @@ TEST_CASE("placeFirst format conversion RGBA8 to RGBA16") {
     CHECK(g == 0);
     CHECK(b == 0);
 }
+#endif
 
 TEST_CASE("placeFirst clipping") {
     ImageBuffer src(4, 4, PixelFormatIDs::RGBA8_Straight);
