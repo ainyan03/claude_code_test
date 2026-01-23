@@ -3,20 +3,21 @@
 
 #include <M5Unified.h>
 
-// fleximg
+// fleximg (stb-style: define FLEXIMG_IMPLEMENTATION before including headers)
 #define FLEXIMG_NAMESPACE fleximg
+#define FLEXIMG_IMPLEMENTATION
 #include "fleximg/core/common.h"
 #include "fleximg/core/types.h"
+#include "fleximg/core/memory/platform.h"
+#include "fleximg/image/viewport.h"
 #include "fleximg/image/image_buffer.h"
 #include "fleximg/nodes/source_node.h"
 #include "fleximg/nodes/affine_node.h"
 #include "fleximg/nodes/renderer_node.h"
 
-// fleximg implementation files (header-only style inclusion for simplicity)
+// 以下は Phase 2 以降で stb 方式に移行予定
 #include "fleximg/image/pixel_format.cpp"
-#include "fleximg/image/viewport.cpp"
 #include "fleximg/operations/filters.cpp"
-#include "fleximg/core/memory/platform.cpp"
 #include "fleximg/core/memory/pool_allocator.cpp"
 
 // カスタムSinkNode
