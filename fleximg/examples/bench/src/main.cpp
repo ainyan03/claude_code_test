@@ -86,6 +86,7 @@ static void benchDelay(int ms) { delay(ms); }
 
 static void benchPrint(const char* str) { std::cout << str; }
 static void benchPrintln(const char* str = "") { std::cout << str << std::endl; }
+__attribute__((format(printf, 1, 2)))
 static void benchPrintf(const char* fmt, ...) {
     char buf[256];
     va_list args;
@@ -102,6 +103,7 @@ static uint32_t benchMicros() {
     return static_cast<uint32_t>(duration_cast<microseconds>(now - start).count());
 }
 
+[[maybe_unused]]
 static bool benchAvailable() {
     // For native, we'll use a simple command-line interface
     return false;  // Will be handled differently
@@ -119,6 +121,7 @@ static int benchRead(char* buf, int maxLen) {
     return 0;
 }
 
+[[maybe_unused]]
 static void benchDelay(int) { /* no-op on PC */ }
 
 #endif
@@ -214,6 +217,7 @@ static void initTestData() {
     }
 }
 
+#ifdef FLEXIMG_ENABLE_PREMUL
 // Initialize RGBA16 canvas with semi-transparent green
 static void initCanvasRGBA16() {
     for (int i = 0; i < BENCH_PIXELS; i++) {
@@ -234,6 +238,7 @@ static void initCanvasRGBA8() {
         bufRGBA8_2[i * 4 + 3] = 128;   // ~50% alpha
     }
 }
+#endif // FLEXIMG_ENABLE_PREMUL
 
 // =============================================================================
 // Benchmark Runner
