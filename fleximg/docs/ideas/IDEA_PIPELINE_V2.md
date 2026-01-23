@@ -332,9 +332,7 @@ public:
 
 ## 関連ドキュメント
 
-- [IDEA_GENERIC_DATA_PIPELINE.md](IDEA_GENERIC_DATA_PIPELINE.md) - 汎用パイプライン設計（参考）
 - [IDEA_PIPE_EMBEDDED_DESIGN.md](IDEA_PIPE_EMBEDDED_DESIGN.md) - Pipe 埋め込み設計（参考）
-- [FlexLib/docs/pipeline_design.md](/FlexLib/docs/pipeline_design.md) - FlexLib パイプライン設計
 
 ---
 
