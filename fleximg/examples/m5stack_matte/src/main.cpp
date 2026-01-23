@@ -16,10 +16,12 @@
 #include "fleximg/nodes/matte_node.h"
 #include "fleximg/nodes/renderer_node.h"
 
-// 以下は Phase 2 以降で stb 方式に移行予定
+// stb 方式: FLEXIMG_IMPLEMENTATION 定義済みなのでヘッダから実装が有効化される
+#include "fleximg/core/memory/pool_allocator.h"
+#include "fleximg/operations/filters.h"
+
+// 以下は Phase 3 で stb 方式に移行予定
 #include "fleximg/image/pixel_format.cpp"
-#include "fleximg/operations/filters.cpp"
-#include "fleximg/core/memory/pool_allocator.cpp"
 
 // DefaultAllocatorの統計を追跡するラッパー
 class TrackedDefaultAllocator : public fleximg::core::memory::IAllocator {

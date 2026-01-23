@@ -29,12 +29,10 @@ MEMORY_DIR = ../src/fleximg/core/memory
 OPS_DIR = ../src/fleximg/operations
 
 # ライブラリソース
-# Note: fleximg.cpp は stb方式で platform.h, viewport.h の実装を含む
+# Note: fleximg.cpp は stb方式で platform.h, viewport.h, pool_allocator.h, filters.h の実装を含む
 FLEXIMG_MAIN = $(SRC_DIR)/fleximg.cpp
-MEMORY_SRCS = $(MEMORY_DIR)/pool_allocator.cpp
 CORE_SRCS = $(SRC_DIR)/image/pixel_format.cpp
-OPS_SRCS = $(OPS_DIR)/filters.cpp
-ALL_LIB_SRCS = $(FLEXIMG_MAIN) $(MEMORY_SRCS) $(CORE_SRCS) $(OPS_SRCS)
+ALL_LIB_SRCS = $(FLEXIMG_MAIN) $(CORE_SRCS)
 
 # テストソース（test_main.cpp以外）
 TEST_SRCS = $(filter-out test_main.cpp, $(wildcard *_test.cpp))
