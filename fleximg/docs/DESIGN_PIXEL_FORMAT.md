@@ -257,7 +257,14 @@ for (int i = 0; i < pixelCount; i++) {
 
 | ファイル | 役割 | RGBA16関連 |
 |---------|------|-----------|
-| `src/fleximg/image/pixel_format.h` | フォーマットID、Descriptor実体、変換関数実装（stb-style） | `#if 0` で無効化 |
+| `src/fleximg/image/pixel_format.h` | 型定義、ユーティリティ、各フォーマットinclude | 型定義のみ |
+| `src/fleximg/image/pixel_format/` | 各フォーマット実装（stb-style） | |
+| ├── `rgba8_straight.h` | RGBA8_Straight + invUnpremulTable | 変換テーブル |
+| ├── `alpha8.h` | Alpha8 | - |
+| ├── `rgba16_premul.h` | RGBA16_Premultiplied | 全体が`FLEXIMG_ENABLE_PREMUL`ガード |
+| ├── `rgb565.h` | RGB565_LE/BE + ルックアップテーブル | - |
+| ├── `rgb332.h` | RGB332 + ルックアップテーブル | - |
+| └── `rgb888.h` | RGB888/BGR888 | - |
 | `src/fleximg/operations/canvas_utils.h` | キャンバス作成・合成 | RGBA8_Straight固定 |
 
 ## PixelFormatID
