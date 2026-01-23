@@ -374,39 +374,16 @@ RenderResult SourceNode::pullProcessWithAffine(const RenderRequest& request) {
     int32_t srcX_fixed = invA * dxStart + baseXWithHalf;
     int32_t srcY_fixed = invC * dxStart + baseYWithHalf;
 
-    uint8_t* dstRow = static_cast<uint8_t*>(output.data());
-    const uint8_t* srcData = static_cast<const uint8_t*>(source_.data);
+    void* dstRow = output.data();
 
     if (useBilinear_) {
-        // バイリニア補間（RGBA8888専用）
-        transform::copyRowDDABilinear_RGBA8888(dstRow, source_,
-            srcX_fixed, srcY_fixed, invA, invC, validWidth);
+        // バイリニア補間（RGBA8888専用、他フォーマットは最近傍フォールバック）
+        view_ops::copyRowDDABilinear(dstRow, source_, validWidth,
+            srcX_fixed, srcY_fixed, invA, invC);
     } else {
-        // 最近傍補間
-        switch (getBytesPerPixel(source_.formatID)) {
-            case 8:
-                transform::copyRowDDA<8>(dstRow, srcData, source_.stride,
-                    srcX_fixed, srcY_fixed, invA, invC, validWidth);
-                break;
-            case 4:
-                transform::copyRowDDA<4>(dstRow, srcData, source_.stride,
-                    srcX_fixed, srcY_fixed, invA, invC, validWidth);
-                break;
-            case 3:
-                transform::copyRowDDA<3>(dstRow, srcData, source_.stride,
-                    srcX_fixed, srcY_fixed, invA, invC, validWidth);
-                break;
-            case 2:
-                transform::copyRowDDA<2>(dstRow, srcData, source_.stride,
-                    srcX_fixed, srcY_fixed, invA, invC, validWidth);
-                break;
-            case 1:
-                transform::copyRowDDA<1>(dstRow, srcData, source_.stride,
-                    srcX_fixed, srcY_fixed, invA, invC, validWidth);
-                break;
-            default:
-                break;
-        }
+        // 最近傍補間（BPP分岐は関数内部で実施）
+        view_ops::copyRowDDA(dstRow, source_, validWidth,
+            srcX_fixed, srcY_fixed, invA, invC);
     }
 
     // originを有効範囲に合わせて調整

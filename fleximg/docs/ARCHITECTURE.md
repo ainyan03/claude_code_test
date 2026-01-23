@@ -312,17 +312,43 @@ namespace filters {
 }
 ```
 
-### アフィン変換 (operations/transform.h)
+### ViewPort操作 (image/viewport.h - view_ops名前空間)
 
-AffineNode が内部で使用する低レベル関数群です。通常はノードAPIを使用してください。
+ViewPortに対する操作を行うフリー関数群です。DDA転写関数もここに含まれます。
+
+```cpp
+namespace view_ops {
+    // サブビュー作成
+    ViewPort subView(const ViewPort& v, int_fast16_t x, int_fast16_t y,
+                     int_fast16_t w, int_fast16_t h);
+
+    // 矩形コピー・クリア
+    void copy(ViewPort& dst, int dstX, int dstY,
+              const ViewPort& src, int srcX, int srcY, int width, int height);
+    void clear(ViewPort& dst, int x, int y, int width, int height);
+
+    // DDA行転写（アフィン変換用）
+    void copyRowDDA(void* dst, const ViewPort& src, int count,
+                    int_fixed srcX, int_fixed srcY, int_fixed incrX, int_fixed incrY);
+    void copyRowDDABilinear(void* dst, const ViewPort& src, int count,
+                            int_fixed srcX, int_fixed srcY, int_fixed incrX, int_fixed incrY);
+
+    // アフィン変換転写（複数行一括処理）
+    void affineTransform(ViewPort& dst, const ViewPort& src,
+                         int_fixed invTx, int_fixed invTy, const Matrix2x2_fixed16& invMatrix,
+                         int_fixed rowOffsetX, int_fixed rowOffsetY,
+                         int_fixed dxOffsetX, int_fixed dxOffsetY);
+}
+```
+
+### DDA有効範囲計算 (operations/transform.h)
+
+アフィン変換のDDA描画で使用する有効範囲計算の純粋数学関数です。
 
 ```cpp
 namespace transform {
-    // DDA有効範囲計算
-    std::pair<int, int> calcValidRange(int32_t coeff, int32_t base, int srcSize, int canvasSize);
-
-    // DDAによるアフィン変換転写
-    void applyAffineDDA(ViewPort& dst, const ViewPort& src, ...);
+    // ソース画像の有効範囲に入る出力ピクセル範囲を計算
+    std::pair<int, int> calcValidRange(int_fixed coeff, int_fixed base, int srcSize, int canvasSize);
 }
 ```
 

@@ -1,5 +1,28 @@
 # Changelog
 
+## [2.43.0] - 2026-01-23
+
+### リファクタリング
+
+- **DDA関数をview_ops::に移動**: ViewPort操作の一貫性向上と将来のbit-packed format対応準備
+  - `transform::copyRowDDA<BPP>` → `view_ops::copyRowDDA`（BPP分岐内蔵）
+  - `transform::copyRowDDABilinear_RGBA8888` → `view_ops::copyRowDDABilinear`
+  - `transform::applyAffineDDA` → `view_ops::affineTransform`
+  - `transform::calcValidRange`は純粋数学関数としてtransform::に残存
+
+- **APIシグネチャ統一**: DDA関数をViewPort依存APIに統一
+  - rawポインタ引数 → ViewPort参照
+  - `int32_t` → `int_fixed`（型エイリアス）
+  - 引数名をDDA用語に変更（fixedInvA/C → incrX/Y）
+
+### 技術詳細
+
+- 呼び出し元（source_node.h, sink_node.h）のBPP分岐switch文が不要に
+- transform.hを大幅削減（313行 → 114行）
+- 将来bit-packed formatをViewPortに追加した際、DDA関数が自動的に追加情報を利用可能
+
+---
+
 ## [2.42.0] - 2026-01-23
 
 ### リファクタリング

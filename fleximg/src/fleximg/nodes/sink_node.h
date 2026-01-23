@@ -198,7 +198,7 @@ void SinkNode::applyAffine(ViewPort& dst,
                         + (srcOriginYInt << INT_FIXED16_SHIFT);
 
     // 共通DDA処理を呼び出し
-    transform::applyAffineDDA(dst, src, fixedInvTx, fixedInvTy,
+    view_ops::affineTransform(dst, src, fixedInvTx, fixedInvTy,
                               affine_.invMatrix, affine_.rowOffsetX, affine_.rowOffsetY,
                               affine_.dxOffsetX, affine_.dxOffsetY);
 }
