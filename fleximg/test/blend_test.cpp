@@ -25,6 +25,7 @@ static void getPixelRGBA8(const ImageBuffer& buf, int x, int y, uint8_t& r, uint
     r = p[0]; g = p[1]; b = p[2]; a = p[3];
 }
 
+#ifdef FLEXIMG_ENABLE_PREMUL
 // RGBA16ピクセルを設定
 static void setPixelRGBA16(ImageBuffer& buf, int x, int y, uint16_t r, uint16_t g, uint16_t b, uint16_t a) {
     uint16_t* p = static_cast<uint16_t*>(buf.pixelAt(x, y));
@@ -36,6 +37,7 @@ static void getPixelRGBA16(const ImageBuffer& buf, int x, int y, uint16_t& r, ui
     const uint16_t* p = static_cast<const uint16_t*>(buf.pixelAt(x, y));
     r = p[0]; g = p[1]; b = p[2]; a = p[3];
 }
+#endif
 
 // =============================================================================
 // canvas_utils::placeFirst Tests

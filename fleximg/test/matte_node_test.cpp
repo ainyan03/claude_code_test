@@ -12,6 +12,7 @@
 #include "fleximg/nodes/source_node.h"
 #include "fleximg/nodes/sink_node.h"
 #include "fleximg/nodes/renderer_node.h"
+#include <string>
 
 using namespace fleximg;
 
