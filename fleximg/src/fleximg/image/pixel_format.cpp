@@ -1,11 +1,11 @@
 #include "pixel_format.h"
 #include "../core/format_metrics.h"
 #include <cstring>
-#include <array>
 
 namespace FLEXIMG_NAMESPACE {
 
 #ifdef FLEXIMG_ENABLE_PREMUL
+#include <array>
 // ========================================================================
 // 逆数テーブル（fromPremul除算回避用）
 // ========================================================================
@@ -156,7 +156,7 @@ static void rgba8Straight_blendUnderStraight(void* __restrict__ dst, const void*
         uint_fast16_t invDstA = 255 - dstA;
 
         // resultA = dstA + srcA * invDstA / 255
-        uint_fast16_t resultA = dstA + (static_cast<uint_fast32_t>(srcA) * invDstA + 127) / 255;
+        uint_fast16_t resultA = static_cast<uint_fast16_t>(dstA + (static_cast<uint_fast32_t>(srcA) * invDstA + 127) / 255);
 
         // Premultiplied計算:
         // resultC_premul = dstC * dstA + srcC * srcA * invDstA / 255
