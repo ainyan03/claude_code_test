@@ -352,10 +352,40 @@ namespace canvas_utils {
 
 ※ `int_fixed` は Q16.16 固定小数点型です（`types.h` で定義）。
 
+## ビルド方式
+
+### stb-style（Implementation Macro パターン）
+
+fleximg は [stb ライブラリ](https://github.com/nothings/stb) と同様の実装マクロパターンを採用しています。
+これにより、コンパイル単位を最小化し、Arduino IDE などでのビルド時間を短縮します。
+
+**使用方法:**
+
+```cpp
+// 1つのソースファイルでのみ FLEXIMG_IMPLEMENTATION を定義
+#define FLEXIMG_NAMESPACE fleximg
+#define FLEXIMG_IMPLEMENTATION
+#include "fleximg/core/memory/platform.h"
+#include "fleximg/core/memory/pool_allocator.h"
+#include "fleximg/image/pixel_format.h"
+#include "fleximg/image/viewport.h"
+#include "fleximg/operations/filters.h"
+// ... 使用するヘッダをインクルード
+
+// 他のソースファイルでは FLEXIMG_IMPLEMENTATION を定義しない
+#define FLEXIMG_NAMESPACE fleximg
+#include "fleximg/image/pixel_format.h"  // 宣言のみ使用
+```
+
+**WASM/テストビルド:**
+`src/fleximg/fleximg.cpp` が唯一のコンパイル単位として全実装を含みます。
+
 ## ファイル構成
 
 ```
 src/fleximg/
+├── fleximg.cpp               # メインコンパイル単位（stb-style）
+│
 ├── core/                     # コア機能（fleximg::core 名前空間）
 │   ├── common.h              # NAMESPACE定義、バージョン
 │   ├── types.h               # 固定小数点型、数学型、AffineMatrix
@@ -365,13 +395,13 @@ src/fleximg/
 │   ├── format_metrics.h      # パフォーマンス計測（フォーマット変換別）
 │   └── memory/               # メモリ管理（fleximg::core::memory 名前空間）
 │       ├── allocator.h       # IAllocator, DefaultAllocator
-│       ├── platform.h/cpp    # IPlatformMemory（組込み環境対応）
-│       ├── pool_allocator.h/cpp  # PoolAllocator（ビットマップ方式）
+│       ├── platform.h        # IPlatformMemory（組込み環境対応）
+│       ├── pool_allocator.h  # PoolAllocator（ビットマップ方式）
 │       └── buffer_handle.h   # BufferHandle（RAII）
 │
 ├── image/                    # 画像処理
-│   ├── pixel_format.h/cpp    # ピクセルフォーマット定義・変換
-│   ├── viewport.h/cpp        # ViewPort
+│   ├── pixel_format.h        # ピクセルフォーマット定義・変換
+│   ├── viewport.h            # ViewPort
 │   ├── image_buffer.h        # ImageBuffer
 │   └── render_types.h        # RenderRequest, RenderResult
 │
@@ -381,19 +411,19 @@ src/fleximg/
 │   ├── sink_node.h           # SinkNode
 │   ├── affine_node.h         # AffineNode
 │   ├── distributor_node.h    # DistributorNode
-│   ├── filter_node_base.h      # FilterNodeBase（フィルタ共通基底）
-│   ├── brightness_node.h       # BrightnessNode
-│   ├── grayscale_node.h        # GrayscaleNode
+│   ├── filter_node_base.h    # FilterNodeBase（フィルタ共通基底）
+│   ├── brightness_node.h     # BrightnessNode
+│   ├── grayscale_node.h      # GrayscaleNode
 │   ├── horizontal_blur_node.h  # HorizontalBlurNode（水平ぼかし）
 │   ├── vertical_blur_node.h    # VerticalBlurNode（垂直ぼかし）
-│   ├── alpha_node.h            # AlphaNode
-│   ├── composite_node.h        # CompositeNode
-│   ├── matte_node.h            # MatteNode（マット合成）
-│   └── renderer_node.h         # RendererNode（発火点）
+│   ├── alpha_node.h          # AlphaNode
+│   ├── composite_node.h      # CompositeNode
+│   ├── matte_node.h          # MatteNode（マット合成）
+│   └── renderer_node.h       # RendererNode（発火点）
 │
 └── operations/
     ├── transform.h           # アフィン変換（DDA処理）
-    ├── filters.h/cpp         # フィルタ処理
+    ├── filters.h             # フィルタ処理
     └── canvas_utils.h        # キャンバス操作（合成ユーティリティ）
 ```
 
@@ -402,9 +432,16 @@ src/fleximg/
 ### 基本的なパイプライン
 
 ```cpp
-#include "fleximg/common.h"
-#include "fleximg/viewport.h"
-#include "fleximg/image_buffer.h"
+// stb-style: 実装を有効化
+#define FLEXIMG_NAMESPACE fleximg
+#define FLEXIMG_IMPLEMENTATION
+#include "fleximg/core/common.h"
+#include "fleximg/core/memory/platform.h"
+#include "fleximg/core/memory/pool_allocator.h"
+#include "fleximg/image/pixel_format.h"
+#include "fleximg/image/viewport.h"
+#include "fleximg/image/image_buffer.h"
+#include "fleximg/operations/filters.h"
 #include "fleximg/nodes/source_node.h"
 #include "fleximg/nodes/sink_node.h"
 #include "fleximg/nodes/affine_node.h"

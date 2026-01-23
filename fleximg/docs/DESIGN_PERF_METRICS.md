@@ -296,6 +296,6 @@ WebUIバインディング（JS↔C++間のフォーマット変換）はパイ�
 | `src/fleximg/core/format_metrics.h` | FormatMetrics 定義（シングルトン） |
 | `src/fleximg/image/image_buffer.h` | ImageBuffer（自動統計記録） |
 | `src/fleximg/nodes/renderer_node.h` | RendererNode（パイプライン実行、メトリクスリセット） |
-| `src/fleximg/image/pixel_format.cpp` | フォーマット変換関数（FLEXIMG_FMT_METRICSマクロ） |
+| `src/fleximg/image/pixel_format.h` | フォーマット変換関数（FLEXIMG_FMT_METRICSマクロ、stb-style実装部） |
 | `demo/bindings.cpp` | WASM bindings（snapshot/restore） |
 | `demo/web/app.js` | 表示UI（NODE_TYPES定義、updateFormatMetrics） |
