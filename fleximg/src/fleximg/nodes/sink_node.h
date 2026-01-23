@@ -56,70 +56,12 @@ protected:
 
     // onPushPrepare: アフィン情報を受け取り、事前計算を行う
     // SinkNodeは終端なので下流への伝播なし
-    bool onPushPrepare(const PrepareRequest& request) override {
-        // アフィン情報を受け取り、事前計算を行う
-        if (request.hasPushAffine) {
-            // 逆行列とピクセル中心オフセットを計算（共通処理）
-            affine_ = precomputeInverseAffine(request.pushAffineMatrix);
-
-            if (affine_.isValid()) {
-                // dstOrigin（自身のorigin）を減算して baseTx/Ty を計算
-                const int32_t dstOriginXInt = from_fixed(originX_);
-                const int32_t dstOriginYInt = from_fixed(originY_);
-                baseTx_ = affine_.invTxFixed
-                        - (dstOriginXInt * affine_.invMatrix.a)
-                        - (dstOriginYInt * affine_.invMatrix.b);
-                baseTy_ = affine_.invTyFixed
-                        - (dstOriginXInt * affine_.invMatrix.c)
-                        - (dstOriginYInt * affine_.invMatrix.d);
-            }
-            hasAffine_ = true;
-        } else {
-            hasAffine_ = false;
-        }
-
-        // SinkNodeは終端なので下流への伝播なし（return trueのみ）
-        return true;
-    }
+    bool onPushPrepare(const PrepareRequest& request) override;
 
     // onPushProcess: タイル単位で呼び出され、出力バッファに書き込み
     // SinkNodeは終端なので下流への伝播なし
     void onPushProcess(RenderResult&& input,
-                       const RenderRequest& request) override {
-        (void)request;  // 現在は未使用
-
-        if (!input.isValid() || !target_.isValid()) return;
-
-        FLEXIMG_METRICS_SCOPE(NodeType::Sink);
-
-        // アフィン変換が伝播されている場合はDDA処理
-        if (hasAffine_) {
-            pushProcessWithAffine(std::move(input));
-            return;
-        }
-
-        ViewPort inputView = input.view();
-
-        // 基準点一致ルールに基づく配置計算（固定小数点演算）
-        // input.origin: 入力バッファ内での基準点位置
-        // originX_/Y_: 出力バッファ内での基準点位置
-        // dstX = originX_ - input.origin.x
-        int dstX = from_fixed(originX_ - input.origin.x);
-        int dstY = from_fixed(originY_ - input.origin.y);
-
-        // クリッピング処理
-        int srcX = 0, srcY = 0;
-        if (dstX < 0) { srcX = -dstX; dstX = 0; }
-        if (dstY < 0) { srcY = -dstY; dstY = 0; }
-
-        int_fast32_t copyW = std::min<int_fast32_t>(inputView.width - srcX, target_.width - dstX);
-        int_fast32_t copyH = std::min<int_fast32_t>(inputView.height - srcY, target_.height - dstY);
-
-        if (copyW > 0 && copyH > 0) {
-            view_ops::copy(target_, dstX, dstY, inputView, srcX, srcY,
-                          static_cast<int>(copyW), static_cast<int>(copyH));
-        }
-    }
+                       const RenderRequest& request) override;
 
 private:
     ViewPort target_;
@@ -132,54 +74,137 @@ private:
     int32_t baseTy_ = 0;           // 事前計算済みオフセットY（Q16.16、dstOrigin込み）
     bool hasAffine_ = false;       // アフィン変換が伝播されているか
 
-    // ========================================
     // アフィン変換付きプッシュ処理
-    // ========================================
-    void pushProcessWithAffine(RenderResult&& input) {
-        // 特異行列チェック
-        if (!affine_.isValid()) {
-            return;
-        }
+    void pushProcessWithAffine(RenderResult&& input);
 
-        // ターゲットフォーマットに変換（フォーマットが異なる場合のみ）
-        PixelFormatID targetFormat = target_.formatID;
-        ImageBuffer convertedBuffer;
-        ViewPort inputView;
-
-        if (input.buffer.formatID() != targetFormat) {
-            convertedBuffer = std::move(input.buffer).toFormat(targetFormat);
-            inputView = convertedBuffer.view();
-        } else {
-            inputView = input.view();
-        }
-
-        // アフィン変換を適用してターゲットに書き込み（dstOrigin は事前計算済み）
-        applyAffine(target_, inputView, input.origin.x, input.origin.y);
-    }
-
-    // ========================================
     // アフィン変換実装（事前計算済み値を使用）
-    // ========================================
     void applyAffine(ViewPort& dst,
-                     const ViewPort& src, int_fixed srcOriginX, int_fixed srcOriginY) {
-        if (!affine_.isValid()) return;
-
-        // srcOrigin分のみ計算（baseTx_/baseTy_ は dstOrigin 込みで事前計算済み）
-        const int32_t srcOriginXInt = from_fixed(srcOriginX);
-        const int32_t srcOriginYInt = from_fixed(srcOriginY);
-
-        const int32_t fixedInvTx = baseTx_
-                            + (srcOriginXInt << INT_FIXED16_SHIFT);
-        const int32_t fixedInvTy = baseTy_
-                            + (srcOriginYInt << INT_FIXED16_SHIFT);
-
-        // 共通DDA処理を呼び出し
-        transform::applyAffineDDA(dst, src, fixedInvTx, fixedInvTy,
-                                  affine_.invMatrix, affine_.rowOffsetX, affine_.rowOffsetY,
-                                  affine_.dxOffsetX, affine_.dxOffsetY);
-    }
+                     const ViewPort& src, int_fixed srcOriginX, int_fixed srcOriginY);
 };
 
 } // namespace FLEXIMG_NAMESPACE
+
+// =============================================================================
+// 実装部
+// =============================================================================
+#ifdef FLEXIMG_IMPLEMENTATION
+
+namespace FLEXIMG_NAMESPACE {
+
+// ============================================================================
+// SinkNode - Template Method フック実装
+// ============================================================================
+
+bool SinkNode::onPushPrepare(const PrepareRequest& request) {
+    // アフィン情報を受け取り、事前計算を行う
+    if (request.hasPushAffine) {
+        // 逆行列とピクセル中心オフセットを計算（共通処理）
+        affine_ = precomputeInverseAffine(request.pushAffineMatrix);
+
+        if (affine_.isValid()) {
+            // dstOrigin（自身のorigin）を減算して baseTx/Ty を計算
+            const int32_t dstOriginXInt = from_fixed(originX_);
+            const int32_t dstOriginYInt = from_fixed(originY_);
+            baseTx_ = affine_.invTxFixed
+                    - (dstOriginXInt * affine_.invMatrix.a)
+                    - (dstOriginYInt * affine_.invMatrix.b);
+            baseTy_ = affine_.invTyFixed
+                    - (dstOriginXInt * affine_.invMatrix.c)
+                    - (dstOriginYInt * affine_.invMatrix.d);
+        }
+        hasAffine_ = true;
+    } else {
+        hasAffine_ = false;
+    }
+
+    // SinkNodeは終端なので下流への伝播なし（return trueのみ）
+    return true;
+}
+
+void SinkNode::onPushProcess(RenderResult&& input,
+                             const RenderRequest& request) {
+    (void)request;  // 現在は未使用
+
+    if (!input.isValid() || !target_.isValid()) return;
+
+    FLEXIMG_METRICS_SCOPE(NodeType::Sink);
+
+    // アフィン変換が伝播されている場合はDDA処理
+    if (hasAffine_) {
+        pushProcessWithAffine(std::move(input));
+        return;
+    }
+
+    ViewPort inputView = input.view();
+
+    // 基準点一致ルールに基づく配置計算（固定小数点演算）
+    // input.origin: 入力バッファ内での基準点位置
+    // originX_/Y_: 出力バッファ内での基準点位置
+    // dstX = originX_ - input.origin.x
+    int dstX = from_fixed(originX_ - input.origin.x);
+    int dstY = from_fixed(originY_ - input.origin.y);
+
+    // クリッピング処理
+    int srcX = 0, srcY = 0;
+    if (dstX < 0) { srcX = -dstX; dstX = 0; }
+    if (dstY < 0) { srcY = -dstY; dstY = 0; }
+
+    int_fast32_t copyW = std::min<int_fast32_t>(inputView.width - srcX, target_.width - dstX);
+    int_fast32_t copyH = std::min<int_fast32_t>(inputView.height - srcY, target_.height - dstY);
+
+    if (copyW > 0 && copyH > 0) {
+        view_ops::copy(target_, dstX, dstY, inputView, srcX, srcY,
+                      static_cast<int>(copyW), static_cast<int>(copyH));
+    }
+}
+
+// ============================================================================
+// SinkNode - private ヘルパーメソッド実装
+// ============================================================================
+
+void SinkNode::pushProcessWithAffine(RenderResult&& input) {
+    // 特異行列チェック
+    if (!affine_.isValid()) {
+        return;
+    }
+
+    // ターゲットフォーマットに変換（フォーマットが異なる場合のみ）
+    PixelFormatID targetFormat = target_.formatID;
+    ImageBuffer convertedBuffer;
+    ViewPort inputView;
+
+    if (input.buffer.formatID() != targetFormat) {
+        convertedBuffer = std::move(input.buffer).toFormat(targetFormat);
+        inputView = convertedBuffer.view();
+    } else {
+        inputView = input.view();
+    }
+
+    // アフィン変換を適用してターゲットに書き込み（dstOrigin は事前計算済み）
+    applyAffine(target_, inputView, input.origin.x, input.origin.y);
+}
+
+void SinkNode::applyAffine(ViewPort& dst,
+                           const ViewPort& src, int_fixed srcOriginX, int_fixed srcOriginY) {
+    if (!affine_.isValid()) return;
+
+    // srcOrigin分のみ計算（baseTx_/baseTy_ は dstOrigin 込みで事前計算済み）
+    const int32_t srcOriginXInt = from_fixed(srcOriginX);
+    const int32_t srcOriginYInt = from_fixed(srcOriginY);
+
+    const int32_t fixedInvTx = baseTx_
+                        + (srcOriginXInt << INT_FIXED16_SHIFT);
+    const int32_t fixedInvTy = baseTy_
+                        + (srcOriginYInt << INT_FIXED16_SHIFT);
+
+    // 共通DDA処理を呼び出し
+    transform::applyAffineDDA(dst, src, fixedInvTx, fixedInvTy,
+                              affine_.invMatrix, affine_.rowOffsetX, affine_.rowOffsetY,
+                              affine_.dxOffsetX, affine_.dxOffsetY);
+}
+
+} // namespace FLEXIMG_NAMESPACE
+
+#endif // FLEXIMG_IMPLEMENTATION
 
 #endif // FLEXIMG_SINK_NODE_H

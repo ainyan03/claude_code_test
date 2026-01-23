@@ -449,63 +449,14 @@ protected:
     // ========================================
 
     // 循環参照チェック（pullPrepare/pushPrepare共通）
-    // 戻り値: true=成功, false=エラー
-    // shouldContinue: true=処理継続, false=スキップ（Prepared）またはエラー
-    bool checkPrepareState(PrepareState& state, bool& shouldContinue) {
-        if (state == PrepareState::Preparing) {
-            state = PrepareState::CycleError;
-            shouldContinue = false;
-            return false;  // 循環参照検出
-        }
-        if (state == PrepareState::Prepared) {
-            shouldContinue = false;
-            return true;   // 成功（DAG共有、スキップ）
-        }
-        if (state == PrepareState::CycleError) {
-            shouldContinue = false;
-            return false;  // 既にエラー状態
-        }
-        state = PrepareState::Preparing;
-        shouldContinue = true;
-        return true;       // 成功（処理継続）
-    }
+    bool checkPrepareState(PrepareState& state, bool& shouldContinue);
 
     // フォーマット変換ヘルパー（メトリクス記録付き）
-    // 参照モードから所有モードに変わった場合、ノード別統計に記録
-    // allocator_を使用してバッファを確保する
     ImageBuffer convertFormat(ImageBuffer&& buffer, PixelFormatID target,
-                              FormatConversion mode = FormatConversion::CopyIfNeeded) {
-        bool wasOwning = buffer.ownsMemory();
-
-        // 参照モードのバッファにノードのallocator_を設定してから変換
-        // これにより、toFormat()内で新バッファ作成時にallocator_が使われる
-        if (!wasOwning && allocator_) {
-            buffer.setAllocator(allocator_);
-        }
-
-        ImageBuffer result = std::move(buffer).toFormat(target, mode);
-
-        // 参照→所有モードへの変換時にメトリクス記録
-        if (!wasOwning && result.ownsMemory()) {
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-            PerfMetrics::instance().nodes[nodeTypeForMetrics()].recordAlloc(
-                result.totalBytes(), result.width(), result.height());
-#endif
-        }
-        return result;
-    }
+                              FormatConversion mode = FormatConversion::CopyIfNeeded);
 
     // 派生クラス用：ポート初期化
-    void initPorts(int inputCount, int outputCount) {
-        inputs_.resize(static_cast<size_t>(inputCount));
-        outputs_.resize(static_cast<size_t>(outputCount));
-        for (int i = 0; i < inputCount; ++i) {
-            inputs_[static_cast<size_t>(i)] = Port(this, i);
-        }
-        for (int i = 0; i < outputCount; ++i) {
-            outputs_[static_cast<size_t>(i)] = Port(this, i);
-        }
-    }
+    void initPorts(int inputCount, int outputCount);
 };
 
 } // namespace core
@@ -516,5 +467,81 @@ using core::PrepareState;
 using core::Node;
 
 } // namespace FLEXIMG_NAMESPACE
+
+// =============================================================================
+// 実装部
+// =============================================================================
+#ifdef FLEXIMG_IMPLEMENTATION
+
+namespace FLEXIMG_NAMESPACE {
+namespace core {
+
+// ============================================================================
+// Node - ヘルパーメソッド実装
+// ============================================================================
+
+// 循環参照チェック（pullPrepare/pushPrepare共通）
+// 戻り値: true=成功, false=エラー
+// shouldContinue: true=処理継続, false=スキップ（Prepared）またはエラー
+bool Node::checkPrepareState(PrepareState& state, bool& shouldContinue) {
+    if (state == PrepareState::Preparing) {
+        state = PrepareState::CycleError;
+        shouldContinue = false;
+        return false;  // 循環参照検出
+    }
+    if (state == PrepareState::Prepared) {
+        shouldContinue = false;
+        return true;   // 成功（DAG共有、スキップ）
+    }
+    if (state == PrepareState::CycleError) {
+        shouldContinue = false;
+        return false;  // 既にエラー状態
+    }
+    state = PrepareState::Preparing;
+    shouldContinue = true;
+    return true;       // 成功（処理継続）
+}
+
+// フォーマット変換ヘルパー（メトリクス記録付き）
+// 参照モードから所有モードに変わった場合、ノード別統計に記録
+// allocator_を使用してバッファを確保する
+ImageBuffer Node::convertFormat(ImageBuffer&& buffer, PixelFormatID target,
+                                FormatConversion mode) {
+    bool wasOwning = buffer.ownsMemory();
+
+    // 参照モードのバッファにノードのallocator_を設定してから変換
+    // これにより、toFormat()内で新バッファ作成時にallocator_が使われる
+    if (!wasOwning && allocator_) {
+        buffer.setAllocator(allocator_);
+    }
+
+    ImageBuffer result = std::move(buffer).toFormat(target, mode);
+
+    // 参照→所有モードへの変換時にメトリクス記録
+    if (!wasOwning && result.ownsMemory()) {
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        PerfMetrics::instance().nodes[nodeTypeForMetrics()].recordAlloc(
+            result.totalBytes(), result.width(), result.height());
+#endif
+    }
+    return result;
+}
+
+// 派生クラス用：ポート初期化
+void Node::initPorts(int inputCount, int outputCount) {
+    inputs_.resize(static_cast<size_t>(inputCount));
+    outputs_.resize(static_cast<size_t>(outputCount));
+    for (int i = 0; i < inputCount; ++i) {
+        inputs_[static_cast<size_t>(i)] = Port(this, i);
+    }
+    for (int i = 0; i < outputCount; ++i) {
+        outputs_[static_cast<size_t>(i)] = Port(this, i);
+    }
+}
+
+} // namespace core
+} // namespace FLEXIMG_NAMESPACE
+
+#endif // FLEXIMG_IMPLEMENTATION
 
 #endif // FLEXIMG_NODE_H

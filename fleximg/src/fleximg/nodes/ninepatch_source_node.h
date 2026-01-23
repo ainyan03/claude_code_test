@@ -175,102 +175,13 @@ public:
     // ========================================
 
     // onPullPrepare: 各区画のSourceNodeにPrepareRequestを伝播
-    bool onPullPrepare(const PrepareRequest& request) override {
-        // ジオメトリ計算（まだなら）
-        if (!geometryValid_) {
-            updatePatchGeometry();
-        }
-
-        // 各区画のSourceNodeにPrepareRequestを伝播（スケール行列付き）
-        for (int i = 0; i < 9; i++) {
-            PrepareRequest patchRequest = request;
-
-            // 親のアフィン行列と区画のスケール行列を合成
-            if (patchNeedsAffine_[i]) {
-                if (request.hasAffine) {
-                    // 親アフィン × 区画スケール
-                    patchRequest.affineMatrix = request.affineMatrix * patchScales_[i];
-                } else {
-                    patchRequest.affineMatrix = patchScales_[i];
-                }
-                patchRequest.hasAffine = true;
-            }
-            // patchNeedsAffine_[i] == false の場合、親のアフィンをそのまま使用
-
-            patches_[i].pullPrepare(patchRequest);
-        }
-
-        // NinePatchSourceNodeは終端なので上流への伝播なし（return trueのみ）
-        return true;
-    }
+    bool onPullPrepare(const PrepareRequest& request) override;
 
     // onPullFinalize: 各区画のSourceNodeに終了を伝播
-    void onPullFinalize() override {
-        for (int i = 0; i < 9; i++) {
-            patches_[i].pullFinalize();
-        }
-        finalize();
-    }
+    void onPullFinalize() override;
 
     // onPullProcess: 全9区画を処理して合成
-    RenderResult onPullProcess(const RenderRequest& request) override {
-        if (!sourceValid_ || outputWidth_ <= 0 || outputHeight_ <= 0) {
-            return RenderResult();
-        }
-
-        // ジオメトリ計算（まだなら）
-        if (!geometryValid_) {
-            updatePatchGeometry();
-        }
-
-        // キャンバス作成（透明で初期化、ノードのアロケータを使用）
-        ImageBuffer canvasBuf = canvas_utils::createCanvas(request.width, request.height, InitPolicy::Zero, allocator());
-        ViewPort canvasView = canvasBuf.view();
-
-        // 全9区画を処理
-        // 描画順序: 伸縮パッチ → 固定パッチ
-        // 斜めアフィン時にパッチ継ぎ目のエッジが綺麗に処理される
-        constexpr int drawOrder[9] = {
-            4,           // 中央パッチ（両方向伸縮）を最初に
-            1, 3, 5, 7,  // 伸縮パッチ（辺）
-            0, 2, 6, 8   // 固定パッチ（角）を最後に
-        };
-
-        // bool first = true;  // placeOnto分岐削除に伴い不要
-        for (int i : drawOrder) {
-            // サイズ0の区画はスキップ
-            int col = i % 3;
-            int row = i / 3;
-            if (patchWidths_[col] <= 0 || patchHeights_[row] <= 0) {
-                continue;
-            }
-
-            RenderResult patchResult = patches_[i].pullProcess(request);
-            if (!patchResult.isValid()) continue;
-
-            // フォーマット変換
-            patchResult = canvas_utils::ensureBlendableFormat(std::move(patchResult));
-
-            // キャンバスに配置（全パッチ上書き）
-            // NinePatchではパッチ同士の重なりは単純上書きで良い
-            canvas_utils::placeFirst(canvasView, request.origin.x, request.origin.y,
-                                     patchResult.view(), patchResult.origin.x, patchResult.origin.y);
-            // TODO: 以下の分岐は不要と判断しコメントアウト。問題なければ削除予定
-            // bool isCornerPatch = (col != 1 && row != 1);
-            // if (first) {
-            //     canvas_utils::placeFirst(...);
-            //     first = false;
-            // } else if (isCornerPatch) {
-            //     // 固定パッチはブレンド（半透明対応）
-            //     canvas_utils::placeOnto(...);
-            // } else {
-            //     // 伸縮パッチは上書き
-            //     canvas_utils::placeFirst(...);
-            // }
-        }
-
-        return RenderResult(std::move(canvasBuf), request.origin);
-    }
+    RenderResult onPullProcess(const RenderRequest& request) override;
 
 private:
     // 内部SourceNode（9区画）
@@ -331,155 +242,277 @@ private:
     }
 
     // 各区画のソースサイズを計算（初期化時に呼び出し）
-    void calcSrcPatchSizes() {
-        srcPatchW_[0] = srcLeft_;
-        srcPatchW_[1] = source_.width - srcLeft_ - srcRight_;
-        srcPatchW_[2] = srcRight_;
-        srcPatchH_[0] = srcTop_;
-        srcPatchH_[1] = source_.height - srcTop_ - srcBottom_;
-        srcPatchH_[2] = srcBottom_;
-    }
+    void calcSrcPatchSizes();
 
     // 1軸方向のクリッピング計算（横/縦共通）
-    // クリッピング時もソースビューは元のサイズを維持し、スケールで縮小
     void calcAxisClipping(float outputSize, int16_t srcFixed0, int16_t srcFixed2,
                           float& outWidth0, float& outWidth1, float& outWidth2,
-                          int16_t& effSrc0, int16_t& effSrc2) {
-        float totalFixed = static_cast<float>(srcFixed0 + srcFixed2);
-        if (outputSize < totalFixed && totalFixed > 0) {
-            float ratio = outputSize / totalFixed;
-            outWidth0 = srcFixed0 * ratio;
-            outWidth1 = 0.0f;
-            outWidth2 = outputSize - outWidth0;
-            // ソースビューは元のサイズを維持（スケールで縮小して滑らかな描画を実現）
-            effSrc0 = srcFixed0;
-            effSrc2 = srcFixed2;
-        } else {
-            effSrc0 = srcFixed0;
-            effSrc2 = srcFixed2;
-            outWidth0 = static_cast<float>(srcFixed0);
-            outWidth1 = outputSize - srcFixed0 - srcFixed2;
-            outWidth2 = static_cast<float>(srcFixed2);
-        }
-    }
+                          int16_t& effSrc0, int16_t& effSrc2);
 
     // 出力サイズ変更時にジオメトリを再計算
-    void updatePatchGeometry() {
-        if (!sourceValid_) return;
-
-        // 横方向・縦方向のクリッピング計算
-        calcAxisClipping(outputWidth_, srcLeft_, srcRight_,
-                         patchWidths_[0], patchWidths_[1], patchWidths_[2],
-                         effectiveSrcLeft_, effectiveSrcRight_);
-        calcAxisClipping(outputHeight_, srcTop_, srcBottom_,
-                         patchHeights_[0], patchHeights_[1], patchHeights_[2],
-                         effectiveSrcTop_, effectiveSrcBottom_);
-
-        // 各区画の出力開始位置
-        patchOffsetX_[0] = 0.0f;
-        patchOffsetX_[1] = patchWidths_[0];
-        patchOffsetX_[2] = outputWidth_ - patchWidths_[2];
-        patchOffsetY_[0] = 0.0f;
-        patchOffsetY_[1] = patchHeights_[0];
-        patchOffsetY_[2] = outputHeight_ - patchHeights_[2];
-
-        // 各列/行の有効ソースサイズと開始位置
-        int16_t effW[3] = { effectiveSrcLeft_, srcPatchW_[1], effectiveSrcRight_ };
-        int16_t effH[3] = { effectiveSrcTop_, srcPatchH_[1], effectiveSrcBottom_ };
-        int16_t srcX[3] = { 0, srcLeft_, static_cast<int16_t>(source_.width - effectiveSrcRight_) };
-        int16_t srcY[3] = { 0, srcTop_, static_cast<int16_t>(source_.height - effectiveSrcBottom_) };
-
-        // クリッピング状態を判定（出力サイズが固定部の合計より小さいか）
-        bool hClipping = outputWidth_ < static_cast<float>(srcLeft_ + srcRight_);
-        bool vClipping = outputHeight_ < static_cast<float>(srcTop_ + srcBottom_);
-
-        bool hasHStretch = effW[1] > 0 && !hClipping;  // 横方向伸縮部が存在かつクリッピングなし
-        bool hasVStretch = effH[1] > 0 && !vClipping;  // 縦方向伸縮部が存在かつクリッピングなし
-
-        float originXf = static_cast<float>(originX_) / INT_FIXED_ONE;
-        float originYf = static_cast<float>(originY_) / INT_FIXED_ONE;
-
-        for (int row = 0; row < 3; row++) {
-            for (int col = 0; col < 3; col++) {
-                int idx = row * 3 + col;
-
-                // オーバーラップ量（固定部→伸縮部方向に拡張）
-                int16_t dx = 0, dy = 0, dw = 0, dh = 0;
-
-                // 横方向オーバーラップ
-                if (hasHStretch) {
-                    // 通常時: 固定部 → 伸縮部方向の拡張
-                    if (col == 0 && effW[0] > 0) { dw = 1; }           // 左固定: 右に拡張
-                    else if (col == 2 && effW[2] > 0) { dx = -1; dw = 1; }  // 右固定: 左に拡張
-                } else if (hClipping) {
-                    // クリッピング時: 左固定と右固定が直接隣接
-                    if (col == 0 && effW[0] > 0 && effW[2] > 0) { dw = 1; }
-                    else if (col == 2 && effW[0] > 0 && effW[2] > 0) { dx = -1; dw = 1; }
-                }
-
-                // 縦方向オーバーラップ
-                if (hasVStretch) {
-                    // 通常時: 固定部 → 伸縮部方向の拡張
-                    if (row == 0 && effH[0] > 0) { dh = 1; }           // 上固定: 下に拡張
-                    else if (row == 2 && effH[2] > 0) { dy = -1; dh = 1; }  // 下固定: 上に拡張
-                } else if (vClipping) {
-                    // クリッピング時: 上固定と下固定が直接隣接
-                    if (row == 0 && effH[0] > 0 && effH[2] > 0) { dh = 1; }
-                    else if (row == 2 && effH[0] > 0 && effH[2] > 0) { dy = -1; dh = 1; }
-                }
-
-                // ソースビュー設定
-                if (effW[col] > 0 && effH[row] > 0) {
-                    ViewPort subView = view_ops::subView(source_,
-                        srcX[col] + dx, srcY[row] + dy, effW[col] + dw, effH[row] + dh);
-                    patches_[idx].setSource(subView);
-                    patches_[idx].setOrigin(0, 0);
-                }
-
-                // スケール計算
-                float scaleX = 1.0f, scaleY = 1.0f;
-
-                // 横方向スケール
-                if (col == 1 && srcPatchW_[1] > 0) {
-                    // 伸縮部
-                    int16_t effSrcW = srcPatchW_[1];
-                    if (interpolationMode_ == InterpolationMode::Bilinear && effSrcW > 1) effSrcW -= 1;
-                    scaleX = patchWidths_[1] / effSrcW;
-                } else if (hClipping && effW[col] > 0) {
-                    // クリッピング時の固定部（出力幅/ソース幅）
-                    scaleX = patchWidths_[col] / effW[col];
-                }
-
-                // 縦方向スケール
-                if (row == 1 && srcPatchH_[1] > 0) {
-                    // 伸縮部
-                    int16_t effSrcH = srcPatchH_[1];
-                    if (interpolationMode_ == InterpolationMode::Bilinear && effSrcH > 1) effSrcH -= 1;
-                    scaleY = patchHeights_[1] / effSrcH;
-                } else if (vClipping && effH[row] > 0) {
-                    // クリッピング時の固定部（出力高さ/ソース高さ）
-                    scaleY = patchHeights_[row] / effH[row];
-                }
-
-                // 平行移動量
-                float tx = patchOffsetX_[col] + dx - originXf + positionX_;
-                float ty = patchOffsetY_[row] + dy - originYf + positionY_;
-
-                // バイリニア時の伸縮部位置補正
-                if (interpolationMode_ == InterpolationMode::Bilinear) {
-                    if (col == 1 && srcPatchW_[1] > 1) tx -= scaleX * 0.5f;
-                    if (row == 1 && srcPatchH_[1] > 1) ty -= scaleY * 0.5f;
-                }
-
-                patchScales_[idx] = AffineMatrix(scaleX, 0.0f, 0.0f, scaleY, tx, ty);
-                patchNeedsAffine_[idx] = true;
-            }
-        }
-
-        geometryValid_ = true;
-    }
+    void updatePatchGeometry();
 };
 
 } // namespace FLEXIMG_NAMESPACE
+
+// =============================================================================
+// 実装部
+// =============================================================================
+#ifdef FLEXIMG_IMPLEMENTATION
+
+namespace FLEXIMG_NAMESPACE {
+
+// ============================================================================
+// NinePatchSourceNode - Template Method フック実装
+// ============================================================================
+
+bool NinePatchSourceNode::onPullPrepare(const PrepareRequest& request) {
+    // ジオメトリ計算（まだなら）
+    if (!geometryValid_) {
+        updatePatchGeometry();
+    }
+
+    // 各区画のSourceNodeにPrepareRequestを伝播（スケール行列付き）
+    for (int i = 0; i < 9; i++) {
+        PrepareRequest patchRequest = request;
+
+        // 親のアフィン行列と区画のスケール行列を合成
+        if (patchNeedsAffine_[i]) {
+            if (request.hasAffine) {
+                // 親アフィン × 区画スケール
+                patchRequest.affineMatrix = request.affineMatrix * patchScales_[i];
+            } else {
+                patchRequest.affineMatrix = patchScales_[i];
+            }
+            patchRequest.hasAffine = true;
+        }
+        // patchNeedsAffine_[i] == false の場合、親のアフィンをそのまま使用
+
+        patches_[i].pullPrepare(patchRequest);
+    }
+
+    // NinePatchSourceNodeは終端なので上流への伝播なし（return trueのみ）
+    return true;
+}
+
+void NinePatchSourceNode::onPullFinalize() {
+    for (int i = 0; i < 9; i++) {
+        patches_[i].pullFinalize();
+    }
+    finalize();
+}
+
+RenderResult NinePatchSourceNode::onPullProcess(const RenderRequest& request) {
+    if (!sourceValid_ || outputWidth_ <= 0 || outputHeight_ <= 0) {
+        return RenderResult();
+    }
+
+    // ジオメトリ計算（まだなら）
+    if (!geometryValid_) {
+        updatePatchGeometry();
+    }
+
+    // キャンバス作成（透明で初期化、ノードのアロケータを使用）
+    ImageBuffer canvasBuf = canvas_utils::createCanvas(request.width, request.height, InitPolicy::Zero, allocator());
+    ViewPort canvasView = canvasBuf.view();
+
+    // 全9区画を処理
+    // 描画順序: 伸縮パッチ → 固定パッチ
+    // 斜めアフィン時にパッチ継ぎ目のエッジが綺麗に処理される
+    constexpr int drawOrder[9] = {
+        4,           // 中央パッチ（両方向伸縮）を最初に
+        1, 3, 5, 7,  // 伸縮パッチ（辺）
+        0, 2, 6, 8   // 固定パッチ（角）を最後に
+    };
+
+    // bool first = true;  // placeOnto分岐削除に伴い不要
+    for (int i : drawOrder) {
+        // サイズ0の区画はスキップ
+        int col = i % 3;
+        int row = i / 3;
+        if (patchWidths_[col] <= 0 || patchHeights_[row] <= 0) {
+            continue;
+        }
+
+        RenderResult patchResult = patches_[i].pullProcess(request);
+        if (!patchResult.isValid()) continue;
+
+        // フォーマット変換
+        patchResult = canvas_utils::ensureBlendableFormat(std::move(patchResult));
+
+        // キャンバスに配置（全パッチ上書き）
+        // NinePatchではパッチ同士の重なりは単純上書きで良い
+        canvas_utils::placeFirst(canvasView, request.origin.x, request.origin.y,
+                                 patchResult.view(), patchResult.origin.x, patchResult.origin.y);
+        // TODO: 以下の分岐は不要と判断しコメントアウト。問題なければ削除予定
+        // bool isCornerPatch = (col != 1 && row != 1);
+        // if (first) {
+        //     canvas_utils::placeFirst(...);
+        //     first = false;
+        // } else if (isCornerPatch) {
+        //     // 固定パッチはブレンド（半透明対応）
+        //     canvas_utils::placeOnto(...);
+        // } else {
+        //     // 伸縮パッチは上書き
+        //     canvas_utils::placeFirst(...);
+        // }
+    }
+
+    return RenderResult(std::move(canvasBuf), request.origin);
+}
+
+// ============================================================================
+// NinePatchSourceNode - private ヘルパーメソッド実装
+// ============================================================================
+
+void NinePatchSourceNode::calcSrcPatchSizes() {
+    srcPatchW_[0] = srcLeft_;
+    srcPatchW_[1] = source_.width - srcLeft_ - srcRight_;
+    srcPatchW_[2] = srcRight_;
+    srcPatchH_[0] = srcTop_;
+    srcPatchH_[1] = source_.height - srcTop_ - srcBottom_;
+    srcPatchH_[2] = srcBottom_;
+}
+
+void NinePatchSourceNode::calcAxisClipping(float outputSize, int16_t srcFixed0, int16_t srcFixed2,
+                                           float& outWidth0, float& outWidth1, float& outWidth2,
+                                           int16_t& effSrc0, int16_t& effSrc2) {
+    // クリッピング時もソースビューは元のサイズを維持し、スケールで縮小
+    float totalFixed = static_cast<float>(srcFixed0 + srcFixed2);
+    if (outputSize < totalFixed && totalFixed > 0) {
+        float ratio = outputSize / totalFixed;
+        outWidth0 = srcFixed0 * ratio;
+        outWidth1 = 0.0f;
+        outWidth2 = outputSize - outWidth0;
+        // ソースビューは元のサイズを維持（スケールで縮小して滑らかな描画を実現）
+        effSrc0 = srcFixed0;
+        effSrc2 = srcFixed2;
+    } else {
+        effSrc0 = srcFixed0;
+        effSrc2 = srcFixed2;
+        outWidth0 = static_cast<float>(srcFixed0);
+        outWidth1 = outputSize - srcFixed0 - srcFixed2;
+        outWidth2 = static_cast<float>(srcFixed2);
+    }
+}
+
+void NinePatchSourceNode::updatePatchGeometry() {
+    if (!sourceValid_) return;
+
+    // 横方向・縦方向のクリッピング計算
+    calcAxisClipping(outputWidth_, srcLeft_, srcRight_,
+                     patchWidths_[0], patchWidths_[1], patchWidths_[2],
+                     effectiveSrcLeft_, effectiveSrcRight_);
+    calcAxisClipping(outputHeight_, srcTop_, srcBottom_,
+                     patchHeights_[0], patchHeights_[1], patchHeights_[2],
+                     effectiveSrcTop_, effectiveSrcBottom_);
+
+    // 各区画の出力開始位置
+    patchOffsetX_[0] = 0.0f;
+    patchOffsetX_[1] = patchWidths_[0];
+    patchOffsetX_[2] = outputWidth_ - patchWidths_[2];
+    patchOffsetY_[0] = 0.0f;
+    patchOffsetY_[1] = patchHeights_[0];
+    patchOffsetY_[2] = outputHeight_ - patchHeights_[2];
+
+    // 各列/行の有効ソースサイズと開始位置
+    int16_t effW[3] = { effectiveSrcLeft_, srcPatchW_[1], effectiveSrcRight_ };
+    int16_t effH[3] = { effectiveSrcTop_, srcPatchH_[1], effectiveSrcBottom_ };
+    int16_t srcX[3] = { 0, srcLeft_, static_cast<int16_t>(source_.width - effectiveSrcRight_) };
+    int16_t srcY[3] = { 0, srcTop_, static_cast<int16_t>(source_.height - effectiveSrcBottom_) };
+
+    // クリッピング状態を判定（出力サイズが固定部の合計より小さいか）
+    bool hClipping = outputWidth_ < static_cast<float>(srcLeft_ + srcRight_);
+    bool vClipping = outputHeight_ < static_cast<float>(srcTop_ + srcBottom_);
+
+    bool hasHStretch = effW[1] > 0 && !hClipping;  // 横方向伸縮部が存在かつクリッピングなし
+    bool hasVStretch = effH[1] > 0 && !vClipping;  // 縦方向伸縮部が存在かつクリッピングなし
+
+    float originXf = static_cast<float>(originX_) / INT_FIXED_ONE;
+    float originYf = static_cast<float>(originY_) / INT_FIXED_ONE;
+
+    for (int row = 0; row < 3; row++) {
+        for (int col = 0; col < 3; col++) {
+            int idx = row * 3 + col;
+
+            // オーバーラップ量（固定部→伸縮部方向に拡張）
+            int16_t dx = 0, dy = 0, dw = 0, dh = 0;
+
+            // 横方向オーバーラップ
+            if (hasHStretch) {
+                // 通常時: 固定部 → 伸縮部方向の拡張
+                if (col == 0 && effW[0] > 0) { dw = 1; }           // 左固定: 右に拡張
+                else if (col == 2 && effW[2] > 0) { dx = -1; dw = 1; }  // 右固定: 左に拡張
+            } else if (hClipping) {
+                // クリッピング時: 左固定と右固定が直接隣接
+                if (col == 0 && effW[0] > 0 && effW[2] > 0) { dw = 1; }
+                else if (col == 2 && effW[0] > 0 && effW[2] > 0) { dx = -1; dw = 1; }
+            }
+
+            // 縦方向オーバーラップ
+            if (hasVStretch) {
+                // 通常時: 固定部 → 伸縮部方向の拡張
+                if (row == 0 && effH[0] > 0) { dh = 1; }           // 上固定: 下に拡張
+                else if (row == 2 && effH[2] > 0) { dy = -1; dh = 1; }  // 下固定: 上に拡張
+            } else if (vClipping) {
+                // クリッピング時: 上固定と下固定が直接隣接
+                if (row == 0 && effH[0] > 0 && effH[2] > 0) { dh = 1; }
+                else if (row == 2 && effH[0] > 0 && effH[2] > 0) { dy = -1; dh = 1; }
+            }
+
+            // ソースビュー設定
+            if (effW[col] > 0 && effH[row] > 0) {
+                ViewPort subView = view_ops::subView(source_,
+                    srcX[col] + dx, srcY[row] + dy, effW[col] + dw, effH[row] + dh);
+                patches_[idx].setSource(subView);
+                patches_[idx].setOrigin(0, 0);
+            }
+
+            // スケール計算
+            float scaleX = 1.0f, scaleY = 1.0f;
+
+            // 横方向スケール
+            if (col == 1 && srcPatchW_[1] > 0) {
+                // 伸縮部
+                int16_t effSrcW = srcPatchW_[1];
+                if (interpolationMode_ == InterpolationMode::Bilinear && effSrcW > 1) effSrcW -= 1;
+                scaleX = patchWidths_[1] / effSrcW;
+            } else if (hClipping && effW[col] > 0) {
+                // クリッピング時の固定部（出力幅/ソース幅）
+                scaleX = patchWidths_[col] / effW[col];
+            }
+
+            // 縦方向スケール
+            if (row == 1 && srcPatchH_[1] > 0) {
+                // 伸縮部
+                int16_t effSrcH = srcPatchH_[1];
+                if (interpolationMode_ == InterpolationMode::Bilinear && effSrcH > 1) effSrcH -= 1;
+                scaleY = patchHeights_[1] / effSrcH;
+            } else if (vClipping && effH[row] > 0) {
+                // クリッピング時の固定部（出力高さ/ソース高さ）
+                scaleY = patchHeights_[row] / effH[row];
+            }
+
+            // 平行移動量
+            float tx = patchOffsetX_[col] + dx - originXf + positionX_;
+            float ty = patchOffsetY_[row] + dy - originYf + positionY_;
+
+            // バイリニア時の伸縮部位置補正
+            if (interpolationMode_ == InterpolationMode::Bilinear) {
+                if (col == 1 && srcPatchW_[1] > 1) tx -= scaleX * 0.5f;
+                if (row == 1 && srcPatchH_[1] > 1) ty -= scaleY * 0.5f;
+            }
+
+            patchScales_[idx] = AffineMatrix(scaleX, 0.0f, 0.0f, scaleY, tx, ty);
+            patchNeedsAffine_[idx] = true;
+        }
+    }
+
+    geometryValid_ = true;
+}
+
+} // namespace FLEXIMG_NAMESPACE
+
+#endif // FLEXIMG_IMPLEMENTATION
 
 #endif // FLEXIMG_NINEPATCH_SOURCE_NODE_H

@@ -66,87 +66,109 @@ public:
     // ========================================
 
     // onPushPrepare: 全下流ノードにPrepareRequestを伝播
-    bool onPushPrepare(const PrepareRequest& request) override {
-        // 準備処理
-        RenderRequest screenInfo;
-        screenInfo.width = request.width;
-        screenInfo.height = request.height;
-        screenInfo.origin = request.origin;
-        prepare(screenInfo);
-
-        // 全下流へ伝播
-        int numOutputs = outputCount();
-        for (int i = 0; i < numOutputs; ++i) {
-            Node* downstream = downstreamNode(i);
-            if (downstream) {
-                if (!downstream->pushPrepare(request)) {
-                    return false;
-                }
-            }
-        }
-
-        return true;
-    }
+    bool onPushPrepare(const PrepareRequest& request) override;
 
     // onPushFinalize: 全下流ノードに終了を伝播
-    void onPushFinalize() override {
-        // 全下流へ伝播
-        int numOutputs = outputCount();
-        for (int i = 0; i < numOutputs; ++i) {
-            Node* downstream = downstreamNode(i);
-            if (downstream) {
-                downstream->pushFinalize();
-            }
-        }
-        finalize();
-    }
+    void onPushFinalize() override;
 
     // onPushProcess: 全出力に参照モードで配信
     void onPushProcess(RenderResult&& input,
-                       const RenderRequest& request) override {
-        // プッシュ型単一入力: 無効なら処理終了
-        if (!input.isValid()) {
-            return;
-        }
-
-        FLEXIMG_METRICS_SCOPE(NodeType::Distributor);
-
-        int numOutputs = outputCount();
-        int validOutputs = 0;
-
-        // 接続されている出力を数える
-        for (int i = 0; i < numOutputs; ++i) {
-            if (downstreamNode(i)) {
-                ++validOutputs;
-            }
-        }
-
-        if (validOutputs == 0) {
-            return;
-        }
-
-        // 各出力に参照モードImageBufferを配信
-        int processed = 0;
-        for (int i = 0; i < numOutputs; ++i) {
-            Node* downstream = downstreamNode(i);
-            if (!downstream) continue;
-
-            ++processed;
-
-            // 参照モードImageBufferを作成（メモリ解放しない）
-            // 最後の出力には元のバッファをmoveで渡す（効率化）
-            if (processed < validOutputs) {
-                // 参照モード: ViewPortから新しいImageBufferを作成
-                RenderResult ref(ImageBuffer(input.buffer.view()), input.origin);
-                downstream->pushProcess(std::move(ref), request);
-            } else {
-                // 最後: 元のバッファをそのまま渡す
-                downstream->pushProcess(std::move(input), request);
-            }
-        }
-    }
+                       const RenderRequest& request) override;
 };
 
 } // namespace FLEXIMG_NAMESPACE
+
+// =============================================================================
+// 実装部
+// =============================================================================
+#ifdef FLEXIMG_IMPLEMENTATION
+
+namespace FLEXIMG_NAMESPACE {
+
+// ============================================================================
+// DistributorNode - Template Method フック実装
+// ============================================================================
+
+bool DistributorNode::onPushPrepare(const PrepareRequest& request) {
+    // 準備処理
+    RenderRequest screenInfo;
+    screenInfo.width = request.width;
+    screenInfo.height = request.height;
+    screenInfo.origin = request.origin;
+    prepare(screenInfo);
+
+    // 全下流へ伝播
+    int numOutputs = outputCount();
+    for (int i = 0; i < numOutputs; ++i) {
+        Node* downstream = downstreamNode(i);
+        if (downstream) {
+            if (!downstream->pushPrepare(request)) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+void DistributorNode::onPushFinalize() {
+    // 全下流へ伝播
+    int numOutputs = outputCount();
+    for (int i = 0; i < numOutputs; ++i) {
+        Node* downstream = downstreamNode(i);
+        if (downstream) {
+            downstream->pushFinalize();
+        }
+    }
+    finalize();
+}
+
+void DistributorNode::onPushProcess(RenderResult&& input,
+                                    const RenderRequest& request) {
+    // プッシュ型単一入力: 無効なら処理終了
+    if (!input.isValid()) {
+        return;
+    }
+
+    FLEXIMG_METRICS_SCOPE(NodeType::Distributor);
+
+    int numOutputs = outputCount();
+    int validOutputs = 0;
+
+    // 接続されている出力を数える
+    for (int i = 0; i < numOutputs; ++i) {
+        if (downstreamNode(i)) {
+            ++validOutputs;
+        }
+    }
+
+    if (validOutputs == 0) {
+        return;
+    }
+
+    // 各出力に参照モードImageBufferを配信
+    int processed = 0;
+    for (int i = 0; i < numOutputs; ++i) {
+        Node* downstream = downstreamNode(i);
+        if (!downstream) continue;
+
+        ++processed;
+
+        // 参照モードImageBufferを作成（メモリ解放しない）
+        // 最後の出力には元のバッファをmoveで渡す（効率化）
+        if (processed < validOutputs) {
+            // 参照モード: ViewPortから新しいImageBufferを作成
+            RenderResult ref(ImageBuffer(input.buffer.view()), input.origin);
+            downstream->pushProcess(std::move(ref), request);
+        } else {
+            // 最後: 元のバッファをそのまま渡す
+            downstream->pushProcess(std::move(input), request);
+        }
+    }
+}
+
+} // namespace FLEXIMG_NAMESPACE
+
+#endif // FLEXIMG_IMPLEMENTATION
 
 #endif // FLEXIMG_DISTRIBUTOR_NODE_H

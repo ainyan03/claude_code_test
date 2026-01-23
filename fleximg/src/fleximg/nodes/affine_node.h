@@ -82,66 +82,17 @@ protected:
     // ========================================
 
     // onPullPrepare: アフィン行列を上流に伝播し、SourceNodeで一括実行
-    // 複数のAffineNodeがある場合は行列を合成する
-    bool onPullPrepare(const PrepareRequest& request) override {
-        // 上流に渡すためのコピーを作成し、自身の行列を累積
-        PrepareRequest upstreamRequest = request;
-        if (upstreamRequest.hasAffine) {
-            // 既存の行列（下流側）に自身の行列（上流側）を後から掛ける
-            upstreamRequest.affineMatrix = upstreamRequest.affineMatrix * matrix_;
-        } else {
-            upstreamRequest.affineMatrix = matrix_;
-            upstreamRequest.hasAffine = true;
-        }
-
-        // 上流へ伝播
-        Node* upstream = upstreamNode(0);
-        if (upstream) {
-            if (!upstream->pullPrepare(upstreamRequest)) {
-                return false;
-            }
-        }
-        return true;
-    }
+    bool onPullPrepare(const PrepareRequest& request) override;
 
     // onPushPrepare: アフィン行列を下流に伝播し、SinkNodeで一括実行
-    // 複数のAffineNodeがある場合は行列を合成する
-    bool onPushPrepare(const PrepareRequest& request) override {
-        // 下流に渡すためのコピーを作成し、自身の行列を累積
-        PrepareRequest downstreamRequest = request;
-        if (downstreamRequest.hasPushAffine) {
-            // 既存の行列（上流側）に自身の行列（下流側）を後から掛ける
-            downstreamRequest.pushAffineMatrix = downstreamRequest.pushAffineMatrix * matrix_;
-        } else {
-            downstreamRequest.pushAffineMatrix = matrix_;
-            downstreamRequest.hasPushAffine = true;
-        }
-
-        // 下流へ伝播
-        Node* downstream = downstreamNode(0);
-        if (downstream) {
-            if (!downstream->pushPrepare(downstreamRequest)) {
-                return false;
-            }
-        }
-        return true;
-    }
+    bool onPushPrepare(const PrepareRequest& request) override;
 
     // onPullProcess: AffineNodeは行列を保持するのみ、パススルー
-    RenderResult onPullProcess(const RenderRequest& request) override {
-        Node* upstream = upstreamNode(0);
-        if (!upstream) return RenderResult();
-        return upstream->pullProcess(request);
-    }
+    RenderResult onPullProcess(const RenderRequest& request) override;
 
     // onPushProcess: AffineNodeは行列を保持するのみ、パススルー
     void onPushProcess(RenderResult&& input,
-                       const RenderRequest& request) override {
-        Node* downstream = downstreamNode(0);
-        if (downstream) {
-            downstream->pushProcess(std::move(input), request);
-        }
-    }
+                       const RenderRequest& request) override;
 
 
     int nodeTypeForMetrics() const override { return NodeType::Affine; }
@@ -151,5 +102,78 @@ private:
 };
 
 } // namespace FLEXIMG_NAMESPACE
+
+// =============================================================================
+// 実装部
+// =============================================================================
+#ifdef FLEXIMG_IMPLEMENTATION
+
+namespace FLEXIMG_NAMESPACE {
+
+// ============================================================================
+// AffineNode - Template Method フック実装
+// ============================================================================
+
+// 複数のAffineNodeがある場合は行列を合成する
+bool AffineNode::onPullPrepare(const PrepareRequest& request) {
+    // 上流に渡すためのコピーを作成し、自身の行列を累積
+    PrepareRequest upstreamRequest = request;
+    if (upstreamRequest.hasAffine) {
+        // 既存の行列（下流側）に自身の行列（上流側）を後から掛ける
+        upstreamRequest.affineMatrix = upstreamRequest.affineMatrix * matrix_;
+    } else {
+        upstreamRequest.affineMatrix = matrix_;
+        upstreamRequest.hasAffine = true;
+    }
+
+    // 上流へ伝播
+    Node* upstream = upstreamNode(0);
+    if (upstream) {
+        if (!upstream->pullPrepare(upstreamRequest)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// 複数のAffineNodeがある場合は行列を合成する
+bool AffineNode::onPushPrepare(const PrepareRequest& request) {
+    // 下流に渡すためのコピーを作成し、自身の行列を累積
+    PrepareRequest downstreamRequest = request;
+    if (downstreamRequest.hasPushAffine) {
+        // 既存の行列（上流側）に自身の行列（下流側）を後から掛ける
+        downstreamRequest.pushAffineMatrix = downstreamRequest.pushAffineMatrix * matrix_;
+    } else {
+        downstreamRequest.pushAffineMatrix = matrix_;
+        downstreamRequest.hasPushAffine = true;
+    }
+
+    // 下流へ伝播
+    Node* downstream = downstreamNode(0);
+    if (downstream) {
+        if (!downstream->pushPrepare(downstreamRequest)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+RenderResult AffineNode::onPullProcess(const RenderRequest& request) {
+    Node* upstream = upstreamNode(0);
+    if (!upstream) return RenderResult();
+    return upstream->pullProcess(request);
+}
+
+void AffineNode::onPushProcess(RenderResult&& input,
+                               const RenderRequest& request) {
+    Node* downstream = downstreamNode(0);
+    if (downstream) {
+        downstream->pushProcess(std::move(input), request);
+    }
+}
+
+} // namespace FLEXIMG_NAMESPACE
+
+#endif // FLEXIMG_IMPLEMENTATION
 
 #endif // FLEXIMG_AFFINE_NODE_H
