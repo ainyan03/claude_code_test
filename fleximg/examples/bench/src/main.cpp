@@ -31,6 +31,7 @@
     #include <string>
     #include <chrono>
     #include <cstring>
+    #include <cstdarg>
 #endif
 
 // fleximg
