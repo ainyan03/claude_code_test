@@ -1,5 +1,28 @@
 # Changelog
 
+## [2.41.0] - 2026-01-23
+
+### 変更
+
+- **Premulモード条件付きコンパイル**: `FLEXIMG_ENABLE_PREMUL` マクロで有効化する方式に変更
+  - デフォルト: 8bit Straight合成（省メモリ、C++14互換）
+  - Premul有効時: 16bit Premultiplied合成（高精度、C++17必須）
+  - `build.sh --premul` でWASM Premulビルド
+
+- **ビルド構成統合**: プロジェクトルートの `platformio.ini` に一本化
+  - `examples/m5stack_basic/platformio.ini` 削除
+  - `examples/m5stack_matte/platformio.ini` 削除
+  - `examples/m5stack_benchmark/` を `examples/bench/` に統合
+
+### ドキュメント
+
+- DESIGN_PIXEL_FORMAT.md: Premul仕様の記述を更新
+- ARCHITECTURE.md: フォーマット表を更新
+- BENCHMARK_BLEND_UNDER.md: ビルドコマンドを更新
+- README.md: ビルド手順を更新
+
+---
+
 ## [2.40.0] - 2026-01-22
 
 ### パフォーマンス改善

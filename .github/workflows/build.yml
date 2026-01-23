@@ -1,0 +1,76 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'fleximg/**'
+      - '.github/workflows/build.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'fleximg/**'
+      - '.github/workflows/build.yml'
+
+jobs:
+  wasm-build:
+    name: WebAssembly Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 'latest'
+
+      - name: Build WASM (Release)
+        working-directory: fleximg
+        run: ./build.sh
+
+      - name: Build WASM (Premul)
+        working-directory: fleximg
+        run: ./build.sh --premul
+
+      - name: Verify outputs
+        working-directory: fleximg
+        run: |
+          test -f demo/web/fleximg.js
+          test -f demo/web/fleximg.wasm
+          echo "Build artifacts verified"
+
+  native-test:
+    name: Native Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential
+
+      - name: Build and run tests
+        working-directory: fleximg/test
+        run: |
+          make all_tests
+          ./all_tests
+
+  platformio-build:
+    name: PlatformIO Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build bench_native
+        working-directory: fleximg
+        run: pio run -e bench_native

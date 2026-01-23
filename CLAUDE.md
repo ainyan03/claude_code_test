@@ -1,5 +1,37 @@
 # Claude Code プロジェクトガイドライン
 
+## プロジェクト概要
+
+**fleximg**: ノードベースの画像処理パイプラインライブラリ
+- C++17（一部C++14互換）、組み込み環境対応
+- WebAssembly版デモあり（GitHub Pages公開中）
+- M5Stack等のマイコン向けサンプルあり
+
+### 主要ディレクトリ
+
+```
+fleximg/
+├── src/fleximg/           # コアライブラリ
+│   ├── nodes/             # ノード実装（Source, Composite, Filter等）
+│   ├── image/             # ImageBuffer, PixelFormat, ViewPort
+│   ├── operations/        # blend, filters, transform
+│   └── core/memory/       # アロケータ、プール管理
+├── examples/              # サンプルコード
+│   ├── bench/             # ベンチマーク（native/M5Stack両対応）
+│   ├── m5stack_basic/     # M5Stack基本サンプル
+│   └── m5stack_matte/     # マット合成サンプル
+├── demo/                  # WebAssemblyデモ
+├── test/                  # doctestベースのテスト
+└── docs/                  # 設計ドキュメント
+```
+
+### 参照すべきドキュメント
+
+- `fleximg/docs/README.md` - ドキュメント一覧
+- `fleximg/docs/ARCHITECTURE.md` - 全体アーキテクチャ
+- `fleximg/TODO.md` - 課題・アイデア管理
+- `fleximg/CHANGELOG.md` - 変更履歴
+
 ## ブランチ運用規則
 
 ### 命名規則
@@ -29,10 +61,29 @@
 
 ## ビルド手順
 
+### WebAssembly（Emscripten）
+
 ```bash
 cd fleximg
 source /path/to/emsdk/emsdk_env.sh  # Emscripten環境を読み込み
-./build.sh
+./build.sh                          # リリースビルド（8bit Straight）
+./build.sh --debug                  # デバッグビルド
+./build.sh --premul                 # 16bit Premulモード
+```
+
+### PlatformIO
+
+```bash
+cd fleximg
+pio run -e bench_native             # ネイティブベンチマーク
+pio run -e basic_m5stack_core2 -t upload  # M5Stack書き込み
+```
+
+### テスト
+
+```bash
+cd fleximg/test
+make all_tests && ./all_tests       # 全テスト実行
 ```
 
 ※ローカル環境固有の設定（emsdkパスなど）は `CLAUDE.local.md` に記載
