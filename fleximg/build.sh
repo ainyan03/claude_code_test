@@ -87,11 +87,8 @@ echo "};" >> demo/web/version.js
 echo "📝 Build info: $BUILD_DATE (commit: $GIT_COMMIT)"
 
 # WebAssemblyにコンパイル
-emcc src/fleximg/core/memory/platform.cpp \
-     src/fleximg/core/memory/pool_allocator.cpp \
-     src/fleximg/image/viewport.cpp \
-     src/fleximg/image/pixel_format.cpp \
-     src/fleximg/operations/filters.cpp \
+# Note: fleximg.cpp は stb方式で全実装を含む（pixel_format.h等）
+emcc src/fleximg/fleximg.cpp \
      demo/bindings.cpp \
     -I src \
     -o demo/web/fleximg.js \

@@ -35,13 +35,11 @@
     #include <cstdarg>
 #endif
 
-// fleximg
+// fleximg (stb-style: define FLEXIMG_IMPLEMENTATION before including headers)
 #define FLEXIMG_NAMESPACE fleximg
+#define FLEXIMG_IMPLEMENTATION
 #include "fleximg/core/common.h"
 #include "fleximg/image/pixel_format.h"
-
-// fleximg implementation (header-only style for this benchmark)
-#include "fleximg/image/pixel_format.cpp"
 
 using namespace fleximg;
 

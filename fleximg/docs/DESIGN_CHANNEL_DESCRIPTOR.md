@@ -346,6 +346,5 @@ const PixelFormatDescriptor Gray8 = {
 
 | ファイル | 役割 |
 |---------|------|
-| `src/fleximg/image/pixel_format.h` | ChannelType enum、ChannelDescriptor、アクセサメソッド |
-| `src/fleximg/image/pixel_format.cpp` | Alpha8定義、変換関数実装、全フォーマット定義 |
+| `src/fleximg/image/pixel_format.h` | ChannelType enum、ChannelDescriptor、アクセサメソッド、Alpha8定義、変換関数実装、全フォーマット定義（stb-style） |
 | `test/pixel_format_test.cpp` | 42テストケース |
