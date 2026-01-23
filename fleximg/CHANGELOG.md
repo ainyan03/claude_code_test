@@ -1,5 +1,38 @@
 # Changelog
 
+## [2.42.0] - 2026-01-23
+
+### リファクタリング
+
+- **FLEXIMG_IMPLEMENTATION分離の徹底**: 全ノードファイルで実装部をIMPLEMENTATIONセクションに分離
+  - 分離対象: 仮想オーバーライドメソッド、privateヘルパーメソッド
+  - ヘッダ部に残すもの: コンストラクタ、短いアクセサ、短いpublicメソッド
+  - vtableリンケージ問題を解決し、stb-styleパターンの一貫性を向上
+
+- **分離済みファイル一覧**:
+  - `core/node.h`: checkPrepareState, convertFormat, initPorts
+  - `nodes/vertical_blur_node.h`: onPullProcess, onPushProcess, applyVerticalBlur等
+  - `nodes/horizontal_blur_node.h`: onPullProcess, onPushProcess, applyHorizontalBlur
+  - `nodes/matte_node.h`: onPullPrepare/Finalize/Process, private helpers
+  - `nodes/source_node.h`: onPullPrepare, onPullProcess, pullProcessWithAffine
+  - `nodes/ninepatch_source_node.h`: onPull系, calcSrcPatchSizes等
+  - `nodes/composite_node.h`: onPullPrepare/Finalize/Process
+  - `nodes/renderer_node.h`: execPrepare, execProcess
+  - `nodes/sink_node.h`: onPushPrepare/Process, pushProcessWithAffine, applyAffine
+  - `nodes/filter_node_base.h`: onPullProcess, process
+  - `nodes/affine_node.h`: onPullPrepare/Process, onPushPrepare/Process
+  - `nodes/distributor_node.h`: onPushPrepare/Finalize/Process
+
+- **不要な`_IMPL_INCLUDED`ガードを削除**: 11ファイルから冗長なガードを除去
+
+### 技術詳細
+
+- stb-style（Implementation Macro パターン）の完全適用
+- `fleximg.cpp`が唯一のコンパイル単位として全実装を含む
+- 仮想メソッドの定義をコンパイル単位に配置することでvtable問題を回避
+
+---
+
 ## [2.41.0] - 2026-01-23
 
 ### 変更
