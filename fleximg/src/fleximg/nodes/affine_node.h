@@ -45,8 +45,8 @@ public:
 
     // 回転を設定（a,b,c,dのみ変更、tx,tyは維持）
     void setRotation(float radians) {
-        float c = std::cosf(radians);
-        float s = std::sinf(radians);
+        float c = std::cos(radians);
+        float s = std::sin(radians);
         matrix_.a = c;  matrix_.b = -s;
         matrix_.c = s;  matrix_.d = c;
     }
@@ -64,8 +64,8 @@ public:
 
     // 回転+スケールを設定（a,b,c,dのみ変更、tx,tyは維持）
     void setRotationScale(float radians, float sx, float sy) {
-        float c = std::cosf(radians);
-        float s = std::sinf(radians);
+        float c = std::cos(radians);
+        float s = std::sin(radians);
         matrix_.a = c * sx;  matrix_.b = -s * sy;
         matrix_.c = s * sx;  matrix_.d = c * sy;
     }
