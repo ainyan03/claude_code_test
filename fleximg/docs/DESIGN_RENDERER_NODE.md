@@ -212,11 +212,14 @@ HorizontalBlur: radius=5
 
 ### Node 基底クラスの API
 
+Template Methodパターンを採用しています。`pullProcess()` 等は `final` で共通処理を行い、
+派生クラスは `onPullProcess()` 等をオーバーライドします。
+
 ```cpp
 class Node {
 public:
     // ========================================
-    // 共通処理（派生クラスでオーバーライド）
+    // 共通処理（派生クラスでオーバーライド可能）
     // ========================================
 
     virtual RenderResult process(RenderResult&& input,
@@ -225,21 +228,34 @@ public:
     virtual void finalize();
 
     // ========================================
-    // プル型（上流側で使用）
+    // プル型（上流側で使用）- final メソッド
     // ========================================
 
-    virtual RenderResult pullProcess(const RenderRequest& request);
-    virtual void pullPrepare(const RenderRequest& screenInfo);
-    virtual void pullFinalize();
+    virtual RenderResult pullProcess(const RenderRequest& request) final;
+    virtual bool pullPrepare(const PrepareRequest& request) final;
+    virtual void pullFinalize() final;
 
     // ========================================
-    // プッシュ型（下流側で使用）
+    // プッシュ型（下流側で使用）- final メソッド
     // ========================================
 
     virtual void pushProcess(RenderResult&& input,
-                             const RenderRequest& request);
-    virtual void pushPrepare(const RenderRequest& screenInfo);
-    virtual void pushFinalize();
+                             const RenderRequest& request) final;
+    virtual bool pushPrepare(const PrepareRequest& request) final;
+    virtual void pushFinalize() final;
+
+protected:
+    // ========================================
+    // 派生クラスでオーバーライドするフック
+    // ========================================
+
+    virtual RenderResult onPullProcess(const RenderRequest& request);
+    virtual bool onPullPrepare(const PrepareRequest& request);
+    virtual void onPullFinalize();
+
+    virtual void onPushProcess(RenderResult&& input, const RenderRequest& request);
+    virtual bool onPushPrepare(const PrepareRequest& request);
+    virtual void onPushFinalize();
 };
 ```
 
@@ -275,8 +291,9 @@ class RendererNode : public Node {
 public:
     RendererNode();
 
-    // 仮想スクリーン設定
-    void setVirtualScreen(int width, int height, float originX, float originY);
+    // 仮想スクリーン設定（originは固定小数点Q16.16）
+    void setVirtualScreen(int width, int height, int_fixed originX, int_fixed originY);
+    void setVirtualScreen(int width, int height);  // 中央基準（デフォルト）
 
     // タイル設定
     void setTileConfig(const TileConfig& config);

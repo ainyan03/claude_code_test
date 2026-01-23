@@ -126,12 +126,13 @@ class HorizontalBlurNode : public Node {
 
 protected:
     // pull型: マージンを確保して上流に要求、下流には元サイズで返却
-    RenderResult pullProcess(const RenderRequest& request) override {
+    // ※実装では onPullProcess() をオーバーライド（Template Methodパターン）
+    RenderResult onPullProcess(const RenderRequest& request) override {
         // 上流への要求（マージン付き）
         int totalMargin = radius_ * passes_;
         RenderRequest inputReq;
         inputReq.width = request.width + totalMargin * 2;
-        RenderResult input = upstream->pullProcess(inputReq);
+        RenderResult input = upstreamNode(0)->pullProcess(inputReq);
 
         // passes回、水平ブラーを適用（内部で拡張）
         for (int pass = 0; pass < passes_; pass++) {
@@ -143,7 +144,8 @@ protected:
     }
 
     // push型: 入力を拡張して下流に配布
-    void pushProcess(RenderResult&& input, const RenderRequest& request) override {
+    // ※実装では onPushProcess() をオーバーライド
+    void onPushProcess(RenderResult&& input, const RenderRequest& request) override {
         // passes回ブラーを適用（各パスで拡張）
         // 拡張された結果を下流に配布
     }
