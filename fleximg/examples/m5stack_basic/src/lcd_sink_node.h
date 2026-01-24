@@ -67,9 +67,11 @@ protected:
     // ========================================
 
     // onPushPrepare: LCD準備
-    bool onPushPrepare(const PrepareRequest& request) override {
+    PrepareResponse onPushPrepare(const PrepareRequest& request) override {
+        PrepareResponse result;
         if (!lcd_) {
-            return false;
+            result.status = PrepareStatus::NoDownstream;
+            return result;
         }
 
         // 出力予定の画像幅と基準点を保存
@@ -80,7 +82,11 @@ protected:
         lcd_->startWrite();
         currentY_ = 0;
 
-        return true;
+        result.status = PrepareStatus::Prepared;
+        result.width = windowW_;
+        result.height = windowH_;
+        result.origin = {originX_, originY_};
+        return result;
     }
 
     // onPushProcess: 画像転送
