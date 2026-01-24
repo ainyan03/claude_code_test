@@ -1239,8 +1239,9 @@ function deleteOutputContent(contentId) {
 // UI共通ヘルパー関数
 // ========================================
 
-// ノードグラフ用X,Yスライダーを作成（配置位置用）
+// ノードグラフ用X,Yスライダーを作成（配置位置用、translateX/translateYを使用）
 // options: { node, property, label, min, max, step, container }
+// property: 'translateX' または 'translateY'
 function createNodeGraphPositionSlider(options) {
     const { node, property, label, min = -500, max = 500, step = 0.1, container } = options;
 
@@ -1256,7 +1257,7 @@ function createNodeGraphPositionSlider(options) {
     slider.min = String(min);
     slider.max = String(max);
     slider.step = String(step);
-    const currentValue = node.position?.[property] ?? 0;
+    const currentValue = node[property] ?? 0;
     slider.value = String(currentValue);
     slider.style.cssText = 'flex: 1; min-width: 50px;';
 
@@ -1265,10 +1266,16 @@ function createNodeGraphPositionSlider(options) {
     display.textContent = currentValue.toFixed(1);
 
     slider.addEventListener('input', (e) => {
-        if (!node.position) node.position = { x: 0, y: 0 };
         const value = parseFloat(e.target.value);
-        node.position[property] = value;
+        node[property] = value;
         display.textContent = value.toFixed(1);
+        // 行列のtx/tyも更新（a,b,c,dは保持）
+        if (!node.matrix) node.matrix = { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+        if (property === 'translateX') {
+            node.matrix.tx = value;
+        } else if (property === 'translateY') {
+            node.matrix.ty = value;
+        }
         throttledUpdatePreview();
     });
 
@@ -1317,6 +1324,73 @@ function createDetailSliderRow(options) {
     row.appendChild(display);
 
     return { row, slider, display };
+}
+
+// タブコンテナを作成する共通関数
+// options: { tabs: [{ id, label, buildContent(container) }], defaultTab, container }
+function createTabContainer(options) {
+    const { tabs, defaultTab, container, node } = options;
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'tab-container';
+
+    // タブヘッダー
+    const tabHeader = document.createElement('div');
+    tabHeader.className = 'tab-header';
+    tabHeader.style.cssText = 'display: flex; gap: 4px; margin-bottom: 8px;';
+
+    // タブコンテンツ
+    const tabContent = document.createElement('div');
+    tabContent.className = 'tab-content';
+
+    // 選択状態を保持するためのキー（nodeに保存）
+    const tabStateKey = '_selectedTab';
+    const currentTab = node?.[tabStateKey] || defaultTab || tabs[0]?.id;
+
+    // タブボタン生成（パラメータ/行列ボタンと同じスタイル）
+    const selectedStyle = 'flex: 1; padding: 6px 12px; font-size: 11px; border: 1px solid #4CAF50; border-radius: 3px; cursor: pointer; outline: none; background: #4CAF50; color: white;';
+    const unselectedStyle = 'flex: 1; padding: 6px 12px; font-size: 11px; border: 1px solid #555; border-radius: 3px; cursor: pointer; outline: none; background: #333; color: #ccc;';
+
+    tabs.forEach(tab => {
+        const btn = document.createElement('button');
+        btn.className = 'tab-button';
+        btn.textContent = tab.label;
+        btn.dataset.tabId = tab.id;
+        btn.style.cssText = (tab.id === currentTab) ? selectedStyle : unselectedStyle;
+
+        btn.addEventListener('click', () => {
+            // 全タブのスタイルをリセット
+            tabHeader.querySelectorAll('.tab-button').forEach(b => {
+                b.style.cssText = unselectedStyle;
+            });
+            // 選択タブのスタイル
+            btn.style.cssText = selectedStyle;
+
+            // コンテンツ切り替え
+            tabContent.innerHTML = '';
+            tab.buildContent(tabContent);
+
+            // 選択状態を保存
+            if (node) {
+                node[tabStateKey] = tab.id;
+            }
+        });
+
+        tabHeader.appendChild(btn);
+    });
+
+    wrapper.appendChild(tabHeader);
+    wrapper.appendChild(tabContent);
+
+    // 初期タブのコンテンツを構築
+    const initialTab = tabs.find(t => t.id === currentTab) || tabs[0];
+    if (initialTab) {
+        initialTab.buildContent(tabContent);
+    }
+
+    container.appendChild(wrapper);
+
+    return { wrapper, tabHeader, tabContent };
 }
 
 // 9点セレクタ + 正規化スライダーのセクションを作成
@@ -1440,50 +1514,413 @@ function createOriginSection(options) {
     return section;
 }
 
-// 配置位置セクションを作成（詳細ダイアログ用）
-function createPositionSection(options) {
-    const { node, container, onChange } = options;
+// アフィン変換コントロールセクションを作成（共通関数）
+// options: {
+//   node: ノードオブジェクト
+//   container: 追加先コンテナ
+//   onChange: 変更時コールバック
+//   collapsed: true/false - 初期状態で折りたたむか（default: true）
+//   showTranslation: true/false - 移動パラメータを表示するか（default: true）
+//   label: セクションラベル（default: 'アフィン変換'）
+// }
+function createAffineControlsSection(options) {
+    const {
+        node,
+        container,
+        onChange,
+        collapsed = true,
+        showTranslation = true,
+        label = 'アフィン変換'
+    } = options;
 
+    // メインセクション
     const section = document.createElement('div');
-    section.className = 'node-detail-section';
+    section.className = 'node-detail-section affine-controls-section';
 
-    const label = document.createElement('div');
-    label.className = 'node-detail-label';
-    label.textContent = '配置位置';
-    section.appendChild(label);
+    // 折りたたみヘッダー
+    const header = document.createElement('div');
+    header.className = 'affine-controls-header';
+    header.style.cssText = 'display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 0; user-select: none;';
 
-    // X スライダー
-    const xResult = createDetailSliderRow({
-        label: 'X',
-        min: -500,
-        max: 500,
-        step: 0.1,
-        value: node.position?.x ?? 0,
-        onChange: (val) => {
-            if (!node.position) node.position = { x: 0, y: 0 };
-            node.position.x = val;
-            if (onChange) onChange();
-        }
+    const arrow = document.createElement('span');
+    arrow.textContent = collapsed && !node.affineExpanded ? '▶' : '▼';
+    arrow.style.cssText = 'font-size: 10px; transition: transform 0.2s;';
+
+    const headerLabel = document.createElement('span');
+    headerLabel.className = 'node-detail-label';
+    headerLabel.textContent = label;
+    headerLabel.style.cssText = 'margin: 0; flex: 1;';
+
+    // 変換有無のインジケーター
+    const indicator = document.createElement('span');
+    indicator.style.cssText = 'font-size: 10px; color: #888;';
+    updateAffineIndicator();
+
+    function updateAffineIndicator() {
+        const hasTransform = hasAffineTransform(node);
+        indicator.textContent = hasTransform ? '●' : '';
+        indicator.style.color = hasTransform ? '#4CAF50' : '#888';
+    }
+
+    header.appendChild(arrow);
+    header.appendChild(headerLabel);
+    header.appendChild(indicator);
+    section.appendChild(header);
+
+    // コンテンツ部分（折りたたみ可能）
+    const content = document.createElement('div');
+    content.className = 'affine-controls-content';
+    content.style.cssText = 'padding-top: 8px;';
+
+    // 初期状態
+    if (collapsed && !node.affineExpanded) {
+        content.style.display = 'none';
+    }
+
+    // 折りたたみトグル
+    header.addEventListener('click', () => {
+        const isExpanded = content.style.display !== 'none';
+        content.style.display = isExpanded ? 'none' : 'block';
+        arrow.textContent = isExpanded ? '▶' : '▼';
+        node.affineExpanded = !isExpanded;
     });
-    section.appendChild(xResult.row);
 
-    // Y スライダー
-    const yResult = createDetailSliderRow({
-        label: 'Y',
-        min: -500,
-        max: 500,
-        step: 0.1,
-        value: node.position?.y ?? 0,
-        onChange: (val) => {
-            if (!node.position) node.position = { x: 0, y: 0 };
-            node.position.y = val;
-            if (onChange) onChange();
+    // モード切替ボタン（パラメータ/行列）
+    const modeRow = document.createElement('div');
+    modeRow.style.cssText = 'display: flex; gap: 4px; margin-bottom: 8px;';
+
+    const paramBtn = document.createElement('button');
+    paramBtn.textContent = 'パラメータ';
+    paramBtn.style.cssText = `flex: 1; padding: 4px; font-size: 10px; border: 1px solid #555; border-radius: 3px; cursor: pointer; ${!node.matrixMode ? 'background: #4CAF50; color: white; border-color: #4CAF50;' : 'background: #333; color: #ccc;'}`;
+
+    const matrixBtn = document.createElement('button');
+    matrixBtn.textContent = '行列';
+    matrixBtn.style.cssText = `flex: 1; padding: 4px; font-size: 10px; border: 1px solid #555; border-radius: 3px; cursor: pointer; ${node.matrixMode ? 'background: #4CAF50; color: white; border-color: #4CAF50;' : 'background: #333; color: #ccc;'}`;
+
+    modeRow.appendChild(paramBtn);
+    modeRow.appendChild(matrixBtn);
+    content.appendChild(modeRow);
+
+    // パラメータコンテナ
+    const paramsContainer = document.createElement('div');
+    paramsContainer.className = 'affine-params-container';
+    content.appendChild(paramsContainer);
+
+    // パラメータモードUI構築
+    function buildParamMode() {
+        paramsContainer.innerHTML = '';
+
+        const params = [];
+        if (showTranslation) {
+            params.push({ key: 'translateX', label: 'X移動', min: -500, max: 500, step: 0.1, default: 0, unit: '' });
+            params.push({ key: 'translateY', label: 'Y移動', min: -500, max: 500, step: 0.1, default: 0, unit: '' });
         }
-    });
-    section.appendChild(yResult.row);
+        params.push({ key: 'rotation', label: '回転', min: -180, max: 180, step: 0.1, default: 0, unit: '°' });
+        params.push({ key: 'scaleX', label: 'X倍率', min: -5, max: 5, step: 0.01, default: 1, unit: '' });
+        params.push({ key: 'scaleY', label: 'Y倍率', min: -5, max: 5, step: 0.01, default: 1, unit: '' });
 
+        params.forEach(p => {
+            const value = node[p.key] !== undefined ? node[p.key] : p.default;
+            const result = createDetailSliderRow({
+                label: p.label,
+                min: p.min,
+                max: p.max,
+                step: p.step,
+                value: value,
+                unit: p.unit,
+                onChange: (val) => {
+                    node[p.key] = val;
+                    // 行列を再計算
+                    node.matrix = calculateMatrixFromParams(
+                        node.translateX || 0,
+                        node.translateY || 0,
+                        node.rotation || 0,
+                        node.scaleX !== undefined ? node.scaleX : 1,
+                        node.scaleY !== undefined ? node.scaleY : 1
+                    );
+                    updateAffineIndicator();
+                    if (onChange) onChange();
+                }
+            });
+            paramsContainer.appendChild(result.row);
+        });
+    }
+
+    // 行列モードUI構築
+    function buildMatrixMode() {
+        paramsContainer.innerHTML = '';
+
+        const matrixParams = [
+            { name: 'a', label: 'a', min: -3, max: 3, step: 0.01, default: 1 },
+            { name: 'b', label: 'b', min: -3, max: 3, step: 0.01, default: 0 },
+            { name: 'c', label: 'c', min: -3, max: 3, step: 0.01, default: 0 },
+            { name: 'd', label: 'd', min: -3, max: 3, step: 0.01, default: 1 },
+            { name: 'tx', label: 'tx', min: -500, max: 500, step: 0.1, default: 0 },
+            { name: 'ty', label: 'ty', min: -500, max: 500, step: 0.1, default: 0 }
+        ];
+
+        matrixParams.forEach(p => {
+            const value = node.matrix && node.matrix[p.name] !== undefined ? node.matrix[p.name] : p.default;
+            const result = createDetailSliderRow({
+                label: p.label,
+                min: p.min,
+                max: p.max,
+                step: p.step,
+                value: value,
+                onChange: (val) => {
+                    if (!node.matrix) node.matrix = { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+                    node.matrix[p.name] = val;
+                    updateAffineIndicator();
+                    if (onChange) onChange();
+                }
+            });
+            paramsContainer.appendChild(result.row);
+        });
+    }
+
+    // モード切替ハンドラ
+    paramBtn.addEventListener('click', () => {
+        node.matrixMode = false;
+        paramBtn.style.cssText = `flex: 1; padding: 4px; font-size: 10px; border: 1px solid #4CAF50; border-radius: 3px; cursor: pointer; background: #4CAF50; color: white;`;
+        matrixBtn.style.cssText = `flex: 1; padding: 4px; font-size: 10px; border: 1px solid #555; border-radius: 3px; cursor: pointer; background: #333; color: #ccc;`;
+        buildParamMode();
+    });
+
+    matrixBtn.addEventListener('click', () => {
+        node.matrixMode = true;
+        matrixBtn.style.cssText = `flex: 1; padding: 4px; font-size: 10px; border: 1px solid #4CAF50; border-radius: 3px; cursor: pointer; background: #4CAF50; color: white;`;
+        paramBtn.style.cssText = `flex: 1; padding: 4px; font-size: 10px; border: 1px solid #555; border-radius: 3px; cursor: pointer; background: #333; color: #ccc;`;
+        buildMatrixMode();
+    });
+
+    // 初期表示
+    if (node.matrixMode) {
+        buildMatrixMode();
+    } else {
+        buildParamMode();
+    }
+
+    section.appendChild(content);
     container.appendChild(section);
     return section;
+}
+
+// アフィン変換が設定されているか判定
+function hasAffineTransform(node) {
+    // パラメータモードのチェック
+    if (node.rotation && node.rotation !== 0) return true;
+    if (node.scaleX !== undefined && node.scaleX !== 1) return true;
+    if (node.scaleY !== undefined && node.scaleY !== 1) return true;
+    if (node.translateX && node.translateX !== 0) return true;
+    if (node.translateY && node.translateY !== 0) return true;
+
+    // 行列モードのチェック
+    if (node.matrix) {
+        const m = node.matrix;
+        if (m.a !== 1 || m.b !== 0 || m.c !== 0 || m.d !== 1 || m.tx !== 0 || m.ty !== 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+// ノードのアフィン変換行列を取得（matrixModeに応じて適切な値を返す）
+// matrixMode: true → node.matrixのa,b,c,dを使用（tx/tyはtranslateX/Yから）
+// matrixMode: false → パラメータから行列を計算
+function getAffineMatrix(node) {
+    const tx = node.translateX || 0;
+    const ty = node.translateY || 0;
+
+    if (node.matrixMode && node.matrix) {
+        // 行列モード: node.matrix の a,b,c,d を使用、tx/ty は translateX/Y から
+        return {
+            a: node.matrix.a ?? 1,
+            b: node.matrix.b ?? 0,
+            c: node.matrix.c ?? 0,
+            d: node.matrix.d ?? 1,
+            tx: tx,
+            ty: ty
+        };
+    } else {
+        // パラメータモード: パラメータから行列を計算
+        return calculateMatrixFromParams(
+            tx,
+            ty,
+            node.rotation || 0,
+            node.scaleX !== undefined ? node.scaleX : 1,
+            node.scaleY !== undefined ? node.scaleY : 1
+        );
+    }
+}
+
+// タブ内で使用するアフィンコントロール（折りたたみなし）
+// container内にアフィン制御UIを構築する
+function buildAffineTabContent(node, container, onChange) {
+    // === X/Y移動スライダー（常に表示、モード切替の外） ===
+    const translateSection = document.createElement('div');
+    translateSection.className = 'affine-translate-section';
+    translateSection.style.cssText = 'margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #444;';
+
+    // X/Y移動更新用のヘルパー（matrixModeに応じて適切に行列を更新）
+    function updateTranslation() {
+        if (node.matrixMode && node.matrix) {
+            // 行列モード: tx/tyのみ更新、a,b,c,dは保持
+            node.matrix.tx = node.translateX || 0;
+            node.matrix.ty = node.translateY || 0;
+        } else {
+            // パラメータモード: 全体を再計算
+            node.matrix = calculateMatrixFromParams(
+                node.translateX || 0,
+                node.translateY || 0,
+                node.rotation || 0,
+                node.scaleX !== undefined ? node.scaleX : 1,
+                node.scaleY !== undefined ? node.scaleY : 1
+            );
+        }
+    }
+
+    // X移動
+    const txValue = node.translateX !== undefined ? node.translateX : 0;
+    const txResult = createDetailSliderRow({
+        label: 'X移動',
+        min: -500,
+        max: 500,
+        step: 0.1,
+        value: txValue,
+        onChange: (val) => {
+            node.translateX = val;
+            updateTranslation();
+            if (onChange) onChange();
+        }
+    });
+    translateSection.appendChild(txResult.row);
+
+    // Y移動
+    const tyValue = node.translateY !== undefined ? node.translateY : 0;
+    const tyResult = createDetailSliderRow({
+        label: 'Y移動',
+        min: -500,
+        max: 500,
+        step: 0.1,
+        value: tyValue,
+        onChange: (val) => {
+            node.translateY = val;
+            updateTranslation();
+            if (onChange) onChange();
+        }
+    });
+    translateSection.appendChild(tyResult.row);
+
+    container.appendChild(translateSection);
+
+    // === モード切替ボタン（パラメータ/行列） ===
+    const modeRow = document.createElement('div');
+    modeRow.style.cssText = 'display: flex; gap: 4px; margin-bottom: 8px;';
+
+    const paramBtn = document.createElement('button');
+    paramBtn.textContent = 'パラメータ';
+    paramBtn.style.cssText = `flex: 1; padding: 4px; font-size: 10px; border: 1px solid #555; border-radius: 3px; cursor: pointer; outline: none; ${!node.matrixMode ? 'background: #4CAF50; color: white; border-color: #4CAF50;' : 'background: #333; color: #ccc;'}`;
+
+    const matrixBtn = document.createElement('button');
+    matrixBtn.textContent = '行列';
+    matrixBtn.style.cssText = `flex: 1; padding: 4px; font-size: 10px; border: 1px solid #555; border-radius: 3px; cursor: pointer; outline: none; ${node.matrixMode ? 'background: #4CAF50; color: white; border-color: #4CAF50;' : 'background: #333; color: #ccc;'}`;
+
+    modeRow.appendChild(paramBtn);
+    modeRow.appendChild(matrixBtn);
+    container.appendChild(modeRow);
+
+    // パラメータコンテナ
+    const paramsContainer = document.createElement('div');
+    paramsContainer.className = 'affine-params-container';
+    container.appendChild(paramsContainer);
+
+    // パラメータモードUI構築（回転・スケールのみ、X/Y移動は上部に分離）
+    function buildParamMode() {
+        paramsContainer.innerHTML = '';
+
+        const params = [
+            { key: 'rotation', label: '回転', min: -180, max: 180, step: 0.1, default: 0, unit: '°' },
+            { key: 'scaleX', label: 'X倍率', min: -5, max: 5, step: 0.01, default: 1, unit: '' },
+            { key: 'scaleY', label: 'Y倍率', min: -5, max: 5, step: 0.01, default: 1, unit: '' }
+        ];
+
+        params.forEach(p => {
+            const value = node[p.key] !== undefined ? node[p.key] : p.default;
+            const result = createDetailSliderRow({
+                label: p.label,
+                min: p.min,
+                max: p.max,
+                step: p.step,
+                value: value,
+                unit: p.unit,
+                onChange: (val) => {
+                    node[p.key] = val;
+                    // 行列を再計算
+                    node.matrix = calculateMatrixFromParams(
+                        node.translateX || 0,
+                        node.translateY || 0,
+                        node.rotation || 0,
+                        node.scaleX !== undefined ? node.scaleX : 1,
+                        node.scaleY !== undefined ? node.scaleY : 1
+                    );
+                    if (onChange) onChange();
+                }
+            });
+            paramsContainer.appendChild(result.row);
+        });
+    }
+
+    // 行列モードUI構築（a,b,c,dのみ、tx/tyは上部に分離）
+    function buildMatrixMode() {
+        paramsContainer.innerHTML = '';
+
+        const matrixParams = [
+            { name: 'a', label: 'a', min: -3, max: 3, step: 0.01, default: 1 },
+            { name: 'b', label: 'b', min: -3, max: 3, step: 0.01, default: 0 },
+            { name: 'c', label: 'c', min: -3, max: 3, step: 0.01, default: 0 },
+            { name: 'd', label: 'd', min: -3, max: 3, step: 0.01, default: 1 }
+        ];
+
+        matrixParams.forEach(p => {
+            const value = node.matrix && node.matrix[p.name] !== undefined ? node.matrix[p.name] : p.default;
+            const result = createDetailSliderRow({
+                label: p.label,
+                min: p.min,
+                max: p.max,
+                step: p.step,
+                value: value,
+                onChange: (val) => {
+                    if (!node.matrix) node.matrix = { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+                    node.matrix[p.name] = val;
+                    if (onChange) onChange();
+                }
+            });
+            paramsContainer.appendChild(result.row);
+        });
+    }
+
+    // モード切替ハンドラ
+    paramBtn.addEventListener('click', () => {
+        node.matrixMode = false;
+        paramBtn.style.cssText = `flex: 1; padding: 4px; font-size: 10px; border: 1px solid #4CAF50; border-radius: 3px; cursor: pointer; outline: none; background: #4CAF50; color: white;`;
+        matrixBtn.style.cssText = `flex: 1; padding: 4px; font-size: 10px; border: 1px solid #555; border-radius: 3px; cursor: pointer; outline: none; background: #333; color: #ccc;`;
+        buildParamMode();
+    });
+
+    matrixBtn.addEventListener('click', () => {
+        node.matrixMode = true;
+        matrixBtn.style.cssText = `flex: 1; padding: 4px; font-size: 10px; border: 1px solid #4CAF50; border-radius: 3px; cursor: pointer; outline: none; background: #4CAF50; color: white;`;
+        paramBtn.style.cssText = `flex: 1; padding: 4px; font-size: 10px; border: 1px solid #555; border-radius: 3px; cursor: pointer; outline: none; background: #333; color: #ccc;`;
+        buildMatrixMode();
+    });
+
+    // 初期表示
+    if (node.matrixMode) {
+        buildMatrixMode();
+    } else {
+        buildParamMode();
+    }
 }
 
 // ========================================
@@ -2771,16 +3208,16 @@ function drawGlobalNode(node) {
             controls.appendChild(thumbRow);
         }
 
-        // X スライダー
+        // X スライダー（translateXを使用）
         createNodeGraphPositionSlider({
-            node, property: 'x', label: 'X',
+            node, property: 'translateX', label: 'X',
             min: -500, max: 500, step: 0.1,
             container: controls
         });
 
-        // Y スライダー
+        // Y スライダー（translateYを使用）
         createNodeGraphPositionSlider({
-            node, property: 'y', label: 'Y',
+            node, property: 'translateY', label: 'Y',
             min: -500, max: 500, step: 0.1,
             container: controls
         });
@@ -2933,16 +3370,16 @@ function drawGlobalNode(node) {
             controls.appendChild(thumbRow);
         }
 
-        // X スライダー（配置位置）
+        // X スライダー（translateXを使用）
         createNodeGraphPositionSlider({
-            node, property: 'x', label: 'X',
+            node, property: 'translateX', label: 'X',
             min: -500, max: 500, step: 0.1,
             container: controls
         });
 
-        // Y スライダー（配置位置）
+        // Y スライダー（translateYを使用）
         createNodeGraphPositionSlider({
-            node, property: 'y', label: 'Y',
+            node, property: 'translateY', label: 'Y',
             min: -500, max: 500, step: 0.1,
             container: controls
         });
@@ -3838,34 +4275,24 @@ function updatePreviewFromGraph() {
             if (content) {
                 const ox = node.originX ?? 0.5;
                 const oy = node.originY ?? 0.5;
+
                 return {
                     ...node,
                     imageId: content.cppImageId,  // C++側に渡す数値ID
                     // ピクセル座標に変換してC++に渡す
                     originX: ox * content.width,
                     originY: oy * content.height,
-                    // 配置位置（オブジェクト形式で渡す）
-                    position: {
-                        x: node.position?.x ?? 0,
-                        y: node.position?.y ?? 0
-                    },
-                    bilinear: node.bilinear || false  // バイリニア補間フラグ
+                    bilinear: node.bilinear || false,  // バイリニア補間フラグ
+                    matrix: getAffineMatrix(node)  // アフィン変換行列（matrixModeに応じて計算）
                 };
             }
         }
-        // アフィンノード: パラメータを行列に統一
-        if (node.type === 'affine' && !node.matrixMode) {
-            const matrix = calculateMatrixFromParams(
-                node.translateX || 0,
-                node.translateY || 0,
-                node.rotation || 0,
-                node.scaleX !== undefined ? node.scaleX : 1,
-                node.scaleY !== undefined ? node.scaleY : 1
-            );
+        // アフィンノード: matrixModeに応じて行列を取得
+        if (node.type === 'affine') {
             return {
                 ...node,
                 matrixMode: true,  // C++には常に行列モードとして渡す
-                matrix: matrix
+                matrix: getAffineMatrix(node)
             };
         }
         // Sinkノード: contentLibraryからサイズを取得
@@ -3876,7 +4303,8 @@ function updatePreviewFromGraph() {
                     ...node,
                     outputWidth: content.width,
                     outputHeight: content.height,
-                    imageId: content.cppImageId  // 出力先の画像ID
+                    imageId: content.cppImageId,  // 出力先の画像ID
+                    matrix: getAffineMatrix(node)  // アフィン変換行列（matrixModeに応じて計算）
                 };
             }
         }
@@ -3905,6 +4333,7 @@ function updatePreviewFromGraph() {
                 // 正規化座標（0.0〜1.0）をピクセル座標に変換
                 const ox = (node.originX ?? 0.5) * outW;
                 const oy = (node.originY ?? 0.5) * outH;
+
                 return {
                     ...node,
                     imageId: content.cppImageId,  // C++側に渡す数値ID
@@ -3912,12 +4341,17 @@ function updatePreviewFromGraph() {
                     outputHeight: outH,
                     originX: ox,
                     originY: oy,
-                    // 配置位置（オブジェクト形式で渡す）
-                    position: {
-                        x: node.position?.x ?? 0,
-                        y: node.position?.y ?? 0
-                    },
-                    bilinear: node.bilinear || false  // バイリニア補間フラグ
+                    bilinear: node.bilinear || false,  // バイリニア補間フラグ
+                    matrix: getAffineMatrix(node)  // アフィン変換行列（matrixModeに応じて計算）
+                };
+            }
+        }
+        // Composite/Distributorノード: アフィン変換行列を追加
+        if (node.type === 'composite' || node.type === 'distributor') {
+            if (hasAffineTransform(node)) {
+                return {
+                    ...node,
+                    matrix: getAffineMatrix(node)
                 };
             }
         }
@@ -4665,79 +5099,93 @@ function buildImageDetailContent(node) {
         throttledUpdatePreview();
     };
 
-    // 原点セクション（9点セレクタ + X,Yスライダー）
-    createOriginSection({
+    // タブUI
+    createTabContainer({
         node,
         container: detailPanelContent,
-        onChange: onUpdate
+        defaultTab: 'basic',
+        tabs: [
+            {
+                id: 'basic',
+                label: '基本設定',
+                buildContent: (tabContainer) => {
+                    // 原点セクション（9点セレクタ + X,Yスライダー）
+                    createOriginSection({
+                        node,
+                        container: tabContainer,
+                        onChange: onUpdate
+                    });
+
+                    // ピクセルフォーマット選択セクション
+                    const formatSection = document.createElement('div');
+                    formatSection.className = 'node-detail-section';
+
+                    const formatLabel = document.createElement('div');
+                    formatLabel.className = 'node-detail-label';
+                    formatLabel.textContent = 'ピクセルフォーマット';
+                    formatSection.appendChild(formatLabel);
+
+                    const formatSelect = document.createElement('select');
+                    formatSelect.className = 'node-detail-select';
+                    formatSelect.style.cssText = 'width: 100%; padding: 4px; margin-top: 4px;';
+
+                    const currentFormat = node.pixelFormat ?? DEFAULT_PIXEL_FORMAT;
+                    PIXEL_FORMATS.forEach(fmt => {
+                        const option = document.createElement('option');
+                        option.value = fmt.formatName;
+                        option.textContent = `${fmt.displayName} (${fmt.bpp}B)`;
+                        option.title = fmt.description;
+                        if (currentFormat === fmt.formatName) option.selected = true;
+                        formatSelect.appendChild(option);
+                    });
+
+                    formatSelect.addEventListener('change', () => {
+                        const newFormat = formatSelect.value;
+                        onPixelFormatChange(node, newFormat);
+                    });
+
+                    formatSection.appendChild(formatSelect);
+                    tabContainer.appendChild(formatSection);
+
+                    // バイリニア補間チェックボックス
+                    const interpolationSection = document.createElement('div');
+                    interpolationSection.className = 'node-detail-section';
+
+                    const interpolationLabel = document.createElement('label');
+                    interpolationLabel.className = 'node-detail-checkbox-label';
+                    interpolationLabel.style.cssText = 'display: flex; align-items: center; gap: 8px; cursor: pointer;';
+
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.checked = node.bilinear || false;
+                    checkbox.addEventListener('change', () => {
+                        node.bilinear = checkbox.checked;
+                        throttledUpdatePreview();
+                    });
+
+                    interpolationLabel.appendChild(checkbox);
+                    interpolationLabel.appendChild(document.createTextNode('バイリニア補間'));
+
+                    // 注釈
+                    const note = document.createElement('div');
+                    note.className = 'node-detail-note';
+                    note.style.cssText = 'font-size: 11px; color: #888; margin-top: 4px;';
+                    note.textContent = '※ RGBA8形式のみ対応。端1pxは描画されません。';
+
+                    interpolationSection.appendChild(interpolationLabel);
+                    interpolationSection.appendChild(note);
+                    tabContainer.appendChild(interpolationSection);
+                }
+            },
+            {
+                id: 'affine',
+                label: 'アフィン',
+                buildContent: (tabContainer) => {
+                    buildAffineTabContent(node, tabContainer, onUpdate);
+                }
+            }
+        ]
     });
-
-    // 配置位置セクション（X,Yスライダー）
-    createPositionSection({
-        node,
-        container: detailPanelContent,
-        onChange: onUpdate
-    });
-
-    // ピクセルフォーマット選択セクション
-    const formatSection = document.createElement('div');
-    formatSection.className = 'node-detail-section';
-
-    const formatLabel = document.createElement('div');
-    formatLabel.className = 'node-detail-label';
-    formatLabel.textContent = 'ピクセルフォーマット';
-    formatSection.appendChild(formatLabel);
-
-    const formatSelect = document.createElement('select');
-    formatSelect.className = 'node-detail-select';
-    formatSelect.style.cssText = 'width: 100%; padding: 4px; margin-top: 4px;';
-
-    const currentFormat = node.pixelFormat ?? DEFAULT_PIXEL_FORMAT;
-    PIXEL_FORMATS.forEach(fmt => {
-        const option = document.createElement('option');
-        option.value = fmt.formatName;
-        option.textContent = `${fmt.displayName} (${fmt.bpp}B)`;
-        option.title = fmt.description;
-        if (currentFormat === fmt.formatName) option.selected = true;
-        formatSelect.appendChild(option);
-    });
-
-    formatSelect.addEventListener('change', () => {
-        const newFormat = formatSelect.value;
-        onPixelFormatChange(node, newFormat);
-    });
-
-    formatSection.appendChild(formatSelect);
-    detailPanelContent.appendChild(formatSection);
-
-    // バイリニア補間チェックボックス
-    const interpolationSection = document.createElement('div');
-    interpolationSection.className = 'node-detail-section';
-
-    const interpolationLabel = document.createElement('label');
-    interpolationLabel.className = 'node-detail-checkbox-label';
-    interpolationLabel.style.cssText = 'display: flex; align-items: center; gap: 8px; cursor: pointer;';
-
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.checked = node.bilinear || false;
-    checkbox.addEventListener('change', () => {
-        node.bilinear = checkbox.checked;
-        throttledUpdatePreview();
-    });
-
-    interpolationLabel.appendChild(checkbox);
-    interpolationLabel.appendChild(document.createTextNode('バイリニア補間'));
-
-    // 注釈
-    const note = document.createElement('div');
-    note.className = 'node-detail-note';
-    note.style.cssText = 'font-size: 11px; color: #888; margin-top: 4px;';
-    note.textContent = '※ RGBA8形式のみ対応。端1pxは描画されません。';
-
-    interpolationSection.appendChild(interpolationLabel);
-    interpolationSection.appendChild(note);
-    detailPanelContent.appendChild(interpolationSection);
 }
 
 // ピクセルフォーマット変更時の処理
@@ -4829,32 +5277,58 @@ function buildFilterDetailContent(node) {
 
 // 合成ノードの詳細コンテンツ
 function buildCompositeDetailContent(node) {
-    const section = document.createElement('div');
-    section.className = 'node-detail-section';
+    const onUpdate = () => {
+        renderNodeGraph();
+        throttledUpdatePreview();
+    };
 
-    const label = document.createElement('div');
-    label.className = 'node-detail-label';
-    label.textContent = `入力数: ${node.inputs ? node.inputs.length : 0}`;
-    section.appendChild(label);
+    // タブUI
+    createTabContainer({
+        node,
+        container: detailPanelContent,
+        defaultTab: 'basic',
+        tabs: [
+            {
+                id: 'basic',
+                label: '基本設定',
+                buildContent: (tabContainer) => {
+                    const section = document.createElement('div');
+                    section.className = 'node-detail-section';
 
-    // 入力追加ボタン
-    const addBtn = document.createElement('button');
-    addBtn.textContent = '+ 入力を追加';
-    addBtn.style.cssText = 'width: 100%; margin-top: 8px; padding: 6px; font-size: 12px;';
-    addBtn.addEventListener('click', () => {
-        addCompositeInput(node);
-        detailPanelContent.innerHTML = '';
-        buildCompositeDetailContent(node);
+                    const label = document.createElement('div');
+                    label.className = 'node-detail-label';
+                    label.textContent = `入力数: ${node.inputs ? node.inputs.length : 0}`;
+                    section.appendChild(label);
+
+                    // 入力追加ボタン
+                    const addBtn = document.createElement('button');
+                    addBtn.textContent = '+ 入力を追加';
+                    addBtn.style.cssText = 'width: 100%; margin-top: 8px; padding: 6px; font-size: 12px;';
+                    addBtn.addEventListener('click', () => {
+                        addCompositeInput(node);
+                        detailPanelContent.innerHTML = '';
+                        buildCompositeDetailContent(node);
+                    });
+                    section.appendChild(addBtn);
+
+                    // ヒントテキスト
+                    const hint = document.createElement('div');
+                    hint.style.cssText = 'margin-top: 12px; font-size: 11px; color: #888;';
+                    hint.textContent = '💡 アルファ調整はAlphaフィルタノードを使用してください';
+                    section.appendChild(hint);
+
+                    tabContainer.appendChild(section);
+                }
+            },
+            {
+                id: 'affine',
+                label: 'アフィン',
+                buildContent: (tabContainer) => {
+                    buildAffineTabContent(node, tabContainer, onUpdate);
+                }
+            }
+        ]
     });
-    section.appendChild(addBtn);
-
-    // ヒントテキスト
-    const hint = document.createElement('div');
-    hint.style.cssText = 'margin-top: 12px; font-size: 11px; color: #888;';
-    hint.textContent = '💡 アルファ調整はAlphaフィルタノードを使用してください';
-    section.appendChild(hint);
-
-    detailPanelContent.appendChild(section);
 }
 
 // マット合成ノードの詳細コンテンツ
@@ -4894,168 +5368,80 @@ function buildMatteDetailContent(node) {
 
 // 分配ノードの詳細コンテンツ
 function buildDistributorDetailContent(node) {
+    const onUpdate = () => {
+        renderNodeGraph();
+        throttledUpdatePreview();
+    };
+
+    // タブUI
+    createTabContainer({
+        node,
+        container: detailPanelContent,
+        defaultTab: 'basic',
+        tabs: [
+            {
+                id: 'basic',
+                label: '基本設定',
+                buildContent: (tabContainer) => {
+                    const section = document.createElement('div');
+                    section.className = 'node-detail-section';
+
+                    const label = document.createElement('div');
+                    label.className = 'node-detail-label';
+                    label.textContent = `出力数: ${node.outputs ? node.outputs.length : 0}`;
+                    section.appendChild(label);
+
+                    // 出力追加ボタン
+                    const addBtn = document.createElement('button');
+                    addBtn.textContent = '+ 出力を追加';
+                    addBtn.style.cssText = 'width: 100%; margin-top: 8px; padding: 6px; font-size: 12px;';
+                    addBtn.addEventListener('click', () => {
+                        addDistributorOutput(node);
+                        detailPanelContent.innerHTML = '';
+                        buildDistributorDetailContent(node);
+                    });
+                    section.appendChild(addBtn);
+
+                    // ヒントテキスト
+                    const hint = document.createElement('div');
+                    hint.style.cssText = 'margin-top: 12px; font-size: 11px; color: #888;';
+                    hint.textContent = '💡 1つの入力を複数の出力に分配します';
+                    section.appendChild(hint);
+
+                    tabContainer.appendChild(section);
+                }
+            },
+            {
+                id: 'affine',
+                label: 'アフィン',
+                buildContent: (tabContainer) => {
+                    buildAffineTabContent(node, tabContainer, onUpdate);
+                }
+            }
+        ]
+    });
+}
+
+// アフィンノードの詳細コンテンツ
+function buildAffineDetailContent(node) {
+    const onUpdate = () => {
+        renderNodeGraph();
+        throttledUpdatePreview();
+    };
+
+    // AffineNodeは専用ノードなのでタブなし、直接アフィンコントロールを表示
     const section = document.createElement('div');
     section.className = 'node-detail-section';
 
     const label = document.createElement('div');
     label.className = 'node-detail-label';
-    label.textContent = `出力数: ${node.outputs ? node.outputs.length : 0}`;
+    label.textContent = '変換パラメータ';
     section.appendChild(label);
 
-    // 出力追加ボタン
-    const addBtn = document.createElement('button');
-    addBtn.textContent = '+ 出力を追加';
-    addBtn.style.cssText = 'width: 100%; margin-top: 8px; padding: 6px; font-size: 12px;';
-    addBtn.addEventListener('click', () => {
-        addDistributorOutput(node);
-        detailPanelContent.innerHTML = '';
-        buildDistributorDetailContent(node);
-    });
-    section.appendChild(addBtn);
-
-    // ヒントテキスト
-    const hint = document.createElement('div');
-    hint.style.cssText = 'margin-top: 12px; font-size: 11px; color: #888;';
-    hint.textContent = '💡 1つの入力を複数の出力に分配します';
-    section.appendChild(hint);
-
-    detailPanelContent.appendChild(section);
-}
-
-// アフィンノードの詳細コンテンツ
-function buildAffineDetailContent(node) {
-    // モード切替
-    const modeSection = document.createElement('div');
-    modeSection.className = 'node-detail-section';
-
-    const modeLabel = document.createElement('div');
-    modeLabel.className = 'node-detail-label';
-    modeLabel.textContent = 'モード';
-    modeSection.appendChild(modeLabel);
-
-    const modeRow = document.createElement('div');
-    modeRow.style.cssText = 'display: flex; gap: 4px;';
-
-    const paramBtn = document.createElement('button');
-    paramBtn.textContent = 'パラメータ';
-    paramBtn.style.cssText = `flex: 1; padding: 6px; font-size: 11px; ${!node.matrixMode ? 'background: #4CAF50; color: white;' : ''}`;
-    paramBtn.addEventListener('click', () => {
-        node.matrixMode = false;
-        detailPanelContent.innerHTML = '';
-        buildAffineDetailContent(node);
-        renderNodeGraph();
-        throttledUpdatePreview();
-    });
-
-    const matrixBtn = document.createElement('button');
-    matrixBtn.textContent = '行列';
-    matrixBtn.style.cssText = `flex: 1; padding: 6px; font-size: 11px; ${node.matrixMode ? 'background: #4CAF50; color: white;' : ''}`;
-    matrixBtn.addEventListener('click', () => {
-        node.matrixMode = true;
-        detailPanelContent.innerHTML = '';
-        buildAffineDetailContent(node);
-        renderNodeGraph();
-        throttledUpdatePreview();
-    });
-
-    modeRow.appendChild(paramBtn);
-    modeRow.appendChild(matrixBtn);
-    modeSection.appendChild(modeRow);
-    detailPanelContent.appendChild(modeSection);
-
-    // パラメータセクション
-    const section = document.createElement('div');
-    section.className = 'node-detail-section';
-
-    if (!node.matrixMode) {
-        // パラメータモード
-        const params = [
-            { key: 'translateX', label: 'X移動', min: -500, max: 500, step: 0.1, default: 0, format: v => v.toFixed(1) },
-            { key: 'translateY', label: 'Y移動', min: -500, max: 500, step: 0.1, default: 0, format: v => v.toFixed(1) },
-            { key: 'rotation', label: '回転', min: -180, max: 180, step: 0.1, default: 0, format: v => `${v.toFixed(1)}°` },
-            { key: 'scaleX', label: 'X倍率', min: 0.1, max: 3, step: 0.01, default: 1, format: v => v.toFixed(2) },
-            { key: 'scaleY', label: 'Y倍率', min: 0.1, max: 3, step: 0.01, default: 1, format: v => v.toFixed(2) }
-        ];
-
-        params.forEach(p => {
-            const value = node[p.key] !== undefined ? node[p.key] : p.default;
-            const row = document.createElement('div');
-            row.className = 'node-detail-row';
-
-            const paramLabel = document.createElement('label');
-            paramLabel.textContent = p.label;
-
-            const slider = document.createElement('input');
-            slider.type = 'range';
-            slider.min = String(p.min);
-            slider.max = String(p.max);
-            slider.step = String(p.step);
-            slider.value = String(value);
-
-            const display = document.createElement('span');
-            display.className = 'value-display';
-            display.textContent = p.format(value);
-
-            slider.addEventListener('input', (e) => {
-                node[p.key] = parseFloat(e.target.value);
-                display.textContent = p.format(node[p.key]);
-                node.matrix = calculateMatrixFromParams(
-                    node.translateX || 0, node.translateY || 0,
-                    node.rotation || 0, node.scaleX || 1, node.scaleY || 1
-                );
-                renderNodeGraph();
-                throttledUpdatePreview();
-            });
-
-            row.appendChild(paramLabel);
-            row.appendChild(slider);
-            row.appendChild(display);
-            section.appendChild(row);
-        });
-    } else {
-        // 行列モード
-        const matrixParams = [
-            { name: 'a', min: -3, max: 3, step: 0.01, default: 1, decimals: 2 },
-            { name: 'b', min: -3, max: 3, step: 0.01, default: 0, decimals: 2 },
-            { name: 'c', min: -3, max: 3, step: 0.01, default: 0, decimals: 2 },
-            { name: 'd', min: -3, max: 3, step: 0.01, default: 1, decimals: 2 },
-            { name: 'tx', min: -500, max: 500, step: 0.1, default: 0, decimals: 1 },
-            { name: 'ty', min: -500, max: 500, step: 0.1, default: 0, decimals: 1 }
-        ];
-
-        matrixParams.forEach(p => {
-            const value = node.matrix && node.matrix[p.name] !== undefined ? node.matrix[p.name] : p.default;
-            const row = document.createElement('div');
-            row.className = 'node-detail-row';
-
-            const paramLabel = document.createElement('label');
-            paramLabel.textContent = p.name;
-
-            const slider = document.createElement('input');
-            slider.type = 'range';
-            slider.min = String(p.min);
-            slider.max = String(p.max);
-            slider.step = String(p.step);
-            slider.value = String(value);
-
-            const display = document.createElement('span');
-            display.className = 'value-display';
-            display.textContent = value.toFixed(p.decimals);
-
-            slider.addEventListener('input', (e) => {
-                if (!node.matrix) node.matrix = { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
-                node.matrix[p.name] = parseFloat(e.target.value);
-                display.textContent = node.matrix[p.name].toFixed(p.decimals);
-                renderNodeGraph();
-                throttledUpdatePreview();
-            });
-
-            row.appendChild(paramLabel);
-            row.appendChild(slider);
-            row.appendChild(display);
-            section.appendChild(row);
-        });
-    }
+    const controlsContainer = document.createElement('div');
+    controlsContainer.style.marginTop = '8px';
+    buildAffineTabContent(node, controlsContainer, onUpdate);
+    section.appendChild(controlsContainer);
 
     detailPanelContent.appendChild(section);
 }
@@ -5197,105 +5583,130 @@ function buildRendererDetailContent(node) {
 
 // Sinkノードの詳細コンテンツ
 function buildSinkDetailContent(node) {
-    const section = document.createElement('div');
-    section.className = 'node-detail-section';
-
-    const label = document.createElement('div');
-    label.className = 'node-detail-label';
-    label.textContent = '出力設定';
-    section.appendChild(label);
-
-    // 出力バッファ情報（contentLibraryから取得、読み取り専用）
-    const content = contentLibrary.find(c => c.id === node.contentId);
-    const outputWidth = content?.width ?? 0;
-    const outputHeight = content?.height ?? 0;
-
-    // サイズ表示（読み取り専用）
-    const sizeRow = document.createElement('div');
-    sizeRow.className = 'node-detail-row';
-    const sizeLabel = document.createElement('label');
-    sizeLabel.textContent = 'サイズ';
-    const sizeValue = document.createElement('span');
-    sizeValue.textContent = `${outputWidth} x ${outputHeight}`;
-    sizeValue.style.color = '#888';
-    sizeRow.appendChild(sizeLabel);
-    sizeRow.appendChild(sizeValue);
-    section.appendChild(sizeRow);
-
-    // 原点X
-    const originXRow = document.createElement('div');
-    originXRow.className = 'node-detail-row';
-    const originXLabel = document.createElement('label');
-    originXLabel.textContent = '原点X';
-    const originXInput = document.createElement('input');
-    originXInput.type = 'number';
-    originXInput.value = Math.round(node.originX ?? 0);
-    originXInput.style.width = '80px';
-    originXRow.appendChild(originXLabel);
-    originXRow.appendChild(originXInput);
-    section.appendChild(originXRow);
-
-    // 原点Y
-    const originYRow = document.createElement('div');
-    originYRow.className = 'node-detail-row';
-    const originYLabel = document.createElement('label');
-    originYLabel.textContent = '原点Y';
-    const originYInput = document.createElement('input');
-    originYInput.type = 'number';
-    originYInput.value = Math.round(node.originY ?? 0);
-    originYInput.style.width = '80px';
-    originYRow.appendChild(originYLabel);
-    originYRow.appendChild(originYInput);
-    section.appendChild(originYRow);
-
-    // ピクセルフォーマット選択
-    const formatRow = document.createElement('div');
-    formatRow.className = 'node-detail-row';
-    const formatLabel = document.createElement('label');
-    formatLabel.textContent = 'フォーマット';
-    const formatSelect = document.createElement('select');
-    formatSelect.style.width = '120px';
-
-    const currentFormat = node.outputFormat ?? DEFAULT_PIXEL_FORMAT;
-    PIXEL_FORMATS.forEach(fmt => {
-        const option = document.createElement('option');
-        option.value = fmt.formatName;
-        option.textContent = `${fmt.displayName} (${fmt.bpp}B)`;
-        option.title = fmt.description;
-        if (currentFormat === fmt.formatName) option.selected = true;
-        formatSelect.appendChild(option);
-    });
-
-    formatRow.appendChild(formatLabel);
-    formatRow.appendChild(formatSelect);
-    section.appendChild(formatRow);
-
-    // 適用ボタン
-    const applyRow = document.createElement('div');
-    applyRow.className = 'node-detail-row';
-    applyRow.style.justifyContent = 'flex-end';
-    const applyBtn = document.createElement('button');
-    applyBtn.className = 'primary-btn';
-    applyBtn.textContent = '適用';
-    applyBtn.style.marginTop = '8px';
-    applyBtn.addEventListener('click', () => {
-        node.originX = parseFloat(originXInput.value);
-        node.originY = parseFloat(originYInput.value);
-        node.outputFormat = formatSelect.value;
-
-        // Sink出力フォーマットをC++側に設定
-        if (graphEvaluator) {
-            graphEvaluator.setSinkFormat(node.id, node.outputFormat);
-        }
-
+    const onUpdate = () => {
         renderNodeGraph();
         throttledUpdatePreview();
-        scheduleAutoSave();
-    });
-    applyRow.appendChild(applyBtn);
-    section.appendChild(applyRow);
+    };
 
-    detailPanelContent.appendChild(section);
+    // タブUI
+    createTabContainer({
+        node,
+        container: detailPanelContent,
+        defaultTab: 'basic',
+        tabs: [
+            {
+                id: 'basic',
+                label: '基本設定',
+                buildContent: (tabContainer) => {
+                    const section = document.createElement('div');
+                    section.className = 'node-detail-section';
+
+                    const label = document.createElement('div');
+                    label.className = 'node-detail-label';
+                    label.textContent = '出力設定';
+                    section.appendChild(label);
+
+                    // 出力バッファ情報（contentLibraryから取得、読み取り専用）
+                    const content = contentLibrary.find(c => c.id === node.contentId);
+                    const outputWidth = content?.width ?? 0;
+                    const outputHeight = content?.height ?? 0;
+
+                    // サイズ表示（読み取り専用）
+                    const sizeRow = document.createElement('div');
+                    sizeRow.className = 'node-detail-row';
+                    const sizeLabel = document.createElement('label');
+                    sizeLabel.textContent = 'サイズ';
+                    const sizeValue = document.createElement('span');
+                    sizeValue.textContent = `${outputWidth} x ${outputHeight}`;
+                    sizeValue.style.color = '#888';
+                    sizeRow.appendChild(sizeLabel);
+                    sizeRow.appendChild(sizeValue);
+                    section.appendChild(sizeRow);
+
+                    // 原点X
+                    const originXRow = document.createElement('div');
+                    originXRow.className = 'node-detail-row';
+                    const originXLabel = document.createElement('label');
+                    originXLabel.textContent = '原点X';
+                    const originXInput = document.createElement('input');
+                    originXInput.type = 'number';
+                    originXInput.value = Math.round(node.originX ?? 0);
+                    originXInput.style.width = '80px';
+                    originXRow.appendChild(originXLabel);
+                    originXRow.appendChild(originXInput);
+                    section.appendChild(originXRow);
+
+                    // 原点Y
+                    const originYRow = document.createElement('div');
+                    originYRow.className = 'node-detail-row';
+                    const originYLabel = document.createElement('label');
+                    originYLabel.textContent = '原点Y';
+                    const originYInput = document.createElement('input');
+                    originYInput.type = 'number';
+                    originYInput.value = Math.round(node.originY ?? 0);
+                    originYInput.style.width = '80px';
+                    originYRow.appendChild(originYLabel);
+                    originYRow.appendChild(originYInput);
+                    section.appendChild(originYRow);
+
+                    // ピクセルフォーマット選択
+                    const formatRow = document.createElement('div');
+                    formatRow.className = 'node-detail-row';
+                    const formatLabel = document.createElement('label');
+                    formatLabel.textContent = 'フォーマット';
+                    const formatSelect = document.createElement('select');
+                    formatSelect.style.width = '120px';
+
+                    const currentFormat = node.outputFormat ?? DEFAULT_PIXEL_FORMAT;
+                    PIXEL_FORMATS.forEach(fmt => {
+                        const option = document.createElement('option');
+                        option.value = fmt.formatName;
+                        option.textContent = `${fmt.displayName} (${fmt.bpp}B)`;
+                        option.title = fmt.description;
+                        if (currentFormat === fmt.formatName) option.selected = true;
+                        formatSelect.appendChild(option);
+                    });
+
+                    formatRow.appendChild(formatLabel);
+                    formatRow.appendChild(formatSelect);
+                    section.appendChild(formatRow);
+
+                    // 適用ボタン
+                    const applyRow = document.createElement('div');
+                    applyRow.className = 'node-detail-row';
+                    applyRow.style.justifyContent = 'flex-end';
+                    const applyBtn = document.createElement('button');
+                    applyBtn.className = 'primary-btn';
+                    applyBtn.textContent = '適用';
+                    applyBtn.style.marginTop = '8px';
+                    applyBtn.addEventListener('click', () => {
+                        node.originX = parseFloat(originXInput.value);
+                        node.originY = parseFloat(originYInput.value);
+                        node.outputFormat = formatSelect.value;
+
+                        // Sink出力フォーマットをC++側に設定
+                        if (graphEvaluator) {
+                            graphEvaluator.setSinkFormat(node.id, node.outputFormat);
+                        }
+
+                        onUpdate();
+                        scheduleAutoSave();
+                    });
+                    applyRow.appendChild(applyBtn);
+                    section.appendChild(applyRow);
+
+                    tabContainer.appendChild(section);
+                }
+            },
+            {
+                id: 'affine',
+                label: 'アフィン',
+                buildContent: (tabContainer) => {
+                    buildAffineTabContent(node, tabContainer, onUpdate);
+                }
+            }
+        ]
+    });
 }
 
 // 9patchノードの詳細コンテンツ
@@ -5307,99 +5718,113 @@ function buildNinePatchDetailContent(node) {
         throttledUpdatePreview();
     };
 
-    // 原点セクション（9点セレクタ + X,Yスライダー）
-    createOriginSection({
+    // タブUI
+    createTabContainer({
         node,
         container: detailPanelContent,
-        onChange: onUpdate
+        defaultTab: 'basic',
+        tabs: [
+            {
+                id: 'basic',
+                label: '基本設定',
+                buildContent: (tabContainer) => {
+                    // 原点セクション（9点セレクタ + X,Yスライダー）
+                    createOriginSection({
+                        node,
+                        container: tabContainer,
+                        onChange: onUpdate
+                    });
+
+                    // 出力サイズセクション
+                    const sizeSection = document.createElement('div');
+                    sizeSection.className = 'node-detail-section';
+
+                    const sizeLabel = document.createElement('div');
+                    sizeLabel.className = 'node-detail-label';
+                    sizeLabel.textContent = '出力サイズ';
+                    sizeSection.appendChild(sizeLabel);
+
+                    // 元画像サイズ（参考情報）
+                    if (content) {
+                        const srcSizeRow = document.createElement('div');
+                        srcSizeRow.className = 'node-detail-row';
+                        srcSizeRow.style.color = '#888';
+                        srcSizeRow.style.fontSize = '11px';
+                        srcSizeRow.textContent = `元画像: ${content.width - 2} x ${content.height - 2}`;
+                        sizeSection.appendChild(srcSizeRow);
+                    }
+
+                    // 幅スライダー
+                    const defaultWidth = node.outputWidth ?? (content ? content.width - 2 : 48);
+                    const widthResult = createDetailSliderRow({
+                        label: 'W',
+                        min: 1,
+                        max: 1000,
+                        step: 0.1,
+                        value: defaultWidth,
+                        onChange: (val) => {
+                            node.outputWidth = val;
+                            onUpdate();
+                        }
+                    });
+                    sizeSection.appendChild(widthResult.row);
+
+                    // 高さスライダー
+                    const defaultHeight = node.outputHeight ?? (content ? content.height - 2 : 48);
+                    const heightResult = createDetailSliderRow({
+                        label: 'H',
+                        min: 1,
+                        max: 1000,
+                        step: 0.1,
+                        value: defaultHeight,
+                        onChange: (val) => {
+                            node.outputHeight = val;
+                            onUpdate();
+                        }
+                    });
+                    sizeSection.appendChild(heightResult.row);
+
+                    tabContainer.appendChild(sizeSection);
+
+                    // バイリニア補間チェックボックス
+                    const interpolationSection = document.createElement('div');
+                    interpolationSection.className = 'node-detail-section';
+
+                    const interpolationLabel = document.createElement('label');
+                    interpolationLabel.className = 'node-detail-checkbox-label';
+                    interpolationLabel.style.cssText = 'display: flex; align-items: center; gap: 8px; cursor: pointer;';
+
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.checked = node.bilinear || false;
+                    checkbox.addEventListener('change', () => {
+                        node.bilinear = checkbox.checked;
+                        throttledUpdatePreview();
+                    });
+
+                    interpolationLabel.appendChild(checkbox);
+                    interpolationLabel.appendChild(document.createTextNode('バイリニア補間'));
+
+                    // 注釈
+                    const note = document.createElement('div');
+                    note.className = 'node-detail-note';
+                    note.style.cssText = 'font-size: 11px; color: #888; margin-top: 4px;';
+                    note.textContent = '※ RGBA8形式のみ対応。端1pxは描画されません。';
+
+                    interpolationSection.appendChild(interpolationLabel);
+                    interpolationSection.appendChild(note);
+                    tabContainer.appendChild(interpolationSection);
+                }
+            },
+            {
+                id: 'affine',
+                label: 'アフィン',
+                buildContent: (tabContainer) => {
+                    buildAffineTabContent(node, tabContainer, onUpdate);
+                }
+            }
+        ]
     });
-
-    // 配置位置セクション（X,Yスライダー）
-    createPositionSection({
-        node,
-        container: detailPanelContent,
-        onChange: onUpdate
-    });
-
-    // 出力サイズセクション
-    const sizeSection = document.createElement('div');
-    sizeSection.className = 'node-detail-section';
-
-    const sizeLabel = document.createElement('div');
-    sizeLabel.className = 'node-detail-label';
-    sizeLabel.textContent = '出力サイズ';
-    sizeSection.appendChild(sizeLabel);
-
-    // 元画像サイズ（参考情報）
-    if (content) {
-        const srcSizeRow = document.createElement('div');
-        srcSizeRow.className = 'node-detail-row';
-        srcSizeRow.style.color = '#888';
-        srcSizeRow.style.fontSize = '11px';
-        srcSizeRow.textContent = `元画像: ${content.width - 2} x ${content.height - 2}`;
-        sizeSection.appendChild(srcSizeRow);
-    }
-
-    // 幅スライダー
-    const defaultWidth = node.outputWidth ?? (content ? content.width - 2 : 48);
-    const widthResult = createDetailSliderRow({
-        label: 'W',
-        min: 1,
-        max: 1000,
-        step: 0.1,
-        value: defaultWidth,
-        onChange: (val) => {
-            node.outputWidth = val;
-            onUpdate();
-        }
-    });
-    sizeSection.appendChild(widthResult.row);
-
-    // 高さスライダー
-    const defaultHeight = node.outputHeight ?? (content ? content.height - 2 : 48);
-    const heightResult = createDetailSliderRow({
-        label: 'H',
-        min: 1,
-        max: 1000,
-        step: 0.1,
-        value: defaultHeight,
-        onChange: (val) => {
-            node.outputHeight = val;
-            onUpdate();
-        }
-    });
-    sizeSection.appendChild(heightResult.row);
-
-    detailPanelContent.appendChild(sizeSection);
-
-    // バイリニア補間チェックボックス
-    const interpolationSection = document.createElement('div');
-    interpolationSection.className = 'node-detail-section';
-
-    const interpolationLabel = document.createElement('label');
-    interpolationLabel.className = 'node-detail-checkbox-label';
-    interpolationLabel.style.cssText = 'display: flex; align-items: center; gap: 8px; cursor: pointer;';
-
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.checked = node.bilinear || false;
-    checkbox.addEventListener('change', () => {
-        node.bilinear = checkbox.checked;
-        throttledUpdatePreview();
-    });
-
-    interpolationLabel.appendChild(checkbox);
-    interpolationLabel.appendChild(document.createTextNode('バイリニア補間'));
-
-    // 注釈
-    const note = document.createElement('div');
-    note.className = 'node-detail-note';
-    note.style.cssText = 'font-size: 11px; color: #888; margin-top: 4px;';
-    note.textContent = '※ RGBA8形式のみ対応。端1pxは描画されません。';
-
-    interpolationSection.appendChild(interpolationLabel);
-    interpolationSection.appendChild(note);
-    detailPanelContent.appendChild(interpolationSection);
 }
 
 // ノードを削除
