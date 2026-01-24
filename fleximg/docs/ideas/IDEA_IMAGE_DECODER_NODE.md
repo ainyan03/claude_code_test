@@ -39,7 +39,7 @@ protected:
 
 ### processTile()
 
-- デコード済み MCU から RenderResult 生成
+- デコード済み MCU から RenderResponse 生成
 - 下流ノードへ push
 
 ## 利点

@@ -53,7 +53,7 @@ PC・スマートフォン両方から直接アクセス可能です。C++で実
 |-------------|------|
 | [DESIGN_RENDERER_NODE.md](docs/DESIGN_RENDERER_NODE.md) | パイプライン実行の発火点、Pull/Push処理フロー |
 | [DESIGN_FILTER_NODES.md](docs/DESIGN_FILTER_NODES.md) | フィルタノードの階層構造、新規フィルタ追加方法 |
-| [DESIGN_TYPE_STRUCTURE.md](docs/DESIGN_TYPE_STRUCTURE.md) | ViewPort/ImageBuffer/RenderResultの設計 |
+| [DESIGN_TYPE_STRUCTURE.md](docs/DESIGN_TYPE_STRUCTURE.md) | ViewPort/ImageBuffer/RenderResponseの設計 |
 | [DESIGN_PIXEL_FORMAT.md](docs/DESIGN_PIXEL_FORMAT.md) | ピクセルフォーマット変換アルゴリズム |
 
 全てのドキュメントは [docs/README.md](docs/README.md) から参照できます。
@@ -174,7 +174,7 @@ fleximg/
 
 - **基準点相対座標**: 全ての座標は基準点（origin）からの相対位置
 - **RenderRequest**: タイル要求（width, height, originX, originY）
-- **RenderResult**: 評価結果（ImageBuffer + origin）
+- **RenderResponse**: 評価結果（ImageBuffer + origin）
 
 ### ピクセルフォーマット
 

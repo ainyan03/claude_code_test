@@ -157,7 +157,7 @@ TileConfig Node::selectTileConfig() const {
 
 ### 循環参照との関係
 
-- PrepareState と併用して循環検出
+- PrepareStatus と併用して循環検出
 - pullPrepare() で両方の情報を伝播
 
 ### オーバーヘッド

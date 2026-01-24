@@ -313,7 +313,7 @@ virtual bool pullPrepare(PrepareRequest& request) {
 - 内容: execPrepareで新旧両方を呼ぶ
 
 ```cpp
-PipelineStatus execPrepare() {
+PrepareStatus execPrepare() {
     RenderRequest screenInfo = createScreenRequest();
 
     // 旧版（既存ノード用）
@@ -328,7 +328,7 @@ PipelineStatus execPrepare() {
     upstream->pullPrepare(prepReq);
 
     downstream->pushPrepare(screenInfo);
-    return PipelineStatus::Success;
+    return PrepareStatus::Prepared;
 }
 ```
 
