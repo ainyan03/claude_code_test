@@ -94,24 +94,24 @@ public:
     // ========================================
 
     // 簡易API（prepare → execute → finalize）
-    // 戻り値: ExecResult（Success = 0、エラー = 非0）
-    ExecResult exec() {
+    // 戻り値: PipelineStatus（Success = 0、エラー = 非0）
+    PipelineStatus exec() {
         FLEXIMG_METRICS_SCOPE(NodeType::Renderer);
 
-        ExecResult result = execPrepare();
-        if (result != ExecResult::Success) {
+        PipelineStatus result = execPrepare();
+        if (result != PipelineStatus::Success) {
             // エラー時も状態をリセット
             execFinalize();
             return result;
         }
         execProcess();
         execFinalize();
-        return ExecResult::Success;
+        return PipelineStatus::Success;
     }
 
     // 詳細API
-    // 戻り値: ExecResult（Success = 0、エラー = 非0）
-    ExecResult execPrepare();
+    // 戻り値: PipelineStatus（Success = 0、エラー = 非0）
+    PipelineStatus execPrepare();
     void execProcess();
 
     void execFinalize() {
@@ -236,7 +236,7 @@ namespace FLEXIMG_NAMESPACE {
 // RendererNode - 実行API実装
 // ============================================================================
 
-ExecResult RendererNode::execPrepare() {
+PipelineStatus RendererNode::execPrepare() {
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
     // メトリクスをリセット
     PerfMetrics::instance().reset();
@@ -255,22 +255,22 @@ ExecResult RendererNode::execPrepare() {
     // 上流へ準備を伝播（プル型、循環参照検出付き）
     Node* upstream = upstreamNode(0);
     if (!upstream) {
-        return ExecResult::NoUpstream;
+        return PipelineStatus::NoUpstream;
     }
     if (!upstream->pullPrepare(prepReq)) {
-        return ExecResult::CycleDetected;
+        return PipelineStatus::CycleDetected;
     }
 
     // 下流へ準備を伝播（プッシュ型、循環参照検出付き）
     Node* downstream = downstreamNode(0);
     if (!downstream) {
-        return ExecResult::NoDownstream;
+        return PipelineStatus::NoDownstream;
     }
     if (!downstream->pushPrepare(prepReq)) {
-        return ExecResult::CycleDetected;
+        return PipelineStatus::CycleDetected;
     }
 
-    return ExecResult::Success;
+    return PipelineStatus::Success;
 }
 
 void RendererNode::execProcess() {

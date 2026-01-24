@@ -11,13 +11,13 @@
 namespace FLEXIMG_NAMESPACE {
 
 // ========================================================================
-// ExecResult - パイプライン実行結果
+// PipelineStatus - パイプライン実行結果
 // ========================================================================
 //
 // 成功 = 0、エラー = 非0（C言語の慣例に従う）
 //
 
-enum class ExecResult : int {
+enum class PipelineStatus : int {
     Success = 0,           // 成功
     CycleDetected = 1,     // 循環参照を検出
     NoUpstream = 2,        // 上流ノードが未接続
