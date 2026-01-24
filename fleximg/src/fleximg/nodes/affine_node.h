@@ -2,10 +2,8 @@
 #define FLEXIMG_AFFINE_NODE_H
 
 #include "../core/node.h"
-#include "../core/common.h"
+#include "../core/affine_capability.h"
 #include "../core/perf_metrics.h"
-#include <cassert>
-#include <cmath>
 
 namespace FLEXIMG_NAMESPACE {
 
@@ -22,52 +20,20 @@ namespace FLEXIMG_NAMESPACE {
 // - 実際のDDA処理はSourceNode（プル型）またはSinkNode（プッシュ型）で実行
 // - 複数のAffineNodeがある場合は行列を合成して伝播
 //
+// セッターはAffineCapability Mixinから継承:
+// - setMatrix(), matrix()
+// - setRotation(), setScale(), setTranslation(), setRotationScale()
+//
 // 使用例:
 //   AffineNode affine;
-//   affine.setMatrix(AffineMatrix::rotation(0.5f));
+//   affine.setRotation(0.5f);
 //   src >> affine >> sink;
 //
 
-class AffineNode : public Node {
+class AffineNode : public Node, public AffineCapability {
 public:
     AffineNode() {
         initPorts(1, 1);  // 入力1、出力1
-    }
-
-    // ========================================
-    // 変換設定
-    // ========================================
-
-    void setMatrix(const AffineMatrix& m) { matrix_ = m; }
-    const AffineMatrix& matrix() const { return matrix_; }
-
-    // 便利なセッター（各セッターは担当要素のみを変更し、他の要素は維持）
-
-    // 回転を設定（a,b,c,dのみ変更、tx,tyは維持）
-    void setRotation(float radians) {
-        float c = std::cos(radians);
-        float s = std::sin(radians);
-        matrix_.a = c;  matrix_.b = -s;
-        matrix_.c = s;  matrix_.d = c;
-    }
-
-    // スケールを設定（a,b,c,dのみ変更、tx,tyは維持）
-    void setScale(float sx, float sy) {
-        matrix_.a = sx; matrix_.b = 0;
-        matrix_.c = 0;  matrix_.d = sy;
-    }
-
-    // 平行移動を設定（tx,tyのみ変更、a,b,c,dは維持）
-    void setTranslation(float tx, float ty) {
-        matrix_.tx = tx; matrix_.ty = ty;
-    }
-
-    // 回転+スケールを設定（a,b,c,dのみ変更、tx,tyは維持）
-    void setRotationScale(float radians, float sx, float sy) {
-        float c = std::cos(radians);
-        float s = std::sin(radians);
-        matrix_.a = c * sx;  matrix_.b = -s * sy;
-        matrix_.c = s * sx;  matrix_.d = c * sy;
     }
 
     // ========================================
@@ -96,9 +62,6 @@ protected:
 
 
     int nodeTypeForMetrics() const override { return NodeType::Affine; }
-
-private:
-    AffineMatrix matrix_;  // 恒等行列がデフォルト
 };
 
 } // namespace FLEXIMG_NAMESPACE
@@ -120,9 +83,9 @@ PrepareResponse AffineNode::onPullPrepare(const PrepareRequest& request) {
     PrepareRequest upstreamRequest = request;
     if (upstreamRequest.hasAffine) {
         // 既存の行列（下流側）に自身の行列（上流側）を後から掛ける
-        upstreamRequest.affineMatrix = upstreamRequest.affineMatrix * matrix_;
+        upstreamRequest.affineMatrix = upstreamRequest.affineMatrix * localMatrix_;
     } else {
-        upstreamRequest.affineMatrix = matrix_;
+        upstreamRequest.affineMatrix = localMatrix_;
         upstreamRequest.hasAffine = true;
     }
 
@@ -144,9 +107,9 @@ PrepareResponse AffineNode::onPushPrepare(const PrepareRequest& request) {
     PrepareRequest downstreamRequest = request;
     if (downstreamRequest.hasPushAffine) {
         // 既存の行列（上流側）に自身の行列（下流側）を後から掛ける
-        downstreamRequest.pushAffineMatrix = downstreamRequest.pushAffineMatrix * matrix_;
+        downstreamRequest.pushAffineMatrix = downstreamRequest.pushAffineMatrix * localMatrix_;
     } else {
-        downstreamRequest.pushAffineMatrix = matrix_;
+        downstreamRequest.pushAffineMatrix = localMatrix_;
         downstreamRequest.hasPushAffine = true;
     }
 

@@ -2,6 +2,7 @@
 #define FLEXIMG_SINK_NODE_H
 
 #include "../core/node.h"
+#include "../core/affine_capability.h"
 #include "../core/perf_metrics.h"
 #include "../image/viewport.h"
 #include "../operations/transform.h"
@@ -17,8 +18,12 @@ namespace FLEXIMG_NAMESPACE {
 // - 出力ポート: 0
 // - 外部のViewPortに結果を書き込む
 //
+// アフィン変換はAffineCapability Mixinから継承:
+// - setMatrix(), matrix()
+// - setRotation(), setScale(), setTranslation(), setRotationScale()
+//
 
-class SinkNode : public Node {
+class SinkNode : public Node, public AffineCapability {
 public:
     // コンストラクタ
     SinkNode() {
@@ -97,9 +102,22 @@ namespace FLEXIMG_NAMESPACE {
 
 PrepareResponse SinkNode::onPushPrepare(const PrepareRequest& request) {
     // アフィン情報を受け取り、事前計算を行う
-    if (request.hasPushAffine) {
+    // localMatrix_ も含めて合成
+    AffineMatrix combinedMatrix;
+    bool hasTransform = false;
+
+    if (request.hasPushAffine || hasLocalTransform()) {
+        // 行列合成: request.pushAffineMatrix * localMatrix_
+        // AffineNode直列接続と同じ解釈順序（自身の変換が先、上流の変換が後）
+        if (request.hasPushAffine) {
+            combinedMatrix = request.pushAffineMatrix * localMatrix_;
+        } else {
+            combinedMatrix = localMatrix_;
+        }
+        hasTransform = true;
+
         // 逆行列とピクセル中心オフセットを計算（共通処理）
-        affine_ = precomputeInverseAffine(request.pushAffineMatrix);
+        affine_ = precomputeInverseAffine(combinedMatrix);
 
         if (affine_.isValid()) {
             // dstOrigin（自身のorigin）を減算して baseTx/Ty を計算
@@ -123,12 +141,12 @@ PrepareResponse SinkNode::onPushPrepare(const PrepareRequest& request) {
     result.status = PrepareStatus::Prepared;
     result.preferredFormat = target_.formatID;
 
-    if (request.hasPushAffine && affine_.isValid()) {
+    if (hasTransform && affine_.isValid()) {
         // 出力矩形に逆変換を適用して入力側で必要な範囲を計算
         calcInverseAffineAABB(
             target_.width, target_.height,
             {originX_, originY_},
-            request.pushAffineMatrix,
+            combinedMatrix,
             result.width, result.height, result.origin);
     } else {
         // アフィンなしの場合はそのまま

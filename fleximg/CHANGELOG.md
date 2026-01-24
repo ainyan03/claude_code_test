@@ -1,5 +1,110 @@
 # Changelog
 
+## [2.47.0] - 2026-01-24
+
+### 機能追加
+
+- **WebUI タブ形式詳細ダイアログ**
+  - 各ノードの詳細パネルをタブ形式（「基本設定」「アフィン」）に変更
+  - `createTabContainer()`: 汎用タブコンテナUIコンポーネント追加
+  - `buildAffineTabContent()`: タブ内アフィンコントロールビルダー追加
+  - 対応ノード: Image, NinePatch, Sink, Composite, Distributor
+  - Affineノード: タブなし、直接アフィンコントロール表示
+
+- **アフィンUI構造の改善**
+  - X/Y移動スライダーをモード切替の外に常時表示
+  - パラメータモード: 回転・スケールのみ
+  - 行列モード: a,b,c,dのみ（tx/tyは上部で管理）
+  - タブボタンのスタイルを「パラメータ」「行列」ボタンと統一
+  - `getAffineMatrix()`: matrixModeに応じて適切な行列を返すヘルパー関数追加
+
+### バグ修正
+
+- 行列モードでa,b,c,dを変更しても表示に反映されない問題を修正
+  - 原因: nodesForCpp生成時に常にパラメータから行列を再計算していた
+  - 対策: `getAffineMatrix()` でmatrixModeに応じて適切な行列を返すように変更
+
+- 行列モードでX/Y移動スライダー操作時にa,b,c,dが上書きされる問題を修正
+  - 原因: X/Y移動変更時に常にパラメータから行列を再計算していた
+  - 対策: `updateTranslation()` ヘルパーで、行列モード時はtx/tyのみ更新
+
+- ノードグラフ上のX/Yスライダーが動作しない問題を修正
+  - 原因: 廃止された`position.x/y`を使用していた
+  - 対策: `translateX/translateY`に移行し、`matrix.tx/ty`と同期
+
+### 機能改善
+
+- **X/Y倍率スライダの範囲拡張**
+  - パラメータモードのX倍率・Y倍率スライダの範囲を0.1〜3から-5〜+5に変更
+  - 反転（マイナス値）を含む幅広い変換に対応
+
+### 破壊的変更
+
+- **position 概念の廃止**
+  - `node.position.x/y` を廃止し、`matrix.tx/ty` に統一
+  - これにより回転・スケールと移動が正しく組み合わせ可能に
+  - Image/NinePatchノードの `setPosition()` 呼び出しを削除
+  - bindings.cpp: `positionX/positionY` メンバー削除
+  - app.js: `createPositionSection()` 関数削除
+
+### バグ修正
+
+- 回転/スケール設定時に配置位置が無視される問題を修正
+  - 原因: `setPosition()` の後に `setMatrix()` が上書き
+  - 対策: 配置位置を `matrix.tx/ty` で統一管理
+
+---
+
+## [2.46.0] - 2026-01-24
+
+### 機能追加
+
+- **WebUI アフィンコントロール共通化**
+  - `createAffineControlsSection()`: 折りたたみ式のアフィン変換UIコンポーネントを新規追加
+  - パラメータモード（回転・スケール）と行列モード（a,b,c,d,tx,ty）の切り替えが可能
+  - 対応ノード: Image, NinePatch, Sink, Composite, Distributor, Affine
+  - 変換設定時はインジケーター（●）で視覚的にフィードバック
+
+- **NinePatchSourceNode に AffineCapability 追加**
+  - 9patch画像でもアフィン変換が利用可能に
+  - WebUIから回転・スケール設定が可能
+
+### WebUI 変更
+
+- **app.js**:
+  - `createAffineControlsSection()` 共通関数追加
+  - `hasAffineTransform()` 判定関数追加
+  - 各ノードタイプの詳細パネルにアフィンコントロールを統合
+
+- **bindings.cpp**:
+  - 全AffineCapability対応ノードで `matrix` オブジェクトをパース
+  - `setMatrix()` による変換行列適用を各ノード構築時に実施
+
+---
+
+## [2.45.0] - 2026-01-24
+
+### 機能追加
+
+- **AffineCapability Mixin 導入**: アフィン変換機能を Mixin クラスとして抽出し、複数ノードで共通API提供
+  - `setMatrix()`, `setRotation()`, `setScale()`, `setTranslation()`, `setRotationScale()`
+  - `hasLocalTransform()` で単位行列判定
+
+- **アフィン機能追加ノード**:
+  - **SourceNode**: 既存の `setPosition()` は `setTranslation()` のエイリアスに（後方互換維持）
+  - **SinkNode**: 新規アフィン機能追加
+  - **CompositeNode**: 合成結果全体の変換が可能（全上流に伝播）
+  - **DistributorNode**: 分配先全てに同じ変換を適用（全下流に伝播）
+  - **AffineNode**: 既存セッターを Mixin に移行
+
+### 設計
+
+- **Mixin パターン**: `AffineCapability` は Node とは独立したクラスで、多重継承で利用
+  - 関心の分離（アフィン機能は Node 階層と独立）
+  - 将来の拡張性（他の Capability も追加可能）
+
+---
+
 ## [2.44.0] - 2026-01-24
 
 ### パフォーマンス改善

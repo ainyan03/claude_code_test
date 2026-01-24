@@ -2,6 +2,7 @@
 #define FLEXIMG_SOURCE_NODE_H
 
 #include "../core/node.h"
+#include "../core/affine_capability.h"
 #include "../core/perf_metrics.h"
 #include "../image/viewport.h"
 #include "../image/image_buffer.h"
@@ -30,8 +31,14 @@ enum class InterpolationMode {
 // - 出力ポート: 1
 // - 外部のViewPortを参照
 //
+// アフィン変換はAffineCapability Mixinから継承:
+// - setMatrix(), matrix()
+// - setRotation(), setScale(), setTranslation(), setRotationScale()
+//
+// setPosition() は setTranslation() のエイリアスとして提供（後方互換）
+//
 
-class SourceNode : public Node {
+class SourceNode : public Node, public AffineCapability {
 public:
     // コンストラクタ
     SourceNode() {
@@ -61,13 +68,12 @@ public:
         return {fixed_to_float(originX_), fixed_to_float(originY_)};
     }
 
-    // ユーザー向けAPI: position（配置位置）
+    // ユーザー向けAPI: position（setTranslation のエイリアス、後方互換）
     void setPosition(float x, float y) {
-        positionX_ = x;
-        positionY_ = y;
+        setTranslation(x, y);
     }
     std::pair<float, float> getPosition() const {
-        return {positionX_, positionY_};
+        return {localMatrix_.tx, localMatrix_.ty};
     }
 
     // 補間モード設定
@@ -92,8 +98,7 @@ private:
     ViewPort source_;
     int_fixed originX_ = 0;  // 画像内の基準点X（固定小数点 Q16.16）
     int_fixed originY_ = 0;  // 画像内の基準点Y（固定小数点 Q16.16）
-    float positionX_ = 0.0f;  // 配置位置X（アフィン行列の tx に合成）
-    float positionY_ = 0.0f;  // 配置位置Y（アフィン行列の ty に合成）
+    // 注: 配置位置は localMatrix_.tx/ty で管理（AffineCapability から継承）
     InterpolationMode interpolationMode_ = InterpolationMode::Nearest;
 
     // アフィン伝播用メンバ変数（事前計算済み）
@@ -138,25 +143,19 @@ PrepareResponse SourceNode::onPullPrepare(const PrepareRequest& request) {
     bool hasTransform = false;
 
     // アフィン情報を受け取り、事前計算を行う
-    // position が設定されている場合も、アフィン行列に合成して処理
-    if (request.hasAffine || positionX_ != 0.0f || positionY_ != 0.0f) {
-        // アフィン行列がない場合は単位行列を使用し、position を tx/ty として設定
-        AffineMatrix mat = request.hasAffine
-            ? request.affineMatrix
-            : AffineMatrix{1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f};
-        // position をアフィン行列の 2x2 部分で変換してから加算
-        // これにより、各ソースの位置関係がアフィン変換後も維持される
-        float transformedPosX = mat.a * positionX_ + mat.b * positionY_;
-        float transformedPosY = mat.c * positionX_ + mat.d * positionY_;
-        mat.tx += transformedPosX;
-        mat.ty += transformedPosY;
-
-        // AABB計算用に合成済み行列を保存
-        combinedMatrix = mat;
+    // localMatrix_ が設定されている場合も、アフィン行列に合成して処理
+    if (request.hasAffine || hasLocalTransform()) {
+        // 行列合成: request.affineMatrix * localMatrix_
+        // AffineNode直列接続と同じ解釈順序（自身の変換が先、下流の変換が後）
+        if (request.hasAffine) {
+            combinedMatrix = request.affineMatrix * localMatrix_;
+        } else {
+            combinedMatrix = localMatrix_;
+        }
         hasTransform = true;
 
         // 逆行列とピクセル中心オフセットを計算（共通処理）
-        affine_ = precomputeInverseAffine(mat);
+        affine_ = precomputeInverseAffine(combinedMatrix);
 
         if (affine_.isValid()) {
             const int32_t invA = affine_.invMatrix.a;
@@ -287,9 +286,9 @@ RenderResponse SourceNode::onPullProcess(const RenderRequest& request) {
     }
 
     // ソース画像の基準相対座標範囲（固定小数点 Q16.16）
-    // position が設定されている場合、origin からのオフセットとして適用
-    int_fixed posOffsetX = float_to_fixed(positionX_);
-    int_fixed posOffsetY = float_to_fixed(positionY_);
+    // localMatrix_.tx/ty が設定されている場合、origin からのオフセットとして適用
+    int_fixed posOffsetX = float_to_fixed(localMatrix_.tx);
+    int_fixed posOffsetY = float_to_fixed(localMatrix_.ty);
     int_fixed imgLeft = -originX_ + posOffsetX;
     int_fixed imgTop = -originY_ + posOffsetY;
     int_fixed imgRight = imgLeft + to_fixed(source_.width);

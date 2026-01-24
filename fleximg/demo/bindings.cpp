@@ -103,15 +103,13 @@ struct GraphNode {
     int imageId = -1;
     double srcOriginX = 0;  // 基準点X（pivot）
     double srcOriginY = 0;  // 基準点Y（pivot）
-    double positionX = 0;   // 配置位置X
-    double positionY = 0;   // 配置位置Y
     float outputWidth = 0;    // sinkノード用: 出力バッファ幅、ninepatchノード用: 出力幅（小数対応）
     float outputHeight = 0;   // sinkノード用: 出力バッファ高さ、ninepatchノード用: 出力高さ（小数対応）
     std::string filterType;
     std::vector<float> filterParams;
     bool independent = false;
     bool bilinear = false;  // imageノード用: バイリニア補間を使用
-    struct { double a=1, b=0, c=0, d=1, tx=0, ty=0; } affineMatrix;
+    struct { double a=1, b=0, c=0, d=1, tx=0, ty=0; } affineMatrix;  // tx/tyが配置位置を表す
     std::vector<std::string> compositeInputIds;   // compositeノード用（N入力）
     std::vector<std::string> distributorOutputIds; // distributorノード用（N出力）
 };
@@ -352,18 +350,24 @@ public:
                         node.srcOriginY = pivot["y"].as<double>();
                     }
                 }
-                // 新API: position オブジェクト
-                if (nodeObj["position"].typeOf().as<std::string>() != "undefined") {
-                    auto pos = nodeObj["position"];
-                    if (pos["x"].typeOf().as<std::string>() != "undefined") {
-                        node.positionX = pos["x"].as<double>();
-                    }
-                    if (pos["y"].typeOf().as<std::string>() != "undefined") {
-                        node.positionY = pos["y"].as<double>();
-                    }
-                }
                 if (nodeObj["bilinear"].typeOf().as<std::string>() != "undefined") {
                     node.bilinear = nodeObj["bilinear"].as<bool>();
+                }
+                // アフィン変換行列（AffineCapability対応）
+                if (nodeObj["matrix"].typeOf().as<std::string>() != "undefined") {
+                    val matrix = nodeObj["matrix"];
+                    node.affineMatrix.a = matrix["a"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["a"].as<double>() : 1.0;
+                    node.affineMatrix.b = matrix["b"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["b"].as<double>() : 0.0;
+                    node.affineMatrix.c = matrix["c"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["c"].as<double>() : 0.0;
+                    node.affineMatrix.d = matrix["d"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["d"].as<double>() : 1.0;
+                    node.affineMatrix.tx = matrix["tx"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["tx"].as<double>() : 0.0;
+                    node.affineMatrix.ty = matrix["ty"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["ty"].as<double>() : 0.0;
                 }
             }
 
@@ -394,6 +398,22 @@ public:
                         node.compositeInputIds.push_back(inputObj["id"].as<std::string>());
                     }
                 }
+                // アフィン変換行列（AffineCapability対応）
+                if (nodeObj["matrix"].typeOf().as<std::string>() != "undefined") {
+                    val matrix = nodeObj["matrix"];
+                    node.affineMatrix.a = matrix["a"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["a"].as<double>() : 1.0;
+                    node.affineMatrix.b = matrix["b"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["b"].as<double>() : 0.0;
+                    node.affineMatrix.c = matrix["c"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["c"].as<double>() : 0.0;
+                    node.affineMatrix.d = matrix["d"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["d"].as<double>() : 1.0;
+                    node.affineMatrix.tx = matrix["tx"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["tx"].as<double>() : 0.0;
+                    node.affineMatrix.ty = matrix["ty"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["ty"].as<double>() : 0.0;
+                }
             }
 
             // distributor用パラメータ（1入力・N出力、compositeと対称）
@@ -405,6 +425,22 @@ public:
                         val outputObj = outputsArray[j];
                         node.distributorOutputIds.push_back(outputObj["id"].as<std::string>());
                     }
+                }
+                // アフィン変換行列（AffineCapability対応）
+                if (nodeObj["matrix"].typeOf().as<std::string>() != "undefined") {
+                    val matrix = nodeObj["matrix"];
+                    node.affineMatrix.a = matrix["a"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["a"].as<double>() : 1.0;
+                    node.affineMatrix.b = matrix["b"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["b"].as<double>() : 0.0;
+                    node.affineMatrix.c = matrix["c"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["c"].as<double>() : 0.0;
+                    node.affineMatrix.d = matrix["d"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["d"].as<double>() : 1.0;
+                    node.affineMatrix.tx = matrix["tx"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["tx"].as<double>() : 0.0;
+                    node.affineMatrix.ty = matrix["ty"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["ty"].as<double>() : 0.0;
                 }
             }
 
@@ -445,6 +481,22 @@ public:
                 if (nodeObj["originY"].typeOf().as<std::string>() != "undefined") {
                     node.srcOriginY = nodeObj["originY"].as<double>();
                 }
+                // アフィン変換行列（AffineCapability対応）
+                if (nodeObj["matrix"].typeOf().as<std::string>() != "undefined") {
+                    val matrix = nodeObj["matrix"];
+                    node.affineMatrix.a = matrix["a"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["a"].as<double>() : 1.0;
+                    node.affineMatrix.b = matrix["b"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["b"].as<double>() : 0.0;
+                    node.affineMatrix.c = matrix["c"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["c"].as<double>() : 0.0;
+                    node.affineMatrix.d = matrix["d"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["d"].as<double>() : 1.0;
+                    node.affineMatrix.tx = matrix["tx"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["tx"].as<double>() : 0.0;
+                    node.affineMatrix.ty = matrix["ty"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["ty"].as<double>() : 0.0;
+                }
             }
 
             // ninepatch用パラメータ
@@ -464,19 +516,25 @@ public:
                 if (nodeObj["originY"].typeOf().as<std::string>() != "undefined") {
                     node.srcOriginY = nodeObj["originY"].as<double>();
                 }
-                // 配置位置（positionオブジェクト）
-                if (nodeObj["position"].typeOf().as<std::string>() != "undefined") {
-                    auto pos = nodeObj["position"];
-                    if (pos["x"].typeOf().as<std::string>() != "undefined") {
-                        node.positionX = pos["x"].as<double>();
-                    }
-                    if (pos["y"].typeOf().as<std::string>() != "undefined") {
-                        node.positionY = pos["y"].as<double>();
-                    }
-                }
                 // バイリニア補間
                 if (nodeObj["bilinear"].typeOf().as<std::string>() != "undefined") {
                     node.bilinear = nodeObj["bilinear"].as<bool>();
+                }
+                // アフィン変換行列（AffineCapability対応）
+                if (nodeObj["matrix"].typeOf().as<std::string>() != "undefined") {
+                    val matrix = nodeObj["matrix"];
+                    node.affineMatrix.a = matrix["a"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["a"].as<double>() : 1.0;
+                    node.affineMatrix.b = matrix["b"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["b"].as<double>() : 0.0;
+                    node.affineMatrix.c = matrix["c"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["c"].as<double>() : 0.0;
+                    node.affineMatrix.d = matrix["d"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["d"].as<double>() : 1.0;
+                    node.affineMatrix.tx = matrix["tx"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["tx"].as<double>() : 0.0;
+                    node.affineMatrix.ty = matrix["ty"].typeOf().as<std::string>() != "undefined"
+                        ? matrix["ty"].as<double>() : 0.0;
                 }
             }
 
@@ -766,6 +824,20 @@ private:
             info.node->setOrigin(float_to_fixed(static_cast<float>(gnode->srcOriginX)),
                                  float_to_fixed(static_cast<float>(gnode->srcOriginY)));
 
+            // アフィン変換行列の適用（単位行列でない場合のみ）
+            if (gnode->affineMatrix.a != 1.0 || gnode->affineMatrix.b != 0.0 ||
+                gnode->affineMatrix.c != 0.0 || gnode->affineMatrix.d != 1.0 ||
+                gnode->affineMatrix.tx != 0.0 || gnode->affineMatrix.ty != 0.0) {
+                AffineMatrix mat;
+                mat.a = static_cast<float>(gnode->affineMatrix.a);
+                mat.b = static_cast<float>(gnode->affineMatrix.b);
+                mat.c = static_cast<float>(gnode->affineMatrix.c);
+                mat.d = static_cast<float>(gnode->affineMatrix.d);
+                mat.tx = static_cast<float>(gnode->affineMatrix.tx);
+                mat.ty = static_cast<float>(gnode->affineMatrix.ty);
+                info.node->setMatrix(mat);
+            }
+
             sinkNodeMap[gnode->id] = info.node.get();
             sinkInfos.push_back(std::move(info));
         }
@@ -810,10 +882,22 @@ private:
                 src->setSource(viewIt->second);
                 src->setOrigin(float_to_fixed(static_cast<float>(gnode.srcOriginX)),
                                float_to_fixed(static_cast<float>(gnode.srcOriginY)));
-                src->setPosition(static_cast<float>(gnode.positionX),
-                                 static_cast<float>(gnode.positionY));
+                // 配置位置は affineMatrix.tx/ty で管理（setPosition廃止）
                 if (gnode.bilinear) {
                     src->setInterpolationMode(InterpolationMode::Bilinear);
+                }
+                // アフィン変換行列の適用（単位行列でない場合のみ）
+                if (gnode.affineMatrix.a != 1.0 || gnode.affineMatrix.b != 0.0 ||
+                    gnode.affineMatrix.c != 0.0 || gnode.affineMatrix.d != 1.0 ||
+                    gnode.affineMatrix.tx != 0.0 || gnode.affineMatrix.ty != 0.0) {
+                    AffineMatrix mat;
+                    mat.a = static_cast<float>(gnode.affineMatrix.a);
+                    mat.b = static_cast<float>(gnode.affineMatrix.b);
+                    mat.c = static_cast<float>(gnode.affineMatrix.c);
+                    mat.d = static_cast<float>(gnode.affineMatrix.d);
+                    mat.tx = static_cast<float>(gnode.affineMatrix.tx);
+                    mat.ty = static_cast<float>(gnode.affineMatrix.ty);
+                    src->setMatrix(mat);
                 }
 
                 Node* result = src.get();
@@ -832,10 +916,22 @@ private:
                 );
                 np->setOrigin(float_to_fixed(static_cast<float>(gnode.srcOriginX)),
                               float_to_fixed(static_cast<float>(gnode.srcOriginY)));
-                np->setPosition(static_cast<float>(gnode.positionX),
-                                static_cast<float>(gnode.positionY));
+                // 配置位置は affineMatrix.tx/ty で管理（setPosition廃止）
                 if (gnode.bilinear) {
                     np->setInterpolationMode(InterpolationMode::Bilinear);
+                }
+                // アフィン変換行列の適用（単位行列でない場合のみ）
+                if (gnode.affineMatrix.a != 1.0 || gnode.affineMatrix.b != 0.0 ||
+                    gnode.affineMatrix.c != 0.0 || gnode.affineMatrix.d != 1.0 ||
+                    gnode.affineMatrix.tx != 0.0 || gnode.affineMatrix.ty != 0.0) {
+                    AffineMatrix mat;
+                    mat.a = static_cast<float>(gnode.affineMatrix.a);
+                    mat.b = static_cast<float>(gnode.affineMatrix.b);
+                    mat.c = static_cast<float>(gnode.affineMatrix.c);
+                    mat.d = static_cast<float>(gnode.affineMatrix.d);
+                    mat.tx = static_cast<float>(gnode.affineMatrix.tx);
+                    mat.ty = static_cast<float>(gnode.affineMatrix.ty);
+                    np->setMatrix(mat);
                 }
 
                 Node* result = np.get();
@@ -898,6 +994,20 @@ private:
                             }
                         }
                     }
+                }
+
+                // アフィン変換行列の適用（単位行列でない場合のみ）
+                if (gnode.affineMatrix.a != 1.0 || gnode.affineMatrix.b != 0.0 ||
+                    gnode.affineMatrix.c != 0.0 || gnode.affineMatrix.d != 1.0 ||
+                    gnode.affineMatrix.tx != 0.0 || gnode.affineMatrix.ty != 0.0) {
+                    AffineMatrix mat;
+                    mat.a = static_cast<float>(gnode.affineMatrix.a);
+                    mat.b = static_cast<float>(gnode.affineMatrix.b);
+                    mat.c = static_cast<float>(gnode.affineMatrix.c);
+                    mat.d = static_cast<float>(gnode.affineMatrix.d);
+                    mat.tx = static_cast<float>(gnode.affineMatrix.tx);
+                    mat.ty = static_cast<float>(gnode.affineMatrix.ty);
+                    compositeNode->setMatrix(mat);
                 }
 
                 Node* result = compositeNode.get();
@@ -987,6 +1097,20 @@ private:
                             portIndex++;
                         }
                     }
+                }
+
+                // アフィン変換行列の適用（単位行列でない場合のみ）
+                if (gnode.affineMatrix.a != 1.0 || gnode.affineMatrix.b != 0.0 ||
+                    gnode.affineMatrix.c != 0.0 || gnode.affineMatrix.d != 1.0 ||
+                    gnode.affineMatrix.tx != 0.0 || gnode.affineMatrix.ty != 0.0) {
+                    AffineMatrix mat;
+                    mat.a = static_cast<float>(gnode.affineMatrix.a);
+                    mat.b = static_cast<float>(gnode.affineMatrix.b);
+                    mat.c = static_cast<float>(gnode.affineMatrix.c);
+                    mat.d = static_cast<float>(gnode.affineMatrix.d);
+                    mat.tx = static_cast<float>(gnode.affineMatrix.tx);
+                    mat.ty = static_cast<float>(gnode.affineMatrix.ty);
+                    distributorNode->setMatrix(mat);
                 }
 
                 Node* result = distributorNode.get();

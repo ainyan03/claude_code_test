@@ -2,6 +2,7 @@
 #define FLEXIMG_DISTRIBUTOR_NODE_H
 
 #include "../core/node.h"
+#include "../core/affine_capability.h"
 #include "../core/perf_metrics.h"
 #include "../image/image_buffer.h"
 
@@ -22,14 +23,20 @@ namespace FLEXIMG_NAMESPACE {
 // - 下流ノードが変更を加えたい場合はコピーを作成する
 // - ImageLibrary → SourceNode の関係と対称的
 //
+// アフィン変換はAffineCapability Mixinから継承:
+// - setMatrix(), matrix()
+// - setRotation(), setScale(), setTranslation(), setRotationScale()
+// - 設定した変換は全下流ノードに伝播される
+//
 // 使用例:
 //   DistributorNode distributor(2);  // 2出力
+//   distributor.setScale(0.5f, 0.5f); // 分配先全てに縮小を適用
 //   renderer >> distributor;
 //   distributor.connectTo(sink1, 0, 0);  // 出力0 → sink1
 //   distributor.connectTo(sink2, 0, 1);  // 出力1 → sink2
 //
 
-class DistributorNode : public Node {
+class DistributorNode : public Node, public AffineCapability {
 public:
     explicit DistributorNode(int outputCount = 1) {
         initPorts(1, outputCount);  // 入力1、出力N
@@ -105,12 +112,25 @@ PrepareResponse DistributorNode::onPushPrepare(const PrepareRequest& request) {
     // AABB和集合計算用（基準点からの相対座標）
     float minX = 0, minY = 0, maxX = 0, maxY = 0;
 
+    // 下流に渡すリクエストを作成（localMatrix_ を累積）
+    PrepareRequest downstreamRequest = request;
+    if (hasLocalTransform()) {
+        // 行列合成: request.pushAffineMatrix * localMatrix_
+        // AffineNode直列接続と同じ解釈順序
+        if (downstreamRequest.hasPushAffine) {
+            downstreamRequest.pushAffineMatrix = downstreamRequest.pushAffineMatrix * localMatrix_;
+        } else {
+            downstreamRequest.pushAffineMatrix = localMatrix_;
+            downstreamRequest.hasPushAffine = true;
+        }
+    }
+
     // 全下流へ伝播し、結果をマージ（AABB和集合）
     int numOutputs = outputCount();
     for (int i = 0; i < numOutputs; ++i) {
         Node* downstream = downstreamNode(i);
         if (downstream) {
-            PrepareResponse result = downstream->pushPrepare(request);
+            PrepareResponse result = downstream->pushPrepare(downstreamRequest);
             if (!result.ok()) {
                 return result;  // エラーを伝播
             }

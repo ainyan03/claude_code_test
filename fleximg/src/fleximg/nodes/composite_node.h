@@ -2,6 +2,7 @@
 #define FLEXIMG_COMPOSITE_NODE_H
 
 #include "../core/node.h"
+#include "../core/affine_capability.h"
 #include "../core/perf_metrics.h"
 #include "../image/image_buffer.h"
 #include "../image/pixel_format.h"
@@ -26,15 +27,21 @@ namespace FLEXIMG_NAMESPACE {
 // - 入力ポート1以降が順に背面に合成
 // - 既に不透明なピクセルは後のレイヤー処理をスキップ
 //
+// アフィン変換はAffineCapability Mixinから継承:
+// - setMatrix(), matrix()
+// - setRotation(), setScale(), setTranslation(), setRotationScale()
+// - 設定した変換は全上流ノードに伝播される
+//
 // 使用例:
 //   CompositeNode composite(3);  // 3入力
+//   composite.setRotation(0.5f); // 合成結果全体を回転
 //   fg >> composite;             // ポート0（最前面）
 //   mid.connectTo(composite, 1); // ポート1（中間）
 //   bg.connectTo(composite, 2);  // ポート2（最背面）
 //   composite >> sink;
 //
 
-class CompositeNode : public Node {
+class CompositeNode : public Node, public AffineCapability {
 public:
     explicit CompositeNode(int inputCount = 2) {
         initPorts(inputCount, 1);  // 入力N、出力1
@@ -103,6 +110,19 @@ PrepareResponse CompositeNode::onPullPrepare(const PrepareRequest& request) {
     // AABB和集合計算用（基準点からの相対座標）
     float minX = 0, minY = 0, maxX = 0, maxY = 0;
 
+    // 上流に渡すリクエストを作成（localMatrix_ を累積）
+    PrepareRequest upstreamRequest = request;
+    if (hasLocalTransform()) {
+        // 行列合成: request.affineMatrix * localMatrix_
+        // AffineNode直列接続と同じ解釈順序
+        if (upstreamRequest.hasAffine) {
+            upstreamRequest.affineMatrix = upstreamRequest.affineMatrix * localMatrix_;
+        } else {
+            upstreamRequest.affineMatrix = localMatrix_;
+            upstreamRequest.hasAffine = true;
+        }
+    }
+
     // 全上流へ伝播し、結果をマージ（AABB和集合）
     int numInputs = inputCount();
     for (int i = 0; i < numInputs; ++i) {
@@ -110,7 +130,7 @@ PrepareResponse CompositeNode::onPullPrepare(const PrepareRequest& request) {
         if (upstream) {
             // 各上流に同じリクエストを伝播
             // 注意: アフィン行列は共有されるため、各上流で同じ変換が適用される
-            PrepareResponse result = upstream->pullPrepare(request);
+            PrepareResponse result = upstream->pullPrepare(upstreamRequest);
             if (!result.ok()) {
                 return result;  // エラーを伝播
             }

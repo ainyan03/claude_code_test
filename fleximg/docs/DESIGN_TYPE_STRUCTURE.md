@@ -280,11 +280,61 @@ ImageBuffer working = std::move(input).toFormat(PixelFormatIDs::RGBA8_Straight);
 
 - ViewPort はメモリを所有しないため、元の ImageBuffer より長く生存してはならない
 
+## AffineCapability Mixin
+
+アフィン変換機能を提供する Mixin クラスです。Node とは独立して設計されており、多重継承で使用します。
+
+```cpp
+class AffineCapability {
+public:
+    // 行列操作
+    void setMatrix(const AffineMatrix& m);
+    const AffineMatrix& matrix() const;
+
+    // 便利なセッター（担当要素のみ変更）
+    void setRotation(float radians);           // a,b,c,d のみ
+    void setScale(float sx, float sy);         // a,b,c,d のみ
+    void setTranslation(float tx, float ty);   // tx,ty のみ
+    void setRotationScale(float radians, float sx, float sy);  // a,b,c,d のみ
+
+    // ユーティリティ
+    bool hasLocalTransform() const;  // 単位行列でないか判定
+
+protected:
+    AffineMatrix localMatrix_;  // デフォルトは単位行列
+};
+```
+
+### 適用ノード
+
+| ノード | 用途 |
+|--------|------|
+| AffineNode | パススルー変換（既存機能） |
+| SourceNode | 入力画像の個別変換 |
+| SinkNode | 出力先での変換 |
+| CompositeNode | 合成結果全体の変換（全上流に伝播） |
+| DistributorNode | 分配先全体への変換（全下流に伝播） |
+
+### 行列合成順序
+
+AffineNode 直列接続と同じ解釈順序を維持:
+
+```cpp
+// Pull型（SourceNode, CompositeNode）
+combinedMatrix = request.affineMatrix * localMatrix_;
+
+// Push型（SinkNode, DistributorNode）
+combinedMatrix = request.pushAffineMatrix * localMatrix_;
+```
+
+「自身の変換を先に適用し、その後パイプライン経由の変換を適用」という解釈です。
+
 ## 関連ファイル
 
 | ファイル | 役割 |
 |---------|------|
 | `src/fleximg/core/types.h` | 固定小数点型、数学型、AffineMatrix |
+| `src/fleximg/core/affine_capability.h` | AffineCapability Mixin |
 | `src/fleximg/core/common.h` | NAMESPACE定義、バージョン |
 | `src/fleximg/core/memory/allocator.h` | IAllocator, DefaultAllocator |
 | `src/fleximg/image/pixel_format.h` | PixelFormatID, PixelFormatDescriptor, convertFormat() |

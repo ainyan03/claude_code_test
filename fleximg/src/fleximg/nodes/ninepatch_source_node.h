@@ -2,6 +2,7 @@
 #define FLEXIMG_NINEPATCH_SOURCE_NODE_H
 
 #include "../core/node.h"
+#include "../core/affine_capability.h"
 #include "../core/perf_metrics.h"
 #include "../image/viewport.h"
 #include "../image/image_buffer.h"
@@ -34,7 +35,7 @@ namespace FLEXIMG_NAMESPACE {
 // - 出力ポート: 1
 //
 
-class NinePatchSourceNode : public Node {
+class NinePatchSourceNode : public Node, public AffineCapability {
 public:
     // コンストラクタ
     NinePatchSourceNode() {
@@ -272,15 +273,32 @@ PrepareResponse NinePatchSourceNode::onPullPrepare(const PrepareRequest& request
         updatePatchGeometry();
     }
 
+    // AffineCapability: 自身のlocalMatrix_をrequest.affineMatrixと合成
+    AffineMatrix combinedAffine;
+    bool hasCombinedAffine = false;
+    if (hasLocalTransform()) {
+        if (request.hasAffine) {
+            combinedAffine = request.affineMatrix * localMatrix_;
+        } else {
+            combinedAffine = localMatrix_;
+        }
+        hasCombinedAffine = true;
+    } else if (request.hasAffine) {
+        combinedAffine = request.affineMatrix;
+        hasCombinedAffine = true;
+    }
+
     // 各区画のSourceNodeにPrepareRequestを伝播（スケール行列付き）
     for (int i = 0; i < 9; i++) {
         PrepareRequest patchRequest = request;
+        patchRequest.hasAffine = hasCombinedAffine;
+        patchRequest.affineMatrix = combinedAffine;
 
         // 親のアフィン行列と区画のスケール行列を合成
         if (patchNeedsAffine_[i]) {
-            if (request.hasAffine) {
+            if (hasCombinedAffine) {
                 // 親アフィン × 区画スケール
-                patchRequest.affineMatrix = request.affineMatrix * patchScales_[i];
+                patchRequest.affineMatrix = combinedAffine * patchScales_[i];
             } else {
                 patchRequest.affineMatrix = patchScales_[i];
             }
@@ -297,19 +315,19 @@ PrepareResponse NinePatchSourceNode::onPullPrepare(const PrepareRequest& request
     result.status = PrepareStatus::Prepared;
     result.preferredFormat = source_.formatID;
 
-    if (request.hasAffine) {
+    if (hasCombinedAffine) {
         // positionを含めた行列を計算
-        AffineMatrix combinedMatrix = request.affineMatrix;
-        float transformedPosX = combinedMatrix.a * positionX_ + combinedMatrix.b * positionY_;
-        float transformedPosY = combinedMatrix.c * positionX_ + combinedMatrix.d * positionY_;
-        combinedMatrix.tx += transformedPosX;
-        combinedMatrix.ty += transformedPosY;
+        AffineMatrix matrixWithPos = combinedAffine;
+        float transformedPosX = matrixWithPos.a * positionX_ + matrixWithPos.b * positionY_;
+        float transformedPosY = matrixWithPos.c * positionX_ + matrixWithPos.d * positionY_;
+        matrixWithPos.tx += transformedPosX;
+        matrixWithPos.ty += transformedPosY;
 
         // 出力矩形に順変換を適用して出力側のAABBを計算
         calcAffineAABB(
             static_cast<int>(outputWidth_), static_cast<int>(outputHeight_),
             {originX_, originY_},
-            combinedMatrix,
+            matrixWithPos,
             result.width, result.height, result.origin);
     } else {
         // アフィンなしの場合はそのまま（positionを含める）
