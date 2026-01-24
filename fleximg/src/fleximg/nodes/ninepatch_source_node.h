@@ -175,7 +175,7 @@ public:
     // ========================================
 
     // onPullPrepare: 各区画のSourceNodeにPrepareRequestを伝播
-    bool onPullPrepare(const PrepareRequest& request) override;
+    PrepareResult onPullPrepare(const PrepareRequest& request) override;
 
     // onPullFinalize: 各区画のSourceNodeに終了を伝播
     void onPullFinalize() override;
@@ -266,7 +266,7 @@ namespace FLEXIMG_NAMESPACE {
 // NinePatchSourceNode - Template Method フック実装
 // ============================================================================
 
-bool NinePatchSourceNode::onPullPrepare(const PrepareRequest& request) {
+PrepareResult NinePatchSourceNode::onPullPrepare(const PrepareRequest& request) {
     // ジオメトリ計算（まだなら）
     if (!geometryValid_) {
         updatePatchGeometry();
@@ -291,8 +291,35 @@ bool NinePatchSourceNode::onPullPrepare(const PrepareRequest& request) {
         patches_[i].pullPrepare(patchRequest);
     }
 
-    // NinePatchSourceNodeは終端なので上流への伝播なし（return trueのみ）
-    return true;
+    // NinePatchSourceNodeは終端なので上流への伝播なし
+    // プルアフィン変換がある場合、出力側で必要なAABBを計算
+    PrepareResult result;
+    result.status = PipelineStatus::Success;
+    result.preferredFormat = source_.formatID;
+
+    if (request.hasAffine) {
+        // positionを含めた行列を計算
+        AffineMatrix combinedMatrix = request.affineMatrix;
+        float transformedPosX = combinedMatrix.a * positionX_ + combinedMatrix.b * positionY_;
+        float transformedPosY = combinedMatrix.c * positionX_ + combinedMatrix.d * positionY_;
+        combinedMatrix.tx += transformedPosX;
+        combinedMatrix.ty += transformedPosY;
+
+        // 出力矩形に順変換を適用して出力側のAABBを計算
+        calcAffineAABB(
+            static_cast<int>(outputWidth_), static_cast<int>(outputHeight_),
+            {originX_, originY_},
+            combinedMatrix,
+            result.width, result.height, result.origin);
+    } else {
+        // アフィンなしの場合はそのまま（positionを含める）
+        result.width = static_cast<int16_t>(outputWidth_);
+        result.height = static_cast<int16_t>(outputHeight_);
+        // originをposition分シフト
+        result.origin.x = originX_ - float_to_fixed(positionX_);
+        result.origin.y = originY_ - float_to_fixed(positionY_);
+    }
+    return result;
 }
 
 void NinePatchSourceNode::onPullFinalize() {
@@ -312,11 +339,6 @@ RenderResult NinePatchSourceNode::onPullProcess(const RenderRequest& request) {
         updatePatchGeometry();
     }
 
-    // キャンバス作成（透明で初期化、ノードのアロケータを使用）
-    ImageBuffer canvasBuf = canvas_utils::createCanvas(request.width, request.height, InitPolicy::Zero, allocator());
-    ViewPort canvasView = canvasBuf.view();
-
-    // 全9区画を処理
     // 描画順序: 伸縮パッチ → 固定パッチ
     // 斜めアフィン時にパッチ継ぎ目のエッジが綺麗に処理される
     constexpr int drawOrder[9] = {
@@ -325,7 +347,38 @@ RenderResult NinePatchSourceNode::onPullProcess(const RenderRequest& request) {
         0, 2, 6, 8   // 固定パッチ（角）を最後に
     };
 
-    // bool first = true;  // placeOnto分岐削除に伴い不要
+    // 各パッチのデータ範囲を収集し、和集合を計算
+    int16_t canvasStartX = request.width;
+    int16_t canvasEndX = 0;
+    for (int i : drawOrder) {
+        int col = i % 3;
+        int row = i / 3;
+        if (patchWidths_[col] <= 0 || patchHeights_[row] <= 0) {
+            continue;
+        }
+        DataRange range = patches_[i].getDataRange(request);
+        if (range.hasData()) {
+            if (range.startX < canvasStartX) canvasStartX = range.startX;
+            if (range.endX > canvasEndX) canvasEndX = range.endX;
+        }
+    }
+
+    // 有効なデータがない場合は空を返す
+    if (canvasStartX >= canvasEndX) {
+        return RenderResult();
+    }
+
+    int16_t canvasWidth = canvasEndX - canvasStartX;
+
+    // キャンバス作成（透明で初期化、必要幅のみ確保）
+    // canvasStartX分だけoriginをシフト
+    int_fixed canvasOriginX = request.origin.x - to_fixed(canvasStartX);
+    int_fixed canvasOriginY = request.origin.y;
+
+    ImageBuffer canvasBuf = canvas_utils::createCanvas(canvasWidth, request.height, InitPolicy::Zero, allocator());
+    ViewPort canvasView = canvasBuf.view();
+
+    // 全9区画を処理
     for (int i : drawOrder) {
         // サイズ0の区画はスキップ
         int col = i % 3;
@@ -333,6 +386,10 @@ RenderResult NinePatchSourceNode::onPullProcess(const RenderRequest& request) {
         if (patchWidths_[col] <= 0 || patchHeights_[row] <= 0) {
             continue;
         }
+
+        // 範囲外のパッチはスキップ
+        DataRange range = patches_[i].getDataRange(request);
+        if (!range.hasData()) continue;
 
         RenderResult patchResult = patches_[i].pullProcess(request);
         if (!patchResult.isValid()) continue;
@@ -342,23 +399,11 @@ RenderResult NinePatchSourceNode::onPullProcess(const RenderRequest& request) {
 
         // キャンバスに配置（全パッチ上書き）
         // NinePatchではパッチ同士の重なりは単純上書きで良い
-        canvas_utils::placeFirst(canvasView, request.origin.x, request.origin.y,
+        canvas_utils::placeFirst(canvasView, canvasOriginX, canvasOriginY,
                                  patchResult.view(), patchResult.origin.x, patchResult.origin.y);
-        // TODO: 以下の分岐は不要と判断しコメントアウト。問題なければ削除予定
-        // bool isCornerPatch = (col != 1 && row != 1);
-        // if (first) {
-        //     canvas_utils::placeFirst(...);
-        //     first = false;
-        // } else if (isCornerPatch) {
-        //     // 固定パッチはブレンド（半透明対応）
-        //     canvas_utils::placeOnto(...);
-        // } else {
-        //     // 伸縮パッチは上書き
-        //     canvas_utils::placeFirst(...);
-        // }
     }
 
-    return RenderResult(std::move(canvasBuf), request.origin);
+    return RenderResult(std::move(canvasBuf), Point{canvasOriginX, canvasOriginY});
 }
 
 // ============================================================================
