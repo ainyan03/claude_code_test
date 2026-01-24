@@ -33,16 +33,20 @@ namespace FLEXIMG_NAMESPACE {
 // RGB332: 8bit RGB (3-3-2)
 // ========================================================================
 
-// RGB332 → RGB8 変換ルックアップテーブル
-// RGB332の256通りの値に対して、RGB8値を事前計算
-// 各エントリ: [R8, G8, B8] の3バイト（1024バイト未満でキャッシュフレンドリー）
+// RGB332 → RGBA8 変換ルックアップテーブル
+// RGB332の256通りの値に対して、RGBA8値を事前計算
+// 各エントリ: uint32_t (リトルエンディアン: R8 | G8<<8 | B8<<16 | A8<<24)
+// 32bitロード/ストアで効率的に変換可能
 namespace {
 
-// テーブル生成用マクロ（constexpr配列生成の代替）
+// テーブル生成用マクロ: uint32_t値 = (255 << 24) | (B8 << 16) | (G8 << 8) | R8
 #define RGB332_ENTRY(p) \
-    static_cast<uint8_t>((((p) >> 5) & 0x07) * 0x49 >> 1), \
-    static_cast<uint8_t>((((p) >> 2) & 0x07) * 0x49 >> 1), \
-    static_cast<uint8_t>(((p) & 0x03) * 0x55)
+    static_cast<uint32_t>( \
+        (static_cast<uint32_t>((((p) >> 5) & 0x07) * 0x49 >> 1)) | \
+        (static_cast<uint32_t>((((p) >> 2) & 0x07) * 0x49 >> 1) << 8) | \
+        (static_cast<uint32_t>(((p) & 0x03) * 0x55) << 16) | \
+        (static_cast<uint32_t>(255) << 24) \
+    )
 
 #define RGB332_ROW(base) \
     RGB332_ENTRY(base+0), RGB332_ENTRY(base+1), RGB332_ENTRY(base+2), RGB332_ENTRY(base+3), \
@@ -50,8 +54,8 @@ namespace {
     RGB332_ENTRY(base+8), RGB332_ENTRY(base+9), RGB332_ENTRY(base+10), RGB332_ENTRY(base+11), \
     RGB332_ENTRY(base+12), RGB332_ENTRY(base+13), RGB332_ENTRY(base+14), RGB332_ENTRY(base+15)
 
-// RGB332 → RGB8 変換テーブル (256 × 3 = 768 bytes)
-alignas(64) static const uint8_t rgb332ToRgb8[256 * 3] = {
+// RGB332 → RGBA8 変換テーブル (256 × 4 = 1024 bytes)
+alignas(64) static const uint32_t rgb332ToRgba8[256] = {
     RGB332_ROW(0x00), RGB332_ROW(0x10), RGB332_ROW(0x20), RGB332_ROW(0x30),
     RGB332_ROW(0x40), RGB332_ROW(0x50), RGB332_ROW(0x60), RGB332_ROW(0x70),
     RGB332_ROW(0x80), RGB332_ROW(0x90), RGB332_ROW(0xa0), RGB332_ROW(0xb0),
@@ -66,28 +70,63 @@ alignas(64) static const uint8_t rgb332ToRgb8[256 * 3] = {
 static void rgb332_toStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB332, ToStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
-    uint8_t* d = static_cast<uint8_t*>(dst);
-    for (int i = 0; i < pixelCount; ++i) {
-        // RGB332 → RGB8 変換（ルックアップテーブル使用）
-        const uint8_t* rgb = &rgb332ToRgb8[s[i] * 3];
-        d[i*4 + 0] = rgb[0];
-        d[i*4 + 1] = rgb[1];
-        d[i*4 + 2] = rgb[2];
-        d[i*4 + 3] = 255;
+    uint32_t* d = static_cast<uint32_t*>(dst);
+
+    // 端数処理（1〜3ピクセル）
+    int remainder = pixelCount & 3;
+    while (remainder--) {
+        *d++ = rgb332ToRgba8[*s++];
+    }
+
+    // 4ピクセル単位でループ
+    pixelCount >>= 2;
+    while (pixelCount--) {
+        d[0] = rgb332ToRgba8[s[0]];
+        d[1] = rgb332ToRgba8[s[1]];
+        d[2] = rgb332ToRgba8[s[2]];
+        d[3] = rgb332ToRgba8[s[3]];
+        s += 4;
+        d += 4;
     }
 }
+
+// RGBA8 → RGB332 変換マクロ（32bitロードした値から変換）
+// (((r << 3) + g) << 2) + b の形式でESP32のシフト+加算命令を活用
+#define RGBA8_TO_RGB332(rgba) \
+    (((((rgba) >> 5) << 3) + (((rgba) >> 13) & 0x07)) << 2) + (((rgba) >> 22) & 0x03)
 
 static void rgb332_fromStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB332, FromStraight, pixelCount);
     uint8_t* d = static_cast<uint8_t*>(dst);
-    const uint8_t* s = static_cast<const uint8_t*>(src);
-    for (int i = 0; i < pixelCount; ++i) {
-        uint8_t r = s[i*4 + 0];
-        uint8_t g = s[i*4 + 1];
-        uint8_t b = s[i*4 + 2];
-        d[i] = static_cast<uint8_t>((r & 0xE0) | ((g >> 5) << 2) | (b >> 6));
+    const uint32_t* s = static_cast<const uint32_t*>(src);
+
+    // 端数処理（1〜3ピクセル）
+    int remainder = pixelCount & 3;
+    while (remainder--) {
+        auto rgba = *s++;
+        *d++ = static_cast<uint8_t>(RGBA8_TO_RGB332(rgba));
+    }
+
+    // 4ピクセル単位でループ（ロードを先に発行してレイテンシ隠蔽）
+    pixelCount >>= 2;
+    while (pixelCount--) {
+        // 4つのロードを先に発行
+        auto rgba0 = s[0];
+        auto rgba1 = s[1];
+        auto rgba2 = s[2];
+        auto rgba3 = s[3];
+
+        // 演算と8bitストア
+        d[0] = static_cast<uint8_t>(RGBA8_TO_RGB332(rgba0));
+        d[1] = static_cast<uint8_t>(RGBA8_TO_RGB332(rgba1));
+        d[2] = static_cast<uint8_t>(RGBA8_TO_RGB332(rgba2));
+        d[3] = static_cast<uint8_t>(RGBA8_TO_RGB332(rgba3));
+
+        s += 4;
+        d += 4;
     }
 }
+#undef RGBA8_TO_RGB332
 
 #ifdef FLEXIMG_ENABLE_PREMUL
 // blendUnderPremul: srcフォーマット(RGB332)からPremul形式のdstへunder合成
@@ -111,12 +150,11 @@ static void rgb332_blendUnderPremul(void* __restrict__ dst, const void* __restri
         // dst が不透明 → スキップ
         if (dstA8 == 255) continue;
 
-        // RGB332 → RGB8 変換（ルックアップテーブル使用）
-        uint8_t pixel = *s;
-        const uint8_t* rgb = &rgb332ToRgb8[pixel * 3];
-        uint_fast8_t srcR8 = rgb[0];
-        uint_fast8_t srcG8 = rgb[1];
-        uint_fast8_t srcB8 = rgb[2];
+        // RGB332 → RGBA8 変換（ルックアップテーブル使用、32bitロード）
+        uint32_t rgba = rgb332ToRgba8[*s];
+        uint_fast8_t srcR8 = static_cast<uint_fast8_t>(rgba);
+        uint_fast8_t srcG8 = static_cast<uint_fast8_t>(rgba >> 8);
+        uint_fast8_t srcB8 = static_cast<uint_fast8_t>(rgba >> 16);
 
         // dst が透明 → 単純コピー（16bit形式で、alphaは不透明扱い）
         if (dstA8 == 0) {
@@ -153,13 +191,13 @@ static void rgb332_toPremul(void* dst, const void* src, int pixelCount, const Co
     const uint8_t* s = static_cast<const uint8_t*>(src);
 
     for (int i = 0; i < pixelCount; ++i) {
-        // RGB332 → RGB8 変換（ルックアップテーブル使用）
-        const uint8_t* rgb = &rgb332ToRgb8[s[i] * 3];
+        // RGB332 → RGBA8 変換（ルックアップテーブル使用、32bitロード）
+        uint32_t rgba = rgb332ToRgba8[s[i]];
 
         int idx = i * 4;
-        d[idx]     = static_cast<uint16_t>(rgb[0] << 8);
-        d[idx + 1] = static_cast<uint16_t>(rgb[1] << 8);
-        d[idx + 2] = static_cast<uint16_t>(rgb[2] << 8);
+        d[idx]     = static_cast<uint16_t>((rgba & 0xFF) << 8);
+        d[idx + 1] = static_cast<uint16_t>(((rgba >> 8) & 0xFF) << 8);
+        d[idx + 2] = static_cast<uint16_t>(((rgba >> 16) & 0xFF) << 8);
         d[idx + 3] = RGBA16Premul::ALPHA_OPAQUE_MIN;
     }
 }
