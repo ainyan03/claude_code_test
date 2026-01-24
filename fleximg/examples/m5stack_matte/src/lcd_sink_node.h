@@ -84,7 +84,7 @@ protected:
     }
 
     // onPushProcess: 画像転送
-    void onPushProcess(RenderResult&& input,
+    void onPushProcess(RenderResponse&& input,
                        const RenderRequest& request) override {
         (void)request;
 
