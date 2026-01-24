@@ -69,12 +69,63 @@ public:
 
     const char* name() const override { return "HorizontalBlurNode"; }
 
+    // getDataRange: 上流データ範囲をブラー分拡張して返す
+    DataRange getDataRange(const RenderRequest& request) const override {
+        if (radius_ == 0 || passes_ == 0) {
+            // パススルー時は上流の範囲をそのまま返す
+            Node* upstream = upstreamNode(0);
+            if (upstream) {
+                return upstream->getDataRange(request);
+            }
+            return DataRange();
+        }
+
+        // 上流への拡張リクエストを作成
+        int totalMargin = radius_ * passes_;
+        RenderRequest inputReq;
+        inputReq.width = static_cast<int16_t>(request.width + totalMargin * 2);
+        inputReq.height = 1;
+        inputReq.origin.x = request.origin.x + to_fixed(totalMargin);
+        inputReq.origin.y = request.origin.y;
+
+        Node* upstream = upstreamNode(0);
+        if (!upstream) {
+            return DataRange();
+        }
+
+        // 上流のデータ範囲を取得
+        DataRange upstreamRange = upstream->getDataRange(inputReq);
+        if (!upstreamRange.hasData()) {
+            return DataRange();
+        }
+
+        // ブラー処理後の範囲を計算
+        // upstreamRangeはinputReq座標系 → request座標系への変換: X - totalMargin
+        // さらにブラー処理による両側拡張: -totalMargin / +totalMargin
+        // 結果: startX - 2*totalMargin, endX
+        int16_t blurredStartX = static_cast<int16_t>(upstreamRange.startX - totalMargin * 2);
+        int16_t blurredEndX = static_cast<int16_t>(upstreamRange.endX);
+
+        // request範囲にクランプ
+        if (blurredStartX < 0) blurredStartX = 0;
+        if (blurredEndX > request.width) blurredEndX = request.width;
+
+        if (blurredStartX >= blurredEndX) {
+            return DataRange();
+        }
+
+        return DataRange{blurredStartX, blurredEndX};
+    }
+
 protected:
     int nodeTypeForMetrics() const override { return NodeType::HorizontalBlur; }
 
     // ========================================
     // Template Method フック
     // ========================================
+
+    // onPullPrepare: AABBをX方向に拡張
+    PrepareResult onPullPrepare(const PrepareRequest& request) override;
 
     // onPullProcess: 水平ブラー処理
     RenderResult onPullProcess(const RenderRequest& request) override;
@@ -118,6 +169,35 @@ namespace FLEXIMG_NAMESPACE {
 // HorizontalBlurNode - Template Method フック実装
 // ============================================================================
 
+PrepareResult HorizontalBlurNode::onPullPrepare(const PrepareRequest& request) {
+    // 上流へ伝播
+    Node* upstream = upstreamNode(0);
+    if (!upstream) {
+        // 上流なし: サイズ0を返す
+        PrepareResult result;
+        result.status = PipelineStatus::Success;
+        return result;
+    }
+
+    PrepareResult upstreamResult = upstream->pullPrepare(request);
+    if (!upstreamResult.ok()) {
+        return upstreamResult;
+    }
+
+    // radius=0の場合はパススルー
+    if (radius_ == 0) {
+        return upstreamResult;
+    }
+
+    // 水平ぼかしはX方向に radius * passes 分拡張する
+    // AABBの幅を拡張し、originのXをシフト
+    int expansion = radius_ * passes_;
+    upstreamResult.width = static_cast<int16_t>(upstreamResult.width + expansion * 2);
+    upstreamResult.origin.x = upstreamResult.origin.x + to_fixed(expansion);
+
+    return upstreamResult;
+}
+
 RenderResult HorizontalBlurNode::onPullProcess(const RenderRequest& request) {
     Node* upstream = upstreamNode(0);
     if (!upstream) return RenderResult();
@@ -135,8 +215,14 @@ RenderResult HorizontalBlurNode::onPullProcess(const RenderRequest& request) {
     inputReq.origin.x = request.origin.x + to_fixed(totalMargin);  // 左側にマージン分拡張
     inputReq.origin.y = request.origin.y;
 
+    // 上流のデータ範囲を取得して出力バッファサイズを最適化
+    DataRange upstreamRange = upstream->getDataRange(inputReq);
+    if (!upstreamRange.hasData()) {
+        return RenderResult();
+    }
+
     RenderResult input = upstream->pullProcess(inputReq);
-    if (!input.isValid()) return input;
+    if (!input.isValid()) return RenderResult();
 
     FLEXIMG_METRICS_SCOPE(NodeType::HorizontalBlur);
 
@@ -179,24 +265,39 @@ RenderResult HorizontalBlurNode::onPullProcess(const RenderRequest& request) {
         buffer = std::move(output);
     }
 
+    // ブラー処理後の範囲を計算
+    // upstreamRangeはinputReq座標系 → request座標系への変換: X - totalMargin
+    // さらにブラー処理による両側拡張: -totalMargin / +totalMargin
+    // 結果: startX - 2*totalMargin, endX
+    int16_t blurredStartX = static_cast<int16_t>(upstreamRange.startX - totalMargin * 2);
+    int16_t blurredEndX = static_cast<int16_t>(upstreamRange.endX);
+    // request範囲にクランプ
+    if (blurredStartX < 0) blurredStartX = 0;
+    if (blurredEndX > request.width) blurredEndX = request.width;
+
+    if (blurredStartX >= blurredEndX) {
+        return RenderResult();
+    }
+
+    int16_t outputWidth = blurredEndX - blurredStartX;
+
     // origin座標を基準にクロップ位置を計算
-    // currentOrigin.x が現在のbufferの左端、request.origin.x が欲しい位置
-    // cropOffset = currentOrigin.x - request.origin.x（固定小数点での差分）
-    // cropOffset > 0: bufferは左側にある → buffer[cropOffset]がrequest.origin.xに対応
     int_fixed offsetX = currentOrigin.x - request.origin.x;
     int cropOffset = from_fixed(offsetX);
 
-    // 出力バッファを確保（ゼロ初期化）
-    ImageBuffer output(request.width, 1, PixelFormatIDs::RGBA8_Straight,
+    // 出力バッファを確保（必要幅のみ、ゼロ初期化）
+    int_fixed outputOriginX = request.origin.x - to_fixed(blurredStartX);
+    ImageBuffer output(outputWidth, 1, PixelFormatIDs::RGBA8_Straight,
                       InitPolicy::Zero);
     const uint8_t* srcRow = static_cast<const uint8_t*>(buffer.view().data);
     uint8_t* dstRow = static_cast<uint8_t*>(output.view().data);
 
     // クロップ範囲を計算（境界チェック付き）
-    int srcStartX = std::max(0, cropOffset);
-    int dstStartX = std::max(0, -cropOffset);
+    // blurredStartX分のオフセットを考慮
+    int srcStartX = std::max(0, cropOffset + blurredStartX);
+    int dstStartX = std::max(0, -(cropOffset + blurredStartX));
     int copyWidth = std::min(static_cast<int>(buffer.width()) - srcStartX,
-                             request.width - dstStartX);
+                             static_cast<int>(outputWidth) - dstStartX);
 
     // 有効な範囲をコピー（範囲外は既にゼロ初期化済み）
     if (copyWidth > 0) {
@@ -205,7 +306,7 @@ RenderResult HorizontalBlurNode::onPullProcess(const RenderRequest& request) {
                    static_cast<size_t>(copyWidth) * 4);
     }
 
-    return RenderResult(std::move(output), request.origin);
+    return RenderResult(std::move(output), Point{outputOriginX, request.origin.y});
 }
 
 void HorizontalBlurNode::onPushProcess(RenderResult&& input, const RenderRequest& request) {
