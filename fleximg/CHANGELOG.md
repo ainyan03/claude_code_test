@@ -1061,7 +1061,7 @@ src >> hblur >> vblur >> renderer >> sink;
 
 - **循環参照検出**: ノードグラフの循環を検出しスタックオーバーフローを防止
   - `PrepareState` enum: `Idle`, `Preparing`, `Prepared`, `CycleError` の4状態
-  - `ExecResult` enum: `Success=0`, `CycleDetected=1`, `NoUpstream=2`, `NoDownstream=3`
+  - `PipelineStatus` enum: `Success=0`, `CycleDetected=1`, `NoUpstream=2`, `NoDownstream=3`
   - `pullPrepare()` / `pushPrepare()`: 循環検出時に `false` を返却
   - `pullProcess()` / `pushProcess()`: 循環エラー状態のノードは処理をスキップ
   - DAG（有向非巡回グラフ）共有ノードを正しくサポート
@@ -1070,7 +1070,7 @@ src >> hblur >> vblur >> renderer >> sink;
 
 ### 変更
 
-- **RendererNode::exec()**: 戻り値を `void` → `ExecResult` に変更
+- **RendererNode::exec()**: 戻り値を `void` → `PipelineStatus` に変更
 - **bindings.cpp**: `evaluateGraph()` が `int` を返却（0=成功、非0=エラー）
 
 ### テスト

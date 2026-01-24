@@ -503,7 +503,7 @@ public:
     }
 
     // グラフ評価
-    // 戻り値: 0 = 成功、非0 = エラー（ExecResult値）
+    // 戻り値: 0 = 成功、非0 = エラー（PipelineStatus値）
     int evaluateGraph() {
         // グラフからv2ノードを構築して実行
         return buildAndExecute();
@@ -679,7 +679,7 @@ private:
     std::map<std::string, PixelFormatID> sinkFormats_;
 
     // グラフを解析してv2ノードを構築・実行
-    // 戻り値: 0 = 成功、非0 = エラー（ExecResult値）
+    // 戻り値: 0 = 成功、非0 = エラー（PipelineStatus値）
     int buildAndExecute() {
         // ノードIDからGraphNodeへのマップ
         std::map<std::string, const GraphNode*> nodeMap;
@@ -708,7 +708,7 @@ private:
         }
 
         if (sinkGraphNodes.empty()) {
-            return static_cast<int>(ExecResult::Success);  // 描画対象なし
+            return static_cast<int>(PipelineStatus::Success);  // 描画対象なし
         }
 
         // 各Sinkに対応するSinkNode + 出力バッファを準備
@@ -771,7 +771,7 @@ private:
         }
 
         if (sinkInfos.empty()) {
-            return static_cast<int>(ExecResult::Success);  // 有効なSinkなし
+            return static_cast<int>(PipelineStatus::Success);  // 有効なSinkなし
         }
 
         // v2ノードを一時的に保持するコンテナ
@@ -1060,7 +1060,7 @@ private:
             rendererNode->setTileConfig(effectiveTileW, effectiveTileH);
         }
         rendererNode->setDebugCheckerboard(debugCheckerboard_);
-        ExecResult result = rendererNode->exec();
+        PipelineStatus result = rendererNode->exec();
 
         // パフォーマンスメトリクスを保存
         lastPerfMetrics_ = rendererNode->getPerfMetrics();
