@@ -26,6 +26,7 @@ let isResetting = false;  // リセット中フラグ（beforeunloadで保存を
 let tileWidth = 0;       // 0 = 横方向は分割なし
 let tileHeight = 0;      // 内部的に常に1として扱われる（互換性のため変数は維持）
 let debugCheckerboard = false;
+let debugDataRange = false;
 
 // ========================================
 // ノードタイプ定義（一元管理）
@@ -2898,6 +2899,7 @@ function applyTileSettings() {
     // グローバル変数から設定を取得
     graphEvaluator.setTileSize(tileWidth, tileHeight);
     graphEvaluator.setDebugCheckerboard(debugCheckerboard);
+    graphEvaluator.setDebugDataRange(debugDataRange);
 }
 
 
@@ -5577,6 +5579,26 @@ function buildRendererDetailContent(node) {
     debugLabel.appendChild(document.createTextNode(' 🐛 交互スキップ'));
     debugRow.appendChild(debugLabel);
     tileSection.appendChild(debugRow);
+
+    // DataRange可視化
+    const dataRangeRow = document.createElement('div');
+    dataRangeRow.className = 'node-detail-row';
+    const dataRangeLabel = document.createElement('label');
+    dataRangeLabel.className = 'sidebar-checkbox-label';
+    dataRangeLabel.style.fontSize = '11px';
+    const dataRangeCheckbox = document.createElement('input');
+    dataRangeCheckbox.type = 'checkbox';
+    dataRangeCheckbox.checked = node.debugDataRange ?? debugDataRange;
+    dataRangeCheckbox.addEventListener('change', () => {
+        node.debugDataRange = dataRangeCheckbox.checked;
+        debugDataRange = node.debugDataRange;
+        applyTileSettings();
+        throttledUpdatePreview();
+    });
+    dataRangeLabel.appendChild(dataRangeCheckbox);
+    dataRangeLabel.appendChild(document.createTextNode(' 🔍 DataRange可視化'));
+    dataRangeRow.appendChild(dataRangeLabel);
+    tileSection.appendChild(dataRangeRow);
 
     detailPanelContent.appendChild(tileSection);
 }
