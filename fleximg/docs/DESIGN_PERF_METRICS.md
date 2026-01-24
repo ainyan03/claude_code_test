@@ -100,7 +100,7 @@ ImageBuffer::deallocate() {
 - タイルループの制御
 - RenderRequest の生成
 - ノード間のデータ受け渡し
-- RenderResult の移動/コピー
+- RenderResponse の移動/コピー
 
 ### ピクセル効率計測
 

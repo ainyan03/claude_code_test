@@ -17,7 +17,7 @@ fleximg の設計ドキュメント一覧です。
 |-------------|------|
 | [DESIGN_RENDERER_NODE.md](DESIGN_RENDERER_NODE.md) | RendererNode の Pull/Push 処理フロー |
 | [DESIGN_FILTER_NODES.md](DESIGN_FILTER_NODES.md) | フィルタノードの階層構造 |
-| [DESIGN_TYPE_STRUCTURE.md](DESIGN_TYPE_STRUCTURE.md) | ViewPort/ImageBuffer/RenderResult の設計 |
+| [DESIGN_TYPE_STRUCTURE.md](DESIGN_TYPE_STRUCTURE.md) | ViewPort/ImageBuffer/RenderResponse の設計 |
 | [DESIGN_PIXEL_FORMAT.md](DESIGN_PIXEL_FORMAT.md) | ピクセルフォーマット変換アルゴリズム |
 | [DESIGN_CHANNEL_DESCRIPTOR.md](DESIGN_CHANNEL_DESCRIPTOR.md) | ChannelType・Alpha8フォーマット設計 |
 | [DESIGN_PERF_METRICS.md](DESIGN_PERF_METRICS.md) | パフォーマンス計測基盤 |

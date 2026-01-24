@@ -70,13 +70,13 @@ public:
     // ========================================
 
     // onPullPrepare: 全上流ノードにPrepareRequestを伝播
-    PrepareResult onPullPrepare(const PrepareRequest& request) override;
+    PrepareResponse onPullPrepare(const PrepareRequest& request) override;
 
     // onPullFinalize: 全上流ノードに終了を伝播
     void onPullFinalize() override;
 
     // onPullProcess: 複数の上流から画像を取得してunder合成
-    RenderResult onPullProcess(const RenderRequest& request) override;
+    RenderResponse onPullProcess(const RenderRequest& request) override;
 
 protected:
     int nodeTypeForMetrics() const override { return NodeType::Composite; }
@@ -95,9 +95,9 @@ namespace FLEXIMG_NAMESPACE {
 // CompositeNode - Template Method フック実装
 // ============================================================================
 
-PrepareResult CompositeNode::onPullPrepare(const PrepareRequest& request) {
-    PrepareResult merged;
-    merged.status = PipelineStatus::Success;
+PrepareResponse CompositeNode::onPullPrepare(const PrepareRequest& request) {
+    PrepareResponse merged;
+    merged.status = PrepareStatus::Prepared;
     int validUpstreamCount = 0;
 
     // AABB和集合計算用（基準点からの相対座標）
@@ -110,7 +110,7 @@ PrepareResult CompositeNode::onPullPrepare(const PrepareRequest& request) {
         if (upstream) {
             // 各上流に同じリクエストを伝播
             // 注意: アフィン行列は共有されるため、各上流で同じ変換が適用される
-            PrepareResult result = upstream->pullPrepare(request);
+            PrepareResponse result = upstream->pullPrepare(request);
             if (!result.ok()) {
                 return result;  // エラーを伝播
             }
@@ -140,7 +140,7 @@ PrepareResult CompositeNode::onPullPrepare(const PrepareRequest& request) {
     }
 
     if (validUpstreamCount > 0) {
-        // 和集合結果をPrepareResultに設定
+        // 和集合結果をPrepareResponseに設定
         merged.width = static_cast<int16_t>(std::ceil(maxX - minX));
         merged.height = static_cast<int16_t>(std::ceil(maxY - minY));
         merged.origin.x = float_to_fixed(-minX);
@@ -185,9 +185,9 @@ void CompositeNode::onPullFinalize() {
 // onPullProcess: 複数の上流から画像を取得してunder合成
 // under合成: 手前から奥へ処理し、不透明な部分は後のレイヤーをスキップ
 // 最適化: height=1 前提（パイプラインは常にスキャンライン単位で処理）
-RenderResult CompositeNode::onPullProcess(const RenderRequest& request) {
+RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
     int numInputs = inputCount();
-    if (numInputs == 0) return RenderResult();
+    if (numInputs == 0) return RenderResponse();
 
     // 各上流のデータ範囲を収集し、和集合を計算
     int16_t canvasStartX = request.width;  // 和集合の開始X
@@ -204,7 +204,7 @@ RenderResult CompositeNode::onPullProcess(const RenderRequest& request) {
 
     // 有効なデータがない場合は空を返す
     if (canvasStartX >= canvasEndX) {
-        return RenderResult();
+        return RenderResponse();
     }
 
     int16_t canvasWidth = canvasEndX - canvasStartX;
@@ -248,7 +248,7 @@ RenderResult CompositeNode::onPullProcess(const RenderRequest& request) {
         if (!range.hasData()) continue;
 
         // 上流を評価（計測対象外）
-        RenderResult inputResult = upstream->pullProcess(request);
+        RenderResponse inputResult = upstream->pullProcess(request);
 
         // 空入力はスキップ
         if (!inputResult.isValid()) continue;
@@ -323,7 +323,7 @@ RenderResult CompositeNode::onPullProcess(const RenderRequest& request) {
 
     // 全ての入力が空だった場合（事前判定で回避されるはずだが念のため）
     if (validStartX >= validEndX) {
-        return RenderResult();
+        return RenderResponse();
     }
 
     // 余白をゼロクリアしてバッファを返す
@@ -334,7 +334,7 @@ RenderResult CompositeNode::onPullProcess(const RenderRequest& request) {
         std::memset(canvasRow + static_cast<size_t>(validEndX) * bytesPerPixel, 0,
                     static_cast<size_t>(canvasWidth - validEndX) * bytesPerPixel);
     }
-    return RenderResult(std::move(canvasBuf), Point{canvasOriginX, canvasOriginY});
+    return RenderResponse(std::move(canvasBuf), Point{canvasOriginX, canvasOriginY});
 }
 
 } // namespace FLEXIMG_NAMESPACE

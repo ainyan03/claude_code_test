@@ -1,8 +1,8 @@
-# PrepareResult - Prepare統一改修計画
+# PrepareResponse - Prepare統一改修計画
 
 ## 概要
 
-pushPrepare/pullPrepare両方の戻り値をPrepareResultに統一し、双方向の情報収集を可能にする。
+pushPrepare/pullPrepare両方の戻り値をPrepareResponseに統一し、双方向の情報収集を可能にする。
 **末端ノード（SinkNode/SourceNode）が累積行列を受け取りAABB計算を担当**する設計。
 
 ## 動機
@@ -33,7 +33,7 @@ IDEA_FORMAT_NEGOTIATION.mdで提案されている「下流からのフォーマ
 
 ### 問題4: エラーハンドリングの統一
 
-現状、pushPrepare/pullPrepareはboolを返すが、PipelineStatusで統一することで
+現状、pushPrepare/pullPrepareはboolを返すが、PrepareStatusで統一することで
 より詳細なエラー情報を伝播できる。
 
 ## 設計
@@ -47,10 +47,10 @@ IDEA_FORMAT_NEGOTIATION.mdで提案されている「下流からのフォーマ
 3. **既存の仕組みとの整合性**: PrepareRequestには既にアフィン行列伝播の仕組みがある（pullPrepare側のaffineMatrix、pushPrepare側のpushAffineMatrix）
 4. **分岐対応**: DistributorNodeで分岐しても、各Sinkが個別にAABB計算し、DistributorNodeが和集合を返す
 
-### PipelineStatus（実装済み）
+### PrepareStatus（実装済み）
 
 ```cpp
-enum class PipelineStatus : int {
+enum class PrepareStatus : int {
     Success = 0,
     CycleDetected = 1,
     NoUpstream = 2,
@@ -59,11 +59,11 @@ enum class PipelineStatus : int {
 };
 ```
 
-### PrepareResult（新規）
+### PrepareResponse（新規）
 
 ```cpp
-struct PrepareResult {
-    PipelineStatus status = PipelineStatus::Success;
+struct PrepareResponse {
+    PrepareStatus status = PrepareStatus::Prepared;
 
     // === AABBバウンディングボックス（処理すべき範囲） ===
     int16_t width = 0;
@@ -74,7 +74,7 @@ struct PrepareResult {
     PixelFormatID preferredFormat = PixelFormatIDs::RGBA8_Straight;
 
     // 便利メソッド
-    bool ok() const { return status == PipelineStatus::Success; }
+    bool ok() const { return status == PrepareStatus::Prepared; }
 };
 ```
 
@@ -86,8 +86,8 @@ virtual bool pushPrepare(const PrepareRequest& request) final;
 virtual bool pullPrepare(const PrepareRequest& request) final;
 
 // 変更後
-virtual PrepareResult pushPrepare(const PrepareRequest& request) final;
-virtual PrepareResult pullPrepare(const PrepareRequest& request) final;
+virtual PrepareResponse pushPrepare(const PrepareRequest& request) final;
+virtual PrepareResponse pullPrepare(const PrepareRequest& request) final;
 ```
 
 ## 双方向の情報収集
@@ -104,11 +104,11 @@ Renderer ──▶ Affine ──▶ Distributor ──▶ Sink1
                               └──▶ Sink2
 
 ◀━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PrepareResult (Sink → Renderer)
+PrepareResponse (Sink → Renderer)
   末端が累積行列でAABB計算、中間ノードはパススルー
 ```
 
-| ノード | PrepareRequest処理 | PrepareResult応答 |
+| ノード | PrepareRequest処理 | PrepareResponse応答 |
 |--------|-------------------|------------------|
 | AffineNode | pushAffineMatrixに自身の行列を合成 | パススルー |
 | DistributorNode | 各分岐先へ伝播 | 各分岐先AABBの和集合 |
@@ -127,11 +127,11 @@ Renderer ──▶ Affine ──▶ Composite ──▶ Source1
                               └──▶ Source2
 
 ◀━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PrepareResult (Source → Renderer)
+PrepareResponse (Source → Renderer)
   末端が累積行列でAABB計算、中間ノードはパススルー
 ```
 
-| ノード | PrepareRequest処理 | PrepareResult応答 |
+| ノード | PrepareRequest処理 | PrepareResponse応答 |
 |--------|-------------------|------------------|
 | AffineNode | affineMatrixに自身の行列を合成 | パススルー |
 | CompositeNode | 各入力元へ伝播 | 各入力元AABBの和集合 |
@@ -156,10 +156,10 @@ PrepareResult (Source → Renderer)
 
 #### AffineNode (pushPrepare)
 ```cpp
-PrepareResult AffineNode::onPushPrepare(const PrepareRequest& request) {
+PrepareResponse AffineNode::onPushPrepare(const PrepareRequest& request) {
     Node* downstream = downstreamNode(0);
     if (!downstream) {
-        return {PipelineStatus::NoDownstream};
+        return {PrepareStatus::NoDownstream};
     }
 
     // 行列を累積して下流へ伝播
@@ -171,7 +171,7 @@ PrepareResult AffineNode::onPushPrepare(const PrepareRequest& request) {
         newRequest.hasPushAffine = true;
     }
 
-    PrepareResult result = downstream->pushPrepare(newRequest);
+    PrepareResponse result = downstream->pushPrepare(newRequest);
 
     // 下流情報を保持（process時に使用）
     downstreamInfo_ = result;
@@ -181,9 +181,9 @@ PrepareResult AffineNode::onPushPrepare(const PrepareRequest& request) {
 
 #### SinkNode (pushPrepare)
 ```cpp
-PrepareResult SinkNode::onPushPrepare(const PrepareRequest& request) {
-    PrepareResult result;
-    result.status = PipelineStatus::Success;
+PrepareResponse SinkNode::onPushPrepare(const PrepareRequest& request) {
+    PrepareResponse result;
+    result.status = PrepareStatus::Prepared;
     result.preferredFormat = target_.formatID;
 
     if (request.hasPushAffine) {
@@ -209,20 +209,20 @@ PrepareResult SinkNode::onPushPrepare(const PrepareRequest& request) {
 
 #### DistributorNode (pushPrepare)
 ```cpp
-PrepareResult DistributorNode::onPushPrepare(const PrepareRequest& request) {
-    PrepareResult merged;
-    merged.status = PipelineStatus::NoDownstream;
+PrepareResponse DistributorNode::onPushPrepare(const PrepareRequest& request) {
+    PrepareResponse merged;
+    merged.status = PrepareStatus::NoDownstream;
 
     for (int i = 0; i < outputCount(); ++i) {
         Node* downstream = downstreamNode(i);
         if (!downstream) continue;
 
-        PrepareResult result = downstream->pushPrepare(request);
+        PrepareResponse result = downstream->pushPrepare(request);
         if (!result.ok()) continue;
 
         downstreamInfos_[i] = result;
 
-        if (merged.status != PipelineStatus::Success) {
+        if (merged.status != PrepareStatus::Prepared) {
             merged = result;
         } else {
             merged = mergeAABB(merged, result);
@@ -237,10 +237,10 @@ PrepareResult DistributorNode::onPushPrepare(const PrepareRequest& request) {
 
 #### AffineNode (pullPrepare)
 ```cpp
-PrepareResult AffineNode::onPullPrepare(const PrepareRequest& request) {
+PrepareResponse AffineNode::onPullPrepare(const PrepareRequest& request) {
     Node* upstream = upstreamNode(0);
     if (!upstream) {
-        return {PipelineStatus::NoUpstream};
+        return {PrepareStatus::NoUpstream};
     }
 
     // 行列を累積して上流へ伝播（既存の仕組み）
@@ -252,7 +252,7 @@ PrepareResult AffineNode::onPullPrepare(const PrepareRequest& request) {
         newRequest.hasAffine = true;
     }
 
-    PrepareResult result = upstream->pullPrepare(newRequest);
+    PrepareResponse result = upstream->pullPrepare(newRequest);
 
     // 上流情報を保持
     upstreamInfo_ = result;
@@ -262,9 +262,9 @@ PrepareResult AffineNode::onPullPrepare(const PrepareRequest& request) {
 
 #### SourceNode (pullPrepare)
 ```cpp
-PrepareResult SourceNode::onPullPrepare(const PrepareRequest& request) {
-    PrepareResult result;
-    result.status = PipelineStatus::Success;
+PrepareResponse SourceNode::onPullPrepare(const PrepareRequest& request) {
+    PrepareResponse result;
+    result.status = PrepareStatus::Prepared;
     result.preferredFormat = source_.formatID;
 
     if (request.hasAffine) {
@@ -295,20 +295,20 @@ PrepareResult SourceNode::onPullPrepare(const PrepareRequest& request) {
 
 #### CompositeNode (pullPrepare)
 ```cpp
-PrepareResult CompositeNode::onPullPrepare(const PrepareRequest& request) {
-    PrepareResult merged;
-    merged.status = PipelineStatus::NoUpstream;
+PrepareResponse CompositeNode::onPullPrepare(const PrepareRequest& request) {
+    PrepareResponse merged;
+    merged.status = PrepareStatus::NoUpstream;
 
     for (int i = 0; i < inputCount(); ++i) {
         Node* upstream = upstreamNode(i);
         if (!upstream) continue;
 
-        PrepareResult result = upstream->pullPrepare(request);
+        PrepareResponse result = upstream->pullPrepare(request);
         if (!result.ok()) continue;
 
         upstreamInfos_[i] = result;
 
-        if (merged.status != PipelineStatus::Success) {
+        if (merged.status != PrepareStatus::Prepared) {
             merged = result;
         } else {
             merged = mergeAABB(merged, result);
@@ -321,18 +321,18 @@ PrepareResult CompositeNode::onPullPrepare(const PrepareRequest& request) {
 
 ### RendererNode
 ```cpp
-PipelineStatus RendererNode::execPrepare() {
+PrepareStatus RendererNode::execPrepare() {
     // === Step 1: 下流情報収集 ===
     Node* downstream = downstreamNode(0);
     if (!downstream) {
-        return PipelineStatus::NoDownstream;
+        return PrepareStatus::NoDownstream;
     }
 
     PrepareRequest pushRequest;
     pushRequest.hasPushAffine = false;
     pushRequest.allocator = pipelineAllocator_;
 
-    PrepareResult downstreamInfo = downstream->pushPrepare(pushRequest);
+    PrepareResponse downstreamInfo = downstream->pushPrepare(pushRequest);
     if (!downstreamInfo.ok()) {
         return downstreamInfo.status;
     }
@@ -344,7 +344,7 @@ PipelineStatus RendererNode::execPrepare() {
     // === Step 2: 上流情報収集 ===
     Node* upstream = upstreamNode(0);
     if (!upstream) {
-        return PipelineStatus::NoUpstream;
+        return PrepareStatus::NoUpstream;
     }
 
     PrepareRequest pullRequest;
@@ -353,14 +353,14 @@ PipelineStatus RendererNode::execPrepare() {
     pullRequest.hasAffine = false;
     pullRequest.allocator = pipelineAllocator_;
 
-    PrepareResult upstreamInfo = upstream->pullPrepare(pullRequest);
+    PrepareResponse upstreamInfo = upstream->pullPrepare(pullRequest);
     if (!upstreamInfo.ok()) {
         return upstreamInfo.status;
     }
 
     // 上流情報を活用（将来: フォーマット決定等）
 
-    return PipelineStatus::Success;
+    return PrepareStatus::Prepared;
 }
 ```
 
@@ -373,8 +373,8 @@ pushPrepare:
 1. Renderer → Affine: PrepareRequest{hasPushAffine=false}
 2. Affine → Sink: PrepareRequest{pushAffineMatrix=2x, hasPushAffine=true}
 3. Sink: 320x240に逆行列(0.5x)を適用 → 必要な入力範囲 = 160x120
-4. Sink → Affine: PrepareResult{width=160, height=120}
-5. Affine → Renderer: PrepareResult{width=160, height=120}（パススルー）
+4. Sink → Affine: PrepareResponse{width=160, height=120}
+5. Affine → Renderer: PrepareResponse{width=160, height=120}（パススルー）
 6. Renderer: virtualScreenを160x120に設定
 ```
 
@@ -388,7 +388,7 @@ pushPrepare:
 3. Distributor → Sink2: PrepareRequest{pushAffineMatrix=2x}
    Sink2: 640x480 × 逆行列 → 320x240
 4. Distributor: 和集合(160x120, 320x240) → 320x240
-5. Affine → Renderer: PrepareResult{width=320, height=240}
+5. Affine → Renderer: PrepareResponse{width=320, height=240}
 6. Renderer: virtualScreenを320x240に設定
 ```
 
@@ -409,11 +409,11 @@ struct RangeInfo {
 };
 ```
 
-PrepareResultとは別フェーズ（process時）だが、同様の「情報収集」パターン。
+PrepareResponseとは別フェーズ（process時）だが、同様の「情報収集」パターン。
 
 ### フォーマット交渉との統合
 
-PrepareResultにフォーマット情報を含めることで、IDEA_FORMAT_NEGOTIATION.mdの機能と統合。
+PrepareResponseにフォーマット情報を含めることで、IDEA_FORMAT_NEGOTIATION.mdの機能と統合。
 
 - `preferredFormat`: 末端が希望するフォーマット
 - 将来: `acceptableFormats[]` で複数候補対応
@@ -421,16 +421,16 @@ PrepareResultにフォーマット情報を含めることで、IDEA_FORMAT_NEGO
 ## 実装フェーズ
 
 ### Phase 1: 基盤整備
-- [x] ExecResult → PipelineStatus リネーム
-- [x] PrepareResult構造体の定義（render_types.h）
+- [x] ExecResult → PrepareStatus リネーム
+- [x] PrepareResponse構造体の定義（render_types.h）
 - [x] pushPrepare/pullPrepareの戻り値変更（node.h）
 
 ### Phase 2: 末端ノード対応
 - [x] AABB計算ヘルパー関数（render_types.h）
   - `calcAffineAABB`: 順変換でAABB計算
   - `calcInverseAffineAABB`: 逆変換でAABB計算
-- [x] SinkNode: 累積行列でAABB計算、PrepareResult返却
-- [x] SourceNode: 累積行列でAABB計算、PrepareResult返却
+- [x] SinkNode: 累積行列でAABB計算、PrepareResponse返却
+- [x] SourceNode: 累積行列でAABB計算、PrepareResponse返却
 - [x] DistributorNode: 出力先の和集合計算
 
 ### Phase 3: 中間ノード対応
@@ -457,4 +457,4 @@ PrepareResultにフォーマット情報を含めることで、IDEA_FORMAT_NEGO
 - **責務の明確化**: AffineNodeは行列伝播のみ、末端ノードがAABB計算
 - **精度**: 複数アフィンは末端で一度だけ計算 → 誤差累積なし
 - **対称性**: push/pull両方向で同じパターン → 理解しやすい設計
-- **メンバ統合**: `prepareState_`/`prepareResult_`はpush/pull共通（ノードはどちらか一方でのみ使用されるため）
+- **メンバ統合**: `prepareResponse_.status`/`prepareResponse_`はpush/pull共通（ノードはどちらか一方でのみ使用されるため）

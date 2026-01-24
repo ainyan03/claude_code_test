@@ -219,7 +219,7 @@ renderer.exec();
 └─────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────┐
-│  RenderResult（パイプライン評価結果）                      │
+│  RenderResponse（パイプライン評価結果）                      │
 │  - ImageBuffer buffer                                   │
 │  - Point origin（バッファ内での基準点位置、int_fixed Q16.16）│
 └─────────────────────────────────────────────────────────┘
@@ -231,7 +231,7 @@ renderer.exec();
 |---|------|--------|
 | ViewPort | 画像データへのアクセス | なし |
 | ImageBuffer | メモリの確保・解放 | あり |
-| RenderResult | パイプライン処理結果と座標 | ImageBuffer を所有 |
+| RenderResponse | パイプライン処理結果と座標 | ImageBuffer を所有 |
 
 ## 座標系
 
@@ -253,7 +253,7 @@ struct RenderRequest {
 };
 
 // 評価結果
-struct RenderResult {
+struct RenderResponse {
     ImageBuffer buffer;
     Point origin;  // バッファ内での基準点位置（int_fixed Q16.16）
 };
@@ -465,7 +465,7 @@ src/fleximg/
 │   │   └── rgb888.h          # RGB888/BGR888 + swap24
 │   ├── viewport.h            # ViewPort
 │   ├── image_buffer.h        # ImageBuffer
-│   └── render_types.h        # RenderRequest, RenderResult
+│   └── render_types.h        # RenderRequest, RenderResponse
 │
 ├── nodes/
 │   ├── source_node.h         # SourceNode

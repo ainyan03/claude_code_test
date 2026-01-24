@@ -400,7 +400,7 @@ TEST_CASE("SourceNode getDataRange basic test") {
     prepReq.origin.x = float_to_fixed(50.0f);  // 画面中心
     prepReq.origin.y = float_to_fixed(50.0f);
 
-    PrepareResult prepResult = src.pullPrepare(prepReq);
+    PrepareResponse prepResult = src.pullPrepare(prepReq);
     CHECK(prepResult.ok());
     CHECK(prepResult.width == imgSize);
     CHECK(prepResult.height == imgSize);
@@ -452,7 +452,7 @@ TEST_CASE("HorizontalBlurNode getDataRange expands range correctly") {
     prepReq.origin.x = float_to_fixed(static_cast<float>(canvasSize) / 2.0f);
     prepReq.origin.y = float_to_fixed(static_cast<float>(canvasSize) / 2.0f);
 
-    PrepareResult prepResult = hblur.pullPrepare(prepReq);
+    PrepareResponse prepResult = hblur.pullPrepare(prepReq);
     CHECK(prepResult.ok());
 
     // RenderRequestを作成してgetDataRangeを呼び出す
@@ -500,7 +500,7 @@ TEST_CASE("HorizontalBlurNode getDataRange with radius=0 is passthrough") {
     prepReq.origin.x = float_to_fixed(static_cast<float>(canvasSize) / 2.0f);
     prepReq.origin.y = float_to_fixed(static_cast<float>(canvasSize) / 2.0f);
 
-    PrepareResult prepResult = hblur.pullPrepare(prepReq);
+    PrepareResponse prepResult = hblur.pullPrepare(prepReq);
     CHECK(prepResult.ok());
 
     RenderRequest renderReq;
@@ -544,7 +544,7 @@ TEST_CASE("HorizontalBlurNode getDataRange with offset image") {
     prepReq.origin.x = float_to_fixed(50.0f);
     prepReq.origin.y = float_to_fixed(50.0f);
 
-    PrepareResult prepResult = hblur.pullPrepare(prepReq);
+    PrepareResponse prepResult = hblur.pullPrepare(prepReq);
     CHECK(prepResult.ok());
 
     RenderRequest renderReq;
@@ -586,7 +586,7 @@ TEST_CASE("VerticalBlurNode getDataRange passes through X range") {
     prepReq.origin.x = float_to_fixed(static_cast<float>(canvasSize) / 2.0f);
     prepReq.origin.y = float_to_fixed(static_cast<float>(canvasSize) / 2.0f);
 
-    PrepareResult prepResult = vblur.pullPrepare(prepReq);
+    PrepareResponse prepResult = vblur.pullPrepare(prepReq);
     CHECK(prepResult.ok());
 
     RenderRequest renderReq;
@@ -631,7 +631,7 @@ TEST_CASE("HorizontalBlurNode + VerticalBlurNode getDataRange chain") {
     prepReq.origin.x = float_to_fixed(static_cast<float>(canvasSize) / 2.0f);
     prepReq.origin.y = float_to_fixed(static_cast<float>(canvasSize) / 2.0f);
 
-    PrepareResult prepResult = vblur.pullPrepare(prepReq);
+    PrepareResponse prepResult = vblur.pullPrepare(prepReq);
     CHECK(prepResult.ok());
 
     RenderRequest renderReq;

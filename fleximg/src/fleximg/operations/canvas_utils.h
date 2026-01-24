@@ -106,7 +106,7 @@ inline void placeOnto(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canva
 
 // フォーマット変換（必要なら）
 // blend関数が対応していないフォーマットをRGBA8_Straightに変換
-inline RenderResult ensureBlendableFormat(RenderResult&& input) {
+inline RenderResponse ensureBlendableFormat(RenderResponse&& input) {
     if (!input.isValid()) {
         return std::move(input);
     }
@@ -119,7 +119,7 @@ inline RenderResult ensureBlendableFormat(RenderResult&& input) {
 
     // RGBA8_Straight に変換
     Point savedOrigin = input.origin;
-    return RenderResult(
+    return RenderResponse(
         std::move(input.buffer).toFormat(PixelFormatIDs::RGBA8_Straight),
         savedOrigin
     );

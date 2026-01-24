@@ -91,14 +91,14 @@ public:
     void finalize() override;
 
     // Template Method フック
-    PrepareResult onPullPrepare(const PrepareRequest& request) override;
-    PrepareResult onPushPrepare(const PrepareRequest& request) override;
-    void onPushProcess(RenderResult&& input, const RenderRequest& request) override;
+    PrepareResponse onPullPrepare(const PrepareRequest& request) override;
+    PrepareResponse onPushPrepare(const PrepareRequest& request) override;
+    void onPushProcess(RenderResponse&& input, const RenderRequest& request) override;
     void onPushFinalize() override;
 
 protected:
     int nodeTypeForMetrics() const override { return NodeType::VerticalBlur; }
-    RenderResult onPullProcess(const RenderRequest& request) override;
+    RenderResponse onPullProcess(const RenderRequest& request) override;
 
 private:
     int radius_ = 5;
@@ -157,7 +157,7 @@ private:
     int_fixed lastInputOriginY_ = 0;
 
     // 内部実装（宣言のみ）
-    RenderResult pullProcessPipeline(Node* upstream, const RenderRequest& request);
+    RenderResponse pullProcessPipeline(Node* upstream, const RenderRequest& request);
     void updateStageCache(int stageIndex, Node* upstream, const RenderRequest& request, int newY);
     void fetchRowToStageCache(BlurStage& stage, Node* upstream, const RenderRequest& request, int srcY, int cacheIndex);
     void fetchRowFromPrevStage(int stageIndex, Node* upstream, const RenderRequest& request, int srcY, int cacheIndex);
@@ -214,17 +214,17 @@ void VerticalBlurNode::finalize() {
 // Template Method フック
 // ========================================
 
-PrepareResult VerticalBlurNode::onPullPrepare(const PrepareRequest& request) {
+PrepareResponse VerticalBlurNode::onPullPrepare(const PrepareRequest& request) {
     // 上流へ伝播
     Node* upstream = upstreamNode(0);
     if (!upstream) {
         // 上流なし: サイズ0を返す
-        PrepareResult result;
-        result.status = PipelineStatus::Success;
+        PrepareResponse result;
+        result.status = PrepareStatus::Prepared;
         return result;
     }
 
-    PrepareResult upstreamResult = upstream->pullPrepare(request);
+    PrepareResponse upstreamResult = upstream->pullPrepare(request);
     if (!upstreamResult.ok()) {
         return upstreamResult;
     }
@@ -250,10 +250,10 @@ PrepareResult VerticalBlurNode::onPullPrepare(const PrepareRequest& request) {
     return upstreamResult;
 }
 
-PrepareResult VerticalBlurNode::onPushPrepare(const PrepareRequest& request) {
+PrepareResponse VerticalBlurNode::onPushPrepare(const PrepareRequest& request) {
     // 下流へ先に伝播してサイズ情報を取得
     Node* downstream = downstreamNode(0);
-    PrepareResult downstreamResult;
+    PrepareResponse downstreamResult;
     if (downstream) {
         downstreamResult = downstream->pushPrepare(request);
         if (!downstreamResult.ok()) {
@@ -261,7 +261,7 @@ PrepareResult VerticalBlurNode::onPushPrepare(const PrepareRequest& request) {
         }
     } else {
         // 下流なし: 有効なデータがないのでサイズ0を返す
-        downstreamResult.status = PipelineStatus::Success;
+        downstreamResult.status = PrepareStatus::Prepared;
         // width/height/originはデフォルト値（0）のまま
         return downstreamResult;
     }
@@ -293,7 +293,7 @@ PrepareResult VerticalBlurNode::onPushPrepare(const PrepareRequest& request) {
     return downstreamResult;
 }
 
-void VerticalBlurNode::onPushProcess(RenderResult&& input, const RenderRequest& request) {
+void VerticalBlurNode::onPushProcess(RenderResponse&& input, const RenderRequest& request) {
     // radius=0の場合はスルー
     if (radius_ == 0) {
         Node* downstream = downstreamNode(0);
@@ -378,9 +378,9 @@ void VerticalBlurNode::onPushFinalize() {
     finalize();
 }
 
-RenderResult VerticalBlurNode::onPullProcess(const RenderRequest& request) {
+RenderResponse VerticalBlurNode::onPullProcess(const RenderRequest& request) {
     Node* upstream = upstreamNode(0);
-    if (!upstream) return RenderResult();
+    if (!upstream) return RenderResponse();
 
     // radius=0の場合は処理をスキップしてスルー出力
     if (radius_ == 0) {
@@ -395,7 +395,7 @@ RenderResult VerticalBlurNode::onPullProcess(const RenderRequest& request) {
 // パイプライン処理
 // ========================================
 
-RenderResult VerticalBlurNode::pullProcessPipeline(Node* upstream, const RenderRequest& request) {
+RenderResponse VerticalBlurNode::pullProcessPipeline(Node* upstream, const RenderRequest& request) {
     int requestY = from_fixed(request.origin.y);
     // 注: 各ステージの初期化はupdateStageCache内で行われる
 
@@ -422,7 +422,7 @@ RenderResult VerticalBlurNode::pullProcessPipeline(Node* upstream, const RenderR
     // 最終ステージの列合計から出力行を計算
     computeStageOutputRow(stages_[static_cast<size_t>(passes_ - 1)], output, request.width);
 
-    return RenderResult(std::move(output), request.origin);
+    return RenderResponse(std::move(output), request.origin);
 }
 
 void VerticalBlurNode::updateStageCache(int stageIndex, Node* upstream, const RenderRequest& request, int newY) {
@@ -472,7 +472,7 @@ void VerticalBlurNode::fetchRowToStageCache(BlurStage& stage, Node* upstream, co
     upstreamReq.origin.x = request.origin.x;
     upstreamReq.origin.y = to_fixed(srcY);
 
-    RenderResult result = upstream->pullProcess(upstreamReq);
+    RenderResponse result = upstream->pullProcess(upstreamReq);
 
     // キャッシュ行をゼロクリア
     ViewPort dstView = stage.rowCache[static_cast<size_t>(cacheIndex)].view();
@@ -680,7 +680,7 @@ void VerticalBlurNode::emitBlurredLinePipeline() {
 
     Node* downstream = downstreamNode(0);
     if (downstream) {
-        downstream->pushProcess(RenderResult(std::move(output), outReq.origin), outReq);
+        downstream->pushProcess(RenderResponse(std::move(output), outReq.origin), outReq);
     }
 }
 

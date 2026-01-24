@@ -125,13 +125,13 @@ protected:
     // ========================================
 
     // onPullPrepare: AABBをX方向に拡張
-    PrepareResult onPullPrepare(const PrepareRequest& request) override;
+    PrepareResponse onPullPrepare(const PrepareRequest& request) override;
 
     // onPullProcess: 水平ブラー処理
-    RenderResult onPullProcess(const RenderRequest& request) override;
+    RenderResponse onPullProcess(const RenderRequest& request) override;
 
     // onPushProcess: 水平ブラー処理（push型）
-    void onPushProcess(RenderResult&& input, const RenderRequest& request) override;
+    void onPushProcess(RenderResponse&& input, const RenderRequest& request) override;
 
 private:
     int radius_ = 5;
@@ -169,17 +169,17 @@ namespace FLEXIMG_NAMESPACE {
 // HorizontalBlurNode - Template Method フック実装
 // ============================================================================
 
-PrepareResult HorizontalBlurNode::onPullPrepare(const PrepareRequest& request) {
+PrepareResponse HorizontalBlurNode::onPullPrepare(const PrepareRequest& request) {
     // 上流へ伝播
     Node* upstream = upstreamNode(0);
     if (!upstream) {
         // 上流なし: サイズ0を返す
-        PrepareResult result;
-        result.status = PipelineStatus::Success;
+        PrepareResponse result;
+        result.status = PrepareStatus::Prepared;
         return result;
     }
 
-    PrepareResult upstreamResult = upstream->pullPrepare(request);
+    PrepareResponse upstreamResult = upstream->pullPrepare(request);
     if (!upstreamResult.ok()) {
         return upstreamResult;
     }
@@ -198,9 +198,9 @@ PrepareResult HorizontalBlurNode::onPullPrepare(const PrepareRequest& request) {
     return upstreamResult;
 }
 
-RenderResult HorizontalBlurNode::onPullProcess(const RenderRequest& request) {
+RenderResponse HorizontalBlurNode::onPullProcess(const RenderRequest& request) {
     Node* upstream = upstreamNode(0);
-    if (!upstream) return RenderResult();
+    if (!upstream) return RenderResponse();
 
     // radius=0またはpasses=0の場合は処理をスキップしてスルー出力
     if (radius_ == 0 || passes_ == 0) {
@@ -218,11 +218,11 @@ RenderResult HorizontalBlurNode::onPullProcess(const RenderRequest& request) {
     // 上流のデータ範囲を取得して出力バッファサイズを最適化
     DataRange upstreamRange = upstream->getDataRange(inputReq);
     if (!upstreamRange.hasData()) {
-        return RenderResult();
+        return RenderResponse();
     }
 
-    RenderResult input = upstream->pullProcess(inputReq);
-    if (!input.isValid()) return RenderResult();
+    RenderResponse input = upstream->pullProcess(inputReq);
+    if (!input.isValid()) return RenderResponse();
 
     FLEXIMG_METRICS_SCOPE(NodeType::HorizontalBlur);
 
@@ -276,7 +276,7 @@ RenderResult HorizontalBlurNode::onPullProcess(const RenderRequest& request) {
     if (blurredEndX > request.width) blurredEndX = request.width;
 
     if (blurredStartX >= blurredEndX) {
-        return RenderResult();
+        return RenderResponse();
     }
 
     int16_t outputWidth = blurredEndX - blurredStartX;
@@ -306,10 +306,10 @@ RenderResult HorizontalBlurNode::onPullProcess(const RenderRequest& request) {
                    static_cast<size_t>(copyWidth) * 4);
     }
 
-    return RenderResult(std::move(output), Point{outputOriginX, request.origin.y});
+    return RenderResponse(std::move(output), Point{outputOriginX, request.origin.y});
 }
 
-void HorizontalBlurNode::onPushProcess(RenderResult&& input, const RenderRequest& request) {
+void HorizontalBlurNode::onPushProcess(RenderResponse&& input, const RenderRequest& request) {
     // radius=0またはpasses=0の場合はスルー
     if (radius_ == 0 || passes_ == 0) {
         Node* downstream = downstreamNode(0);
@@ -359,7 +359,7 @@ void HorizontalBlurNode::onPushProcess(RenderResult&& input, const RenderRequest
     if (downstream) {
         RenderRequest outReq = request;
         outReq.width = static_cast<int16_t>(buffer.width());
-        downstream->pushProcess(RenderResult(std::move(buffer), currentOrigin), outReq);
+        downstream->pushProcess(RenderResponse(std::move(buffer), currentOrigin), outReq);
     }
 }
 

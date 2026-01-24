@@ -40,15 +40,15 @@ fleximg では、すべての座標を「基準点（origin）からの相対位
 基準点を左上に設定 → 左上を軸に回転
 ```
 
-### ViewPort / ImageBuffer / RenderResult の使い分け
+### ViewPort / ImageBuffer / RenderResponse の使い分け
 
 | 型 | 座標情報 | 用途 |
 |----|---------|------|
 | ViewPort | なし | 純粋なピクセルデータへのアクセス |
 | ImageBuffer | なし | メモリ管理（確保・解放） |
-| RenderResult | origin | パイプライン処理結果 + 座標情報 |
+| RenderResponse | origin | パイプライン処理結果 + 座標情報 |
 
-**RenderResult だけが座標情報（origin）を持ちます。** これにより、画像データと座標情報の責務が明確に分離されます。
+**RenderResponse だけが座標情報（origin）を持ちます。** これにより、画像データと座標情報の責務が明確に分離されます。
 
 ---
 
@@ -69,7 +69,7 @@ fleximg では、すべての座標を「基準点（origin）からの相対位
 └─────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────┐
-│  RenderResult（パイプライン評価結果）                      │
+│  RenderResponse（パイプライン評価結果）                      │
 │  - ImageBuffer buffer                                   │
 │  - Point origin（バッファ内での基準点位置、int_fixed Q16.16）│
 └─────────────────────────────────────────────────────────┘
@@ -184,23 +184,23 @@ private:
 ImageBuffer working = std::move(input.buffer).toFormat(PixelFormatIDs::RGBA8_Straight);
 ```
 
-## RenderResult（パイプライン評価結果）
+## RenderResponse（パイプライン評価結果）
 
 パイプライン処理における評価結果と座標情報を保持します。
 
 ```cpp
-struct RenderResult {
+struct RenderResponse {
     ImageBuffer buffer;
     Point origin;  // バッファ内での基準点位置（int_fixed Q16.16）
 
     // コンストラクタ
-    RenderResult();
-    RenderResult(ImageBuffer&& buf, Point org);
-    RenderResult(ImageBuffer&& buf, float ox, float oy);  // マイグレーション用
+    RenderResponse();
+    RenderResponse(ImageBuffer&& buf, Point org);
+    RenderResponse(ImageBuffer&& buf, float ox, float oy);  // マイグレーション用
 
     // ムーブのみ（コピー禁止）
-    RenderResult(RenderResult&&) = default;
-    RenderResult& operator=(RenderResult&&) = default;
+    RenderResponse(RenderResponse&&) = default;
+    RenderResponse& operator=(RenderResponse&&) = default;
 
     // ユーティリティ
     bool isValid() const;
@@ -227,7 +227,7 @@ struct RenderResult {
 
 ```cpp
 // ノードから結果を取得
-RenderResult result = node->pullProcess(request);
+RenderResponse result = node->pullProcess(request);
 
 // 両方の origin は同じ意味（バッファ内基準点位置）なので直接比較可能
 // オフセット = request の基準点位置 - result の基準点位置
@@ -254,7 +254,7 @@ canvas_utils::placeFirst(canvas, request.origin.x, request.origin.y,
 
 ## 設計の利点
 
-1. **責務の明確化**: ViewPort＝ビュー、ImageBuffer＝所有、RenderResult＝処理結果
+1. **責務の明確化**: ViewPort＝ビュー、ImageBuffer＝所有、RenderResponse＝処理結果
 2. **軽量ビュー**: ViewPort だけ渡せば済む場面で効率的
 3. **スライシング防止**: コンポジションにより安全
 4. **座標計算の局所化**: パイプライン処理側に集約
@@ -290,4 +290,4 @@ ImageBuffer working = std::move(input).toFormat(PixelFormatIDs::RGBA8_Straight);
 | `src/fleximg/image/pixel_format.h` | PixelFormatID, PixelFormatDescriptor, convertFormat() |
 | `src/fleximg/image/viewport.h` | ViewPort, view_ops |
 | `src/fleximg/image/image_buffer.h` | ImageBuffer |
-| `src/fleximg/image/render_types.h` | RenderResult, RenderRequest |
+| `src/fleximg/image/render_types.h` | RenderResponse, RenderRequest |

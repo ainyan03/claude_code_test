@@ -175,13 +175,13 @@ public:
     // ========================================
 
     // onPullPrepare: 各区画のSourceNodeにPrepareRequestを伝播
-    PrepareResult onPullPrepare(const PrepareRequest& request) override;
+    PrepareResponse onPullPrepare(const PrepareRequest& request) override;
 
     // onPullFinalize: 各区画のSourceNodeに終了を伝播
     void onPullFinalize() override;
 
     // onPullProcess: 全9区画を処理して合成
-    RenderResult onPullProcess(const RenderRequest& request) override;
+    RenderResponse onPullProcess(const RenderRequest& request) override;
 
 private:
     // 内部SourceNode（9区画）
@@ -266,7 +266,7 @@ namespace FLEXIMG_NAMESPACE {
 // NinePatchSourceNode - Template Method フック実装
 // ============================================================================
 
-PrepareResult NinePatchSourceNode::onPullPrepare(const PrepareRequest& request) {
+PrepareResponse NinePatchSourceNode::onPullPrepare(const PrepareRequest& request) {
     // ジオメトリ計算（まだなら）
     if (!geometryValid_) {
         updatePatchGeometry();
@@ -293,8 +293,8 @@ PrepareResult NinePatchSourceNode::onPullPrepare(const PrepareRequest& request) 
 
     // NinePatchSourceNodeは終端なので上流への伝播なし
     // プルアフィン変換がある場合、出力側で必要なAABBを計算
-    PrepareResult result;
-    result.status = PipelineStatus::Success;
+    PrepareResponse result;
+    result.status = PrepareStatus::Prepared;
     result.preferredFormat = source_.formatID;
 
     if (request.hasAffine) {
@@ -329,9 +329,9 @@ void NinePatchSourceNode::onPullFinalize() {
     finalize();
 }
 
-RenderResult NinePatchSourceNode::onPullProcess(const RenderRequest& request) {
+RenderResponse NinePatchSourceNode::onPullProcess(const RenderRequest& request) {
     if (!sourceValid_ || outputWidth_ <= 0 || outputHeight_ <= 0) {
-        return RenderResult();
+        return RenderResponse();
     }
 
     // ジオメトリ計算（まだなら）
@@ -365,7 +365,7 @@ RenderResult NinePatchSourceNode::onPullProcess(const RenderRequest& request) {
 
     // 有効なデータがない場合は空を返す
     if (canvasStartX >= canvasEndX) {
-        return RenderResult();
+        return RenderResponse();
     }
 
     int16_t canvasWidth = canvasEndX - canvasStartX;
@@ -391,7 +391,7 @@ RenderResult NinePatchSourceNode::onPullProcess(const RenderRequest& request) {
         DataRange range = patches_[i].getDataRange(request);
         if (!range.hasData()) continue;
 
-        RenderResult patchResult = patches_[i].pullProcess(request);
+        RenderResponse patchResult = patches_[i].pullProcess(request);
         if (!patchResult.isValid()) continue;
 
         // フォーマット変換
@@ -403,7 +403,7 @@ RenderResult NinePatchSourceNode::onPullProcess(const RenderRequest& request) {
                                  patchResult.view(), patchResult.origin.x, patchResult.origin.y);
     }
 
-    return RenderResult(std::move(canvasBuf), Point{canvasOriginX, canvasOriginY});
+    return RenderResponse(std::move(canvasBuf), Point{canvasOriginX, canvasOriginY});
 }
 
 // ============================================================================

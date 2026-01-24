@@ -53,7 +53,7 @@ public:
     // ========================================
 
     // onPullProcess: マージン追加とメトリクス記録を行い、process() に委譲
-    RenderResult onPullProcess(const RenderRequest& request) override;
+    RenderResponse onPullProcess(const RenderRequest& request) override;
 
 protected:
     // ========================================
@@ -71,7 +71,7 @@ protected:
 
     // process() 共通実装
     // スキャンライン必須仕様（height=1）前提の共通処理
-    RenderResult process(RenderResult&& input,
+    RenderResponse process(RenderResponse&& input,
                         const RenderRequest& request) override;
 
     // ========================================
@@ -94,9 +94,9 @@ namespace FLEXIMG_NAMESPACE {
 // FilterNodeBase - Template Method フック実装
 // ============================================================================
 
-RenderResult FilterNodeBase::onPullProcess(const RenderRequest& request) {
+RenderResponse FilterNodeBase::onPullProcess(const RenderRequest& request) {
     Node* upstream = upstreamNode(0);
-    if (!upstream) return RenderResult();
+    if (!upstream) return RenderResponse();
 
     int margin = computeInputMargin();
     RenderRequest inputReq = request.expand(margin);
@@ -108,7 +108,7 @@ RenderResult FilterNodeBase::onPullProcess(const RenderRequest& request) {
     metrics.usedPixels += static_cast<uint64_t>(request.width) * static_cast<uint64_t>(request.height);
 #endif
 
-    RenderResult input = upstream->pullProcess(inputReq);
+    RenderResponse input = upstream->pullProcess(inputReq);
     if (!input.isValid()) return input;
 
     // process() を呼ぶ（Node基底クラスの設計に沿う）
@@ -125,7 +125,7 @@ RenderResult FilterNodeBase::onPullProcess(const RenderRequest& request) {
 // 3. パフォーマンス計測（デバッグビルド時）
 //
 
-RenderResult FilterNodeBase::process(RenderResult&& input,
+RenderResponse FilterNodeBase::process(RenderResponse&& input,
                                      const RenderRequest& request) {
     (void)request;  // スキャンライン必須仕様では未使用
     FLEXIMG_METRICS_SCOPE(nodeTypeForMetrics());
@@ -138,7 +138,7 @@ RenderResult FilterNodeBase::process(RenderResult&& input,
     uint8_t* row = static_cast<uint8_t*>(workingView.data);
     getFilterFunc()(row, workingView.width, params_);
 
-    return RenderResult(std::move(working), input.origin);
+    return RenderResponse(std::move(working), input.origin);
 }
 
 } // namespace FLEXIMG_NAMESPACE

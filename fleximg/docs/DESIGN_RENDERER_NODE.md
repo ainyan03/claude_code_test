@@ -87,7 +87,7 @@ SourceNode (100x100, origin: 50,50)     SinkNode (200x200, origin: 100,100)
 出力での画像左上位置 = (100-50, 100-50) = (50, 50)
 ```
 
-### RenderRequest / RenderResult
+### RenderRequest / RenderResponse
 
 ```cpp
 // 下流から上流への要求
@@ -97,7 +97,7 @@ struct RenderRequest {
 };
 
 // 上流から下流への応答
-struct RenderResult {
+struct RenderResponse {
     ImageBuffer buffer;
     Point origin;  // バッファ内での基準点位置（int_fixed Q16.16）
 };
@@ -222,7 +222,7 @@ public:
     // 共通処理（派生クラスでオーバーライド可能）
     // ========================================
 
-    virtual RenderResult process(RenderResult&& input,
+    virtual RenderResponse process(RenderResponse&& input,
                                  const RenderRequest& request);
     virtual void prepare(const RenderRequest& screenInfo);
     virtual void finalize();
@@ -231,7 +231,7 @@ public:
     // プル型（上流側で使用）- final メソッド
     // ========================================
 
-    virtual RenderResult pullProcess(const RenderRequest& request) final;
+    virtual RenderResponse pullProcess(const RenderRequest& request) final;
     virtual bool pullPrepare(const PrepareRequest& request) final;
     virtual void pullFinalize() final;
 
@@ -239,7 +239,7 @@ public:
     // プッシュ型（下流側で使用）- final メソッド
     // ========================================
 
-    virtual void pushProcess(RenderResult&& input,
+    virtual void pushProcess(RenderResponse&& input,
                              const RenderRequest& request) final;
     virtual bool pushPrepare(const PrepareRequest& request) final;
     virtual void pushFinalize() final;
@@ -249,11 +249,11 @@ protected:
     // 派生クラスでオーバーライドするフック
     // ========================================
 
-    virtual RenderResult onPullProcess(const RenderRequest& request);
+    virtual RenderResponse onPullProcess(const RenderRequest& request);
     virtual bool onPullPrepare(const PrepareRequest& request);
     virtual void onPullFinalize();
 
-    virtual void onPushProcess(RenderResult&& input, const RenderRequest& request);
+    virtual void onPushProcess(RenderResponse&& input, const RenderRequest& request);
     virtual bool onPushPrepare(const PrepareRequest& request);
     virtual void onPushFinalize();
 };
@@ -366,10 +366,10 @@ exec() 呼び出し時:
 
 ```cpp
 class BlurNode : public Node {
-    RenderResult pullProcess(const RenderRequest& request) override {
+    RenderResponse pullProcess(const RenderRequest& request) override {
         // カーネルサイズ分だけ拡大したrequestで上流を評価
         RenderRequest expandedReq = request.expand(radius_);
-        RenderResult input = upstreamNode(0)->pullProcess(expandedReq);
+        RenderResponse input = upstreamNode(0)->pullProcess(expandedReq);
         // 元のrequestで処理
         return process(std::move(input), request);
     }

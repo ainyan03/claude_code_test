@@ -12,17 +12,25 @@
 namespace FLEXIMG_NAMESPACE {
 
 // ========================================================================
-// PipelineStatus - パイプライン実行結果
+// PrepareStatus - ノードの準備状態
 // ========================================================================
 //
-// 成功 = 0、エラー = 非0（C言語の慣例に従う）
+// 準備フェーズの状態を表す。
+// - 最終状態（Prepared, CycleError, NoUpstream, NoDownstream）は exec() の戻り値として使用
+// - 中間状態（Idle, Preparing）は prepare フェーズ中の一時的な状態
+// - 成功 = 0、エラー = 正の値、中間状態 = 負の値
 //
 
-enum class PipelineStatus : int {
-    Success = 0,           // 成功
-    CycleDetected = 1,     // 循環参照を検出
+enum class PrepareStatus : int {
+    // 最終状態（exec() の戻り値として使用）
+    Prepared = 0,          // 準備完了（成功）
+    CycleError = 1,        // 循環参照を検出
     NoUpstream = 2,        // 上流ノードが未接続
     NoDownstream = 3,      // 下流ノードが未接続
+
+    // 中間状態（prepare フェーズ中の一時的な状態）
+    Idle = -2,             // 未処理（初期状態）
+    Preparing = -1,        // 準備中（循環検出用）
 };
 
 // ========================================================================
@@ -93,11 +101,12 @@ struct PrepareRequest {
 };
 
 // ========================================================================
-// PrepareResult - 準備結果（末端ノードからの応答）
+// PrepareResponse - 準備応答（末端ノードからの応答）
 // ========================================================================
 //
 // pushPrepare/pullPrepareの戻り値として使用。
 // 末端ノード（SinkNode/SourceNode）が累積行列からAABBを計算して返す。
+// 状態（status）と境界情報（AABB）を保持する。
 //
 
 // ========================================================================
@@ -117,8 +126,8 @@ struct DataRange {
     int16_t width() const { return (startX < endX) ? (endX - startX) : 0; }
 };
 
-struct PrepareResult {
-    PipelineStatus status = PipelineStatus::Success;
+struct PrepareResponse {
+    PrepareStatus status = PrepareStatus::Idle;
 
     // === AABBバウンディングボックス（処理すべき範囲） ===
     int16_t width = 0;
@@ -129,7 +138,7 @@ struct PrepareResult {
     PixelFormatID preferredFormat = PixelFormatIDs::RGBA8_Straight;
 
     // 便利メソッド
-    bool ok() const { return status == PipelineStatus::Success; }
+    bool ok() const { return status == PrepareStatus::Prepared; }
 
     // 要求矩形との交差判定
     // このAABBとrequestの矩形が重なるかどうかを判定
@@ -288,23 +297,23 @@ inline void calcInverseAffineAABB(
 }
 
 // ========================================================================
-// RenderResult - 評価結果
+// RenderResponse - レンダリング応答
 // ========================================================================
 
-struct RenderResult {
+struct RenderResponse {
     ImageBuffer buffer;
     Point origin;  // バッファ内での基準点位置（固定小数点 Q16.16）
 
-    RenderResult() = default;
+    RenderResponse() = default;
 
-    RenderResult(ImageBuffer&& buf, Point org)
+    RenderResponse(ImageBuffer&& buf, Point org)
         : buffer(std::move(buf)), origin(org) {}
 
     // ムーブのみ
-    RenderResult(const RenderResult&) = delete;
-    RenderResult& operator=(const RenderResult&) = delete;
-    RenderResult(RenderResult&&) = default;
-    RenderResult& operator=(RenderResult&&) = default;
+    RenderResponse(const RenderResponse&) = delete;
+    RenderResponse& operator=(const RenderResponse&) = delete;
+    RenderResponse(RenderResponse&&) = default;
+    RenderResponse& operator=(RenderResponse&&) = default;
 
     bool isValid() const { return buffer.isValid(); }
     ViewPort view() { return buffer.view(); }

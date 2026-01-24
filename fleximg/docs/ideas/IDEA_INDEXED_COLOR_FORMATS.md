@@ -251,7 +251,7 @@ const uint8_t* ImageBuffer::getPalette() const {
 
 ```cpp
 // 変換時にImageBufferのパレットを自動的に使用
-RenderResult processIndexedImage(ImageBuffer& buffer) {
+RenderResponse processIndexedImage(ImageBuffer& buffer) {
     ImageBuffer rgba8Buffer = ...;
 
     // ImageBufferがパレットを保持
@@ -956,9 +956,9 @@ public:
     void setDithering(bool enable);
 
 protected:
-    RenderResult pullProcess(const RenderRequest& request) override {
+    RenderResponse pullProcess(const RenderRequest& request) override {
         // 上流からRGBA画像取得
-        RenderResult input = upstreamNode(0)->pullProcess(request);
+        RenderResponse input = upstreamNode(0)->pullProcess(request);
 
         // パレット生成（Median Cut）
         auto palette = PaletteGeneration::generateMedianCut(

@@ -67,24 +67,31 @@ protected:
     // ========================================
 
     // onPushPrepare: LCD準備
-    bool onPushPrepare(const PrepareRequest& request) override {
+    PrepareResponse onPushPrepare(const PrepareRequest& request) override {
+        PrepareResponse result;
         if (!lcd_) {
-            return false;
+            result.status = PrepareStatus::NoDownstream;
+            return result;
         }
 
         // 出力予定の画像幅と基準点を保存
-        expectedWidth_ = request.width;
-        expectedOriginX_ = request.origin.x;
+        // request が未設定（0）の場合は自身のウィンドウサイズを使用
+        expectedWidth_ = (request.width > 0) ? request.width : windowW_;
+        expectedOriginX_ = (request.width > 0) ? request.origin.x : originX_;
 
         // LCDトランザクション開始
         lcd_->startWrite();
         currentY_ = 0;
 
-        return true;
+        result.status = PrepareStatus::Prepared;
+        result.width = windowW_;
+        result.height = windowH_;
+        result.origin = {originX_, originY_};
+        return result;
     }
 
     // onPushProcess: 画像転送
-    void onPushProcess(RenderResult&& input,
+    void onPushProcess(RenderResponse&& input,
                        const RenderRequest& request) override {
         (void)request;
 

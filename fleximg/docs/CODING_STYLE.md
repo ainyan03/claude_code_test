@@ -275,16 +275,16 @@ if (static_cast<uint_fast32_t>(x) >= static_cast<uint_fast32_t>(width)) {
 ```cpp
 #include "../core/perf_metrics.h"
 
-RenderResult onPullProcess(const RenderRequest& request) override {
+RenderResponse onPullProcess(const RenderRequest& request) override {
     FLEXIMG_METRICS_SCOPE(NodeType::Source);
 
     // 処理
     // ...
     // 早期リターンでも計測される（RAIIにより自動記録）
-    if (!isValid()) return RenderResult();
+    if (!isValid()) return RenderResponse();
 
     // 正常終了時も自動記録
-    return RenderResult(std::move(buffer), origin);
+    return RenderResponse(std::move(buffer), origin);
 }
 ```
 

@@ -94,24 +94,24 @@ public:
     // ========================================
 
     // 簡易API（prepare → execute → finalize）
-    // 戻り値: PipelineStatus（Success = 0、エラー = 非0）
-    PipelineStatus exec() {
+    // 戻り値: PrepareStatus（Success = 0、エラー = 非0）
+    PrepareStatus exec() {
         FLEXIMG_METRICS_SCOPE(NodeType::Renderer);
 
-        PipelineStatus result = execPrepare();
-        if (result != PipelineStatus::Success) {
+        PrepareStatus result = execPrepare();
+        if (result != PrepareStatus::Prepared) {
             // エラー時も状態をリセット
             execFinalize();
             return result;
         }
         execProcess();
         execFinalize();
-        return PipelineStatus::Success;
+        return PrepareStatus::Prepared;
     }
 
     // 詳細API
-    // 戻り値: PipelineStatus（Success = 0、エラー = 非0）
-    PipelineStatus execPrepare();
+    // 戻り値: PrepareStatus（Success = 0、エラー = 非0）
+    PrepareStatus execPrepare();
     void execProcess();
 
     void execFinalize() {
@@ -151,7 +151,7 @@ protected:
         Node* upstream = upstreamNode(0);
         if (!upstream) return;
 
-        RenderResult result = upstream->pullProcess(request);
+        RenderResponse result = upstream->pullProcess(request);
 
         // 下流へプッシュ（有効なデータがなくても常に転送）
         Node* downstream = downstreamNode(0);
@@ -236,7 +236,7 @@ namespace FLEXIMG_NAMESPACE {
 // RendererNode - 実行API実装
 // ============================================================================
 
-PipelineStatus RendererNode::execPrepare() {
+PrepareStatus RendererNode::execPrepare() {
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
     // メトリクスをリセット
     PerfMetrics::instance().reset();
@@ -248,14 +248,14 @@ PipelineStatus RendererNode::execPrepare() {
     // ========================================
     Node* downstream = downstreamNode(0);
     if (!downstream) {
-        return PipelineStatus::NoDownstream;
+        return PrepareStatus::NoDownstream;
     }
 
     PrepareRequest pushReq;
     pushReq.hasPushAffine = false;
     pushReq.allocator = pipelineAllocator_;
 
-    PrepareResult pushResult = downstream->pushPrepare(pushReq);
+    PrepareResponse pushResult = downstream->pushPrepare(pushReq);
     if (!pushResult.ok()) {
         return pushResult.status;
     }
@@ -276,7 +276,7 @@ PipelineStatus RendererNode::execPrepare() {
     // ========================================
     Node* upstream = upstreamNode(0);
     if (!upstream) {
-        return PipelineStatus::NoUpstream;
+        return PrepareStatus::NoUpstream;
     }
 
     RenderRequest screenInfo = createScreenRequest();
@@ -289,7 +289,7 @@ PipelineStatus RendererNode::execPrepare() {
     // 下流が希望するフォーマットを上流に伝播
     pullReq.preferredFormat = pushResult.preferredFormat;
 
-    PrepareResult pullResult = upstream->pullPrepare(pullReq);
+    PrepareResponse pullResult = upstream->pullPrepare(pullReq);
     if (!pullResult.ok()) {
         return pullResult.status;
     }
@@ -297,7 +297,7 @@ PipelineStatus RendererNode::execPrepare() {
     // 上流情報は将来の最適化に活用
     (void)pullResult;
 
-    return PipelineStatus::Success;
+    return PrepareStatus::Prepared;
 }
 
 void RendererNode::execProcess() {

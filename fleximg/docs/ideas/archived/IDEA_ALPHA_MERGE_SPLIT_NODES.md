@@ -40,7 +40,7 @@ public:
 
     // Node interface
     const char* name() const override { return "MatteNode"; }
-    RenderResult pullProcess(const RenderRequest& request) override;
+    RenderResponse pullProcess(const RenderRequest& request) override;
 };
 ```
 

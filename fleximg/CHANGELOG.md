@@ -59,7 +59,7 @@
   - vtableリンケージ問題を解決し、stb-styleパターンの一貫性を向上
 
 - **分離済みファイル一覧**:
-  - `core/node.h`: checkPrepareState, convertFormat, initPorts
+  - `core/node.h`: checkPrepareStatus, convertFormat, initPorts
   - `nodes/vertical_blur_node.h`: onPullProcess, onPushProcess, applyVerticalBlur等
   - `nodes/horizontal_blur_node.h`: onPullProcess, onPushProcess, applyHorizontalBlur
   - `nodes/matte_node.h`: onPullPrepare/Finalize/Process, private helpers
@@ -332,7 +332,7 @@
       applyHorizontalBlur(srcView, -radius_, output);
       currentOrigin.x = currentOrigin.x + to_fixed(radius_);
   }
-  return RenderResult(std::move(buffer), currentOrigin);
+  return RenderResponse(std::move(buffer), currentOrigin);
   ```
 
 - **マルチパスカーネル計算** (vertical_blur_node.h:367-388):
@@ -1060,8 +1060,8 @@ src >> hblur >> vblur >> renderer >> sink;
 ### 追加
 
 - **循環参照検出**: ノードグラフの循環を検出しスタックオーバーフローを防止
-  - `PrepareState` enum: `Idle`, `Preparing`, `Prepared`, `CycleError` の4状態
-  - `PipelineStatus` enum: `Success=0`, `CycleDetected=1`, `NoUpstream=2`, `NoDownstream=3`
+  - `PrepareStatus` enum: `Idle`, `Preparing`, `Prepared`, `CycleError` の4状態
+  - `PrepareStatus` enum: `Success=0`, `CycleDetected=1`, `NoUpstream=2`, `NoDownstream=3`
   - `pullPrepare()` / `pushPrepare()`: 循環検出時に `false` を返却
   - `pullProcess()` / `pushProcess()`: 循環エラー状態のノードは処理をスキップ
   - DAG（有向非巡回グラフ）共有ノードを正しくサポート
@@ -1070,7 +1070,7 @@ src >> hblur >> vblur >> renderer >> sink;
 
 ### 変更
 
-- **RendererNode::exec()**: 戻り値を `void` → `PipelineStatus` に変更
+- **RendererNode::exec()**: 戻り値を `void` → `PrepareStatus` に変更
 - **bindings.cpp**: `evaluateGraph()` が `int` を返却（0=成功、非0=エラー）
 
 ### テスト
@@ -1179,7 +1179,7 @@ src >> hblur >> vblur >> renderer >> sink;
   - マイグレーション用 float コンストラクタを維持
   - `xf()`, `yf()` アクセサで float 値を取得可能
 
-- **RenderRequest/RenderResult**: width/height を int16_t に変更
+- **RenderRequest/RenderResponse**: width/height を int16_t に変更
 
 - **ViewPort/ImageBuffer**:
   - width/height を int16_t に変更
@@ -1208,10 +1208,10 @@ src >> hblur >> vblur >> renderer >> sink;
 
 ### 変更
 
-- **origin 座標系の統一**: RenderRequest と RenderResult の origin を統一
+- **origin 座標系の統一**: RenderRequest と RenderResponse の origin を統一
   - 両方とも「バッファ内での基準点位置」を意味するように変更
   - RenderRequest: `originX/Y` → `Point2f origin` に変更
-  - RenderResult: origin の意味を反転（旧: 基準相対座標 → 新: バッファ内位置）
+  - RenderResponse: origin の意味を反転（旧: 基準相対座標 → 新: バッファ内位置）
   - 符号反転 (`-origin.x`) が不要になり、コードが明確化
 
 - **影響を受けるノード**:
@@ -1234,7 +1234,7 @@ src >> hblur >> vblur >> renderer >> sink;
 ### ドキュメント
 
 - **DESIGN_TYPE_STRUCTURE.md**: 型構造設計ドキュメントを新規作成
-  - ViewPort、ImageBuffer、RenderResult の設計と使用方法
+  - ViewPort、ImageBuffer、RenderResponse の設計と使用方法
   - コンポジション設計の利点を説明
 
 - **DESIGN_PIXEL_FORMAT.md**: ピクセルフォーマット変換ドキュメントを追加

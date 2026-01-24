@@ -41,11 +41,11 @@ protected:
     virtual int nodeTypeForMetrics() const = 0;
 
 public:
-    RenderResult pullProcess(const RenderRequest& request) override {
+    RenderResponse pullProcess(const RenderRequest& request) override {
         int margin = computeInputMargin();
         RenderRequest inputReq = request.expand(margin);
 
-        RenderResult input = upstreamNode(0)->pullProcess(inputReq);
+        RenderResponse input = upstreamNode(0)->pullProcess(inputReq);
         return process(std::move(input), request);
     }
 };
@@ -106,11 +106,11 @@ class BrightnessNode : public FilterNodeBase {
 protected:
     int nodeTypeForMetrics() const override { return NodeType::Brightness; }
 
-    RenderResult process(RenderResult&& input, const RenderRequest& request) override {
+    RenderResponse process(RenderResponse&& input, const RenderRequest& request) override {
         ImageBuffer working = std::move(input.buffer).toFormat(PixelFormatIDs::RGBA8_Straight);
         ImageBuffer output(working.width(), working.height(), PixelFormatIDs::RGBA8_Straight);
         filters::brightness(output.view(), working.view(), amount_);
-        return RenderResult(std::move(output), input.origin);
+        return RenderResponse(std::move(output), input.origin);
     }
 };
 ```
@@ -127,12 +127,12 @@ class HorizontalBlurNode : public Node {
 protected:
     // pull型: マージンを確保して上流に要求、下流には元サイズで返却
     // ※実装では onPullProcess() をオーバーライド（Template Methodパターン）
-    RenderResult onPullProcess(const RenderRequest& request) override {
+    RenderResponse onPullProcess(const RenderRequest& request) override {
         // 上流への要求（マージン付き）
         int totalMargin = radius_ * passes_;
         RenderRequest inputReq;
         inputReq.width = request.width + totalMargin * 2;
-        RenderResult input = upstreamNode(0)->pullProcess(inputReq);
+        RenderResponse input = upstreamNode(0)->pullProcess(inputReq);
 
         // passes回、水平ブラーを適用（内部で拡張）
         for (int pass = 0; pass < passes_; pass++) {
@@ -140,12 +140,12 @@ protected:
         }
 
         // 中央部分をクロップして元のサイズで返却
-        return RenderResult(cropToCenter(buffer, request.width), request.origin);
+        return RenderResponse(cropToCenter(buffer, request.width), request.origin);
     }
 
     // push型: 入力を拡張して下流に配布
     // ※実装では onPushProcess() をオーバーライド
-    void onPushProcess(RenderResult&& input, const RenderRequest& request) override {
+    void onPushProcess(RenderResponse&& input, const RenderRequest& request) override {
         // passes回ブラーを適用（各パスで拡張）
         // 拡張された結果を下流に配布
     }

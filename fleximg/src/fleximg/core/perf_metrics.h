@@ -199,7 +199,7 @@ struct PerfMetrics {
 // ========================================================================
 //
 // 使用例:
-//   RenderResult process(...) override {
+//   RenderResponse process(...) override {
 //       FLEXIMG_METRICS_SCOPE(nodeTypeForMetrics());
 //       // ... 処理 ...
 //       return result;
