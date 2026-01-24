@@ -75,8 +75,9 @@ protected:
         }
 
         // 出力予定の画像幅と基準点を保存
-        expectedWidth_ = request.width;
-        expectedOriginX_ = request.origin.x;
+        // request が未設定（0）の場合は自身のウィンドウサイズを使用
+        expectedWidth_ = (request.width > 0) ? request.width : windowW_;
+        expectedOriginX_ = (request.width > 0) ? request.origin.x : originX_;
 
         // LCDトランザクション開始
         lcd_->startWrite();
