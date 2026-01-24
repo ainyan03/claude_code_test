@@ -81,8 +81,8 @@ public:
     // ========================================
 
     // onPullPrepare: アフィン情報を受け取り、事前計算を行う
-    // SourceNodeは終端なので上流への伝播なし
-    bool onPullPrepare(const PrepareRequest& request) override;
+    // SourceNodeは終端なので上流への伝播なし、PrepareResultを返す
+    PrepareResult onPullPrepare(const PrepareRequest& request) override;
 
     // onPullProcess: ソース画像のスキャンラインを返す
     // SourceNodeは入力がないため、上流を呼び出さずに直接処理
@@ -100,6 +100,9 @@ private:
     AffinePrecomputed affine_;     // 逆行列・ピクセル中心オフセット
     bool hasAffine_ = false;       // アフィン変換が伝播されているか
     bool useBilinear_ = false;     // バイリニア補間を使用するか（事前計算結果）
+
+    // フォーマット交渉（下流からの希望フォーマット）
+    PixelFormatID preferredFormat_ = PixelFormatIDs::RGBA8_Straight;
 
     // LovyanGFX方式の範囲計算用事前計算値
     int32_t xs1_ = 0, xs2_ = 0;  // X方向の範囲境界（invAに依存）
@@ -126,7 +129,14 @@ namespace FLEXIMG_NAMESPACE {
 // SourceNode - Template Method フック実装
 // ============================================================================
 
-bool SourceNode::onPullPrepare(const PrepareRequest& request) {
+PrepareResult SourceNode::onPullPrepare(const PrepareRequest& request) {
+    // 下流からの希望フォーマットを保存（将来のフォーマット最適化用）
+    preferredFormat_ = request.preferredFormat;
+
+    // AABB計算用の行列（合成済み）
+    AffineMatrix combinedMatrix;
+    bool hasTransform = false;
+
     // アフィン情報を受け取り、事前計算を行う
     // position が設定されている場合も、アフィン行列に合成して処理
     if (request.hasAffine || positionX_ != 0.0f || positionY_ != 0.0f) {
@@ -140,6 +150,10 @@ bool SourceNode::onPullPrepare(const PrepareRequest& request) {
         float transformedPosY = mat.c * positionX_ + mat.d * positionY_;
         mat.tx += transformedPosX;
         mat.ty += transformedPosY;
+
+        // AABB計算用に合成済み行列を保存
+        combinedMatrix = mat;
+        hasTransform = true;
 
         // 逆行列とピクセル中心オフセットを計算（共通処理）
         affine_ = precomputeInverseAffine(mat);
@@ -238,8 +252,26 @@ bool SourceNode::onPullPrepare(const PrepareRequest& request) {
         hasAffine_ = false;
     }
 
-    // SourceNodeは終端なので上流への伝播なし（return trueのみ）
-    return true;
+    // SourceNodeは終端なので上流への伝播なし
+    // プルアフィン変換がある場合、出力側で必要なAABBを計算
+    PrepareResult result;
+    result.status = PipelineStatus::Success;
+    result.preferredFormat = source_.formatID;
+
+    if (hasTransform) {
+        // ソース矩形に順変換を適用して出力側のAABBを計算
+        calcAffineAABB(
+            source_.width, source_.height,
+            {originX_, originY_},
+            combinedMatrix,
+            result.width, result.height, result.origin);
+    } else {
+        // アフィンなしの場合はそのまま
+        result.width = static_cast<int16_t>(source_.width);
+        result.height = static_cast<int16_t>(source_.height);
+        result.origin = {originX_, originY_};
+    }
+    return result;
 }
 
 RenderResult SourceNode::onPullProcess(const RenderRequest& request) {

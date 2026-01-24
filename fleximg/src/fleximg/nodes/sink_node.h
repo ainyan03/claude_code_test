@@ -55,8 +55,8 @@ protected:
     // ========================================
 
     // onPushPrepare: アフィン情報を受け取り、事前計算を行う
-    // SinkNodeは終端なので下流への伝播なし
-    bool onPushPrepare(const PrepareRequest& request) override;
+    // SinkNodeは終端なので下流への伝播なし、PrepareResultを返す
+    PrepareResult onPushPrepare(const PrepareRequest& request) override;
 
     // onPushProcess: タイル単位で呼び出され、出力バッファに書き込み
     // SinkNodeは終端なので下流への伝播なし
@@ -95,7 +95,7 @@ namespace FLEXIMG_NAMESPACE {
 // SinkNode - Template Method フック実装
 // ============================================================================
 
-bool SinkNode::onPushPrepare(const PrepareRequest& request) {
+PrepareResult SinkNode::onPushPrepare(const PrepareRequest& request) {
     // アフィン情報を受け取り、事前計算を行う
     if (request.hasPushAffine) {
         // 逆行列とピクセル中心オフセットを計算（共通処理）
@@ -117,8 +117,26 @@ bool SinkNode::onPushPrepare(const PrepareRequest& request) {
         hasAffine_ = false;
     }
 
-    // SinkNodeは終端なので下流への伝播なし（return trueのみ）
-    return true;
+    // SinkNodeは終端なので下流への伝播なし
+    // プッシュアフィン変換がある場合、入力側で必要なAABBを計算
+    PrepareResult result;
+    result.status = PipelineStatus::Success;
+    result.preferredFormat = target_.formatID;
+
+    if (request.hasPushAffine && affine_.isValid()) {
+        // 出力矩形に逆変換を適用して入力側で必要な範囲を計算
+        calcInverseAffineAABB(
+            target_.width, target_.height,
+            {originX_, originY_},
+            request.pushAffineMatrix,
+            result.width, result.height, result.origin);
+    } else {
+        // アフィンなしの場合はそのまま
+        result.width = target_.width;
+        result.height = target_.height;
+        result.origin = {originX_, originY_};
+    }
+    return result;
 }
 
 void SinkNode::onPushProcess(RenderResult&& input,

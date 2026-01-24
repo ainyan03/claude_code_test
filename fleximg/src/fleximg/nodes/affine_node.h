@@ -82,10 +82,10 @@ protected:
     // ========================================
 
     // onPullPrepare: アフィン行列を上流に伝播し、SourceNodeで一括実行
-    bool onPullPrepare(const PrepareRequest& request) override;
+    PrepareResult onPullPrepare(const PrepareRequest& request) override;
 
     // onPushPrepare: アフィン行列を下流に伝播し、SinkNodeで一括実行
-    bool onPushPrepare(const PrepareRequest& request) override;
+    PrepareResult onPushPrepare(const PrepareRequest& request) override;
 
     // onPullProcess: AffineNodeは行列を保持するのみ、パススルー
     RenderResult onPullProcess(const RenderRequest& request) override;
@@ -115,7 +115,7 @@ namespace FLEXIMG_NAMESPACE {
 // ============================================================================
 
 // 複数のAffineNodeがある場合は行列を合成する
-bool AffineNode::onPullPrepare(const PrepareRequest& request) {
+PrepareResult AffineNode::onPullPrepare(const PrepareRequest& request) {
     // 上流に渡すためのコピーを作成し、自身の行列を累積
     PrepareRequest upstreamRequest = request;
     if (upstreamRequest.hasAffine) {
@@ -129,15 +129,17 @@ bool AffineNode::onPullPrepare(const PrepareRequest& request) {
     // 上流へ伝播
     Node* upstream = upstreamNode(0);
     if (upstream) {
-        if (!upstream->pullPrepare(upstreamRequest)) {
-            return false;
-        }
+        return upstream->pullPrepare(upstreamRequest);  // パススルー
     }
-    return true;
+    // 上流なし: 有効なデータがないのでサイズ0を返す
+    PrepareResult result;
+    result.status = PipelineStatus::Success;
+    // width/height/originはデフォルト値（0）のまま
+    return result;
 }
 
 // 複数のAffineNodeがある場合は行列を合成する
-bool AffineNode::onPushPrepare(const PrepareRequest& request) {
+PrepareResult AffineNode::onPushPrepare(const PrepareRequest& request) {
     // 下流に渡すためのコピーを作成し、自身の行列を累積
     PrepareRequest downstreamRequest = request;
     if (downstreamRequest.hasPushAffine) {
@@ -151,11 +153,13 @@ bool AffineNode::onPushPrepare(const PrepareRequest& request) {
     // 下流へ伝播
     Node* downstream = downstreamNode(0);
     if (downstream) {
-        if (!downstream->pushPrepare(downstreamRequest)) {
-            return false;
-        }
+        return downstream->pushPrepare(downstreamRequest);  // パススルー
     }
-    return true;
+    // 下流なし: 有効なデータがないのでサイズ0を返す
+    PrepareResult result;
+    result.status = PipelineStatus::Success;
+    // width/height/originはデフォルト値（0）のまま
+    return result;
 }
 
 RenderResult AffineNode::onPullProcess(const RenderRequest& request) {

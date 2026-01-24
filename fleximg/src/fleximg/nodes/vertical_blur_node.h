@@ -77,12 +77,22 @@ public:
 
     const char* name() const override { return "VerticalBlurNode"; }
 
+    // getDataRange: 垂直ブラーはX範囲に影響しないので上流をそのまま返す
+    DataRange getDataRange(const RenderRequest& request) const override {
+        Node* upstream = upstreamNode(0);
+        if (upstream) {
+            return upstream->getDataRange(request);
+        }
+        return DataRange();
+    }
+
     // 準備・終了処理（pull型用）
     void prepare(const RenderRequest& screenInfo) override;
     void finalize() override;
 
     // Template Method フック
-    bool onPushPrepare(const PrepareRequest& request) override;
+    PrepareResult onPullPrepare(const PrepareRequest& request) override;
+    PrepareResult onPushPrepare(const PrepareRequest& request) override;
     void onPushProcess(RenderResult&& input, const RenderRequest& request) override;
     void onPushFinalize() override;
 
@@ -204,28 +214,73 @@ void VerticalBlurNode::finalize() {
 // Template Method フック
 // ========================================
 
-bool VerticalBlurNode::onPushPrepare(const PrepareRequest& request) {
-    // radius=0の場合はスルー
-    if (radius_ == 0) {
-        Node* downstream = downstreamNode(0);
-        if (downstream) {
-            if (!downstream->pushPrepare(request)) {
-                return false;
-            }
-        }
-        return true;
+PrepareResult VerticalBlurNode::onPullPrepare(const PrepareRequest& request) {
+    // 上流へ伝播
+    Node* upstream = upstreamNode(0);
+    if (!upstream) {
+        // 上流なし: サイズ0を返す
+        PrepareResult result;
+        result.status = PipelineStatus::Success;
+        return result;
     }
 
-    // push用状態を初期化
+    PrepareResult upstreamResult = upstream->pullPrepare(request);
+    if (!upstreamResult.ok()) {
+        return upstreamResult;
+    }
+
+    // 準備処理
+    RenderRequest screenInfo;
+    screenInfo.width = request.width;
+    screenInfo.height = request.height;
+    screenInfo.origin = request.origin;
+    prepare(screenInfo);
+
+    // radius=0の場合はパススルー
+    if (radius_ == 0) {
+        return upstreamResult;
+    }
+
+    // 垂直ぼかしはY方向に radius * passes 分拡張する
+    // AABBの高さを拡張し、originのYをシフト
+    int expansion = radius_ * passes_;
+    upstreamResult.height = static_cast<int16_t>(upstreamResult.height + expansion * 2);
+    upstreamResult.origin.y = upstreamResult.origin.y + to_fixed(expansion);
+
+    return upstreamResult;
+}
+
+PrepareResult VerticalBlurNode::onPushPrepare(const PrepareRequest& request) {
+    // 下流へ先に伝播してサイズ情報を取得
+    Node* downstream = downstreamNode(0);
+    PrepareResult downstreamResult;
+    if (downstream) {
+        downstreamResult = downstream->pushPrepare(request);
+        if (!downstreamResult.ok()) {
+            return downstreamResult;
+        }
+    } else {
+        // 下流なし: 有効なデータがないのでサイズ0を返す
+        downstreamResult.status = PipelineStatus::Success;
+        // width/height/originはデフォルト値（0）のまま
+        return downstreamResult;
+    }
+
+    // radius=0の場合はスルー（キャッシュ初期化不要）
+    if (radius_ == 0) {
+        return downstreamResult;
+    }
+
+    // push用状態を初期化（下流から取得したサイズを使用）
     pushInputY_ = 0;
     pushOutputY_ = 0;
-    pushInputWidth_ = request.width;
-    pushInputHeight_ = request.height;
+    pushInputWidth_ = downstreamResult.width;
+    pushInputHeight_ = downstreamResult.height;
     // 出力高さ = 入力高さ（push型ではサイズを変えない、エッジはゼロパディング）
     pushOutputHeight_ = pushInputHeight_;
-    baseOriginX_ = request.origin.x;  // 基準origin.x（BoxBlurNodeと同様）
-    pushInputOriginY_ = request.origin.y;
-    lastInputOriginY_ = request.origin.y;
+    baseOriginX_ = downstreamResult.origin.x;  // 基準origin.x
+    pushInputOriginY_ = downstreamResult.origin.y;
+    lastInputOriginY_ = downstreamResult.origin.y;
 
     // パイプライン方式でキャッシュを初期化（passes=1でもstages_[0]を使用）
     initializeStages(pushInputWidth_);
@@ -235,23 +290,15 @@ bool VerticalBlurNode::onPushPrepare(const PrepareRequest& request) {
         stage.pushOutputY = 0;
     }
 
-    // 下流へ伝播
-    Node* downstream = downstreamNode(0);
-    if (downstream) {
-        if (!downstream->pushPrepare(request)) {
-            return false;
-        }
-    }
-
-    return true;
+    return downstreamResult;
 }
 
-void VerticalBlurNode::onPushProcess(RenderResult&& input, const RenderRequest& /* request */) {
+void VerticalBlurNode::onPushProcess(RenderResult&& input, const RenderRequest& request) {
     // radius=0の場合はスルー
     if (radius_ == 0) {
         Node* downstream = downstreamNode(0);
         if (downstream) {
-            downstream->pushProcess(std::move(input), RenderRequest());
+            downstream->pushProcess(std::move(input), request);
         }
         return;
     }
