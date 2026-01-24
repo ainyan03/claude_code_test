@@ -59,21 +59,49 @@ renderer.exec();
 ```
 Node (基底クラス)
 │
-├── SourceNode        # 画像データを提供（入力端点）
+├── + AffineCapability (Mixin)  # アフィン変換機能を持つノード
+│   ├── SourceNode        # 画像データを提供（入力端点）
+│   ├── SinkNode          # 出力先を保持（出力端点）
+│   ├── AffineNode        # アフィン変換（プル/プッシュ両対応）
+│   ├── CompositeNode     # 複数画像を合成（N入力 → 1出力）
+│   └── DistributorNode   # 画像を複数先に分配（1入力 → N出力）
+│
 ├── NinePatchSourceNode # 9パッチ画像を提供（伸縮可能な入力端点）
-├── SinkNode          # 出力先を保持（出力端点）
-├── AffineNode        # アフィン変換（プル/プッシュ両対応）
 ├── FilterNodeBase    # フィルタ共通基底
 │   ├── BrightnessNode      # 明るさ調整
 │   ├── GrayscaleNode       # グレースケール
 │   └── AlphaNode           # アルファ調整
 ├── HorizontalBlurNode  # 水平ぼかし（ガウシアン近似対応）
 ├── VerticalBlurNode    # 垂直ぼかし（ガウシアン近似対応）
-├── CompositeNode     # 複数画像を合成（N入力 → 1出力）
 ├── MatteNode         # マット合成（3入力: 前景/背景/マスク → 1出力）
-├── DistributorNode   # 画像を複数先に分配（1入力 → N出力）
 └── RendererNode      # パイプライン実行の発火点
 ```
+
+#### AffineCapability Mixin
+
+`AffineCapability` は Node とは独立した Mixin クラスで、アフィン変換機能を提供します：
+
+```cpp
+class AffineCapability {
+public:
+    void setMatrix(const AffineMatrix& m);
+    void setRotation(float radians);
+    void setScale(float sx, float sy);
+    void setTranslation(float tx, float ty);
+    void setRotationScale(float radians, float sx, float sy);
+    bool hasLocalTransform() const;
+protected:
+    AffineMatrix localMatrix_;
+};
+
+// 使用例
+class SourceNode : public Node, public AffineCapability { ... };
+```
+
+これにより、以下が可能になります：
+- 各ソースに個別の変換を設定（`source.setRotation(0.5f)`）
+- CompositeNode で合成結果全体を変換
+- DistributorNode で分配先全てに同じ変換を適用
 
 ### CompositeNode と DistributorNode の違い
 
@@ -444,6 +472,7 @@ src/fleximg/
 ├── core/                     # コア機能（fleximg::core 名前空間）
 │   ├── common.h              # NAMESPACE定義、バージョン
 │   ├── types.h               # 固定小数点型、数学型、AffineMatrix
+│   ├── affine_capability.h   # AffineCapability Mixin（アフィン変換機能）
 │   ├── port.h                # Port（ノード接続）
 │   ├── node.h                # Node 基底クラス
 │   ├── perf_metrics.h        # パフォーマンス計測（ノード別）

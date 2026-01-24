@@ -16,6 +16,7 @@
 // =============================================================================
 #include "core/memory/platform.h"
 #include "core/memory/pool_allocator.h"
+#include "core/affine_capability.h"
 #include "core/node.h"
 
 // =============================================================================
