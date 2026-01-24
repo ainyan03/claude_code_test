@@ -374,3 +374,280 @@ TEST_CASE("Filter chain: brightness -> grayscale") {
     CHECK(std::abs(r - g) <= 5);
     CHECK(std::abs(g - b) <= 5);
 }
+
+// =============================================================================
+// getDataRange() Tests
+// =============================================================================
+
+TEST_CASE("SourceNode getDataRange basic test") {
+    const int imgSize = 32;
+    const int canvasSize = 100;
+
+    ImageBuffer srcImg = createSolidImage(imgSize, imgSize, 255, 0, 0, 255);
+    ViewPort srcView = srcImg.view();
+
+    // origin = (16, 16) → 画像中心が基準点(0,0)に来る
+    // 画像のAABB: 基準点からの相対座標で[-16, 16) x [-16, 16)
+    SourceNode src(srcView, float_to_fixed(16.0f), float_to_fixed(16.0f));
+    RendererNode renderer;
+
+    src >> renderer;
+
+    // PrepareRequestを作成
+    PrepareRequest prepReq;
+    prepReq.width = static_cast<int16_t>(canvasSize);
+    prepReq.height = static_cast<int16_t>(canvasSize);
+    prepReq.origin.x = float_to_fixed(50.0f);  // 画面中心
+    prepReq.origin.y = float_to_fixed(50.0f);
+
+    PrepareResult prepResult = src.pullPrepare(prepReq);
+    CHECK(prepResult.ok());
+    CHECK(prepResult.width == imgSize);
+    CHECK(prepResult.height == imgSize);
+
+    // RenderRequestを作成（Y=0のスキャンライン、画像と交差する位置）
+    // 画像はY=[-16, 16)にあるので、origin.y=0で交差する
+    RenderRequest renderReq;
+    renderReq.width = static_cast<int16_t>(canvasSize);
+    renderReq.height = 1;
+    renderReq.origin.x = float_to_fixed(50.0f);  // 画面座標X=50が基準
+    renderReq.origin.y = 0;  // 基準点Y=0のスキャンライン
+
+    DataRange range = src.getDataRange(renderReq);
+
+    // 画像はX=[-16, 16)、リクエストはX=[-50, 50)
+    // 交差範囲: [-16, 16)
+    // request座標系に変換: startX = -16 - (-50) = 34, endX = 16 - (-50) = 66
+    CHECK(range.hasData());
+    CHECK(range.startX == 34);
+    CHECK(range.endX == 66);
+}
+
+TEST_CASE("HorizontalBlurNode getDataRange expands range correctly") {
+    const int imgSize = 32;
+    const int canvasSize = 100;
+
+    // 画像を画面中央に配置（画像中心が画面中心に来る）
+    ImageBuffer srcImg = createSolidImage(imgSize, imgSize, 255, 0, 0, 255);
+    ViewPort srcView = srcImg.view();
+
+    // origin = 画像サイズの半分 → 画像は[0, imgSize)に配置される
+    // 画面座標で言えば、画面中心(50,50)を基準に[-16, 16)の範囲
+    SourceNode src(srcView, float_to_fixed(static_cast<float>(imgSize) / 2.0f),
+                           float_to_fixed(static_cast<float>(imgSize) / 2.0f));
+    HorizontalBlurNode hblur;
+    RendererNode renderer;
+
+    src >> hblur >> renderer;
+
+    const int radius = 10;
+    const int passes = 1;
+    hblur.setRadius(radius);
+    hblur.setPasses(passes);
+
+    // PrepareRequestを作成してpullPrepareを実行
+    PrepareRequest prepReq;
+    prepReq.width = static_cast<int16_t>(canvasSize);
+    prepReq.height = static_cast<int16_t>(canvasSize);
+    prepReq.origin.x = float_to_fixed(static_cast<float>(canvasSize) / 2.0f);
+    prepReq.origin.y = float_to_fixed(static_cast<float>(canvasSize) / 2.0f);
+
+    PrepareResult prepResult = hblur.pullPrepare(prepReq);
+    CHECK(prepResult.ok());
+
+    // RenderRequestを作成してgetDataRangeを呼び出す
+    // Y=0のスキャンライン（画像と交差する位置）
+    RenderRequest renderReq;
+    renderReq.width = static_cast<int16_t>(canvasSize);
+    renderReq.height = 1;
+    renderReq.origin.x = prepReq.origin.x;
+    renderReq.origin.y = 0;  // 画像と交差するY位置
+
+    DataRange range = hblur.getDataRange(renderReq);
+
+    // 上流の画像は基準点からの相対座標で[-16, 16)の範囲
+    // request座標系（origin.x=50）で[34, 66)
+    // ブラー処理により radius*passes = 10 だけ両側に拡張される
+    // 期待される範囲: [24, 76)
+    int totalMargin = radius * passes;
+    int expectedStart = (canvasSize / 2 - imgSize / 2) - totalMargin;
+    int expectedEnd = (canvasSize / 2 + imgSize / 2) + totalMargin;
+
+    CHECK(range.hasData());
+    CHECK(range.startX == expectedStart);
+    CHECK(range.endX == expectedEnd);
+}
+
+TEST_CASE("HorizontalBlurNode getDataRange with radius=0 is passthrough") {
+    const int imgSize = 32;
+    const int canvasSize = 100;
+
+    ImageBuffer srcImg = createSolidImage(imgSize, imgSize, 255, 0, 0, 255);
+    ViewPort srcView = srcImg.view();
+
+    SourceNode src(srcView, float_to_fixed(static_cast<float>(imgSize) / 2.0f),
+                           float_to_fixed(static_cast<float>(imgSize) / 2.0f));
+    HorizontalBlurNode hblur;
+    RendererNode renderer;
+
+    src >> hblur >> renderer;
+
+    hblur.setRadius(0);  // パススルー
+
+    PrepareRequest prepReq;
+    prepReq.width = static_cast<int16_t>(canvasSize);
+    prepReq.height = static_cast<int16_t>(canvasSize);
+    prepReq.origin.x = float_to_fixed(static_cast<float>(canvasSize) / 2.0f);
+    prepReq.origin.y = float_to_fixed(static_cast<float>(canvasSize) / 2.0f);
+
+    PrepareResult prepResult = hblur.pullPrepare(prepReq);
+    CHECK(prepResult.ok());
+
+    RenderRequest renderReq;
+    renderReq.width = static_cast<int16_t>(canvasSize);
+    renderReq.height = 1;
+    renderReq.origin.x = prepReq.origin.x;
+    renderReq.origin.y = 0;  // 画像と交差するY位置
+
+    DataRange blurRange = hblur.getDataRange(renderReq);
+    DataRange srcRange = src.getDataRange(renderReq);
+
+    // radius=0ではソースと同じ範囲
+    CHECK(blurRange.startX == srcRange.startX);
+    CHECK(blurRange.endX == srcRange.endX);
+}
+
+TEST_CASE("HorizontalBlurNode getDataRange with offset image") {
+    // 画像が画面左端寄りに配置されている場合のテスト
+    const int imgSize = 20;
+    const int canvasSize = 100;
+
+    ImageBuffer srcImg = createSolidImage(imgSize, imgSize, 255, 0, 0, 255);
+    ViewPort srcView = srcImg.view();
+
+    // 画像を画面左寄りに配置
+    // origin = (10, 10) → 画像中心が基準点(0,0)からX=-10, Y=-40にずれる
+    // 基準点からの相対座標で[-10, 10) x [-10, 10)
+    SourceNode src(srcView, float_to_fixed(10.0f), float_to_fixed(10.0f));
+    HorizontalBlurNode hblur;
+    RendererNode renderer;
+
+    src >> hblur >> renderer;
+
+    const int radius = 5;
+    hblur.setRadius(radius);
+    hblur.setPasses(1);
+
+    PrepareRequest prepReq;
+    prepReq.width = static_cast<int16_t>(canvasSize);
+    prepReq.height = static_cast<int16_t>(canvasSize);
+    prepReq.origin.x = float_to_fixed(50.0f);
+    prepReq.origin.y = float_to_fixed(50.0f);
+
+    PrepareResult prepResult = hblur.pullPrepare(prepReq);
+    CHECK(prepResult.ok());
+
+    RenderRequest renderReq;
+    renderReq.width = static_cast<int16_t>(canvasSize);
+    renderReq.height = 1;
+    renderReq.origin.x = prepReq.origin.x;
+    renderReq.origin.y = 0;  // 画像と交差するY位置
+
+    DataRange range = hblur.getDataRange(renderReq);
+
+    // 画像は基準点からの相対座標で[-10, 10)
+    // request座標系（origin.x=50）で[40, 60)
+    // ブラー拡張で[35, 65)
+    CHECK(range.hasData());
+    CHECK(range.startX == 35);
+    CHECK(range.endX == 65);
+}
+
+TEST_CASE("VerticalBlurNode getDataRange passes through X range") {
+    const int imgSize = 32;
+    const int canvasSize = 100;
+
+    ImageBuffer srcImg = createSolidImage(imgSize, imgSize, 255, 0, 0, 255);
+    ViewPort srcView = srcImg.view();
+
+    SourceNode src(srcView, float_to_fixed(static_cast<float>(imgSize) / 2.0f),
+                           float_to_fixed(static_cast<float>(imgSize) / 2.0f));
+    VerticalBlurNode vblur;
+    RendererNode renderer;
+
+    src >> vblur >> renderer;
+
+    vblur.setRadius(10);
+    vblur.setPasses(1);
+
+    PrepareRequest prepReq;
+    prepReq.width = static_cast<int16_t>(canvasSize);
+    prepReq.height = static_cast<int16_t>(canvasSize);
+    prepReq.origin.x = float_to_fixed(static_cast<float>(canvasSize) / 2.0f);
+    prepReq.origin.y = float_to_fixed(static_cast<float>(canvasSize) / 2.0f);
+
+    PrepareResult prepResult = vblur.pullPrepare(prepReq);
+    CHECK(prepResult.ok());
+
+    RenderRequest renderReq;
+    renderReq.width = static_cast<int16_t>(canvasSize);
+    renderReq.height = 1;
+    renderReq.origin.x = prepReq.origin.x;
+    renderReq.origin.y = 0;  // 画像と交差するY位置
+
+    DataRange vblurRange = vblur.getDataRange(renderReq);
+    DataRange srcRange = src.getDataRange(renderReq);
+
+    // 垂直ブラーはX範囲に影響しない（ソースと同じ）
+    CHECK(vblurRange.startX == srcRange.startX);
+    CHECK(vblurRange.endX == srcRange.endX);
+}
+
+TEST_CASE("HorizontalBlurNode + VerticalBlurNode getDataRange chain") {
+    const int imgSize = 32;
+    const int canvasSize = 100;
+
+    ImageBuffer srcImg = createSolidImage(imgSize, imgSize, 255, 0, 0, 255);
+    ViewPort srcView = srcImg.view();
+
+    SourceNode src(srcView, float_to_fixed(static_cast<float>(imgSize) / 2.0f),
+                           float_to_fixed(static_cast<float>(imgSize) / 2.0f));
+    HorizontalBlurNode hblur;
+    VerticalBlurNode vblur;
+    RendererNode renderer;
+
+    src >> hblur >> vblur >> renderer;
+
+    const int hRadius = 8;
+    const int vRadius = 10;
+    hblur.setRadius(hRadius);
+    hblur.setPasses(1);
+    vblur.setRadius(vRadius);
+    vblur.setPasses(1);
+
+    PrepareRequest prepReq;
+    prepReq.width = static_cast<int16_t>(canvasSize);
+    prepReq.height = static_cast<int16_t>(canvasSize);
+    prepReq.origin.x = float_to_fixed(static_cast<float>(canvasSize) / 2.0f);
+    prepReq.origin.y = float_to_fixed(static_cast<float>(canvasSize) / 2.0f);
+
+    PrepareResult prepResult = vblur.pullPrepare(prepReq);
+    CHECK(prepResult.ok());
+
+    RenderRequest renderReq;
+    renderReq.width = static_cast<int16_t>(canvasSize);
+    renderReq.height = 1;
+    renderReq.origin.x = prepReq.origin.x;
+    renderReq.origin.y = 0;  // 画像と交差するY位置
+
+    DataRange range = vblur.getDataRange(renderReq);
+
+    // VerticalBlurはX範囲に影響しないので、HorizontalBlurの結果と同じ
+    // 画像は[34, 66)、水平ブラーで±8拡張 → [26, 74)
+    int expectedStart = (canvasSize / 2 - imgSize / 2) - hRadius;
+    int expectedEnd = (canvasSize / 2 + imgSize / 2) + hRadius;
+
+    CHECK(range.hasData());
+    CHECK(range.startX == expectedStart);
+    CHECK(range.endX == expectedEnd);
+}
