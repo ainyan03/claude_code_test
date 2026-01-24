@@ -13,17 +13,6 @@ namespace FLEXIMG_NAMESPACE {
 namespace core {
 
 // ========================================================================
-// PrepareState - ノードの準備状態（循環参照検出用）
-// ========================================================================
-
-enum class PrepareState {
-    Idle,       // 未処理（初期状態）
-    Preparing,  // 処理中（この状態で再訪問 = 循環参照）
-    Prepared,   // 処理完了（この状態で再訪問 = DAG共有、スキップ可）
-    CycleError  // 循環参照エラー（processをスキップ）
-};
-
-// ========================================================================
 // Node - ノード基底クラス
 // ========================================================================
 //
@@ -61,9 +50,9 @@ public:
 
     // コピーコンストラクタ: ポート構造のみコピー、接続は引き継がない
     Node(const Node& other)
-        : prepareState_(PrepareState::Idle)
-        , allocator_(nullptr)
+        : allocator_(nullptr)
     {
+        prepareResponse_.status = PrepareStatus::Idle;
         initPorts(static_cast<int>(other.inputs_.size()),
                   static_cast<int>(other.outputs_.size()));
     }
@@ -72,9 +61,9 @@ public:
     Node(Node&& other) noexcept
         : inputs_(std::move(other.inputs_))
         , outputs_(std::move(other.outputs_))
-        , prepareState_(PrepareState::Idle)
         , allocator_(nullptr)
     {
+        prepareResponse_.status = PrepareStatus::Idle;
         // ownerポインタを自分に修正
         for (auto& port : inputs_) {
             port.owner = this;
@@ -90,7 +79,7 @@ public:
             disconnectAll();
             initPorts(static_cast<int>(other.inputs_.size()),
                       static_cast<int>(other.outputs_.size()));
-            prepareState_ = PrepareState::Idle;
+            prepareResponse_.status = PrepareStatus::Idle;
             allocator_ = nullptr;
         }
         return *this;
@@ -109,7 +98,7 @@ public:
             for (auto& port : outputs_) {
                 port.owner = this;
             }
-            prepareState_ = PrepareState::Idle;
+            prepareResponse_.status = PrepareStatus::Idle;
             allocator_ = nullptr;
         }
         return *this;
@@ -182,8 +171,8 @@ public:
     // ========================================
 
     // 入力画像から出力画像を生成
-    virtual RenderResult process(RenderResult&& input,
-                                 const RenderRequest& request) {
+    virtual RenderResponse process(RenderResponse&& input,
+                                   const RenderRequest& request) {
         (void)request;
         return std::move(input);  // デフォルトはパススルー
     }
@@ -204,12 +193,12 @@ public:
 
     // 上流から画像を取得して処理（finalメソッド）
     // 派生クラスはonPullProcess()をオーバーライド
-    virtual RenderResult pullProcess(const RenderRequest& request) final {
+    virtual RenderResponse pullProcess(const RenderRequest& request) final {
         // 共通処理: スキャンライン処理チェック
         assert(request.height == 1 && "Scanline processing requires height == 1");
-        // 共通処理: 循環エラー状態チェック
-        if (prepareState_ != PrepareState::Prepared) {
-            return RenderResult();
+        // 共通処理: 準備完了状態チェック
+        if (prepareResponse_.status != PrepareStatus::Prepared) {
+            return RenderResponse();
         }
         // 派生クラスのカスタム処理を呼び出し
         return onPullProcess(request);
@@ -217,27 +206,26 @@ public:
 
     // 上流へ準備を伝播（finalメソッド）
     // 派生クラスはonPullPrepare()をオーバーライド
-    // 戻り値: PrepareResult（status == Success で成功）
-    virtual PrepareResult pullPrepare(const PrepareRequest& request) final {
+    // 戻り値: PrepareResponse（status == Prepared で成功）
+    virtual PrepareResponse pullPrepare(const PrepareRequest& request) final {
         // 共通処理: 状態チェック
         bool shouldContinue;
-        if (!checkPrepareState(prepareState_, shouldContinue)) {
-            PrepareResult errorResult;
-            errorResult.status = PipelineStatus::CycleDetected;
+        if (!checkPrepareStatus(shouldContinue)) {
+            PrepareResponse errorResult;
+            errorResult.status = PrepareStatus::CycleError;
             return errorResult;
         }
         if (!shouldContinue) {
-            return prepareResult_;  // DAG共有ノード: キャッシュを返す
+            return prepareResponse_;  // DAG共有ノード: キャッシュを返す
         }
         // 共通処理: アロケータを保持
         allocator_ = request.allocator;
 
         // 派生クラスのカスタム処理を呼び出し
-        PrepareResult result = onPullPrepare(request);
+        PrepareResponse result = onPullPrepare(request);
 
         // 共通処理: 状態更新・結果キャッシュ
-        prepareState_ = result.ok() ? PrepareState::Prepared : PrepareState::CycleError;
-        prepareResult_ = result;
+        prepareResponse_ = result;
         return result;
     }
 
@@ -245,11 +233,11 @@ public:
     // 派生クラスはonPullFinalize()をオーバーライド
     virtual void pullFinalize() final {
         // 共通処理: 循環防止
-        if (prepareState_ == PrepareState::Idle) {
+        if (prepareResponse_.status == PrepareStatus::Idle) {
             return;
         }
         // 共通処理: 状態リセット
-        prepareState_ = PrepareState::Idle;
+        prepareResponse_.status = PrepareStatus::Idle;
         // 共通処理: アロケータをクリア
         allocator_ = nullptr;
 
@@ -263,11 +251,11 @@ public:
 
     // 上流から画像を受け取って処理し、下流へ渡す（finalメソッド）
     // 派生クラスはonPushProcess()をオーバーライド
-    virtual void pushProcess(RenderResult&& input, const RenderRequest& request) final {
+    virtual void pushProcess(RenderResponse&& input, const RenderRequest& request) final {
         // 共通処理: スキャンライン処理チェック
         assert(request.height == 1 && "Scanline processing requires height == 1");
-        // 共通処理: 循環エラー状態チェック
-        if (prepareState_ != PrepareState::Prepared) {
+        // 共通処理: 準備完了状態チェック
+        if (prepareResponse_.status != PrepareStatus::Prepared) {
             return;
         }
         // 派生クラスのカスタム処理を呼び出し
@@ -276,27 +264,26 @@ public:
 
     // 下流へ準備を伝播（finalメソッド）
     // 派生クラスはonPushPrepare()をオーバーライド
-    // 戻り値: PrepareResult（status == Success で成功）
-    virtual PrepareResult pushPrepare(const PrepareRequest& request) final {
+    // 戻り値: PrepareResponse（status == Prepared で成功）
+    virtual PrepareResponse pushPrepare(const PrepareRequest& request) final {
         // 共通処理: 状態チェック
         bool shouldContinue;
-        if (!checkPrepareState(prepareState_, shouldContinue)) {
-            PrepareResult errorResult;
-            errorResult.status = PipelineStatus::CycleDetected;
+        if (!checkPrepareStatus(shouldContinue)) {
+            PrepareResponse errorResult;
+            errorResult.status = PrepareStatus::CycleError;
             return errorResult;
         }
         if (!shouldContinue) {
-            return prepareResult_;  // DAG共有ノード: キャッシュを返す
+            return prepareResponse_;  // DAG共有ノード: キャッシュを返す
         }
         // 共通処理: アロケータを保持
         allocator_ = request.allocator;
 
         // 派生クラスのカスタム処理を呼び出し
-        PrepareResult result = onPushPrepare(request);
+        PrepareResponse result = onPushPrepare(request);
 
         // 共通処理: 状態更新・結果キャッシュ
-        prepareState_ = result.ok() ? PrepareState::Prepared : PrepareState::CycleError;
-        prepareResult_ = result;
+        prepareResponse_ = result;
         return result;
     }
 
@@ -304,11 +291,11 @@ public:
     // 派生クラスはonPushFinalize()をオーバーライド
     virtual void pushFinalize() final {
         // 共通処理: 循環防止
-        if (prepareState_ == PrepareState::Idle) {
+        if (prepareResponse_.status == PrepareStatus::Idle) {
             return;
         }
         // 共通処理: 状態リセット
-        prepareState_ = PrepareState::Idle;
+        prepareResponse_.status = PrepareStatus::Idle;
         // 共通処理: アロケータをクリア
         allocator_ = nullptr;
 
@@ -331,14 +318,14 @@ public:
     // ========================================
 
     // このノードがrequestに対して提供できるデータ範囲を取得
-    // デフォルト: prepareResult_のAABBとrequestの交差範囲
+    // デフォルト: prepareResponse_のAABBとrequestの交差範囲
     // 派生クラス: より正確な範囲をオーバーライド可能（例: アフィン変換考慮）
     virtual DataRange getDataRange(const RenderRequest& request) const {
-        return prepareResult_.getDataRange(request);
+        return prepareResponse_.getDataRange(request);
     }
 
-    // prepare結果を取得（派生クラスでの判定用）
-    const PrepareResult& lastPrepareResult() const { return prepareResult_; }
+    // prepare応答を取得（派生クラスでの判定用）
+    const PrepareResponse& lastPrepareResponse() const { return prepareResponse_; }
 
     // ========================================
     // ノードアクセス
@@ -372,11 +359,9 @@ protected:
     std::vector<Port> inputs_;
     std::vector<Port> outputs_;
 
-    // 循環参照検出用状態（push/pull統合: ノードはどちらか一方でのみ使用）
-    PrepareState prepareState_ = PrepareState::Idle;
-
-    // PrepareResultキャッシュ（DAG共有ノード用、push/pull統合）
-    PrepareResult prepareResult_;
+    // 準備応答キャッシュ（状態 + AABB情報、DAG共有ノード用）
+    // status フィールドで循環参照検出にも使用
+    PrepareResponse prepareResponse_;
 
     // RendererNodeから伝播されるアロケータ（prepare時に保持、finalize時にクリア）
     core::memory::IAllocator* allocator_ = nullptr;
@@ -387,11 +372,11 @@ protected:
 
     // pullPrepare()から呼ばれるフック
     // デフォルト: 上流ノードへ伝播し、prepare()を呼び出す
-    virtual PrepareResult onPullPrepare(const PrepareRequest& request) {
+    virtual PrepareResponse onPullPrepare(const PrepareRequest& request) {
         // 上流へ伝播
         Node* upstream = upstreamNode(0);
         if (upstream) {
-            PrepareResult result = upstream->pullPrepare(request);
+            PrepareResponse result = upstream->pullPrepare(request);
             if (!result.ok()) {
                 return result;
             }
@@ -409,8 +394,8 @@ protected:
         screenInfo.height = request.height;
         screenInfo.origin = request.origin;
         prepare(screenInfo);
-        PrepareResult result;
-        result.status = PipelineStatus::Success;
+        PrepareResponse result;
+        result.status = PrepareStatus::Prepared;
         result.width = request.width;
         result.height = request.height;
         result.origin = request.origin;
@@ -419,7 +404,7 @@ protected:
 
     // pushPrepare()から呼ばれるフック
     // デフォルト: prepare()を呼び出し、下流ノードへ伝播
-    virtual PrepareResult onPushPrepare(const PrepareRequest& request) {
+    virtual PrepareResponse onPushPrepare(const PrepareRequest& request) {
         // 準備処理
         RenderRequest screenInfo;
         screenInfo.width = request.width;
@@ -429,12 +414,12 @@ protected:
         // 下流へ伝播
         Node* downstream = downstreamNode(0);
         if (downstream) {
-            PrepareResult result = downstream->pushPrepare(request);
+            PrepareResponse result = downstream->pushPrepare(request);
             return result;  // 下流の結果をパススルー
         }
         // 下流なし: 自身の情報を返す（末端ノード）
-        PrepareResult result;
-        result.status = PipelineStatus::Success;
+        PrepareResponse result;
+        result.status = PrepareStatus::Prepared;
         result.width = request.width;
         result.height = request.height;
         result.origin = request.origin;
@@ -443,17 +428,17 @@ protected:
 
     // pullProcess()から呼ばれるフック
     // デフォルト: 上流からpullしてprocess()を呼び出す
-    virtual RenderResult onPullProcess(const RenderRequest& request) {
+    virtual RenderResponse onPullProcess(const RenderRequest& request) {
         Node* upstream = upstreamNode(0);
-        if (!upstream) return RenderResult();
-        RenderResult input = upstream->pullProcess(request);
+        if (!upstream) return RenderResponse();
+        RenderResponse input = upstream->pullProcess(request);
         return process(std::move(input), request);
     }
 
     // pushProcess()から呼ばれるフック
     // デフォルト: process()を呼び出して下流へpush
-    virtual void onPushProcess(RenderResult&& input, const RenderRequest& request) {
-        RenderResult output = process(std::move(input), request);
+    virtual void onPushProcess(RenderResponse&& input, const RenderRequest& request) {
+        RenderResponse output = process(std::move(input), request);
         Node* downstream = downstreamNode(0);
         if (downstream) {
             downstream->pushProcess(std::move(output), request);
@@ -485,7 +470,8 @@ protected:
     // ========================================
 
     // 循環参照チェック（pullPrepare/pushPrepare共通）
-    bool checkPrepareState(PrepareState& state, bool& shouldContinue);
+    // prepareResponse_.status を参照・更新する
+    bool checkPrepareStatus(bool& shouldContinue);
 
     // フォーマット変換ヘルパー（メトリクス記録付き）
     ImageBuffer convertFormat(ImageBuffer&& buffer, PixelFormatID target,
@@ -499,7 +485,6 @@ protected:
 
 // [DEPRECATED] 後方互換性のため親名前空間に公開。将来廃止予定。
 // 新規コードでは core:: プレフィックスを使用してください。
-using core::PrepareState;
 using core::Node;
 
 } // namespace FLEXIMG_NAMESPACE
@@ -517,23 +502,25 @@ namespace core {
 // ============================================================================
 
 // 循環参照チェック（pullPrepare/pushPrepare共通）
+// prepareResponse_.status を参照・更新する
 // 戻り値: true=成功, false=エラー
 // shouldContinue: true=処理継続, false=スキップ（Prepared）またはエラー
-bool Node::checkPrepareState(PrepareState& state, bool& shouldContinue) {
-    if (state == PrepareState::Preparing) {
-        state = PrepareState::CycleError;
+bool Node::checkPrepareStatus(bool& shouldContinue) {
+    PrepareStatus& status = prepareResponse_.status;
+    if (status == PrepareStatus::Preparing) {
+        status = PrepareStatus::CycleError;
         shouldContinue = false;
         return false;  // 循環参照検出
     }
-    if (state == PrepareState::Prepared) {
+    if (status == PrepareStatus::Prepared) {
         shouldContinue = false;
         return true;   // 成功（DAG共有、スキップ）
     }
-    if (state == PrepareState::CycleError) {
+    if (status == PrepareStatus::CycleError) {
         shouldContinue = false;
         return false;  // 既にエラー状態
     }
-    state = PrepareState::Preparing;
+    status = PrepareStatus::Preparing;
     shouldContinue = true;
     return true;       // 成功（処理継続）
 }
