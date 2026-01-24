@@ -243,32 +243,59 @@ PipelineStatus RendererNode::execPrepare() {
     FormatMetrics::instance().reset();
 #endif
 
-    // スクリーン全体の情報をPrepareRequestとして作成
-    RenderRequest screenInfo = createScreenRequest();
-    PrepareRequest prepReq;
-    prepReq.width = screenInfo.width;
-    prepReq.height = screenInfo.height;
-    prepReq.origin = screenInfo.origin;
-    prepReq.hasAffine = false;
-    prepReq.allocator = pipelineAllocator_;  // アロケータを設定
-
-    // 上流へ準備を伝播（プル型、循環参照検出付き）
-    Node* upstream = upstreamNode(0);
-    if (!upstream) {
-        return PipelineStatus::NoUpstream;
-    }
-    if (!upstream->pullPrepare(prepReq)) {
-        return PipelineStatus::CycleDetected;
-    }
-
-    // 下流へ準備を伝播（プッシュ型、循環参照検出付き）
+    // ========================================
+    // Step 1: 下流へ準備を伝播（AABB取得用）
+    // ========================================
     Node* downstream = downstreamNode(0);
     if (!downstream) {
         return PipelineStatus::NoDownstream;
     }
-    if (!downstream->pushPrepare(prepReq)) {
-        return PipelineStatus::CycleDetected;
+
+    PrepareRequest pushReq;
+    pushReq.hasPushAffine = false;
+    pushReq.allocator = pipelineAllocator_;
+
+    PrepareResult pushResult = downstream->pushPrepare(pushReq);
+    if (!pushResult.ok()) {
+        return pushResult.status;
     }
+
+    // ========================================
+    // Step 2: virtualScreenを自動設定（未設定の場合）
+    // ========================================
+    if (virtualWidth_ == 0 || virtualHeight_ == 0) {
+        // 下流から返されたAABBでvirtualScreenを設定
+        virtualWidth_ = pushResult.width;
+        virtualHeight_ = pushResult.height;
+        originX_ = pushResult.origin.x;
+        originY_ = pushResult.origin.y;
+    }
+
+    // ========================================
+    // Step 3: 上流へ準備を伝播
+    // ========================================
+    Node* upstream = upstreamNode(0);
+    if (!upstream) {
+        return PipelineStatus::NoUpstream;
+    }
+
+    RenderRequest screenInfo = createScreenRequest();
+    PrepareRequest pullReq;
+    pullReq.width = screenInfo.width;
+    pullReq.height = screenInfo.height;
+    pullReq.origin = screenInfo.origin;
+    pullReq.hasAffine = false;
+    pullReq.allocator = pipelineAllocator_;
+    // 下流が希望するフォーマットを上流に伝播
+    pullReq.preferredFormat = pushResult.preferredFormat;
+
+    PrepareResult pullResult = upstream->pullPrepare(pullReq);
+    if (!pullResult.ok()) {
+        return pullResult.status;
+    }
+
+    // 上流情報は将来の最適化に活用
+    (void)pullResult;
 
     return PipelineStatus::Success;
 }

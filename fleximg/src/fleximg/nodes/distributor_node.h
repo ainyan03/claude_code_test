@@ -66,7 +66,7 @@ public:
     // ========================================
 
     // onPushPrepare: 全下流ノードにPrepareRequestを伝播
-    bool onPushPrepare(const PrepareRequest& request) override;
+    PrepareResult onPushPrepare(const PrepareRequest& request) override;
 
     // onPushFinalize: 全下流ノードに終了を伝播
     void onPushFinalize() override;
@@ -89,7 +89,7 @@ namespace FLEXIMG_NAMESPACE {
 // DistributorNode - Template Method フック実装
 // ============================================================================
 
-bool DistributorNode::onPushPrepare(const PrepareRequest& request) {
+PrepareResult DistributorNode::onPushPrepare(const PrepareRequest& request) {
     // 準備処理
     RenderRequest screenInfo;
     screenInfo.width = request.width;
@@ -97,18 +97,70 @@ bool DistributorNode::onPushPrepare(const PrepareRequest& request) {
     screenInfo.origin = request.origin;
     prepare(screenInfo);
 
-    // 全下流へ伝播
+    PrepareResult merged;
+    merged.status = PipelineStatus::Success;
+    bool hasValidDownstream = false;
+    bool formatMismatch = false;
+
+    // AABB和集合計算用（基準点からの相対座標）
+    float minX = 0, minY = 0, maxX = 0, maxY = 0;
+
+    // 全下流へ伝播し、結果をマージ（AABB和集合）
     int numOutputs = outputCount();
     for (int i = 0; i < numOutputs; ++i) {
         Node* downstream = downstreamNode(i);
         if (downstream) {
-            if (!downstream->pushPrepare(request)) {
-                return false;
+            PrepareResult result = downstream->pushPrepare(request);
+            if (!result.ok()) {
+                return result;  // エラーを伝播
+            }
+
+            // 各結果のAABBを基準点からの相対座標に変換
+            float left = -fixed_to_float(result.origin.x);
+            float top = -fixed_to_float(result.origin.y);
+            float right = left + static_cast<float>(result.width);
+            float bottom = top + static_cast<float>(result.height);
+
+            if (!hasValidDownstream) {
+                // 最初の結果でベースを初期化
+                merged.preferredFormat = result.preferredFormat;
+                minX = left;
+                minY = top;
+                maxX = right;
+                maxY = bottom;
+                hasValidDownstream = true;
+            } else {
+                // 和集合（各辺のmin/max）
+                if (left < minX) minX = left;
+                if (top < minY) minY = top;
+                if (right > maxX) maxX = right;
+                if (bottom > maxY) maxY = bottom;
+                // フォーマットの差異をチェック
+                if (merged.preferredFormat != result.preferredFormat) {
+                    formatMismatch = true;
+                }
             }
         }
     }
 
-    return true;
+    if (hasValidDownstream) {
+        // 和集合結果をPrepareResultに設定
+        merged.width = static_cast<int16_t>(std::ceil(maxX - minX));
+        merged.height = static_cast<int16_t>(std::ceil(maxY - minY));
+        merged.origin.x = float_to_fixed(-minX);
+        merged.origin.y = float_to_fixed(-minY);
+        // フォーマット決定:
+        // - 全下流が同じフォーマット → そのフォーマットを採用
+        // - 下流に差異 → RGBA8_Straightを採用（共通の中間フォーマット）
+        if (formatMismatch) {
+            merged.preferredFormat = PixelFormatIDs::RGBA8_Straight;
+        }
+    } else {
+        // 下流がない場合はサイズ0を返す
+        // width/height/originはデフォルト値（0）のまま
+    }
+
+    return merged;
 }
 
 void DistributorNode::onPushFinalize() {

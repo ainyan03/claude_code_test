@@ -62,7 +62,7 @@ protected:
     // ========================================
 
     // onPullPrepare: 全上流ノードにPrepareRequestを伝播
-    bool onPullPrepare(const PrepareRequest& request) override;
+    PrepareResult onPullPrepare(const PrepareRequest& request) override;
 
     // onPullFinalize: 全上流ノードに終了を伝播
     void onPullFinalize() override;
@@ -116,15 +116,57 @@ namespace FLEXIMG_NAMESPACE {
 // MatteNode - Template Method フック実装
 // ============================================================================
 
-bool MatteNode::onPullPrepare(const PrepareRequest& request) {
-    // 全上流へ伝播（3入力）
+PrepareResult MatteNode::onPullPrepare(const PrepareRequest& request) {
+    PrepareResult merged;
+    merged.status = PipelineStatus::Success;
+    bool hasValidUpstream = false;
+
+    // AABB和集合計算用（基準点からの相対座標）
+    float minX = 0, minY = 0, maxX = 0, maxY = 0;
+
+    // 全上流へ伝播し、結果をマージ（AABB和集合）
     for (int i = 0; i < 3; ++i) {
         Node* upstream = upstreamNode(i);
         if (upstream) {
-            if (!upstream->pullPrepare(request)) {
-                return false;
+            PrepareResult result = upstream->pullPrepare(request);
+            if (!result.ok()) {
+                return result;  // エラーを伝播
+            }
+
+            // 各結果のAABBを基準点からの相対座標に変換
+            float left = -fixed_to_float(result.origin.x);
+            float top = -fixed_to_float(result.origin.y);
+            float right = left + static_cast<float>(result.width);
+            float bottom = top + static_cast<float>(result.height);
+
+            if (!hasValidUpstream) {
+                // 最初の結果でベースを初期化
+                minX = left;
+                minY = top;
+                maxX = right;
+                maxY = bottom;
+                hasValidUpstream = true;
+            } else {
+                // 和集合（各辺のmin/max）
+                if (left < minX) minX = left;
+                if (top < minY) minY = top;
+                if (right > maxX) maxX = right;
+                if (bottom > maxY) maxY = bottom;
             }
         }
+    }
+
+    if (hasValidUpstream) {
+        // 和集合結果をPrepareResultに設定
+        merged.width = static_cast<int16_t>(std::ceil(maxX - minX));
+        merged.height = static_cast<int16_t>(std::ceil(maxY - minY));
+        merged.origin.x = float_to_fixed(-minX);
+        merged.origin.y = float_to_fixed(-minY);
+        // MatteNodeは常にRGBA8_Straightで出力
+        merged.preferredFormat = PixelFormatIDs::RGBA8_Straight;
+    } else {
+        // 上流がない場合はサイズ0を返す
+        // width/height/originはデフォルト値（0）のまま
     }
 
     // 準備処理
@@ -134,7 +176,7 @@ bool MatteNode::onPullPrepare(const PrepareRequest& request) {
     screenInfo.origin = request.origin;
     prepare(screenInfo);
 
-    return true;
+    return merged;
 }
 
 void MatteNode::onPullFinalize() {
