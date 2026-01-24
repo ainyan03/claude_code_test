@@ -201,6 +201,10 @@ public:
         debugCheckerboard_ = enabled;
     }
 
+    void setDebugDataRange(bool enabled) {
+        debugDataRange_ = enabled;
+    }
+
     // Sink別出力フォーマットを設定
     void setSinkFormat(const std::string& sinkId, const std::string& formatName) {
         PixelFormatID format = getFormatByName(formatName.c_str());
@@ -725,6 +729,7 @@ private:
     double dstOriginX_ = 0, dstOriginY_ = 0;
     int tileWidth_ = 0, tileHeight_ = 0;
     bool debugCheckerboard_ = false;
+    bool debugDataRange_ = false;
 
     ImageStore imageStore_;
     std::map<int, ViewPort> imageViews_;
@@ -1184,6 +1189,7 @@ private:
             rendererNode->setTileConfig(effectiveTileW, effectiveTileH);
         }
         rendererNode->setDebugCheckerboard(debugCheckerboard_);
+        rendererNode->setDebugDataRange(debugDataRange_);
         PrepareStatus result = rendererNode->exec();
 
         // パフォーマンスメトリクスを保存
@@ -1227,6 +1233,7 @@ EMSCRIPTEN_BINDINGS(image_transform) {
         .function("setDstOrigin", &NodeGraphEvaluatorWrapper::setDstOrigin)
         .function("setTileSize", &NodeGraphEvaluatorWrapper::setTileSize)
         .function("setDebugCheckerboard", &NodeGraphEvaluatorWrapper::setDebugCheckerboard)
+        .function("setDebugDataRange", &NodeGraphEvaluatorWrapper::setDebugDataRange)
         .function("storeImage", &NodeGraphEvaluatorWrapper::storeImage)
         .function("storeImageWithFormat", &NodeGraphEvaluatorWrapper::storeImageWithFormat)
         .function("allocateImage", &NodeGraphEvaluatorWrapper::allocateImage)

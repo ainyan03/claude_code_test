@@ -1,5 +1,38 @@
 # Changelog
 
+## [2.49.0] - 2026-01-24
+
+### パフォーマンス改善
+
+- **SourceNode: getDataRange() のアフィン対応と計算キャッシュ**
+  - アフィン変換時、AABBではなくスキャンラインごとの正確なデータ範囲を返すように改善
+  - `calcScanlineRange()`: 範囲計算ロジックを共通関数化
+  - getDataRange() で計算した結果を pullProcess() で再利用するキャッシュ機構
+  - キャッシュキーは origin 座標（無効値は INT32_MIN で表現）
+
+- **CompositeNode: getDataRange() オーバーライド追加**
+  - 全上流ノードの getDataRange() 和集合を返すように改善
+  - SourceNode の正確な範囲情報が下流に正しく伝播
+  - `calcUpstreamRangeUnion()`: 和集合計算ロジックを共通関数化
+  - SourceNode と同様のキャッシュ機構を導入
+
+### デバッグ機能
+
+- **RendererNode: DataRange 可視化モード追加**
+  - `setDebugDataRange(true)` で有効化
+  - マゼンタ: getDataRange() 範囲外（データがないはずの領域）
+  - 青: AABBでは範囲内だが getDataRange() で除外された領域
+  - 緑: getDataRange() 境界マーカー
+  - WebUI: Rendererノード詳細パネルにチェックボックス追加
+
+### 技術詳細
+
+- 下流ノードが getDataRange() → pullProcess() の順で呼び出す際、同一 origin なら計算をスキップ
+- 回転時のAABB過大評価を解消し、下流のバッファ確保を最適化可能に
+- CompositeNode 経由でも SourceNode の最適化が活用されるように
+
+---
+
 ## [2.48.0] - 2026-01-24
 
 ### サンプル改善

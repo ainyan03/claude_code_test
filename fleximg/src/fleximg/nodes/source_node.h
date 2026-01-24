@@ -94,6 +94,10 @@ public:
     // SourceNodeは入力がないため、上流を呼び出さずに直接処理
     RenderResponse onPullProcess(const RenderRequest& request) override;
 
+    // getDataRange: アフィン変換を考慮した正確なデータ範囲を返す
+    // アフィン変換がある場合、AABB ではなくスキャンラインごとの正確な範囲を計算
+    DataRange getDataRange(const RenderRequest& request) const override;
+
 private:
     ViewPort source_;
     int_fixed originX_ = 0;  // 画像内の基準点X（固定小数点 Q16.16）
@@ -117,6 +121,22 @@ private:
     int32_t baseTxWithOffsets_ = 0;  // 事前計算統合: invTx + srcOrigin + rowOffset + dxOffset
     int32_t baseTyWithOffsets_ = 0;  // 事前計算統合: invTy + srcOrigin + rowOffset + dxOffset
 
+    // getDataRange/pullProcess 間のキャッシュ
+    // originが極端な値（INT32_MIN）の場合はキャッシュ無効
+    struct DataRangeCache {
+        Point origin = {INT32_MIN, INT32_MIN};  // キャッシュキー（無効値で初期化）
+        int32_t dxStart = 0;
+        int32_t dxEnd = 0;
+    };
+    mutable DataRangeCache rangeCache_;
+
+    // キャッシュを無効化
+    void invalidateRangeCache() { rangeCache_.origin = {INT32_MIN, INT32_MIN}; }
+
+    // スキャンライン有効範囲を計算（getDataRange/pullProcessWithAffineで共用）
+    // 戻り値: true=有効範囲あり, false=有効範囲なし
+    bool calcScanlineRange(const RenderRequest& request, int32_t& dxStart, int32_t& dxEnd) const;
+
     // アフィン変換付きプル処理（スキャンライン専用）
     RenderResponse pullProcessWithAffine(const RenderRequest& request);
 };
@@ -137,6 +157,9 @@ namespace FLEXIMG_NAMESPACE {
 PrepareResponse SourceNode::onPullPrepare(const PrepareRequest& request) {
     // 下流からの希望フォーマットを保存（将来のフォーマット最適化用）
     preferredFormat_ = request.preferredFormat;
+
+    // 範囲キャッシュを無効化（アフィン行列が変わる可能性があるため）
+    invalidateRangeCache();
 
     // AABB計算用の行列（合成済み）
     AffineMatrix combinedMatrix;
@@ -331,13 +354,13 @@ RenderResponse SourceNode::onPullProcess(const RenderRequest& request) {
 // SourceNode - private ヘルパーメソッド実装
 // ============================================================================
 
-// アフィン変換付きプル処理（スキャンライン専用）
-// 前提: request.height == 1（RendererNodeはスキャンライン単位で処理）
-// 有効範囲のみのバッファを返し、範囲外の0データを下流に送らない
-RenderResponse SourceNode::pullProcessWithAffine(const RenderRequest& request) {
+// スキャンライン有効範囲を計算（getDataRange/pullProcessWithAffineで共用）
+// 戻り値: true=有効範囲あり, false=有効範囲なし
+bool SourceNode::calcScanlineRange(const RenderRequest& request,
+                                   int32_t& dxStart, int32_t& dxEnd) const {
     // 特異行列チェック
     if (!affine_.isValid()) {
-        return RenderResponse(ImageBuffer(), request.origin);
+        return false;
     }
 
     // dstOrigin分を計算（Q16.16 → int）
@@ -351,15 +374,12 @@ RenderResponse SourceNode::pullProcessWithAffine(const RenderRequest& request) {
     const int32_t invD = affine_.invMatrix.d;
 
     // 事前計算統合版（オフセット加算を削減）
-    // baseWithHalf = baseTx + rowOffsetX + dxOffsetX - origin*inv
     const int32_t baseXWithHalf = baseTxWithOffsets_
                         - (dstOriginXInt * invA)
                         - (dstOriginYInt * invB);
     const int32_t baseYWithHalf = baseTyWithOffsets_
                         - (dstOriginXInt * invC)
                         - (dstOriginYInt * invD);
-
-    int dxStart, dxEnd;
 
     int32_t left = 0;
     int32_t right = request.width;
@@ -368,7 +388,6 @@ RenderResponse SourceNode::pullProcessWithAffine(const RenderRequest& request) {
         left  = std::max(left, (xs1_ - baseXWithHalf) / invA);
         right = std::min(right, (xs2_ - baseXWithHalf) / invA);
     } else if (static_cast<uint32_t>(baseXWithHalf) >= static_cast<uint32_t>(fpWidth_)) {
-        // invA == 0 で baseXWithHalf がソース範囲外の場合は描画不可
         left = 1;
         right = 0;
     }
@@ -377,13 +396,57 @@ RenderResponse SourceNode::pullProcessWithAffine(const RenderRequest& request) {
         left  = std::max(left, (ys1_ - baseYWithHalf) / invC);
         right = std::min(right, (ys2_ - baseYWithHalf) / invC);
     } else if (static_cast<uint32_t>(baseYWithHalf) >= static_cast<uint32_t>(fpHeight_)) {
-        // invC == 0 で baseYWithHalf がソース範囲外の場合は描画不可
         left = 1;
         right = 0;
     }
 
     dxStart = left;
     dxEnd = right - 1;  // right は排他的なので -1
+
+    return dxStart <= dxEnd;
+}
+
+// getDataRange: アフィン変換を考慮した正確なデータ範囲を返す
+DataRange SourceNode::getDataRange(const RenderRequest& request) const {
+    // アフィン変換がない場合は基底クラスの実装を使用
+    if (!hasAffine_) {
+        return Node::getDataRange(request);
+    }
+
+    // スキャンライン範囲を計算
+    int32_t dxStart, dxEnd;
+    bool hasData = calcScanlineRange(request, dxStart, dxEnd);
+
+    // キャッシュに保存
+    rangeCache_.origin = request.origin;
+    rangeCache_.dxStart = dxStart;
+    rangeCache_.dxEnd = dxEnd;
+
+    if (!hasData) {
+        return DataRange{0, 0};  // 有効範囲なし
+    }
+
+    return DataRange{static_cast<int16_t>(dxStart), static_cast<int16_t>(dxEnd + 1)};  // endXは排他的
+}
+
+// アフィン変換付きプル処理（スキャンライン専用）
+// 前提: request.height == 1（RendererNodeはスキャンライン単位で処理）
+// 有効範囲のみのバッファを返し、範囲外の0データを下流に送らない
+RenderResponse SourceNode::pullProcessWithAffine(const RenderRequest& request) {
+    int32_t dxStart, dxEnd;
+
+    // キャッシュが有効か確認
+    if (rangeCache_.origin.x == request.origin.x &&
+        rangeCache_.origin.y == request.origin.y) {
+        // キャッシュヒット
+        dxStart = rangeCache_.dxStart;
+        dxEnd = rangeCache_.dxEnd;
+    } else {
+        // キャッシュミス: 計算が必要
+        if (!calcScanlineRange(request, dxStart, dxEnd)) {
+            return RenderResponse(ImageBuffer(), request.origin);
+        }
+    }
 
     // 有効ピクセルがない場合
     if (dxStart > dxEnd) {
@@ -398,10 +461,20 @@ RenderResponse SourceNode::pullProcessWithAffine(const RenderRequest& request) {
         output.totalBytes(), output.width(), output.height());
 #endif
 
+    // DDA転写に必要な変数を計算
+    const int32_t dstOriginXInt = from_fixed(request.origin.x);
+    const int32_t dstOriginYInt = from_fixed(request.origin.y);
+    const int32_t invA = affine_.invMatrix.a;
+    const int32_t invC = affine_.invMatrix.c;
+    const int32_t baseXWithHalf = baseTxWithOffsets_
+                        - (dstOriginXInt * invA)
+                        - (dstOriginYInt * affine_.invMatrix.b);
+    const int32_t baseYWithHalf = baseTyWithOffsets_
+                        - (dstOriginXInt * invC)
+                        - (dstOriginYInt * affine_.invMatrix.d);
+
     // DDA転写（1行のみ）
     // srcX_fixed = invA * dxStart + baseXWithHalf
-    // バイリニア時: baseXWithHalfにdxOffsetXは含まれていない（小数部を補間重みとして使用）
-    // 最近傍時: baseXWithHalfにdxOffsetXは含まれている
     int32_t srcX_fixed = invA * dxStart + baseXWithHalf;
     int32_t srcY_fixed = invC * dxStart + baseYWithHalf;
 

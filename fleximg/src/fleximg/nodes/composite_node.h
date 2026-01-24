@@ -85,8 +85,23 @@ public:
     // onPullProcess: 複数の上流から画像を取得してunder合成
     RenderResponse onPullProcess(const RenderRequest& request) override;
 
+    // getDataRange: 全上流のgetDataRange和集合を返す
+    DataRange getDataRange(const RenderRequest& request) const override;
+
 protected:
     int nodeTypeForMetrics() const override { return NodeType::Composite; }
+
+private:
+    // getDataRange/onPullProcess 間のキャッシュ
+    struct DataRangeCache {
+        Point origin = {INT32_MIN, INT32_MIN};  // キャッシュキー（無効値で初期化）
+        int16_t startX = 0;
+        int16_t endX = 0;
+    };
+    mutable DataRangeCache rangeCache_;
+
+    // 全上流のgetDataRange和集合を計算（キャッシュなし）
+    DataRange calcUpstreamRangeUnion(const RenderRequest& request) const;
 };
 
 } // namespace FLEXIMG_NAMESPACE
@@ -202,6 +217,37 @@ void CompositeNode::onPullFinalize() {
     }
 }
 
+// 全上流のgetDataRange和集合を計算
+DataRange CompositeNode::calcUpstreamRangeUnion(const RenderRequest& request) const {
+    int numInputs = inputCount();
+    int16_t startX = request.width;  // 右端で初期化
+    int16_t endX = 0;                // 左端で初期化
+
+    for (int i = 0; i < numInputs; i++) {
+        Node* upstream = upstreamNode(i);
+        if (!upstream) continue;
+        DataRange range = upstream->getDataRange(request);
+        if (range.hasData()) {
+            if (range.startX < startX) startX = range.startX;
+            if (range.endX > endX) endX = range.endX;
+        }
+    }
+    return DataRange{startX, endX};  // startX >= endX はデータなし
+}
+
+// getDataRange: 全上流のgetDataRange和集合を返す
+// 計算結果はキャッシュし、onPullProcessで再利用
+DataRange CompositeNode::getDataRange(const RenderRequest& request) const {
+    DataRange range = calcUpstreamRangeUnion(request);
+
+    // キャッシュに保存
+    rangeCache_.origin = request.origin;
+    rangeCache_.startX = range.startX;
+    rangeCache_.endX = range.endX;
+
+    return range.hasData() ? range : DataRange{0, 0};
+}
+
 // onPullProcess: 複数の上流から画像を取得してunder合成
 // under合成: 手前から奥へ処理し、不透明な部分は後のレイヤーをスキップ
 // 最適化: height=1 前提（パイプラインは常にスキャンライン単位で処理）
@@ -209,17 +255,18 @@ RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
     int numInputs = inputCount();
     if (numInputs == 0) return RenderResponse();
 
-    // 各上流のデータ範囲を収集し、和集合を計算
-    int16_t canvasStartX = request.width;  // 和集合の開始X
-    int16_t canvasEndX = 0;                // 和集合の終了X
-    for (int i = 0; i < numInputs; i++) {
-        Node* upstream = upstreamNode(i);
-        if (!upstream) continue;
-        DataRange range = upstream->getDataRange(request);
-        if (range.hasData()) {
-            if (range.startX < canvasStartX) canvasStartX = range.startX;
-            if (range.endX > canvasEndX) canvasEndX = range.endX;
-        }
+    // キャンバス範囲を取得（キャッシュがあれば再利用）
+    int16_t canvasStartX, canvasEndX;
+    if (rangeCache_.origin.x == request.origin.x &&
+        rangeCache_.origin.y == request.origin.y) {
+        // キャッシュヒット: getDataRange()の計算結果を再利用
+        canvasStartX = rangeCache_.startX;
+        canvasEndX = rangeCache_.endX;
+    } else {
+        // キャッシュミス: 和集合を計算
+        DataRange range = calcUpstreamRangeUnion(request);
+        canvasStartX = range.startX;
+        canvasEndX = range.endX;
     }
 
     // 有効なデータがない場合は空を返す
