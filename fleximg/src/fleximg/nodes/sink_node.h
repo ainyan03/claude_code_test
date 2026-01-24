@@ -55,12 +55,12 @@ protected:
     // ========================================
 
     // onPushPrepare: アフィン情報を受け取り、事前計算を行う
-    // SinkNodeは終端なので下流への伝播なし、PrepareResultを返す
-    PrepareResult onPushPrepare(const PrepareRequest& request) override;
+    // SinkNodeは終端なので下流への伝播なし、PrepareResponseを返す
+    PrepareResponse onPushPrepare(const PrepareRequest& request) override;
 
     // onPushProcess: タイル単位で呼び出され、出力バッファに書き込み
     // SinkNodeは終端なので下流への伝播なし
-    void onPushProcess(RenderResult&& input,
+    void onPushProcess(RenderResponse&& input,
                        const RenderRequest& request) override;
 
 private:
@@ -75,7 +75,7 @@ private:
     bool hasAffine_ = false;       // アフィン変換が伝播されているか
 
     // アフィン変換付きプッシュ処理
-    void pushProcessWithAffine(RenderResult&& input);
+    void pushProcessWithAffine(RenderResponse&& input);
 
     // アフィン変換実装（事前計算済み値を使用）
     void applyAffine(ViewPort& dst,
@@ -95,7 +95,7 @@ namespace FLEXIMG_NAMESPACE {
 // SinkNode - Template Method フック実装
 // ============================================================================
 
-PrepareResult SinkNode::onPushPrepare(const PrepareRequest& request) {
+PrepareResponse SinkNode::onPushPrepare(const PrepareRequest& request) {
     // アフィン情報を受け取り、事前計算を行う
     if (request.hasPushAffine) {
         // 逆行列とピクセル中心オフセットを計算（共通処理）
@@ -119,8 +119,8 @@ PrepareResult SinkNode::onPushPrepare(const PrepareRequest& request) {
 
     // SinkNodeは終端なので下流への伝播なし
     // プッシュアフィン変換がある場合、入力側で必要なAABBを計算
-    PrepareResult result;
-    result.status = PipelineStatus::Success;
+    PrepareResponse result;
+    result.status = PrepareStatus::Prepared;
     result.preferredFormat = target_.formatID;
 
     if (request.hasPushAffine && affine_.isValid()) {
@@ -139,7 +139,7 @@ PrepareResult SinkNode::onPushPrepare(const PrepareRequest& request) {
     return result;
 }
 
-void SinkNode::onPushProcess(RenderResult&& input,
+void SinkNode::onPushProcess(RenderResponse&& input,
                              const RenderRequest& request) {
     (void)request;  // 現在は未使用
 
@@ -180,7 +180,7 @@ void SinkNode::onPushProcess(RenderResult&& input,
 // SinkNode - private ヘルパーメソッド実装
 // ============================================================================
 
-void SinkNode::pushProcessWithAffine(RenderResult&& input) {
+void SinkNode::pushProcessWithAffine(RenderResponse&& input) {
     // 特異行列チェック
     if (!affine_.isValid()) {
         return;

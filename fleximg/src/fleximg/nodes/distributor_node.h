@@ -66,13 +66,13 @@ public:
     // ========================================
 
     // onPushPrepare: 全下流ノードにPrepareRequestを伝播
-    PrepareResult onPushPrepare(const PrepareRequest& request) override;
+    PrepareResponse onPushPrepare(const PrepareRequest& request) override;
 
     // onPushFinalize: 全下流ノードに終了を伝播
     void onPushFinalize() override;
 
     // onPushProcess: 全出力に参照モードで配信
-    void onPushProcess(RenderResult&& input,
+    void onPushProcess(RenderResponse&& input,
                        const RenderRequest& request) override;
 };
 
@@ -89,7 +89,7 @@ namespace FLEXIMG_NAMESPACE {
 // DistributorNode - Template Method フック実装
 // ============================================================================
 
-PrepareResult DistributorNode::onPushPrepare(const PrepareRequest& request) {
+PrepareResponse DistributorNode::onPushPrepare(const PrepareRequest& request) {
     // 準備処理
     RenderRequest screenInfo;
     screenInfo.width = request.width;
@@ -97,8 +97,8 @@ PrepareResult DistributorNode::onPushPrepare(const PrepareRequest& request) {
     screenInfo.origin = request.origin;
     prepare(screenInfo);
 
-    PrepareResult merged;
-    merged.status = PipelineStatus::Success;
+    PrepareResponse merged;
+    merged.status = PrepareStatus::Prepared;
     bool hasValidDownstream = false;
     bool formatMismatch = false;
 
@@ -110,7 +110,7 @@ PrepareResult DistributorNode::onPushPrepare(const PrepareRequest& request) {
     for (int i = 0; i < numOutputs; ++i) {
         Node* downstream = downstreamNode(i);
         if (downstream) {
-            PrepareResult result = downstream->pushPrepare(request);
+            PrepareResponse result = downstream->pushPrepare(request);
             if (!result.ok()) {
                 return result;  // エラーを伝播
             }
@@ -144,7 +144,7 @@ PrepareResult DistributorNode::onPushPrepare(const PrepareRequest& request) {
     }
 
     if (hasValidDownstream) {
-        // 和集合結果をPrepareResultに設定
+        // 和集合結果をPrepareResponseに設定
         merged.width = static_cast<int16_t>(std::ceil(maxX - minX));
         merged.height = static_cast<int16_t>(std::ceil(maxY - minY));
         merged.origin.x = float_to_fixed(-minX);
@@ -175,7 +175,7 @@ void DistributorNode::onPushFinalize() {
     finalize();
 }
 
-void DistributorNode::onPushProcess(RenderResult&& input,
+void DistributorNode::onPushProcess(RenderResponse&& input,
                                     const RenderRequest& request) {
     // プッシュ型単一入力: 無効なら処理終了
     if (!input.isValid()) {
@@ -210,7 +210,7 @@ void DistributorNode::onPushProcess(RenderResult&& input,
         // 最後の出力には元のバッファをmoveで渡す（効率化）
         if (processed < validOutputs) {
             // 参照モード: ViewPortから新しいImageBufferを作成
-            RenderResult ref(ImageBuffer(input.buffer.view()), input.origin);
+            RenderResponse ref(ImageBuffer(input.buffer.view()), input.origin);
             downstream->pushProcess(std::move(ref), request);
         } else {
             // 最後: 元のバッファをそのまま渡す

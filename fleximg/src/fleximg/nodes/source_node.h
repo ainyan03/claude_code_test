@@ -81,12 +81,12 @@ public:
     // ========================================
 
     // onPullPrepare: アフィン情報を受け取り、事前計算を行う
-    // SourceNodeは終端なので上流への伝播なし、PrepareResultを返す
-    PrepareResult onPullPrepare(const PrepareRequest& request) override;
+    // SourceNodeは終端なので上流への伝播なし、PrepareResponseを返す
+    PrepareResponse onPullPrepare(const PrepareRequest& request) override;
 
     // onPullProcess: ソース画像のスキャンラインを返す
     // SourceNodeは入力がないため、上流を呼び出さずに直接処理
-    RenderResult onPullProcess(const RenderRequest& request) override;
+    RenderResponse onPullProcess(const RenderRequest& request) override;
 
 private:
     ViewPort source_;
@@ -113,7 +113,7 @@ private:
     int32_t baseTyWithOffsets_ = 0;  // 事前計算統合: invTy + srcOrigin + rowOffset + dxOffset
 
     // アフィン変換付きプル処理（スキャンライン専用）
-    RenderResult pullProcessWithAffine(const RenderRequest& request);
+    RenderResponse pullProcessWithAffine(const RenderRequest& request);
 };
 
 } // namespace FLEXIMG_NAMESPACE
@@ -129,7 +129,7 @@ namespace FLEXIMG_NAMESPACE {
 // SourceNode - Template Method フック実装
 // ============================================================================
 
-PrepareResult SourceNode::onPullPrepare(const PrepareRequest& request) {
+PrepareResponse SourceNode::onPullPrepare(const PrepareRequest& request) {
     // 下流からの希望フォーマットを保存（将来のフォーマット最適化用）
     preferredFormat_ = request.preferredFormat;
 
@@ -254,8 +254,8 @@ PrepareResult SourceNode::onPullPrepare(const PrepareRequest& request) {
 
     // SourceNodeは終端なので上流への伝播なし
     // プルアフィン変換がある場合、出力側で必要なAABBを計算
-    PrepareResult result;
-    result.status = PipelineStatus::Success;
+    PrepareResponse result;
+    result.status = PrepareStatus::Prepared;
     result.preferredFormat = source_.formatID;
 
     if (hasTransform) {
@@ -274,11 +274,11 @@ PrepareResult SourceNode::onPullPrepare(const PrepareRequest& request) {
     return result;
 }
 
-RenderResult SourceNode::onPullProcess(const RenderRequest& request) {
+RenderResponse SourceNode::onPullProcess(const RenderRequest& request) {
     FLEXIMG_METRICS_SCOPE(NodeType::Source);
 
     if (!source_.isValid()) {
-        return RenderResult();
+        return RenderResponse();
     }
 
     // アフィン変換が伝播されている場合はDDA処理
@@ -309,7 +309,7 @@ RenderResult SourceNode::onPullProcess(const RenderRequest& request) {
 
     if (interLeft >= interRight || interTop >= interBottom) {
         // バッファ内基準点位置 = request.origin
-        return RenderResult(ImageBuffer(), request.origin);
+        return RenderResponse(ImageBuffer(), request.origin);
     }
 
     // 交差領域のサブビューを参照モードで返す（コピーなし）
@@ -325,7 +325,7 @@ RenderResult SourceNode::onPullProcess(const RenderRequest& request) {
     ImageBuffer result(view_ops::subView(source_, srcX, srcY, interW, interH));
 
     // バッファ内基準点位置 = -interLeft, -interTop
-    return RenderResult(std::move(result), Point{-interLeft, -interTop});
+    return RenderResponse(std::move(result), Point{-interLeft, -interTop});
 }
 
 // ============================================================================
@@ -335,10 +335,10 @@ RenderResult SourceNode::onPullProcess(const RenderRequest& request) {
 // アフィン変換付きプル処理（スキャンライン専用）
 // 前提: request.height == 1（RendererNodeはスキャンライン単位で処理）
 // 有効範囲のみのバッファを返し、範囲外の0データを下流に送らない
-RenderResult SourceNode::pullProcessWithAffine(const RenderRequest& request) {
+RenderResponse SourceNode::pullProcessWithAffine(const RenderRequest& request) {
     // 特異行列チェック
     if (!affine_.isValid()) {
-        return RenderResult(ImageBuffer(), request.origin);
+        return RenderResponse(ImageBuffer(), request.origin);
     }
 
     // dstOrigin分を計算（Q16.16 → int）
@@ -388,7 +388,7 @@ RenderResult SourceNode::pullProcessWithAffine(const RenderRequest& request) {
 
     // 有効ピクセルがない場合
     if (dxStart > dxEnd) {
-        return RenderResult(ImageBuffer(), request.origin);
+        return RenderResponse(ImageBuffer(), request.origin);
     }
 
     // 有効範囲のみのバッファを作成
@@ -425,7 +425,7 @@ RenderResult SourceNode::pullProcessWithAffine(const RenderRequest& request) {
         request.origin.y
     };
 
-    return RenderResult(std::move(output), adjustedOrigin);
+    return RenderResponse(std::move(output), adjustedOrigin);
 }
 
 } // namespace FLEXIMG_NAMESPACE

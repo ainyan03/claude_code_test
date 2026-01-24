@@ -62,13 +62,13 @@ protected:
     // ========================================
 
     // onPullPrepare: 全上流ノードにPrepareRequestを伝播
-    PrepareResult onPullPrepare(const PrepareRequest& request) override;
+    PrepareResponse onPullPrepare(const PrepareRequest& request) override;
 
     // onPullFinalize: 全上流ノードに終了を伝播
     void onPullFinalize() override;
 
     // onPullProcess: マット合成処理
-    RenderResult onPullProcess(const RenderRequest& request) override;
+    RenderResponse onPullProcess(const RenderRequest& request) override;
 
 private:
     // 255での除算を高速化（誤差なし）
@@ -79,8 +79,8 @@ private:
 
     // マット合成の実処理（最適化版）
     void applyMatteComposite(ImageBuffer& output, const RenderRequest& request,
-                             const RenderResult& fg, const RenderResult& bg,
-                             const RenderResult& mask);
+                             const RenderResponse& fg, const RenderResponse& bg,
+                             const RenderResponse& mask);
 
     // 行の一部領域をコピー（alpha=0またはalpha=255用）
     void copyRowRegion(uint8_t* outRow,
@@ -98,7 +98,7 @@ private:
                            int offsetX, int offsetY);
 
     // Union領域にクリッピングした結果を作成（マスクなし時の高速パス）
-    RenderResult createClippedResult(const RenderResult& src,
+    RenderResponse createClippedResult(const RenderResponse& src,
                                      int_fixed unionOriginX, int_fixed unionOriginY,
                                      int unionWidth, int unionHeight);
 };
@@ -116,9 +116,9 @@ namespace FLEXIMG_NAMESPACE {
 // MatteNode - Template Method フック実装
 // ============================================================================
 
-PrepareResult MatteNode::onPullPrepare(const PrepareRequest& request) {
-    PrepareResult merged;
-    merged.status = PipelineStatus::Success;
+PrepareResponse MatteNode::onPullPrepare(const PrepareRequest& request) {
+    PrepareResponse merged;
+    merged.status = PrepareStatus::Prepared;
     bool hasValidUpstream = false;
 
     // AABB和集合計算用（基準点からの相対座標）
@@ -128,7 +128,7 @@ PrepareResult MatteNode::onPullPrepare(const PrepareRequest& request) {
     for (int i = 0; i < 3; ++i) {
         Node* upstream = upstreamNode(i);
         if (upstream) {
-            PrepareResult result = upstream->pullPrepare(request);
+            PrepareResponse result = upstream->pullPrepare(request);
             if (!result.ok()) {
                 return result;  // エラーを伝播
             }
@@ -157,7 +157,7 @@ PrepareResult MatteNode::onPullPrepare(const PrepareRequest& request) {
     }
 
     if (hasValidUpstream) {
-        // 和集合結果をPrepareResultに設定
+        // 和集合結果をPrepareResponseに設定
         merged.width = static_cast<int16_t>(std::ceil(maxX - minX));
         merged.height = static_cast<int16_t>(std::ceil(maxY - minY));
         merged.origin.x = float_to_fixed(-minX);
@@ -189,7 +189,7 @@ void MatteNode::onPullFinalize() {
     }
 }
 
-RenderResult MatteNode::onPullProcess(const RenderRequest& request) {
+RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
     // 注意: FLEXIMG_METRICS_SCOPEは上流呼び出し後に配置
     // （上流の処理時間を含めないため）
 
@@ -200,7 +200,7 @@ RenderResult MatteNode::onPullProcess(const RenderRequest& request) {
     // ========================================
     // Step 1: マスクを最初に評価（request範囲で要求）
     // ========================================
-    RenderResult maskResult;
+    RenderResponse maskResult;
     if (maskNode) {
         maskResult = maskNode->pullProcess(request);
         if (maskResult.isValid()) {
@@ -215,7 +215,7 @@ RenderResult MatteNode::onPullProcess(const RenderRequest& request) {
             return bgNode->pullProcess(request);
         }
         // 空の結果でもoriginは維持
-        return RenderResult(ImageBuffer(), request.origin);
+        return RenderResponse(ImageBuffer(), request.origin);
     }
 
     // ========================================
@@ -236,7 +236,7 @@ RenderResult MatteNode::onPullProcess(const RenderRequest& request) {
         if (bgNode) {
             return bgNode->pullProcess(request);
         }
-        return RenderResult(ImageBuffer(), request.origin);
+        return RenderResponse(ImageBuffer(), request.origin);
     }
 
     // 右端から0が連続する範囲
@@ -252,7 +252,7 @@ RenderResult MatteNode::onPullProcess(const RenderRequest& request) {
     // ========================================
     // Step 2: 背景を評価（request範囲で要求）
     // ========================================
-    RenderResult bgResult;
+    RenderResponse bgResult;
     if (bgNode) {
         bgResult = bgNode->pullProcess(request);
         if (bgResult.isValid()) {
@@ -267,7 +267,7 @@ RenderResult MatteNode::onPullProcess(const RenderRequest& request) {
     int_fixed unionMinX, unionMinY, unionMaxX, unionMaxY;
     bool hasUnion = false;
 
-    auto updateUnion = [&](const RenderResult& result) {
+    auto updateUnion = [&](const RenderResponse& result) {
         if (!result.isValid()) return;
         ViewPort v = result.view();
         int_fixed minX = result.origin.x - to_fixed(v.width);
@@ -295,7 +295,7 @@ RenderResult MatteNode::onPullProcess(const RenderRequest& request) {
     // Union領域がない場合（両方空）
     if (!hasUnion) {
         // 空の結果でもoriginは維持
-        return RenderResult(ImageBuffer(), request.origin);
+        return RenderResponse(ImageBuffer(), request.origin);
     }
 
     int unionWidth = from_fixed(unionMaxX - unionMinX);
@@ -306,7 +306,7 @@ RenderResult MatteNode::onPullProcess(const RenderRequest& request) {
     // ========================================
     // Step 4: 前景を評価（マスク有効範囲で要求）← 最適化ポイント
     // ========================================
-    RenderResult fgResult;
+    RenderResponse fgResult;
     if (fgNode) {
         // マスクの有効範囲でのみ前景を要求
         // origin.xは「バッファ左端から基準点までの距離」なので、
@@ -346,7 +346,7 @@ RenderResult MatteNode::onPullProcess(const RenderRequest& request) {
     applyMatteComposite(outputBuf, unionRequest,
                        fgResult, bgResult, maskResult);
 
-    return RenderResult(std::move(outputBuf), Point{unionOriginX, unionOriginY});
+    return RenderResponse(std::move(outputBuf), Point{unionOriginX, unionOriginY});
 }
 
 // ============================================================================
@@ -354,8 +354,8 @@ RenderResult MatteNode::onPullProcess(const RenderRequest& request) {
 // ============================================================================
 
 void MatteNode::applyMatteComposite(ImageBuffer& output, const RenderRequest& request,
-                                    const RenderResult& fg, const RenderResult& bg,
-                                    const RenderResult& mask) {
+                                    const RenderResponse& fg, const RenderResponse& bg,
+                                    const RenderResponse& mask) {
     ViewPort outView = output.view();
     uint8_t* outPtr = static_cast<uint8_t*>(outView.data);
     const int outStride = outView.stride;
@@ -609,7 +609,7 @@ void MatteNode::copyImageToOutput(uint8_t* outPtr, int outWidth,
     }
 }
 
-RenderResult MatteNode::createClippedResult(const RenderResult& src,
+RenderResponse MatteNode::createClippedResult(const RenderResponse& src,
                                             int_fixed unionOriginX, int_fixed unionOriginY,
                                             int unionWidth, int unionHeight) {
     ImageBuffer outputBuf(unionWidth, unionHeight, PixelFormatIDs::RGBA8_Straight,
@@ -637,7 +637,7 @@ RenderResult MatteNode::createClippedResult(const RenderResult& src,
                       srcPtr, srcStride, srcWidth, srcHeight,
                       offsetX, offsetY);
 
-    return RenderResult(std::move(outputBuf), Point{unionOriginX, unionOriginY});
+    return RenderResponse(std::move(outputBuf), Point{unionOriginX, unionOriginY});
 }
 
 } // namespace FLEXIMG_NAMESPACE
