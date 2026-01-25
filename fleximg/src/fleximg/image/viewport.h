@@ -130,7 +130,7 @@ void affineTransform(
     const ViewPort& src,
     int_fixed invTx,
     int_fixed invTy,
-    const Matrix2x2_fixed16& invMatrix,
+    const Matrix2x2_fixed& invMatrix,
     int_fixed rowOffsetX,
     int_fixed rowOffsetY,
     int_fixed dxOffsetX,
@@ -217,8 +217,8 @@ inline void copyRowDDA_Impl(
     int count
 ) {
     for (int i = 0; i < count; i++) {
-        uint32_t sx = static_cast<uint32_t>(srcX) >> INT_FIXED16_SHIFT;
-        uint32_t sy = static_cast<uint32_t>(srcY) >> INT_FIXED16_SHIFT;
+        uint32_t sx = static_cast<uint32_t>(srcX) >> INT_FIXED_SHIFT;
+        uint32_t sy = static_cast<uint32_t>(srcY) >> INT_FIXED_SHIFT;
 
         const uint8_t* srcPixel = srcData
             + static_cast<size_t>(sy) * static_cast<size_t>(srcStride)
@@ -316,8 +316,8 @@ void copyRowDDABilinear(
 
     for (int i = 0; i < count; i++) {
         // 整数部（ピクセル座標）
-        int32_t sx = srcX >> INT_FIXED16_SHIFT;
-        int32_t sy = srcY >> INT_FIXED16_SHIFT;
+        int32_t sx = srcX >> INT_FIXED_SHIFT;
+        int32_t sy = srcY >> INT_FIXED_SHIFT;
 
         // 小数部を 0-255 に正規化（補間の重み）
         uint32_t fx = (static_cast<uint32_t>(srcX) >> 8) & 0xFF;
@@ -352,7 +352,7 @@ void affineTransform(
     const ViewPort& src,
     int_fixed invTx,
     int_fixed invTy,
-    const Matrix2x2_fixed16& invMatrix,
+    const Matrix2x2_fixed& invMatrix,
     int_fixed rowOffsetX,
     int_fixed rowOffsetY,
     int_fixed dxOffsetX,
