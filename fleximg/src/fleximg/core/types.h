@@ -16,47 +16,17 @@ namespace core {
 //
 
 // ------------------------------------------------------------------------
-// Q24.8 固定小数点（座標用）[DEPRECATED]
-// ------------------------------------------------------------------------
-// 整数部: 24bit (-8,388,608 ~ 8,388,607)
-// 小数部: 8bit (精度 1/256 = 0.00390625)
-// 用途: origin座標、基準点位置など
-//
-// [DEPRECATED] Q16.16への統一により非推奨。
-// 新規コードでは int_fixed（Q16.16）を使用してください。
-// 既存コードとの互換性のため残しています。
-
-using int_fixed8 = int32_t;
-
-constexpr int INT_FIXED8_SHIFT = 8;
-constexpr int_fixed8 INT_FIXED8_ONE = 1 << INT_FIXED8_SHIFT;  // 256
-constexpr int_fixed8 INT_FIXED8_HALF = 1 << (INT_FIXED8_SHIFT - 1);  // 128
-
-// ------------------------------------------------------------------------
-// Q16.16 固定小数点（行列用）
+// Q16.16 固定小数点
 // ------------------------------------------------------------------------
 // 整数部: 16bit (-32,768 ~ 32,767)
 // 小数部: 16bit (精度 1/65536 = 0.0000152587890625)
 // 用途: アフィン変換行列の要素
 
-using int_fixed16 = int32_t;
+using int_fixed = int32_t;
 
-constexpr int INT_FIXED16_SHIFT = 16;
-constexpr int_fixed16 INT_FIXED16_ONE = 1 << INT_FIXED16_SHIFT;  // 65536
-constexpr int_fixed16 INT_FIXED16_HALF = 1 << (INT_FIXED16_SHIFT - 1);  // 32768
-
-// ------------------------------------------------------------------------
-// 統一固定小数点型（Q16.16）
-// ------------------------------------------------------------------------
-// 座標、行列ともにQ16.16を標準とする。
-// 整数範囲 ±32,767 は組み込みディスプレイで十分。
-// 精度 1/65536 により、サブピクセル計算の精度も向上。
-
-using int_fixed = int_fixed16;
-
-constexpr int INT_FIXED_SHIFT = INT_FIXED16_SHIFT;
-constexpr int_fixed INT_FIXED_ONE = INT_FIXED16_ONE;
-constexpr int_fixed INT_FIXED_HALF = INT_FIXED16_HALF;
+constexpr int INT_FIXED_SHIFT = 16;
+constexpr int_fixed INT_FIXED_ONE = 1 << INT_FIXED_SHIFT;  // 65536
+constexpr int_fixed INT_FIXED_HALF = 1 << (INT_FIXED_SHIFT - 1);  // 32768
 
 
 // ========================================================================
@@ -67,7 +37,7 @@ constexpr int_fixed INT_FIXED_HALF = INT_FIXED16_HALF;
 // 平行移動成分(tx,ty)は含まず、別途管理する。
 //
 // テンプレート引数で精度を指定:
-// - Matrix2x2<int_fixed16>: Q16.16 固定小数点（DDA用）
+// - Matrix2x2<int_fixed>: Q16.16 固定小数点（DDA用）
 // - Matrix2x2<float>: 浮動小数点（互換用）
 //
 // 逆行列か順行列かは変数名で区別する:
@@ -86,7 +56,7 @@ struct Matrix2x2 {
 };
 
 // 精度別エイリアス
-using Matrix2x2_fixed16 = Matrix2x2<int_fixed16>;
+using Matrix2x2_fixed = Matrix2x2<int_fixed>;
 
 
 // ========================================================================
@@ -113,138 +83,65 @@ struct Point {
 // ========================================================================
 
 // ------------------------------------------------------------------------
-// int ↔ fixed8 変換
+// int ↔ fixed 変換
 // ------------------------------------------------------------------------
 
-// int → fixed8
-constexpr int_fixed8 to_fixed8(int v) {
-    return static_cast<int_fixed8>(v) << INT_FIXED8_SHIFT;
+// int → fixed
+constexpr int_fixed to_fixed(int v) {
+    return static_cast<int_fixed>(v) << INT_FIXED_SHIFT;
 }
 
-// fixed8 → int (floor: 負の無限大方向への丸め)
-// 算術右シフトにより、常に負の無限大方向へ丸められる
-constexpr int from_fixed8_floor(int_fixed8 v) {
-    return v >> INT_FIXED8_SHIFT;
-}
-
-// fixed8 → int (ceil: 正の無限大方向への丸め)
-constexpr int from_fixed8_ceil(int_fixed8 v) {
-    return (v + INT_FIXED8_ONE - 1) >> INT_FIXED8_SHIFT;
-}
-
-// fixed8 → int (round: 四捨五入、round half up)
-constexpr int from_fixed8_round(int_fixed8 v) {
-    return (v + INT_FIXED8_HALF) >> INT_FIXED8_SHIFT;
-}
-
-// 互換性のためのエイリアス（from_fixed8_floor と同じ）
-constexpr int from_fixed8(int_fixed8 v) {
-    return from_fixed8_floor(v);
-}
-
-// ------------------------------------------------------------------------
-// int ↔ fixed16 変換
-// ------------------------------------------------------------------------
-
-// int → fixed16
-constexpr int_fixed16 to_fixed16(int v) {
-    return static_cast<int_fixed16>(v) << INT_FIXED16_SHIFT;
-}
-
-// fixed16 → int (floor: 負の無限大方向への丸め)
+// fixed → int (floor: 負の無限大方向への丸め)
 // 算術右シフトにより、常に負の無限大方向へ丸められる
 // 例: 10.7 → 10, 10.3 → 10, -10.3 → -11, -10.7 → -11
-constexpr int from_fixed16_floor(int_fixed16 v) {
-    return v >> INT_FIXED16_SHIFT;
+constexpr int from_fixed_floor(int_fixed v) {
+    return v >> INT_FIXED_SHIFT;
 }
 
-// fixed16 → int (ceil: 正の無限大方向への丸め)
+// fixed → int (ceil: 正の無限大方向への丸め)
 // 例: 10.3 → 11, 10.0 → 10, -10.7 → -10, -10.0 → -10
-constexpr int from_fixed16_ceil(int_fixed16 v) {
-    return (v + INT_FIXED16_ONE - 1) >> INT_FIXED16_SHIFT;
+constexpr int from_fixed_ceil(int_fixed v) {
+    return (v + INT_FIXED_ONE - 1) >> INT_FIXED_SHIFT;
 }
 
-// fixed16 → int (round: 四捨五入、round half up)
+// fixed → int (round: 四捨五入、round half up)
 // 0.5以上で切り上げ、0.5未満で切り捨て
 // 例: 10.5 → 11, 10.4 → 10, -10.4 → -10, -10.5 → -10, -10.6 → -11
-constexpr int from_fixed16_round(int_fixed16 v) {
-    return (v + INT_FIXED16_HALF) >> INT_FIXED16_SHIFT;
+constexpr int from_fixed_round(int_fixed v) {
+    return (v + INT_FIXED_HALF) >> INT_FIXED_SHIFT;
 }
 
-// 互換性のためのエイリアス（from_fixed16_floor と同じ）
-constexpr int from_fixed16(int_fixed16 v) {
-    return from_fixed16_floor(v);
-}
-
-// ------------------------------------------------------------------------
-// int ↔ fixed 変換（統一型エイリアス）
-// ------------------------------------------------------------------------
-
-constexpr int_fixed to_fixed(int v) { return to_fixed16(v); }
-constexpr int from_fixed_floor(int_fixed v) { return from_fixed16_floor(v); }
-constexpr int from_fixed_ceil(int_fixed v) { return from_fixed16_ceil(v); }
-constexpr int from_fixed_round(int_fixed v) { return from_fixed16_round(v); }
 // 互換性のためのエイリアス（from_fixed_floor と同じ）
-constexpr int from_fixed(int_fixed v) { return from_fixed_floor(v); }
-
-// ------------------------------------------------------------------------
-// float ↔ fixed16 変換
-// ------------------------------------------------------------------------
-
-// float → fixed16
-constexpr int_fixed16 float_to_fixed16(float v) {
-    return static_cast<int_fixed16>(v * INT_FIXED16_ONE);
-}
-
-// fixed16 → float
-constexpr float fixed16_to_float(int_fixed16 v) {
-    return static_cast<float>(v) / INT_FIXED16_ONE;
+constexpr int from_fixed(int_fixed v) {
+    return from_fixed_floor(v);
 }
 
 // ------------------------------------------------------------------------
-// float ↔ fixed 変換（統一型エイリアス）
+// float ↔ fixed 変換
 // ------------------------------------------------------------------------
 
-constexpr int_fixed float_to_fixed(float v) { return float_to_fixed16(v); }
-constexpr float fixed_to_float(int_fixed v) { return fixed16_to_float(v); }
-
-// ------------------------------------------------------------------------
-// float ↔ fixed8 変換 [DEPRECATED]
-// ------------------------------------------------------------------------
-
-// float → fixed8
-constexpr int_fixed8 float_to_fixed8(float v) {
-    return static_cast<int_fixed8>(v * INT_FIXED8_ONE);
+// float → fixed
+constexpr int_fixed float_to_fixed(float v) {
+    return static_cast<int_fixed>(v * INT_FIXED_ONE);
 }
 
-// fixed8 → float
-constexpr float fixed8_to_float(int_fixed8 v) {
-    return static_cast<float>(v) / INT_FIXED8_ONE;
+// fixed → float
+constexpr float fixed_to_float(int_fixed v) {
+    return static_cast<float>(v) / INT_FIXED_ONE;
 }
-
 
 // ========================================================================
 // 固定小数点演算ヘルパー
 // ========================================================================
 
-// fixed8 同士の乗算 (結果も fixed8)
-constexpr int_fixed8 mul_fixed8(int_fixed8 a, int_fixed8 b) {
-    return static_cast<int_fixed8>((static_cast<int64_t>(a) * b) >> INT_FIXED8_SHIFT);
+// fixed 同士の乗算 (結果も fixed)
+constexpr int_fixed mul_fixed(int_fixed a, int_fixed b) {
+    return static_cast<int_fixed>((static_cast<int64_t>(a) * b) >> INT_FIXED_SHIFT);
 }
 
-// fixed8 同士の除算 (結果も fixed8)
-constexpr int_fixed8 div_fixed8(int_fixed8 a, int_fixed8 b) {
-    return static_cast<int_fixed8>((static_cast<int64_t>(a) << INT_FIXED8_SHIFT) / b);
-}
-
-// fixed16 同士の乗算 (結果も fixed16)
-constexpr int_fixed16 mul_fixed16(int_fixed16 a, int_fixed16 b) {
-    return static_cast<int_fixed16>((static_cast<int64_t>(a) * b) >> INT_FIXED16_SHIFT);
-}
-
-// fixed16 同士の除算 (結果も fixed16)
-constexpr int_fixed16 div_fixed16(int_fixed16 a, int_fixed16 b) {
-    return static_cast<int_fixed16>((static_cast<int64_t>(a) << INT_FIXED16_SHIFT) / b);
+// fixed 同士の除算 (結果も fixed)
+constexpr int_fixed div_fixed(int_fixed a, int_fixed b) {
+    return static_cast<int_fixed>((static_cast<int64_t>(a) << INT_FIXED_SHIFT) / b);
 }
 
 
@@ -292,30 +189,30 @@ struct AffineMatrix {
 
 // AffineMatrix の 2x2 部分を固定小数点で返す（順変換用）
 // 平行移動成分(tx,ty)は含まない（呼び出し側で別途管理）
-inline Matrix2x2_fixed16 toFixed16(const AffineMatrix& m) {
-    return Matrix2x2_fixed16(
-        static_cast<int_fixed16>(std::lround(m.a * INT_FIXED16_ONE)),
-        static_cast<int_fixed16>(std::lround(m.b * INT_FIXED16_ONE)),
-        static_cast<int_fixed16>(std::lround(m.c * INT_FIXED16_ONE)),
-        static_cast<int_fixed16>(std::lround(m.d * INT_FIXED16_ONE)),
+inline Matrix2x2_fixed toFixed(const AffineMatrix& m) {
+    return Matrix2x2_fixed(
+        static_cast<int_fixed>(std::lround(m.a * INT_FIXED_ONE)),
+        static_cast<int_fixed>(std::lround(m.b * INT_FIXED_ONE)),
+        static_cast<int_fixed>(std::lround(m.c * INT_FIXED_ONE)),
+        static_cast<int_fixed>(std::lround(m.d * INT_FIXED_ONE)),
         true  // valid
     );
 }
 
 // AffineMatrix の 2x2 部分の逆行列を固定小数点で返す（逆変換用）
 // 平行移動成分(tx,ty)は含まない（呼び出し側で別途管理）
-inline Matrix2x2_fixed16 inverseFixed16(const AffineMatrix& m) {
+inline Matrix2x2_fixed inverseFixed(const AffineMatrix& m) {
     float det = m.a * m.d - m.b * m.c;
     if (std::abs(det) < 1e-10f) {
-        return Matrix2x2_fixed16();  // valid = false
+        return Matrix2x2_fixed();  // valid = false
     }
 
     float invDet = 1.0f / det;
-    return Matrix2x2_fixed16(
-        static_cast<int_fixed16>(std::lround(m.d * invDet * INT_FIXED16_ONE)),
-        static_cast<int_fixed16>(std::lround(-m.b * invDet * INT_FIXED16_ONE)),
-        static_cast<int_fixed16>(std::lround(-m.c * invDet * INT_FIXED16_ONE)),
-        static_cast<int_fixed16>(std::lround(m.a * invDet * INT_FIXED16_ONE)),
+    return Matrix2x2_fixed(
+        static_cast<int_fixed>(std::lround(m.d * invDet * INT_FIXED_ONE)),
+        static_cast<int_fixed>(std::lround(-m.b * invDet * INT_FIXED_ONE)),
+        static_cast<int_fixed>(std::lround(-m.c * invDet * INT_FIXED_ONE)),
+        static_cast<int_fixed>(std::lround(m.a * invDet * INT_FIXED_ONE)),
         true  // valid
     );
 }
@@ -331,7 +228,7 @@ inline Matrix2x2_fixed16 inverseFixed16(const AffineMatrix& m) {
 //
 
 struct AffinePrecomputed {
-    Matrix2x2_fixed16 invMatrix;  // 逆行列（2x2部分）
+    Matrix2x2_fixed invMatrix;  // 逆行列（2x2部分）
     int32_t invTxFixed = 0;       // 逆変換オフセットX（Q16.16）
     int32_t invTyFixed = 0;       // 逆変換オフセットY（Q16.16）
     int32_t rowOffsetX = 0;       // ピクセル中心オフセット: invMatrix.b >> 1
@@ -348,7 +245,7 @@ inline AffinePrecomputed precomputeInverseAffine(const AffineMatrix& m) {
     AffinePrecomputed result;
 
     // 逆行列を計算
-    result.invMatrix = inverseFixed16(m);
+    result.invMatrix = inverseFixed(m);
     if (!result.invMatrix.valid) {
         return result;  // 特異行列の場合は無効な結果を返す
     }
@@ -363,8 +260,8 @@ inline AffinePrecomputed precomputeInverseAffine(const AffineMatrix& m) {
                       + static_cast<int64_t>(tyFixed) * result.invMatrix.b);
     int64_t invTy64 = -(static_cast<int64_t>(txFixed) * result.invMatrix.c
                       + static_cast<int64_t>(tyFixed) * result.invMatrix.d);
-    result.invTxFixed = static_cast<int32_t>(invTx64 >> INT_FIXED16_SHIFT);
-    result.invTyFixed = static_cast<int32_t>(invTy64 >> INT_FIXED16_SHIFT);
+    result.invTxFixed = static_cast<int32_t>(invTx64 >> INT_FIXED_SHIFT);
+    result.invTyFixed = static_cast<int32_t>(invTy64 >> INT_FIXED_SHIFT);
 
     // ピクセル中心オフセット
     result.rowOffsetX = result.invMatrix.b >> 1;
@@ -379,49 +276,26 @@ inline AffinePrecomputed precomputeInverseAffine(const AffineMatrix& m) {
 
 // [DEPRECATED] 後方互換性のため親名前空間に公開。将来廃止予定。
 // 新規コードでは core:: プレフィックスを使用してください。
-using core::int_fixed8;
-using core::int_fixed16;
 using core::int_fixed;
-using core::INT_FIXED8_SHIFT;
-using core::INT_FIXED8_ONE;
-using core::INT_FIXED8_HALF;
-using core::INT_FIXED16_SHIFT;
-using core::INT_FIXED16_ONE;
-using core::INT_FIXED16_HALF;
+using core::int_fixed;
 using core::INT_FIXED_SHIFT;
 using core::INT_FIXED_ONE;
 using core::INT_FIXED_HALF;
 using core::Matrix2x2;
-using core::Matrix2x2_fixed16;
+using core::Matrix2x2_fixed;
 using core::Point;
-using core::to_fixed8;
-using core::from_fixed8;
-using core::from_fixed8_round;
-using core::from_fixed8_floor;
-using core::from_fixed8_ceil;
-using core::to_fixed16;
-using core::from_fixed16;
-using core::from_fixed16_round;
-using core::from_fixed16_floor;
-using core::from_fixed16_ceil;
 using core::to_fixed;
 using core::from_fixed;
 using core::from_fixed_round;
 using core::from_fixed_floor;
 using core::from_fixed_ceil;
-using core::float_to_fixed8;
-using core::fixed8_to_float;
-using core::float_to_fixed16;
-using core::fixed16_to_float;
 using core::float_to_fixed;
 using core::fixed_to_float;
-using core::mul_fixed8;
-using core::div_fixed8;
-using core::mul_fixed16;
-using core::div_fixed16;
+using core::mul_fixed;
+using core::div_fixed;
 using core::AffineMatrix;
-using core::toFixed16;
-using core::inverseFixed16;
+using core::toFixed;
+using core::inverseFixed;
 using core::AffinePrecomputed;
 using core::precomputeInverseAffine;
 

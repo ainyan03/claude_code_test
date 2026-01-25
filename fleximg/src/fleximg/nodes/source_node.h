@@ -45,27 +45,27 @@ public:
         initPorts(0, 1);  // 入力0、出力1
     }
 
-    SourceNode(const ViewPort& vp, int_fixed originX = 0, int_fixed originY = 0)
-        : source_(vp), originX_(originX), originY_(originY) {
+    SourceNode(const ViewPort& vp, int_fixed pivotX = 0, int_fixed pivotY = 0)
+        : source_(vp), pivotX_(pivotX), pivotY_(pivotY) {
         initPorts(0, 1);
     }
 
     // ソース設定
     void setSource(const ViewPort& vp) { source_ = vp; }
-    void setOrigin(int_fixed x, int_fixed y) { originX_ = x; originY_ = y; }
+
+    // 基準点設定（pivot: 画像内のアンカーポイント）
+    void setPivot(int_fixed x, int_fixed y) { pivotX_ = x; pivotY_ = y; }
+    void setPivot(float x, float y) {
+        pivotX_ = float_to_fixed(x);
+        pivotY_ = float_to_fixed(y);
+    }
 
     // アクセサ
     const ViewPort& source() const { return source_; }
-    int_fixed originX() const { return originX_; }
-    int_fixed originY() const { return originY_; }
-
-    // ユーザー向けAPI: pivot（内部 origin のラッパー）
-    void setPivot(float x, float y) {
-        originX_ = float_to_fixed(x);
-        originY_ = float_to_fixed(y);
-    }
+    int_fixed pivotX() const { return pivotX_; }
+    int_fixed pivotY() const { return pivotY_; }
     std::pair<float, float> getPivot() const {
-        return {fixed_to_float(originX_), fixed_to_float(originY_)};
+        return {fixed_to_float(pivotX_), fixed_to_float(pivotY_)};
     }
 
     // ユーザー向けAPI: position（setTranslation のエイリアス、後方互換）
@@ -100,8 +100,8 @@ public:
 
 private:
     ViewPort source_;
-    int_fixed originX_ = 0;  // 画像内の基準点X（固定小数点 Q16.16）
-    int_fixed originY_ = 0;  // 画像内の基準点Y（固定小数点 Q16.16）
+    int_fixed pivotX_ = 0;  // 画像内の基準点X（pivot: 回転・配置の中心、固定小数点 Q16.16）
+    int_fixed pivotY_ = 0;  // 画像内の基準点Y（pivot: 回転・配置の中心、固定小数点 Q16.16）
     // 注: 配置位置は localMatrix_.tx/ty で管理（AffineCapability から継承）
     InterpolationMode interpolationMode_ = InterpolationMode::Nearest;
 
@@ -118,8 +118,8 @@ private:
     int32_t ys1_ = 0, ys2_ = 0;  // Y方向の範囲境界（invCに依存）
     int32_t fpWidth_ = 0;        // ソース幅（Q16.16固定小数点）
     int32_t fpHeight_ = 0;       // ソース高さ（Q16.16固定小数点）
-    int32_t baseTxWithOffsets_ = 0;  // 事前計算統合: invTx + srcOrigin + rowOffset + dxOffset
-    int32_t baseTyWithOffsets_ = 0;  // 事前計算統合: invTy + srcOrigin + rowOffset + dxOffset
+    int32_t baseTxWithOffsets_ = 0;  // 事前計算統合: invTx + srcPivot + rowOffset + dxOffset
+    int32_t baseTyWithOffsets_ = 0;  // 事前計算統合: invTy + srcPivot + rowOffset + dxOffset
 
     // getDataRange/pullProcess 間のキャッシュ
     // originが極端な値（INT32_MIN）の場合はキャッシュ無効
@@ -184,9 +184,9 @@ PrepareResponse SourceNode::onPullPrepare(const PrepareRequest& request) {
             const int32_t invA = affine_.invMatrix.a;
             const int32_t invC = affine_.invMatrix.c;
 
-            // origin は既に Q16.16 なのでそのまま使用
-            const int32_t srcOriginXFixed16 = originX_;
-            const int32_t srcOriginYFixed16 = originY_;
+            // pivot は既に Q16.16 なのでそのまま使用
+            const int32_t srcPivotXFixed16 = pivotX_;
+            const int32_t srcPivotYFixed16 = pivotY_;
 
             // バイリニア補間かどうかで有効範囲とオフセットが異なる
             const bool useBilinear = (interpolationMode_ == InterpolationMode::Bilinear)
@@ -196,27 +196,27 @@ PrepareResponse SourceNode::onPullPrepare(const PrepareRequest& request) {
                 // バイリニア: 有効範囲は srcSize - 1 + ε
                 // +1 により端ピクセル（小数部=0）も有効範囲に含める
                 // 端での隣接ピクセルアクセスは copyRowDDABilinear_RGBA8888 側でクランプ
-                fpWidth_ = ((source_.width - 1) << INT_FIXED16_SHIFT) + 1;
-                fpHeight_ = ((source_.height - 1) << INT_FIXED16_SHIFT) + 1;
+                fpWidth_ = ((source_.width - 1) << INT_FIXED_SHIFT) + 1;
+                fpHeight_ = ((source_.height - 1) << INT_FIXED_SHIFT) + 1;
 
                 xs1_ = invA + (invA < 0 ? fpWidth_ : -1);
                 xs2_ = invA + (invA < 0 ? 0 : (fpWidth_ - 1));
                 ys1_ = invC + (invC < 0 ? fpHeight_ : -1);
                 ys2_ = invC + (invC < 0 ? 0 : (fpHeight_ - 1));
 
-                // バイリニア: origin の小数部を保持し、0.5 ピクセル減算（ピクセル中心基準）
-                constexpr int32_t halfPixel = 1 << (INT_FIXED16_SHIFT - 1);  // 0.5 in Q16.16
+                // バイリニア: pivot の小数部を保持し、0.5 ピクセル減算（ピクセル中心基準）
+                constexpr int32_t halfPixel = 1 << (INT_FIXED_SHIFT - 1);  // 0.5 in Q16.16
                 baseTxWithOffsets_ = affine_.invTxFixed
-                                   + srcOriginXFixed16 - halfPixel
+                                   + srcPivotXFixed16 - halfPixel
                                    + affine_.rowOffsetX + affine_.dxOffsetX;
                 baseTyWithOffsets_ = affine_.invTyFixed
-                                   + srcOriginYFixed16 - halfPixel
+                                   + srcPivotYFixed16 - halfPixel
                                    + affine_.rowOffsetY + affine_.dxOffsetY;
                 useBilinear_ = true;
             } else {
-                // 最近傍: origin の小数部を保持
-                fpWidth_ = source_.width << INT_FIXED16_SHIFT;
-                fpHeight_ = source_.height << INT_FIXED16_SHIFT;
+                // 最近傍: pivot の小数部を保持
+                fpWidth_ = source_.width << INT_FIXED_SHIFT;
+                fpHeight_ = source_.height << INT_FIXED_SHIFT;
 
                 xs1_ = invA + (invA < 0 ? fpWidth_ : -1);
                 xs2_ = invA + (invA < 0 ? 0 : (fpWidth_ - 1));
@@ -225,21 +225,21 @@ PrepareResponse SourceNode::onPullPrepare(const PrepareRequest& request) {
 
                 // dxOffset を含める（半ピクセルオフセット）
                 baseTxWithOffsets_ = affine_.invTxFixed
-                                   + srcOriginXFixed16
+                                   + srcPivotXFixed16
                                    + affine_.rowOffsetX + affine_.dxOffsetX;
                 baseTyWithOffsets_ = affine_.invTyFixed
-                                   + srcOriginYFixed16
+                                   + srcPivotYFixed16
                                    + affine_.rowOffsetY + affine_.dxOffsetY;
                 useBilinear_ = false;
             }
 
             // ドットバイドット判定（逆行列の増分値で判定）
             // 単位行列（変換なし）の場合のみ DDA をスキップし、高速な非アフィンパスを使用
-            // origin の小数部もチェック（アフィンパスでは整数部のみ使用するため）
+            // pivot の小数部もチェック（アフィンパスでは整数部のみ使用するため）
             // 注: invTxFixed/invTyFixed がゼロでない場合は、アフィン行列に平行移動が
             // 含まれているため、非アフィンパスは使えない（NinePatch のパッチ位置など）
             // 注: a == -one や d == -one（反転）の場合も非アフィンパスでは処理できない
-            constexpr int32_t one = 1 << INT_FIXED16_SHIFT;  // 65536 (Q16.16)
+            constexpr int32_t one = 1 << INT_FIXED_SHIFT;  // 65536 (Q16.16)
             bool isDotByDot =
                 affine_.invMatrix.a == one &&          // a == 1 のみ（-1は反転なので不可）
                 affine_.invMatrix.d == one &&          // d == 1 のみ（-1は反転なので不可）
@@ -247,24 +247,24 @@ PrepareResponse SourceNode::onPullPrepare(const PrepareRequest& request) {
                 affine_.invMatrix.c == 0 &&
                 affine_.invTxFixed == 0 &&             // 平行移動がない（tx = 0）
                 affine_.invTyFixed == 0 &&             // 平行移動がない（ty = 0）
-                (originX_ & 0xFFFF) == 0 &&            // origin の小数部が0（Q16.16）
-                (originY_ & 0xFFFF) == 0;
+                (pivotX_ & 0xFFFF) == 0 &&             // pivot の小数部が0（Q16.16）
+                (pivotY_ & 0xFFFF) == 0;
 
             if (isDotByDot) {
                 hasAffine_ = false;
-                // position は pullProcess の非アフィンパスで origin オフセットとして適用
+                // position は pullProcess の非アフィンパスで pivot オフセットとして適用
             } else {
                 hasAffine_ = true;
             }
 
 // Note: 詳細デバッグ出力は実機では負荷が高いためコメントアウト
 // #ifdef FLEXIMG_DEBUG_PERF_METRICS
-//             printf("[SourceNode] isDotByDot=%s (invA=%d, invD=%d, invB=%d, invC=%d, txFrac=%d, tyFrac=%d, oxFrac=%d, oyFrac=%d)\n",
+//             printf("[SourceNode] isDotByDot=%s (invA=%d, invD=%d, invB=%d, invC=%d, txFrac=%d, tyFrac=%d, pxFrac=%d, pyFrac=%d)\n",
 //                    isDotByDot ? "true" : "false",
 //                    affine_.invMatrix.a, affine_.invMatrix.d,
 //                    affine_.invMatrix.b, affine_.invMatrix.c,
 //                    affine_.invTxFixed & 0xFFFF, affine_.invTyFixed & 0xFFFF,
-//                    originX_ & 0xFFFF, originY_ & 0xFFFF);
+//                    pivotX_ & 0xFFFF, pivotY_ & 0xFFFF);
 // #endif
         } else {
             // 逆行列が無効（特異行列）
@@ -284,7 +284,7 @@ PrepareResponse SourceNode::onPullPrepare(const PrepareRequest& request) {
         // ソース矩形に順変換を適用して出力側のAABBを計算
         calcAffineAABB(
             source_.width, source_.height,
-            {originX_, originY_},
+            {pivotX_, pivotY_},
             combinedMatrix,
             result.width, result.height, result.origin);
     } else {
@@ -295,7 +295,7 @@ PrepareResponse SourceNode::onPullPrepare(const PrepareRequest& request) {
         result.width = static_cast<int16_t>(source_.width);
         result.height = static_cast<int16_t>(source_.height);
         // origin = position - pivot（画像左上隅のワールド座標）
-        result.origin = {posOffsetX - originX_, posOffsetY - originY_};
+        result.origin = {posOffsetX - pivotX_, posOffsetY - pivotY_};
     }
     return result;
 }
@@ -316,8 +316,8 @@ RenderResponse SourceNode::onPullProcess(const RenderRequest& request) {
     // localMatrix_.tx/ty が設定されている場合、position として適用
     int_fixed posOffsetX = float_to_fixed(localMatrix_.tx);
     int_fixed posOffsetY = float_to_fixed(localMatrix_.ty);
-    int_fixed imgLeft = posOffsetX - originX_;   // 画像左端のワールドX座標
-    int_fixed imgTop = posOffsetY - originY_;    // 画像上端のワールドY座標
+    int_fixed imgLeft = posOffsetX - pivotX_;   // 画像左端のワールドX座標
+    int_fixed imgTop = posOffsetY - pivotY_;    // 画像上端のワールドY座標
     int_fixed imgRight = imgLeft + to_fixed(source_.width);
     int_fixed imgBottom = imgTop + to_fixed(source_.height);
 

@@ -95,18 +95,6 @@ inline void placeFirst(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canv
     }
 }
 
-// [DEPRECATED] 将来削除予定
-// over合成はunder合成に統一されたため、この関数は不要になりました。
-// 参照: CompositeNode, NinePatchSourceNode の placeFirst + placeUnder 方式
-#if 0
-// 追加画像をキャンバスに配置（ブレンド）
-// blend::onto を使用（2枚目以降の合成、ブレンド計算）
-inline void placeOnto(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canvasOriginY,
-                      const ViewPort& src, int_fixed srcOriginX, int_fixed srcOriginY) {
-    blend::onto(canvas, canvasOriginX, canvasOriginY, src, srcOriginX, srcOriginY);
-}
-#endif
-
 // フォーマット変換（必要なら）
 // blend関数が対応していないフォーマットをRGBA8_Straightに変換
 inline RenderResponse ensureBlendableFormat(RenderResponse&& input) {

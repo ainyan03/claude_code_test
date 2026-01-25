@@ -231,9 +231,9 @@ void SinkNode::applyAffine(ViewPort& dst,
     const int32_t srcOriginYInt = from_fixed(srcOriginY);
 
     const int32_t fixedInvTx = baseTx_
-                        - (srcOriginXInt << INT_FIXED16_SHIFT);
+                        - (srcOriginXInt << INT_FIXED_SHIFT);
     const int32_t fixedInvTy = baseTy_
-                        - (srcOriginYInt << INT_FIXED16_SHIFT);
+                        - (srcOriginYInt << INT_FIXED_SHIFT);
 
     // 共通DDA処理を呼び出し
     view_ops::affineTransform(dst, src, fixedInvTx, fixedInvTy,

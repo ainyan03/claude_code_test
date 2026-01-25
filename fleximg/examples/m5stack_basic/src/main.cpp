@@ -201,7 +201,7 @@ void setup() {
 
     // モード0用ノード設定
     source.setSource(srcImage.view());
-    source.setOrigin(
+    source.setPivot(
         float_to_fixed(srcImage.width() / 2.0f),
         float_to_fixed(srcImage.height() / 2.0f)
     );
@@ -209,7 +209,7 @@ void setup() {
     // モード1-3用ノード設定
     for (int i = 0; i < 4; ++i) {
         sources[i].setSource(srcImages[i].view());
-        sources[i].setOrigin(
+        sources[i].setPivot(
             float_to_fixed(srcImages[i].width() / 2.0f),
             float_to_fixed(srcImages[i].height() / 2.0f)
         );

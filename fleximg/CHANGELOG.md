@@ -1,5 +1,29 @@
 # Changelog
 
+## [2.51.0] - 2026-01-25
+
+### 破壊的変更
+
+- **pivot/origin 用語の統一**: SourceNode/NinePatchSourceNode の「画像内基準点」を `pivot` に改名
+  - `setOrigin()` → `setPivot()` に変更
+  - `originX()`/`originY()` → `pivotX()`/`pivotY()` に変更
+  - バインディング: `pivot: {x, y}` オブジェクト形式を推奨（`originX/Y` も後方互換サポート）
+  - WebUI: 「原点」ラベルを「基準点 (Pivot)」に変更
+
+- **deprecated 要素の廃止**:
+  - `SourceNode`/`NinePatchSourceNode`: `setOrigin()`, `originX()`, `originY()` を削除
+  - `int_fixed8` (Q24.8固定小数点): 型、定数、変換関数を全て削除
+  - `placeOnto()`: コメントアウト済みの関数を完全削除
+
+### 用語定義
+
+| 用語 | 意味 | 使用箇所 |
+|------|------|----------|
+| **pivot** | 画像内のアンカーポイント（回転・配置の中心） | SourceNode, NinePatchSourceNode |
+| **origin** | バッファ左上のワールド座標 | RenderRequest, RenderResponse, SinkNode, RendererNode |
+
+---
+
 ## [2.50.0] - 2026-01-25
 
 ### 破壊的変更

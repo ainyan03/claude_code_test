@@ -41,7 +41,7 @@ namespace transform {
 inline std::pair<int, int> calcValidRange(
     int_fixed coeff, int_fixed base, int srcSize, int canvasSize
 ) {
-    constexpr int BITS = INT_FIXED16_SHIFT;
+    constexpr int BITS = INT_FIXED_SHIFT;
 
     // DDAでは (coeff >> 1) のオフセットが加算される
     int_fixed baseWithHalf = base + (coeff >> 1);

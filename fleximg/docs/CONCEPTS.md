@@ -50,6 +50,23 @@ fleximg の WebUI はノードグラフエディタです。
 | ワイヤー | ポート間を結ぶ線（データの流れ） |
 | パイプライン | ノードとワイヤーで構成された処理全体 |
 
+### pivot と origin の違い
+
+fleximg では座標関連で「pivot」と「origin」という2つの用語を使い分けています。
+
+| 用語 | 意味 | 使用箇所 |
+|------|------|----------|
+| **pivot** | 画像内のアンカーポイント（回転・配置の中心） | SourceNode, NinePatchSourceNode |
+| **origin** | バッファ左上のワールド座標 | RenderRequest, RenderResponse, SinkNode, RendererNode |
+
+**pivot の例:**
+画像の中心を基準に回転させたい場合、`setPivot(width/2, height/2)` を設定します。
+画像の左上を基準にしたい場合は `setPivot(0, 0)` とします。
+
+**origin の例:**
+RendererNode の origin は仮想スクリーン上の座標系の原点を表します。
+RenderResponse の origin はそのバッファの左上隅のワールド座標です。
+
 ### 基本操作
 
 1. **ノード追加**: キャンバス右クリック → メニューから選択

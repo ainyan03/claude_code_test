@@ -73,7 +73,7 @@ TEST_CASE("Pipeline: basic source -> renderer -> sink") {
 
     SourceNode src;
     src.setSource(srcImg.view());
-    src.setOrigin(0, 0);
+    src.setPivot(0, 0);
 
     RendererNode renderer;
     renderer.setVirtualScreen(64, 64, 0, 0);
