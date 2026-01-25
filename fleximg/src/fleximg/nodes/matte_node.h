@@ -121,7 +121,7 @@ PrepareResponse MatteNode::onPullPrepare(const PrepareRequest& request) {
     merged.status = PrepareStatus::Prepared;
     bool hasValidUpstream = false;
 
-    // AABB和集合計算用（基準点からの相対座標）
+    // AABB和集合計算用（ワールド座標）
     float minX = 0, minY = 0, maxX = 0, maxY = 0;
 
     // 全上流へ伝播し、結果をマージ（AABB和集合）
@@ -133,9 +133,9 @@ PrepareResponse MatteNode::onPullPrepare(const PrepareRequest& request) {
                 return result;  // エラーを伝播
             }
 
-            // 各結果のAABBを基準点からの相対座標に変換
-            float left = -fixed_to_float(result.origin.x);
-            float top = -fixed_to_float(result.origin.y);
+            // 新座標系: originはバッファ左上のワールド座標
+            float left = fixed_to_float(result.origin.x);
+            float top = fixed_to_float(result.origin.y);
             float right = left + static_cast<float>(result.width);
             float bottom = top + static_cast<float>(result.height);
 
@@ -160,8 +160,9 @@ PrepareResponse MatteNode::onPullPrepare(const PrepareRequest& request) {
         // 和集合結果をPrepareResponseに設定
         merged.width = static_cast<int16_t>(std::ceil(maxX - minX));
         merged.height = static_cast<int16_t>(std::ceil(maxY - minY));
-        merged.origin.x = float_to_fixed(-minX);
-        merged.origin.y = float_to_fixed(-minY);
+        // 新座標系: originはバッファ左上のワールド座標
+        merged.origin.x = float_to_fixed(minX);
+        merged.origin.y = float_to_fixed(minY);
         // MatteNodeは常にRGBA8_Straightで出力
         merged.preferredFormat = PixelFormatIDs::RGBA8_Straight;
     } else {
@@ -270,10 +271,11 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
     auto updateUnion = [&](const RenderResponse& result) {
         if (!result.isValid()) return;
         ViewPort v = result.view();
-        int_fixed minX = result.origin.x - to_fixed(v.width);
-        int_fixed minY = result.origin.y - to_fixed(v.height);
-        int_fixed maxX = result.origin.x;
-        int_fixed maxY = result.origin.y;
+        // 新座標系: originはバッファ左上のワールド座標
+        int_fixed minX = result.origin.x;
+        int_fixed minY = result.origin.y;
+        int_fixed maxX = result.origin.x + to_fixed(v.width);
+        int_fixed maxY = result.origin.y + to_fixed(v.height);
 
         if (!hasUnion) {
             unionMinX = minX;
@@ -300,8 +302,9 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
 
     int unionWidth = from_fixed(unionMaxX - unionMinX);
     int unionHeight = from_fixed(unionMaxY - unionMinY);
-    int_fixed unionOriginX = unionMaxX;
-    int_fixed unionOriginY = unionMaxY;
+    // 新座標系: originはバッファ左上のワールド座標
+    int_fixed unionOriginX = unionMinX;
+    int_fixed unionOriginY = unionMinY;
 
     // ========================================
     // Step 4: 前景を評価（マスク有効範囲で要求）← 最適化ポイント
@@ -309,12 +312,12 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
     RenderResponse fgResult;
     if (fgNode) {
         // マスクの有効範囲でのみ前景を要求
-        // origin.xは「バッファ左端から基準点までの距離」なので、
-        // 左端がleftSkip分右にずれる → origin.xをleftSkip分減らす
+        // 新座標系: originはバッファ左上のワールド座標なので、
+        // 左端がleftSkip分右にずれる → origin.xをleftSkip分増やす
         RenderRequest fgRequest;
         fgRequest.width = static_cast<int16_t>(maskEffectiveWidth);
         fgRequest.height = maskView.height;
-        fgRequest.origin.x = maskResult.origin.x - to_fixed(maskLeftSkip);
+        fgRequest.origin.x = maskResult.origin.x + to_fixed(maskLeftSkip);
         fgRequest.origin.y = maskResult.origin.y;
 
         fgResult = fgNode->pullProcess(fgRequest);
@@ -452,8 +455,9 @@ void MatteNode::applyMatteComposite(ImageBuffer& output, const RenderRequest& re
     }
 
     // マスクの有効X範囲（出力座標系）
-    const int maskXStart = std::max(0, -maskOffsetX);
-    const int maskXEnd = std::min(outWidth, maskWidth - maskOffsetX);
+    // 新座標系: maskOffsetX = マスク左上 - 出力左上（出力座標系でのマスク左端位置）
+    const int maskXStart = std::max(0, maskOffsetX);
+    const int maskXEnd = std::min(outWidth, maskWidth + maskOffsetX);
 
     // マスク範囲外の左側（alpha=0）→背景のみ
     if (maskXStart > 0) {
@@ -461,8 +465,9 @@ void MatteNode::applyMatteComposite(ImageBuffer& output, const RenderRequest& re
     }
 
     // オフセット適用済みポインタ（ループ内でのオフセット計算を削減）
-    const uint8_t* maskP = maskRowBase + maskOffsetX + maskXStart;
-    const uint8_t* const maskPEnd = maskRowBase + maskOffsetX + maskXEnd;
+    // 新座標系: 出力のmaskXStartに対応するマスクのインデックス = maskXStart - maskOffsetX
+    const uint8_t* maskP = maskRowBase + (maskXStart - maskOffsetX);
+    const uint8_t* const maskPEnd = maskRowBase + (maskXEnd - maskOffsetX);
 
     int x = maskXStart;
 
@@ -509,8 +514,9 @@ void MatteNode::copyRowRegion(uint8_t* outRow,
     }
 
     // ソースの有効X範囲と出力範囲の交差を計算
-    const int srcXStart = std::max(xStart, -srcOffsetX);
-    const int srcXEnd = std::min(xEnd, srcWidth - srcOffsetX);
+    // 新座標系: srcOffsetX = ソース左上 - 出力左上（出力座標系でのソース左端位置）
+    const int srcXStart = std::max(xStart, srcOffsetX);
+    const int srcXEnd = std::min(xEnd, srcWidth + srcOffsetX);
 
     // 左側の透明部分
     if (srcXStart > xStart) {
@@ -520,7 +526,7 @@ void MatteNode::copyRowRegion(uint8_t* outRow,
     // 有効部分をコピー
     if (srcXEnd > srcXStart) {
         std::memcpy(outRow + srcXStart * 4,
-                    srcRowBase + (srcXStart + srcOffsetX) * 4,
+                    srcRowBase + (srcXStart - srcOffsetX) * 4,
                     static_cast<size_t>(srcXEnd - srcXStart) * 4);
     }
 
@@ -538,15 +544,16 @@ void MatteNode::blendPixelsOptimized(uint8_t* outRow, int xStart, int xEnd, uint
     const uint32_t inv_a = 255 - alpha;
 
     // 前景・背景の有効X範囲を事前計算
-    const int fgXStart = fgRowBase ? std::max(xStart, -fgOffsetX) : xEnd;
-    const int fgXEnd = fgRowBase ? std::min(xEnd, fgWidth - fgOffsetX) : xStart;
-    const int bgXStart = bgRowBase ? std::max(xStart, -bgOffsetX) : xEnd;
-    const int bgXEnd = bgRowBase ? std::min(xEnd, bgWidth - bgOffsetX) : xStart;
+    // 新座標系: offsetX = ソース左上 - 出力左上（出力座標系でのソース左端位置）
+    const int fgXStart = fgRowBase ? std::max(xStart, fgOffsetX) : xEnd;
+    const int fgXEnd = fgRowBase ? std::min(xEnd, fgWidth + fgOffsetX) : xStart;
+    const int bgXStart = bgRowBase ? std::max(xStart, bgOffsetX) : xEnd;
+    const int bgXEnd = bgRowBase ? std::min(xEnd, bgWidth + bgOffsetX) : xStart;
 
     // オフセット適用済みポインタ
     uint8_t* outP = outRow + xStart * 4;
-    const uint8_t* fgP = fgRowBase ? fgRowBase + (xStart + fgOffsetX) * 4 : nullptr;
-    const uint8_t* bgP = bgRowBase ? bgRowBase + (xStart + bgOffsetX) * 4 : nullptr;
+    const uint8_t* fgP = fgRowBase ? fgRowBase + (xStart - fgOffsetX) * 4 : nullptr;
+    const uint8_t* bgP = bgRowBase ? bgRowBase + (xStart - bgOffsetX) * 4 : nullptr;
 
     for (int x = xStart; x < xEnd; ++x) {
         uint32_t fgR = 0, fgG = 0, fgB = 0, fgA = 0;
@@ -588,8 +595,9 @@ void MatteNode::copyImageToOutput(uint8_t* outPtr, int outWidth,
     const uint8_t* srcRow = srcPtr + srcY * srcStride;
 
     // X範囲を計算
-    const int xStart = std::max(0, -offsetX);
-    const int xEnd = std::min(outWidth, srcWidth - offsetX);
+    // 新座標系: offsetX = ソース左上 - 出力左上（出力座標系でのソース左端位置）
+    const int xStart = std::max(0, offsetX);
+    const int xEnd = std::min(outWidth, srcWidth + offsetX);
 
     // 左側の透明部分
     if (xStart > 0) {
@@ -599,7 +607,7 @@ void MatteNode::copyImageToOutput(uint8_t* outPtr, int outWidth,
     // 有効部分をコピー
     if (xEnd > xStart) {
         std::memcpy(outRow + xStart * 4,
-                    srcRow + (xStart + offsetX) * 4,
+                    srcRow + (xStart - offsetX) * 4,
                     static_cast<size_t>(xEnd - xStart) * 4);
     }
 

@@ -288,10 +288,14 @@ PrepareResponse SourceNode::onPullPrepare(const PrepareRequest& request) {
             combinedMatrix,
             result.width, result.height, result.origin);
     } else {
-        // アフィンなしの場合はそのまま
+        // アフィンなしの場合
+        // positionを考慮してAABBの原点を計算（pullProcessと同じ座標系）
+        int_fixed posOffsetX = float_to_fixed(localMatrix_.tx);
+        int_fixed posOffsetY = float_to_fixed(localMatrix_.ty);
         result.width = static_cast<int16_t>(source_.width);
         result.height = static_cast<int16_t>(source_.height);
-        result.origin = {originX_, originY_};
+        // origin = position - pivot（画像左上隅のワールド座標）
+        result.origin = {posOffsetX - originX_, posOffsetY - originY_};
     }
     return result;
 }
@@ -308,18 +312,18 @@ RenderResponse SourceNode::onPullProcess(const RenderRequest& request) {
         return pullProcessWithAffine(request);
     }
 
-    // ソース画像の基準相対座標範囲（固定小数点 Q16.16）
-    // localMatrix_.tx/ty が設定されている場合、origin からのオフセットとして適用
+    // ソース画像のワールド座標範囲（固定小数点 Q16.16）
+    // localMatrix_.tx/ty が設定されている場合、position として適用
     int_fixed posOffsetX = float_to_fixed(localMatrix_.tx);
     int_fixed posOffsetY = float_to_fixed(localMatrix_.ty);
-    int_fixed imgLeft = -originX_ + posOffsetX;
-    int_fixed imgTop = -originY_ + posOffsetY;
+    int_fixed imgLeft = posOffsetX - originX_;   // 画像左端のワールドX座標
+    int_fixed imgTop = posOffsetY - originY_;    // 画像上端のワールドY座標
     int_fixed imgRight = imgLeft + to_fixed(source_.width);
     int_fixed imgBottom = imgTop + to_fixed(source_.height);
 
-    // 要求範囲の基準相対座標（固定小数点 Q16.16）
-    int_fixed reqLeft = -request.origin.x;
-    int_fixed reqTop = -request.origin.y;
+    // 要求範囲のワールド座標（固定小数点 Q16.16）
+    int_fixed reqLeft = request.origin.x;
+    int_fixed reqTop = request.origin.y;
     int_fixed reqRight = reqLeft + to_fixed(request.width);
     int_fixed reqBottom = reqTop + to_fixed(request.height);
 
@@ -346,8 +350,8 @@ RenderResponse SourceNode::onPullProcess(const RenderRequest& request) {
     // サブビューの参照モードImageBufferを作成（メモリ確保なし）
     ImageBuffer result(view_ops::subView(source_, srcX, srcY, interW, interH));
 
-    // バッファ内基準点位置 = -interLeft, -interTop
-    return RenderResponse(std::move(result), Point{-interLeft, -interTop});
+    // origin = 交差領域左上のワールド座標
+    return RenderResponse(std::move(result), Point{interLeft, interTop});
 }
 
 // ============================================================================
@@ -374,12 +378,13 @@ bool SourceNode::calcScanlineRange(const RenderRequest& request,
     const int32_t invD = affine_.invMatrix.d;
 
     // 事前計算統合版（オフセット加算を削減）
+    // 新座標系: request.origin はワールド座標なので加算（旧座標系では符号反転だったため減算だった）
     const int32_t baseXWithHalf = baseTxWithOffsets_
-                        - (dstOriginXInt * invA)
-                        - (dstOriginYInt * invB);
+                        + (dstOriginXInt * invA)
+                        + (dstOriginYInt * invB);
     const int32_t baseYWithHalf = baseTyWithOffsets_
-                        - (dstOriginXInt * invC)
-                        - (dstOriginYInt * invD);
+                        + (dstOriginXInt * invC)
+                        + (dstOriginYInt * invD);
 
     int32_t left = 0;
     int32_t right = request.width;
@@ -466,12 +471,13 @@ RenderResponse SourceNode::pullProcessWithAffine(const RenderRequest& request) {
     const int32_t dstOriginYInt = from_fixed(request.origin.y);
     const int32_t invA = affine_.invMatrix.a;
     const int32_t invC = affine_.invMatrix.c;
+    // 新座標系: request.origin はワールド座標なので加算
     const int32_t baseXWithHalf = baseTxWithOffsets_
-                        - (dstOriginXInt * invA)
-                        - (dstOriginYInt * affine_.invMatrix.b);
+                        + (dstOriginXInt * invA)
+                        + (dstOriginYInt * affine_.invMatrix.b);
     const int32_t baseYWithHalf = baseTyWithOffsets_
-                        - (dstOriginXInt * invC)
-                        - (dstOriginYInt * affine_.invMatrix.d);
+                        + (dstOriginXInt * invC)
+                        + (dstOriginYInt * affine_.invMatrix.d);
 
     // DDA転写（1行のみ）
     // srcX_fixed = invA * dxStart + baseXWithHalf
@@ -491,9 +497,9 @@ RenderResponse SourceNode::pullProcessWithAffine(const RenderRequest& request) {
     }
 
     // originを有効範囲に合わせて調整
-    // dxStart分だけ左にオフセット
+    // dxStart分だけ右にオフセット（バッファ左端のワールド座標）
     Point adjustedOrigin = {
-        request.origin.x - to_fixed(dxStart),
+        request.origin.x + to_fixed(dxStart),
         request.origin.y
     };
 

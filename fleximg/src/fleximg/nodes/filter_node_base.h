@@ -55,6 +55,13 @@ public:
     // onPullProcess: マージン追加とメトリクス記録を行い、process() に委譲
     RenderResponse onPullProcess(const RenderRequest& request) override;
 
+    // getDataRange: 上流のgetDataRangeをそのまま伝播
+    DataRange getDataRange(const RenderRequest& request) const override {
+        Node* upstream = upstreamNode(0);
+        if (!upstream) return DataRange{0, 0};
+        return upstream->getDataRange(request);
+    }
+
 protected:
     // ========================================
     // 派生クラスがオーバーライドするフック

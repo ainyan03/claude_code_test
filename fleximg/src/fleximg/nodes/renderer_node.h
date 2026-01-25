@@ -214,8 +214,9 @@ private:
         RenderRequest req;
         req.width = static_cast<int16_t>(virtualWidth_);
         req.height = static_cast<int16_t>(virtualHeight_);
-        req.origin.x = originX_;
-        req.origin.y = originY_;
+        // スクリーン左上（座標0,0）のワールド座標
+        req.origin.x = -originX_;
+        req.origin.y = -originY_;
         return req;
     }
 
@@ -233,8 +234,9 @@ private:
         RenderRequest req;
         req.width = static_cast<int16_t>(tileW);
         req.height = static_cast<int16_t>(tileH);
-        req.origin.x = originX_ - to_fixed(tileLeft);
-        req.origin.y = originY_ - to_fixed(tileTop);
+        // タイル左上のワールド座標 = スクリーン座標 - ワールド原点のスクリーン座標
+        req.origin.x = to_fixed(tileLeft) - originX_;
+        req.origin.y = to_fixed(tileTop) - originY_;
         return req;
     }
 };
@@ -281,10 +283,12 @@ PrepareStatus RendererNode::execPrepare() {
     // ========================================
     if (virtualWidth_ == 0 || virtualHeight_ == 0) {
         // 下流から返されたAABBでvirtualScreenを設定
+        // pushResult.origin はスクリーン左上のワールド座標（新座標系）
+        // originX_ は「ワールド原点のスクリーン座標」として使うため符号を反転
         virtualWidth_ = pushResult.width;
         virtualHeight_ = pushResult.height;
-        originX_ = pushResult.origin.x;
-        originY_ = pushResult.origin.y;
+        originX_ = -pushResult.origin.x;
+        originY_ = -pushResult.origin.y;
     }
 
     // ========================================
@@ -379,7 +383,9 @@ RenderResponse RendererNode::applyDataRangeDebug(Node* upstream,
     // 実データをコピー
     if (result.buffer.isValid() && result.buffer.width() > 0) {
         // resultのoriginからデータ開始位置を計算
-        int dataStartX = from_fixed(request.origin.x - result.origin.x);
+        // result.origin はバッファ左上のワールド座標
+        // request.origin はリクエスト領域左上のワールド座標
+        int dataStartX = from_fixed(result.origin.x - request.origin.x);
         int dataWidth = result.buffer.width();
 
         const uint8_t* src = static_cast<const uint8_t*>(result.buffer.data());
