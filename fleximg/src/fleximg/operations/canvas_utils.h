@@ -37,11 +37,14 @@ inline void placeFirst(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canv
                        const ViewPort& src, int_fixed srcOriginX, int_fixed srcOriginY) {
     if (!canvas.isValid() || !src.isValid()) return;
 
-    // 基準点を一致させるためのオフセット計算
-    int offsetX = from_fixed(canvasOriginX - srcOriginX);
-    int offsetY = from_fixed(canvasOriginY - srcOriginY);
+    // 新座標系: originはバッファ左上のワールド座標
+    // srcをcanvasに配置する際のオフセット = src左端 - canvas左端
+    int offsetX = from_fixed(srcOriginX - canvasOriginX);
+    int offsetY = from_fixed(srcOriginY - canvasOriginY);
 
     // クリッピング範囲を計算
+    // offsetX > 0: srcがcanvasより右にある → canvas[offsetX]に書き込み
+    // offsetX < 0: srcがcanvasより左にある → src[-offsetX]から読み込み
     int srcStartX = std::max(0, -offsetX);
     int srcStartY = std::max(0, -offsetY);
     int dstStartX = std::max(0, offsetX);
@@ -160,9 +163,10 @@ inline void placeUnder(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canv
     auto blendFunc = src.formatID->blendUnderPremul;
     if (!blendFunc) return;
 
-    // 基準点を一致させるためのオフセット計算
-    int offsetX = from_fixed(canvasOriginX - srcOriginX);
-    int offsetY = from_fixed(canvasOriginY - srcOriginY);
+    // 新座標系: originはバッファ左上のワールド座標
+    // srcをcanvasに配置する際のオフセット = src左端 - canvas左端
+    int offsetX = from_fixed(srcOriginX - canvasOriginX);
+    int offsetY = from_fixed(srcOriginY - canvasOriginY);
 
     // クリッピング範囲を計算
     int srcStartX = std::max(0, -offsetX);

@@ -386,19 +386,21 @@ TEST_CASE("SourceNode getDataRange basic test") {
     ImageBuffer srcImg = createSolidImage(imgSize, imgSize, 255, 0, 0, 255);
     ViewPort srcView = srcImg.view();
 
-    // origin = (16, 16) → 画像中心が基準点(0,0)に来る
-    // 画像のAABB: 基準点からの相対座標で[-16, 16) x [-16, 16)
+    // SourceNodeのorigin引数は画像内の基準点（pivot）
+    // pivot = (16, 16) → 画像中心がワールド原点に配置される
+    // 画像範囲（ワールド座標）: [-16, 16) x [-16, 16)
     SourceNode src(srcView, float_to_fixed(16.0f), float_to_fixed(16.0f));
     RendererNode renderer;
 
     src >> renderer;
 
     // PrepareRequestを作成
+    // 新座標系: originはrequestバッファ左上のワールド座標
     PrepareRequest prepReq;
     prepReq.width = static_cast<int16_t>(canvasSize);
     prepReq.height = static_cast<int16_t>(canvasSize);
-    prepReq.origin.x = float_to_fixed(50.0f);  // 画面中心
-    prepReq.origin.y = float_to_fixed(50.0f);
+    prepReq.origin.x = float_to_fixed(-50.0f);  // requestの左端がワールドX=-50
+    prepReq.origin.y = float_to_fixed(-50.0f);
 
     PrepareResponse prepResult = src.pullPrepare(prepReq);
     CHECK(prepResult.ok());
@@ -410,12 +412,12 @@ TEST_CASE("SourceNode getDataRange basic test") {
     RenderRequest renderReq;
     renderReq.width = static_cast<int16_t>(canvasSize);
     renderReq.height = 1;
-    renderReq.origin.x = float_to_fixed(50.0f);  // 画面座標X=50が基準
-    renderReq.origin.y = 0;  // 基準点Y=0のスキャンライン
+    renderReq.origin.x = float_to_fixed(-50.0f);  // requestの左端がワールドX=-50
+    renderReq.origin.y = 0;  // ワールドY=0のスキャンライン
 
     DataRange range = src.getDataRange(renderReq);
 
-    // 画像はX=[-16, 16)、リクエストはX=[-50, 50)
+    // 画像はワールドX=[-16, 16)、リクエストはワールドX=[-50, 50)
     // 交差範囲: [-16, 16)
     // request座標系に変換: startX = -16 - (-50) = 34, endX = 16 - (-50) = 66
     CHECK(range.hasData());
@@ -427,12 +429,13 @@ TEST_CASE("HorizontalBlurNode getDataRange expands range correctly") {
     const int imgSize = 32;
     const int canvasSize = 100;
 
-    // 画像を画面中央に配置（画像中心が画面中心に来る）
+    // 画像を画面中央に配置（画像中心がワールド原点に来る）
     ImageBuffer srcImg = createSolidImage(imgSize, imgSize, 255, 0, 0, 255);
     ViewPort srcView = srcImg.view();
 
-    // origin = 画像サイズの半分 → 画像は[0, imgSize)に配置される
-    // 画面座標で言えば、画面中心(50,50)を基準に[-16, 16)の範囲
+    // SourceNodeのorigin引数は画像内の基準点（pivot）
+    // pivot = imgSize/2 → 画像中心がワールド原点に配置
+    // 画像範囲（ワールド座標）: [-16, 16) x [-16, 16)
     SourceNode src(srcView, float_to_fixed(static_cast<float>(imgSize) / 2.0f),
                            float_to_fixed(static_cast<float>(imgSize) / 2.0f));
     HorizontalBlurNode hblur;
@@ -446,11 +449,12 @@ TEST_CASE("HorizontalBlurNode getDataRange expands range correctly") {
     hblur.setPasses(passes);
 
     // PrepareRequestを作成してpullPrepareを実行
+    // 新座標系: originはrequestバッファ左上のワールド座標
     PrepareRequest prepReq;
     prepReq.width = static_cast<int16_t>(canvasSize);
     prepReq.height = static_cast<int16_t>(canvasSize);
-    prepReq.origin.x = float_to_fixed(static_cast<float>(canvasSize) / 2.0f);
-    prepReq.origin.y = float_to_fixed(static_cast<float>(canvasSize) / 2.0f);
+    prepReq.origin.x = float_to_fixed(-static_cast<float>(canvasSize) / 2.0f);
+    prepReq.origin.y = float_to_fixed(-static_cast<float>(canvasSize) / 2.0f);
 
     PrepareResponse prepResult = hblur.pullPrepare(prepReq);
     CHECK(prepResult.ok());
@@ -461,12 +465,12 @@ TEST_CASE("HorizontalBlurNode getDataRange expands range correctly") {
     renderReq.width = static_cast<int16_t>(canvasSize);
     renderReq.height = 1;
     renderReq.origin.x = prepReq.origin.x;
-    renderReq.origin.y = 0;  // 画像と交差するY位置
+    renderReq.origin.y = 0;  // ワールドY=0のスキャンライン
 
     DataRange range = hblur.getDataRange(renderReq);
 
-    // 上流の画像は基準点からの相対座標で[-16, 16)の範囲
-    // request座標系（origin.x=50）で[34, 66)
+    // 上流の画像はワールド座標で[-16, 16)の範囲
+    // request座標系（origin.x=-50、左端がワールドX=-50）で[34, 66)
     // ブラー処理により radius*passes = 10 だけ両側に拡張される
     // 期待される範囲: [24, 76)
     int totalMargin = radius * passes;
@@ -485,6 +489,7 @@ TEST_CASE("HorizontalBlurNode getDataRange with radius=0 is passthrough") {
     ImageBuffer srcImg = createSolidImage(imgSize, imgSize, 255, 0, 0, 255);
     ViewPort srcView = srcImg.view();
 
+    // SourceNodeのorigin引数は画像内の基準点（pivot）
     SourceNode src(srcView, float_to_fixed(static_cast<float>(imgSize) / 2.0f),
                            float_to_fixed(static_cast<float>(imgSize) / 2.0f));
     HorizontalBlurNode hblur;
@@ -494,11 +499,12 @@ TEST_CASE("HorizontalBlurNode getDataRange with radius=0 is passthrough") {
 
     hblur.setRadius(0);  // パススルー
 
+    // 新座標系: originはrequestバッファ左上のワールド座標
     PrepareRequest prepReq;
     prepReq.width = static_cast<int16_t>(canvasSize);
     prepReq.height = static_cast<int16_t>(canvasSize);
-    prepReq.origin.x = float_to_fixed(static_cast<float>(canvasSize) / 2.0f);
-    prepReq.origin.y = float_to_fixed(static_cast<float>(canvasSize) / 2.0f);
+    prepReq.origin.x = float_to_fixed(-static_cast<float>(canvasSize) / 2.0f);
+    prepReq.origin.y = float_to_fixed(-static_cast<float>(canvasSize) / 2.0f);
 
     PrepareResponse prepResult = hblur.pullPrepare(prepReq);
     CHECK(prepResult.ok());
@@ -507,7 +513,7 @@ TEST_CASE("HorizontalBlurNode getDataRange with radius=0 is passthrough") {
     renderReq.width = static_cast<int16_t>(canvasSize);
     renderReq.height = 1;
     renderReq.origin.x = prepReq.origin.x;
-    renderReq.origin.y = 0;  // 画像と交差するY位置
+    renderReq.origin.y = 0;  // ワールドY=0のスキャンライン
 
     DataRange blurRange = hblur.getDataRange(renderReq);
     DataRange srcRange = src.getDataRange(renderReq);
@@ -525,9 +531,9 @@ TEST_CASE("HorizontalBlurNode getDataRange with offset image") {
     ImageBuffer srcImg = createSolidImage(imgSize, imgSize, 255, 0, 0, 255);
     ViewPort srcView = srcImg.view();
 
-    // 画像を画面左寄りに配置
-    // origin = (10, 10) → 画像中心が基準点(0,0)からX=-10, Y=-40にずれる
-    // 基準点からの相対座標で[-10, 10) x [-10, 10)
+    // SourceNodeのorigin引数は画像内の基準点（pivot）
+    // pivot = (10, 10) → 画像中心がワールド原点に配置
+    // 画像範囲（ワールド座標）: [-10, 10) x [-10, 10)
     SourceNode src(srcView, float_to_fixed(10.0f), float_to_fixed(10.0f));
     HorizontalBlurNode hblur;
     RendererNode renderer;
@@ -538,11 +544,12 @@ TEST_CASE("HorizontalBlurNode getDataRange with offset image") {
     hblur.setRadius(radius);
     hblur.setPasses(1);
 
+    // 新座標系: originはrequestバッファ左上のワールド座標
     PrepareRequest prepReq;
     prepReq.width = static_cast<int16_t>(canvasSize);
     prepReq.height = static_cast<int16_t>(canvasSize);
-    prepReq.origin.x = float_to_fixed(50.0f);
-    prepReq.origin.y = float_to_fixed(50.0f);
+    prepReq.origin.x = float_to_fixed(-50.0f);
+    prepReq.origin.y = float_to_fixed(-50.0f);
 
     PrepareResponse prepResult = hblur.pullPrepare(prepReq);
     CHECK(prepResult.ok());
@@ -551,12 +558,12 @@ TEST_CASE("HorizontalBlurNode getDataRange with offset image") {
     renderReq.width = static_cast<int16_t>(canvasSize);
     renderReq.height = 1;
     renderReq.origin.x = prepReq.origin.x;
-    renderReq.origin.y = 0;  // 画像と交差するY位置
+    renderReq.origin.y = 0;  // ワールドY=0のスキャンライン
 
     DataRange range = hblur.getDataRange(renderReq);
 
-    // 画像は基準点からの相対座標で[-10, 10)
-    // request座標系（origin.x=50）で[40, 60)
+    // 画像はワールド座標で[-10, 10)
+    // request座標系（origin.x=-50、左端がワールドX=-50）で[40, 60)
     // ブラー拡張で[35, 65)
     CHECK(range.hasData());
     CHECK(range.startX == 35);
@@ -570,6 +577,7 @@ TEST_CASE("VerticalBlurNode getDataRange passes through X range") {
     ImageBuffer srcImg = createSolidImage(imgSize, imgSize, 255, 0, 0, 255);
     ViewPort srcView = srcImg.view();
 
+    // SourceNodeのorigin引数は画像内の基準点（pivot）
     SourceNode src(srcView, float_to_fixed(static_cast<float>(imgSize) / 2.0f),
                            float_to_fixed(static_cast<float>(imgSize) / 2.0f));
     VerticalBlurNode vblur;
@@ -580,11 +588,12 @@ TEST_CASE("VerticalBlurNode getDataRange passes through X range") {
     vblur.setRadius(10);
     vblur.setPasses(1);
 
+    // 新座標系: originはrequestバッファ左上のワールド座標
     PrepareRequest prepReq;
     prepReq.width = static_cast<int16_t>(canvasSize);
     prepReq.height = static_cast<int16_t>(canvasSize);
-    prepReq.origin.x = float_to_fixed(static_cast<float>(canvasSize) / 2.0f);
-    prepReq.origin.y = float_to_fixed(static_cast<float>(canvasSize) / 2.0f);
+    prepReq.origin.x = float_to_fixed(-static_cast<float>(canvasSize) / 2.0f);
+    prepReq.origin.y = float_to_fixed(-static_cast<float>(canvasSize) / 2.0f);
 
     PrepareResponse prepResult = vblur.pullPrepare(prepReq);
     CHECK(prepResult.ok());
@@ -593,7 +602,7 @@ TEST_CASE("VerticalBlurNode getDataRange passes through X range") {
     renderReq.width = static_cast<int16_t>(canvasSize);
     renderReq.height = 1;
     renderReq.origin.x = prepReq.origin.x;
-    renderReq.origin.y = 0;  // 画像と交差するY位置
+    renderReq.origin.y = 0;  // ワールドY=0のスキャンライン
 
     DataRange vblurRange = vblur.getDataRange(renderReq);
     DataRange srcRange = src.getDataRange(renderReq);
@@ -610,6 +619,7 @@ TEST_CASE("HorizontalBlurNode + VerticalBlurNode getDataRange chain") {
     ImageBuffer srcImg = createSolidImage(imgSize, imgSize, 255, 0, 0, 255);
     ViewPort srcView = srcImg.view();
 
+    // SourceNodeのorigin引数は画像内の基準点（pivot）
     SourceNode src(srcView, float_to_fixed(static_cast<float>(imgSize) / 2.0f),
                            float_to_fixed(static_cast<float>(imgSize) / 2.0f));
     HorizontalBlurNode hblur;
@@ -625,11 +635,12 @@ TEST_CASE("HorizontalBlurNode + VerticalBlurNode getDataRange chain") {
     vblur.setRadius(vRadius);
     vblur.setPasses(1);
 
+    // 新座標系: originはrequestバッファ左上のワールド座標
     PrepareRequest prepReq;
     prepReq.width = static_cast<int16_t>(canvasSize);
     prepReq.height = static_cast<int16_t>(canvasSize);
-    prepReq.origin.x = float_to_fixed(static_cast<float>(canvasSize) / 2.0f);
-    prepReq.origin.y = float_to_fixed(static_cast<float>(canvasSize) / 2.0f);
+    prepReq.origin.x = float_to_fixed(-static_cast<float>(canvasSize) / 2.0f);
+    prepReq.origin.y = float_to_fixed(-static_cast<float>(canvasSize) / 2.0f);
 
     PrepareResponse prepResult = vblur.pullPrepare(prepReq);
     CHECK(prepResult.ok());
@@ -638,12 +649,13 @@ TEST_CASE("HorizontalBlurNode + VerticalBlurNode getDataRange chain") {
     renderReq.width = static_cast<int16_t>(canvasSize);
     renderReq.height = 1;
     renderReq.origin.x = prepReq.origin.x;
-    renderReq.origin.y = 0;  // 画像と交差するY位置
+    renderReq.origin.y = 0;  // ワールドY=0のスキャンライン
 
     DataRange range = vblur.getDataRange(renderReq);
 
     // VerticalBlurはX範囲に影響しないので、HorizontalBlurの結果と同じ
-    // 画像は[34, 66)、水平ブラーで±8拡張 → [26, 74)
+    // 画像はワールド座標で[-16, 16)、request座標系で[34, 66)
+    // 水平ブラーで±8拡張 → [26, 74)
     int expectedStart = (canvasSize / 2 - imgSize / 2) - hRadius;
     int expectedEnd = (canvasSize / 2 + imgSize / 2) + hRadius;
 

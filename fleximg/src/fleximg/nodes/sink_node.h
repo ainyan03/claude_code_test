@@ -149,10 +149,11 @@ PrepareResponse SinkNode::onPushPrepare(const PrepareRequest& request) {
             combinedMatrix,
             result.width, result.height, result.origin);
     } else {
-        // アフィンなしの場合はそのまま
+        // アフィンなしの場合
+        // origin は出力バッファ左上のワールド座標
         result.width = target_.width;
         result.height = target_.height;
-        result.origin = {originX_, originY_};
+        result.origin = {-originX_, -originY_};
     }
     return result;
 }
@@ -173,12 +174,12 @@ void SinkNode::onPushProcess(RenderResponse&& input,
 
     ViewPort inputView = input.view();
 
-    // 基準点一致ルールに基づく配置計算（固定小数点演算）
-    // input.origin: 入力バッファ内での基準点位置
-    // originX_/Y_: 出力バッファ内での基準点位置
-    // dstX = originX_ - input.origin.x
-    int dstX = from_fixed(originX_ - input.origin.x);
-    int dstY = from_fixed(originY_ - input.origin.y);
+    // 配置計算（固定小数点演算）
+    // input.origin: 入力バッファ左上のワールド座標
+    // originX_/Y_: 出力バッファ内でのワールド原点の位置（バッファ座標）
+    // dstX = originX_ + input.origin.x（ワールド座標を出力バッファ座標に変換）
+    int dstX = from_fixed(originX_ + input.origin.x);
+    int dstY = from_fixed(originY_ + input.origin.y);
 
     // クリッピング処理
     int srcX = 0, srcY = 0;
@@ -225,13 +226,14 @@ void SinkNode::applyAffine(ViewPort& dst,
     if (!affine_.isValid()) return;
 
     // srcOrigin分のみ計算（baseTx_/baseTy_ は dstOrigin 込みで事前計算済み）
+    // 新座標系: srcOrigin は入力バッファ左上のワールド座標なので減算
     const int32_t srcOriginXInt = from_fixed(srcOriginX);
     const int32_t srcOriginYInt = from_fixed(srcOriginY);
 
     const int32_t fixedInvTx = baseTx_
-                        + (srcOriginXInt << INT_FIXED16_SHIFT);
+                        - (srcOriginXInt << INT_FIXED16_SHIFT);
     const int32_t fixedInvTy = baseTy_
-                        + (srcOriginYInt << INT_FIXED16_SHIFT);
+                        - (srcOriginYInt << INT_FIXED16_SHIFT);
 
     // 共通DDA処理を呼び出し
     view_ops::affineTransform(dst, src, fixedInvTx, fixedInvTy,

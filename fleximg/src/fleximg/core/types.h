@@ -121,29 +121,25 @@ constexpr int_fixed8 to_fixed8(int v) {
     return static_cast<int_fixed8>(v) << INT_FIXED8_SHIFT;
 }
 
-// fixed8 → int (0方向への切り捨て)
-constexpr int from_fixed8(int_fixed8 v) {
-    return static_cast<int>(v >> INT_FIXED8_SHIFT);
-}
-
-// fixed8 → int (四捨五入)
-constexpr int from_fixed8_round(int_fixed8 v) {
-    return static_cast<int>((v + INT_FIXED8_HALF) >> INT_FIXED8_SHIFT);
-}
-
-// fixed8 → int (負の無限大方向への切り捨て = floor)
+// fixed8 → int (floor: 負の無限大方向への丸め)
+// 算術右シフトにより、常に負の無限大方向へ丸められる
 constexpr int from_fixed8_floor(int_fixed8 v) {
-    // 負の値の場合、単純な右シフトでは0方向に切り捨てられるため調整
-    return (v >= 0) ? (v >> INT_FIXED8_SHIFT)
-                    : -(((-v) + INT_FIXED8_ONE - 1) >> INT_FIXED8_SHIFT);
+    return v >> INT_FIXED8_SHIFT;
 }
 
-// fixed8 → int (正の無限大方向への切り上げ = ceil)
+// fixed8 → int (ceil: 正の無限大方向への丸め)
 constexpr int from_fixed8_ceil(int_fixed8 v) {
-    // 正の値の場合、小数部があれば切り上げ
-    // 負の値の場合、単純な右シフトで0方向に切り捨て = 負方向から見ると切り上げ
-    return (v >= 0) ? ((v + INT_FIXED8_ONE - 1) >> INT_FIXED8_SHIFT)
-                    : -((-v) >> INT_FIXED8_SHIFT);
+    return (v + INT_FIXED8_ONE - 1) >> INT_FIXED8_SHIFT;
+}
+
+// fixed8 → int (round: 四捨五入、round half up)
+constexpr int from_fixed8_round(int_fixed8 v) {
+    return (v + INT_FIXED8_HALF) >> INT_FIXED8_SHIFT;
+}
+
+// 互換性のためのエイリアス（from_fixed8_floor と同じ）
+constexpr int from_fixed8(int_fixed8 v) {
+    return from_fixed8_floor(v);
 }
 
 // ------------------------------------------------------------------------
@@ -155,26 +151,29 @@ constexpr int_fixed16 to_fixed16(int v) {
     return static_cast<int_fixed16>(v) << INT_FIXED16_SHIFT;
 }
 
-// fixed16 → int (0方向への切り捨て)
-constexpr int from_fixed16(int_fixed16 v) {
-    return static_cast<int>(v >> INT_FIXED16_SHIFT);
-}
-
-// fixed16 → int (四捨五入)
-constexpr int from_fixed16_round(int_fixed16 v) {
-    return static_cast<int>((v + INT_FIXED16_HALF) >> INT_FIXED16_SHIFT);
-}
-
-// fixed16 → int (負の無限大方向への切り捨て = floor)
+// fixed16 → int (floor: 負の無限大方向への丸め)
+// 算術右シフトにより、常に負の無限大方向へ丸められる
+// 例: 10.7 → 10, 10.3 → 10, -10.3 → -11, -10.7 → -11
 constexpr int from_fixed16_floor(int_fixed16 v) {
-    return (v >= 0) ? (v >> INT_FIXED16_SHIFT)
-                    : -(((-v) + INT_FIXED16_ONE - 1) >> INT_FIXED16_SHIFT);
+    return v >> INT_FIXED16_SHIFT;
 }
 
-// fixed16 → int (正の無限大方向への切り上げ = ceil)
+// fixed16 → int (ceil: 正の無限大方向への丸め)
+// 例: 10.3 → 11, 10.0 → 10, -10.7 → -10, -10.0 → -10
 constexpr int from_fixed16_ceil(int_fixed16 v) {
-    return (v >= 0) ? ((v + INT_FIXED16_ONE - 1) >> INT_FIXED16_SHIFT)
-                    : -((-v) >> INT_FIXED16_SHIFT);
+    return (v + INT_FIXED16_ONE - 1) >> INT_FIXED16_SHIFT;
+}
+
+// fixed16 → int (round: 四捨五入、round half up)
+// 0.5以上で切り上げ、0.5未満で切り捨て
+// 例: 10.5 → 11, 10.4 → 10, -10.4 → -10, -10.5 → -10, -10.6 → -11
+constexpr int from_fixed16_round(int_fixed16 v) {
+    return (v + INT_FIXED16_HALF) >> INT_FIXED16_SHIFT;
+}
+
+// 互換性のためのエイリアス（from_fixed16_floor と同じ）
+constexpr int from_fixed16(int_fixed16 v) {
+    return from_fixed16_floor(v);
 }
 
 // ------------------------------------------------------------------------
@@ -182,10 +181,11 @@ constexpr int from_fixed16_ceil(int_fixed16 v) {
 // ------------------------------------------------------------------------
 
 constexpr int_fixed to_fixed(int v) { return to_fixed16(v); }
-constexpr int from_fixed(int_fixed v) { return from_fixed16(v); }
-constexpr int from_fixed_round(int_fixed v) { return from_fixed16_round(v); }
 constexpr int from_fixed_floor(int_fixed v) { return from_fixed16_floor(v); }
 constexpr int from_fixed_ceil(int_fixed v) { return from_fixed16_ceil(v); }
+constexpr int from_fixed_round(int_fixed v) { return from_fixed16_round(v); }
+// 互換性のためのエイリアス（from_fixed_floor と同じ）
+constexpr int from_fixed(int_fixed v) { return from_fixed_floor(v); }
 
 // ------------------------------------------------------------------------
 // float ↔ fixed16 変換

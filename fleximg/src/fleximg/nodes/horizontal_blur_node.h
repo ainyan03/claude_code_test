@@ -80,12 +80,12 @@ public:
             return DataRange();
         }
 
-        // 上流への拡張リクエストを作成
+        // 上流への拡張リクエストを作成（左方向に拡大）
         int totalMargin = radius_ * passes_;
         RenderRequest inputReq;
         inputReq.width = static_cast<int16_t>(request.width + totalMargin * 2);
         inputReq.height = 1;
-        inputReq.origin.x = request.origin.x + to_fixed(totalMargin);
+        inputReq.origin.x = request.origin.x - to_fixed(totalMargin);
         inputReq.origin.y = request.origin.y;
 
         Node* upstream = upstreamNode(0);
@@ -190,10 +190,10 @@ PrepareResponse HorizontalBlurNode::onPullPrepare(const PrepareRequest& request)
     }
 
     // 水平ぼかしはX方向に radius * passes 分拡張する
-    // AABBの幅を拡張し、originのXをシフト
+    // AABBの幅を拡張し、originのXをシフト（左方向に拡大）
     int expansion = radius_ * passes_;
     upstreamResult.width = static_cast<int16_t>(upstreamResult.width + expansion * 2);
-    upstreamResult.origin.x = upstreamResult.origin.x + to_fixed(expansion);
+    upstreamResult.origin.x = upstreamResult.origin.x - to_fixed(expansion);
 
     return upstreamResult;
 }
@@ -212,7 +212,7 @@ RenderResponse HorizontalBlurNode::onPullProcess(const RenderRequest& request) {
     RenderRequest inputReq;
     inputReq.width = static_cast<int16_t>(request.width + totalMargin * 2);  // 両側にマージンを追加
     inputReq.height = 1;
-    inputReq.origin.x = request.origin.x + to_fixed(totalMargin);  // 左側にマージン分拡張
+    inputReq.origin.x = request.origin.x - to_fixed(totalMargin);  // 左側にマージン分拡張
     inputReq.origin.y = request.origin.y;
 
     // 上流のデータ範囲を取得して出力バッファサイズを最適化
@@ -259,8 +259,8 @@ RenderResponse HorizontalBlurNode::onPullProcess(const RenderRequest& request) {
         // inputOffset = -radius (出力を左に拡張)
         applyHorizontalBlur(srcView, -radius_, output);
 
-        // origin.xを左に拡張した分だけ増やす（固定小数点）
-        currentOrigin.x = currentOrigin.x + to_fixed(radius_);
+        // origin.xを左に拡張した分だけ減らす（ワールド座標で左に移動）
+        currentOrigin.x = currentOrigin.x - to_fixed(radius_);
 
         buffer = std::move(output);
     }
@@ -286,16 +286,19 @@ RenderResponse HorizontalBlurNode::onPullProcess(const RenderRequest& request) {
     int cropOffset = from_fixed(offsetX);
 
     // 出力バッファを確保（必要幅のみ、ゼロ初期化）
-    int_fixed outputOriginX = request.origin.x - to_fixed(blurredStartX);
+    // 出力バッファ左端のワールド座標 = リクエスト左端 + blurredStartX
+    int_fixed outputOriginX = request.origin.x + to_fixed(blurredStartX);
     ImageBuffer output(outputWidth, 1, PixelFormatIDs::RGBA8_Straight,
                       InitPolicy::Zero);
     const uint8_t* srcRow = static_cast<const uint8_t*>(buffer.view().data);
     uint8_t* dstRow = static_cast<uint8_t*>(output.view().data);
 
     // クロップ範囲を計算（境界チェック付き）
-    // blurredStartX分のオフセットを考慮
-    int srcStartX = std::max(0, cropOffset + blurredStartX);
-    int dstStartX = std::max(0, -(cropOffset + blurredStartX));
+    // cropOffset = ブラー後バッファ左端 - リクエスト左端（ワールド座標差）
+    // blurredStartX = 出力範囲の開始位置（リクエスト座標系）
+    // ブラー後バッファ内での位置 = blurredStartX - cropOffset
+    int srcStartX = std::max(0, blurredStartX - cropOffset);
+    int dstStartX = std::max(0, cropOffset - blurredStartX);
     int copyWidth = std::min(static_cast<int>(buffer.width()) - srcStartX,
                              static_cast<int>(outputWidth) - dstStartX);
 
@@ -348,8 +351,8 @@ void HorizontalBlurNode::onPushProcess(RenderResponse&& input, const RenderReque
         // push型では inputOffset = -radius
         applyHorizontalBlur(srcView, -radius_, output);
 
-        // origin.xをradius分大きくする（左に拡張するため）
-        currentOrigin.x = currentOrigin.x + to_fixed(radius_);
+        // origin.xを左に拡張した分だけ減らす（ワールド座標で左に移動）
+        currentOrigin.x = currentOrigin.x - to_fixed(radius_);
 
         buffer = std::move(output);
     }

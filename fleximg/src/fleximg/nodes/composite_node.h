@@ -150,9 +150,10 @@ PrepareResponse CompositeNode::onPullPrepare(const PrepareRequest& request) {
                 return result;  // エラーを伝播
             }
 
-            // 各結果のAABBを基準点からの相対座標に変換
-            float left = -fixed_to_float(result.origin.x);
-            float top = -fixed_to_float(result.origin.y);
+            // 各結果のAABBをワールド座標に変換
+            // origin はバッファ左上のワールド座標
+            float left = fixed_to_float(result.origin.x);
+            float top = fixed_to_float(result.origin.y);
             float right = left + static_cast<float>(result.width);
             float bottom = top + static_cast<float>(result.height);
 
@@ -176,10 +177,11 @@ PrepareResponse CompositeNode::onPullPrepare(const PrepareRequest& request) {
 
     if (validUpstreamCount > 0) {
         // 和集合結果をPrepareResponseに設定
+        // origin はバッファ左上のワールド座標
         merged.width = static_cast<int16_t>(std::ceil(maxX - minX));
         merged.height = static_cast<int16_t>(std::ceil(maxY - minY));
-        merged.origin.x = float_to_fixed(-minX);
-        merged.origin.y = float_to_fixed(-minY);
+        merged.origin.x = float_to_fixed(minX);
+        merged.origin.y = float_to_fixed(minY);
 
         // フォーマット決定:
         // - 上流が1つのみ → パススルー（merged.preferredFormatはそのまま）
@@ -276,9 +278,9 @@ RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
 
     int16_t canvasWidth = canvasEndX - canvasStartX;
 
-    // バッファ内基準点位置（固定小数点 Q16.16）
-    // canvasStartX分だけシフト
-    int_fixed canvasOriginX = request.origin.x - to_fixed(canvasStartX);
+    // キャンバス左上のワールド座標（固定小数点 Q16.16）
+    // canvasStartX分だけ右にシフト
+    int_fixed canvasOriginX = request.origin.x + to_fixed(canvasStartX);
     int_fixed canvasOriginY = request.origin.y;
 
     // キャンバスを作成（height=1、必要幅のみ確保）
@@ -324,8 +326,8 @@ RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
         FLEXIMG_METRICS_SCOPE(NodeType::Composite);
 
         // X方向オフセット計算（Y方向は不要、height=1前提）
-        // canvasOriginXはcanvasStartX分シフト済みなので、dstStartXはバッファ座標系
-        int offsetX = from_fixed(canvasOriginX - inputResult.origin.x);
+        // 入力バッファ左上のワールド座標 - キャンバス左上のワールド座標 = 描画開始位置
+        int offsetX = from_fixed(inputResult.origin.x - canvasOriginX);
         int srcStartX = std::max(0, -offsetX);
         int dstStartX = std::max(0, offsetX);
         int copyWidth = std::min(inputResult.view().width - srcStartX,

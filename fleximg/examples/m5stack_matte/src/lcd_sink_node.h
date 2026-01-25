@@ -86,7 +86,7 @@ protected:
         result.status = PrepareStatus::Prepared;
         result.width = windowW_;
         result.height = windowH_;
-        result.origin = {originX_, originY_};
+        result.origin = {-originX_, -originY_};
         return result;
     }
 
@@ -99,10 +99,12 @@ protected:
 
         ViewPort inputView = input.isValid() ? input.view() : ViewPort();
 
-        // 基準点一致ルールに基づく配置計算
-        // Y座標はrequestから取得（inputが無効でも常に正しい値を持つ）
-        int dstX = input.isValid() ? from_fixed(originX_ - input.origin.x) : 0;
-        int dstY = from_fixed(originY_ - request.origin.y);
+        // 配置計算（SinkNodeと同じ座標系）
+        // originX_/Y_: 出力バッファ内でのワールド原点の位置（バッファ座標）
+        // input.origin: 入力バッファ左上のワールド座標
+        // dstX = originX_ + input.origin.x（ワールド座標を出力バッファ座標に変換）
+        int dstX = from_fixed(originX_ + input.origin.x);
+        int dstY = from_fixed(originY_ + input.origin.y);
 
         // クリッピング処理
         int srcX = 0, srcY = 0;
@@ -115,7 +117,7 @@ protected:
         if (copyH < 0) copyH = 0;
 
         // 予定領域の配置計算
-        int expectedDstX = from_fixed(originX_ - expectedOriginX_);
+        int expectedDstX = from_fixed(expectedOriginX_ - originX_);
 
         // 描画高さ（有効範囲がなくても1ライン分描画）
         int fillH = (copyH > 0) ? copyH : 1;

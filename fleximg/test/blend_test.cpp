@@ -75,10 +75,12 @@ TEST_CASE("placeFirst with offset") {
     // srcの(0,0)に赤ピクセル
     setPixelRGBA8(src, 0, 0, 255, 0, 0, 255);
 
-    // srcの基準点(0,0)をdstの基準点(4,4)に合わせる
+    // 新座標系: canvasOrigin=(0,0)、srcOrigin=(4,4)
+    // → srcの左上がワールド(4,4)、canvasの左上がワールド(0,0)
+    // → srcの(0,0)がcanvasの(4,4)に配置される
     ViewPort dstView = dst.viewRef();
-    canvas_utils::placeFirst(dstView, to_fixed(4), to_fixed(4),
-                             src.view(), to_fixed(0), to_fixed(0));
+    canvas_utils::placeFirst(dstView, to_fixed(0), to_fixed(0),
+                             src.view(), to_fixed(4), to_fixed(4));
 
     // dstの(4,4)に赤ピクセルがあるはず
     uint8_t r, g, b, a;
@@ -130,10 +132,12 @@ TEST_CASE("placeFirst clipping") {
         }
     }
 
-    // srcを右下にオフセット（一部のみ見える）
+    // 新座標系: canvasOrigin=(2,2)、srcOrigin=(0,0)
+    // → srcの左上がワールド(0,0)、canvasの左上がワールド(2,2)
+    // → srcはcanvasより左上にある → srcの(2,2)-(3,3)がcanvasの(0,0)-(1,1)に配置
     ViewPort dstView = dst.viewRef();
-    canvas_utils::placeFirst(dstView, to_fixed(0), to_fixed(0),
-                             src.view(), to_fixed(2), to_fixed(2));
+    canvas_utils::placeFirst(dstView, to_fixed(2), to_fixed(2),
+                             src.view(), to_fixed(0), to_fixed(0));
 
     // dstの(0,0)-(1,1)にsrcの(2,2)-(3,3)がコピーされる
     uint8_t r, g, b, a;

@@ -184,6 +184,9 @@ public:
     // onPullProcess: 全9区画を処理して合成
     RenderResponse onPullProcess(const RenderRequest& request) override;
 
+    // getDataRange: 全パッチのデータ範囲の和集合を返す
+    DataRange getDataRange(const RenderRequest& request) const override;
+
 private:
     // 内部SourceNode（9区画）
     SourceNode patches_[9];
@@ -333,9 +336,10 @@ PrepareResponse NinePatchSourceNode::onPullPrepare(const PrepareRequest& request
         // アフィンなしの場合はそのまま（positionを含める）
         result.width = static_cast<int16_t>(outputWidth_);
         result.height = static_cast<int16_t>(outputHeight_);
-        // originをposition分シフト
-        result.origin.x = originX_ - float_to_fixed(positionX_);
-        result.origin.y = originY_ - float_to_fixed(positionY_);
+        // 新座標系: originはバッファ左上のワールド座標
+        // position - origin = バッファ[0,0]のワールド座標
+        result.origin.x = float_to_fixed(positionX_) - originX_;
+        result.origin.y = float_to_fixed(positionY_) - originY_;
     }
     return result;
 }
@@ -389,8 +393,8 @@ RenderResponse NinePatchSourceNode::onPullProcess(const RenderRequest& request) 
     int16_t canvasWidth = canvasEndX - canvasStartX;
 
     // キャンバス作成（透明で初期化、必要幅のみ確保）
-    // canvasStartX分だけoriginをシフト
-    int_fixed canvasOriginX = request.origin.x - to_fixed(canvasStartX);
+    // 新座標系: canvasStartX分だけ右にシフト（加算）
+    int_fixed canvasOriginX = request.origin.x + to_fixed(canvasStartX);
     int_fixed canvasOriginY = request.origin.y;
 
     ImageBuffer canvasBuf = canvas_utils::createCanvas(canvasWidth, request.height, InitPolicy::Zero, allocator());
@@ -422,6 +426,39 @@ RenderResponse NinePatchSourceNode::onPullProcess(const RenderRequest& request) 
     }
 
     return RenderResponse(std::move(canvasBuf), Point{canvasOriginX, canvasOriginY});
+}
+
+DataRange NinePatchSourceNode::getDataRange(const RenderRequest& request) const {
+    if (!sourceValid_ || outputWidth_ <= 0 || outputHeight_ <= 0) {
+        return DataRange{0, 0};
+    }
+
+    // ジオメトリ計算（まだなら）
+    if (!geometryValid_) {
+        const_cast<NinePatchSourceNode*>(this)->updatePatchGeometry();
+    }
+
+    // 全パッチのデータ範囲の和集合を計算
+    int16_t startX = INT16_MAX;
+    int16_t endX = INT16_MIN;
+
+    for (int i = 0; i < 9; i++) {
+        int col = i % 3;
+        int row = i / 3;
+        if (patchWidths_[col] <= 0 || patchHeights_[row] <= 0) {
+            continue;
+        }
+        DataRange range = patches_[i].getDataRange(request);
+        if (range.hasData()) {
+            if (range.startX < startX) startX = range.startX;
+            if (range.endX > endX) endX = range.endX;
+        }
+    }
+
+    if (startX >= endX) {
+        return DataRange{0, 0};
+    }
+    return DataRange{startX, endX};
 }
 
 // ============================================================================

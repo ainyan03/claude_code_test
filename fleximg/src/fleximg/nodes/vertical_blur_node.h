@@ -77,14 +77,8 @@ public:
 
     const char* name() const override { return "VerticalBlurNode"; }
 
-    // getDataRange: 垂直ブラーはX範囲に影響しないので上流をそのまま返す
-    DataRange getDataRange(const RenderRequest& request) const override {
-        Node* upstream = upstreamNode(0);
-        if (upstream) {
-            return upstream->getDataRange(request);
-        }
-        return DataRange();
-    }
+    // getDataRange: 上下radius*passes行の上流DataRange和集合を返す
+    DataRange getDataRange(const RenderRequest& request) const override;
 
     // 準備・終了処理（pull型用）
     void prepare(const RenderRequest& screenInfo) override;
@@ -117,6 +111,7 @@ private:
     struct BlurStage {
         std::vector<ImageBuffer> rowCache;   // radius*2+1 行のキャッシュ
         std::vector<int_fixed> rowOriginX;   // 各キャッシュ行のorigin.x（push型用）
+        std::vector<DataRange> rowDataRange; // 各キャッシュ行の有効範囲
         std::vector<uint32_t> colSumR;       // 列合計（R×A）
         std::vector<uint32_t> colSumG;       // 列合計（G×A）
         std::vector<uint32_t> colSumB;       // 列合計（B×A）
@@ -131,6 +126,7 @@ private:
         void clear() {
             rowCache.clear();
             rowOriginX.clear();
+            rowDataRange.clear();
             colSumR.clear();
             colSumG.clear();
             colSumB.clear();
@@ -145,6 +141,13 @@ private:
     // パイプラインステージ（passes個、passes=1でもstages_[0]を使用）
     std::vector<BlurStage> stages_;
     int cacheWidth_ = 0;
+    int_fixed cacheOriginX_ = 0;  // キャッシュの基準X座標（pull型用）
+    int_fixed upstreamOriginX_ = 0;  // 上流pullProcessのorigin.x（radius=0と同じ出力用）
+    bool upstreamOriginXSet_ = false;  // upstreamOriginX_が設定済みかどうか
+
+    // 上流のY範囲（getDataRangeでのクエリY座標クランプ用）
+    int_fixed sourceOriginY_ = 0;  // 上流のorigin.y（拡張前）
+    int16_t sourceHeight_ = 0;     // 上流の高さ（拡張前）
 
     // push型処理用の状態
     int pushInputY_ = 0;
@@ -155,6 +158,14 @@ private:
     int_fixed baseOriginX_ = 0;              // 基準origin.x（pushPrepareで設定）
     int_fixed pushInputOriginY_ = 0;
     int_fixed lastInputOriginY_ = 0;
+
+    // getDataRange/pullProcess 間のキャッシュ
+    struct DataRangeCache {
+        Point origin = {INT32_MIN, INT32_MIN};  // キャッシュキー（無効値で初期化）
+        int16_t startX = 0;
+        int16_t endX = 0;
+    };
+    mutable DataRangeCache rangeCache_;
 
     // 内部実装（宣言のみ）
     RenderResponse pullProcessPipeline(Node* upstream, const RenderRequest& request);
@@ -208,6 +219,70 @@ void VerticalBlurNode::finalize() {
         stage.clear();
     }
     stages_.clear();
+
+    // 上流origin情報をリセット
+    upstreamOriginXSet_ = false;
+    sourceOriginY_ = 0;
+    sourceHeight_ = 0;
+
+    // getDataRangeキャッシュをリセット
+    rangeCache_.origin = {INT32_MIN, INT32_MIN};
+    rangeCache_.startX = 0;
+    rangeCache_.endX = 0;
+}
+
+// ========================================
+// getDataRange 実装
+// ========================================
+
+DataRange VerticalBlurNode::getDataRange(const RenderRequest& request) const {
+    Node* upstream = upstreamNode(0);
+    if (!upstream) {
+        return DataRange();
+    }
+
+    // radius=0の場合は上流をそのまま返す
+    if (radius_ == 0 || passes_ == 0) {
+        return upstream->getDataRange(request);
+    }
+
+    // キャッシュチェック
+    if (rangeCache_.origin.x == request.origin.x &&
+        rangeCache_.origin.y == request.origin.y) {
+        if (rangeCache_.startX >= rangeCache_.endX) {
+            return DataRange{0, 0};
+        }
+        return DataRange{rangeCache_.startX, rangeCache_.endX};
+    }
+
+    // 垂直ブラーでは、出力行Yに対して入力行 Y-expansion から Y+expansion の
+    // X範囲の和集合が必要（expansion = radius * passes）
+    // 特にアフィン変換された画像では、各行のX範囲が異なる可能性がある
+    int expansion = radius_ * passes_;
+    int16_t startX = INT16_MAX;
+    int16_t endX = INT16_MIN;
+
+    // ブラーカーネル範囲内の全行のX範囲の和集合を計算
+    RenderRequest rowRequest = request;
+    int_fixed baseY = request.origin.y;
+    for (int dy = -expansion; dy <= expansion; ++dy) {
+        rowRequest.origin.y = baseY + to_fixed(dy);
+        DataRange rowRange = upstream->getDataRange(rowRequest);
+        if (rowRange.hasData()) {
+            if (rowRange.startX < startX) startX = rowRange.startX;
+            if (rowRange.endX > endX) endX = rowRange.endX;
+        }
+    }
+
+    // キャッシュに保存
+    rangeCache_.origin = request.origin;
+    rangeCache_.startX = startX;
+    rangeCache_.endX = endX;
+
+    if (startX >= endX) {
+        return DataRange{0, 0};
+    }
+    return DataRange{startX, endX};
 }
 
 // ========================================
@@ -229,23 +304,37 @@ PrepareResponse VerticalBlurNode::onPullPrepare(const PrepareRequest& request) {
         return upstreamResult;
     }
 
-    // 準備処理
-    RenderRequest screenInfo;
-    screenInfo.width = request.width;
-    screenInfo.height = request.height;
-    screenInfo.origin = request.origin;
-    prepare(screenInfo);
+    // スクリーン情報を保存（prepare()代わり）
+    screenWidth_ = request.width;
+    screenHeight_ = request.height;
+    screenOrigin_ = request.origin;
 
-    // radius=0の場合はパススルー
-    if (radius_ == 0) {
+    // 上流のY範囲を保存（getDataRangeでのクエリY座標クランプ用）
+    // radius=0でも保存しておく（getDataRangeで使用）
+    sourceOriginY_ = upstreamResult.origin.y;
+    sourceHeight_ = upstreamResult.height;
+
+    // radius=0の場合はパススルー（キャッシュ不要）
+    if (radius_ == 0 || passes_ == 0) {
         return upstreamResult;
     }
 
+    // 上流AABBに基づいてキャッシュを初期化
+    cacheOriginX_ = upstreamResult.origin.x;
+    initializeStages(upstreamResult.width);
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    // パイプライン方式: 各ステージ (radius*2+1)*width*4 + width*16
+    size_t cacheBytes = static_cast<size_t>(passes_) * (static_cast<size_t>(kernelSize()) * static_cast<size_t>(cacheWidth_) * 4 + static_cast<size_t>(cacheWidth_) * 4 * sizeof(uint32_t));
+    PerfMetrics::instance().nodes[NodeType::VerticalBlur].recordAlloc(
+        cacheBytes, cacheWidth_, kernelSize() * passes_);
+#endif
+
     // 垂直ぼかしはY方向に radius * passes 分拡張する
-    // AABBの高さを拡張し、originのYをシフト
+    // AABBの高さを拡張し、originのYをシフト（上方向に拡大）
     int expansion = radius_ * passes_;
     upstreamResult.height = static_cast<int16_t>(upstreamResult.height + expansion * 2);
-    upstreamResult.origin.y = upstreamResult.origin.y + to_fixed(expansion);
+    upstreamResult.origin.y = upstreamResult.origin.y - to_fixed(expansion);
 
     return upstreamResult;
 }
@@ -363,7 +452,8 @@ void VerticalBlurNode::onPushFinalize() {
         }
         std::memset(stage0.rowCache[static_cast<size_t>(slot0)].view().data, 0, static_cast<size_t>(cacheWidth_) * 4);
 
-        lastInputOriginY_ -= to_fixed(1);
+        // パディング行は画像の下端より下なのでorigin.yは増加する（新座標系）
+        lastInputOriginY_ += to_fixed(1);
         stage0.pushInputY++;
 
         // 後続ステージに伝播
@@ -403,26 +493,83 @@ RenderResponse VerticalBlurNode::pullProcessPipeline(Node* upstream, const Rende
     // updateStageCache内で上流をpullするため、計測はこの後から開始
     updateStageCache(passes_ - 1, upstream, request, requestY);
 
+    // 有効範囲を取得（キャッシュがあれば再利用）
+    DataRange range;
+    if (rangeCache_.origin.x == request.origin.x &&
+        rangeCache_.origin.y == request.origin.y) {
+        range = DataRange{rangeCache_.startX, rangeCache_.endX};
+    } else {
+        range = getDataRange(request);
+    }
+
+    // 有効なデータがない場合は空を返す
+    if (!range.hasData()) {
+        return RenderResponse();
+    }
+
     FLEXIMG_METRICS_SCOPE(NodeType::VerticalBlur);
+
+    (void)range;  // 未使用（独自に交差領域を計算）
+
+    // SourceNodeと同じ交差領域計算を行う
+    // upstreamOriginX_は「キャッシュ左端のワールド座標」
+    int_fixed cacheLeft = upstreamOriginX_;  // キャッシュ左端のワールド座標
+    int_fixed cacheRight = cacheLeft + to_fixed(cacheWidth_);  // キャッシュ右端
+    int_fixed reqLeft = request.origin.x;  // リクエスト左端のワールド座標
+    int_fixed reqRight = reqLeft + to_fixed(request.width);  // リクエスト右端
+
+    // 交差領域
+    int_fixed interLeft = std::max(cacheLeft, reqLeft);
+    int_fixed interRight = std::min(cacheRight, reqRight);
+
+    // 交差領域がなければ空を返す
+    if (interLeft >= interRight) {
+        return RenderResponse();
+    }
+
+    // キャッシュ内のオフセットと出力幅を計算（SourceNodeと同じ丸め方式）
+    int srcStartX = from_fixed_floor(interLeft - cacheLeft);
+    int srcEndX = from_fixed_ceil(interRight - cacheLeft);
+    int16_t outputWidth = static_cast<int16_t>(srcEndX - srcStartX);
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
     auto& metrics = PerfMetrics::instance().nodes[NodeType::VerticalBlur];
     metrics.requestedPixels += static_cast<uint64_t>(request.width) * 1;
-    metrics.usedPixels += static_cast<uint64_t>(request.width) * 1;
+    metrics.usedPixels += static_cast<uint64_t>(outputWidth) * 1;
 #endif
 
-    // 出力バッファを確保
-    ImageBuffer output(request.width, 1, PixelFormatIDs::RGBA8_Straight,
+    ImageBuffer output(outputWidth, 1, PixelFormatIDs::RGBA8_Straight,
                       InitPolicy::Uninitialized);
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
     metrics.recordAlloc(output.totalBytes(), output.width(), output.height());
 #endif
 
-    // 最終ステージの列合計から出力行を計算
-    computeStageOutputRow(stages_[static_cast<size_t>(passes_ - 1)], output, request.width);
+    // 最終ステージの列合計から出力行を計算（有効範囲のみ）
+    BlurStage& lastStage = stages_[static_cast<size_t>(passes_ - 1)];
+    uint8_t* outRow = static_cast<uint8_t*>(output.view().data);
+    int ks = kernelSize();
 
-    return RenderResponse(std::move(output), request.origin);
+    for (int cacheX = srcStartX; cacheX < srcEndX; cacheX++) {
+        size_t outOff = static_cast<size_t>(cacheX - srcStartX) * 4;
+
+        if (lastStage.colSumA[static_cast<size_t>(cacheX)] > 0) {
+            size_t cx = static_cast<size_t>(cacheX);
+            outRow[outOff]     = static_cast<uint8_t>(lastStage.colSumR[cx] / lastStage.colSumA[cx]);
+            outRow[outOff + 1] = static_cast<uint8_t>(lastStage.colSumG[cx] / lastStage.colSumA[cx]);
+            outRow[outOff + 2] = static_cast<uint8_t>(lastStage.colSumB[cx] / lastStage.colSumA[cx]);
+            outRow[outOff + 3] = static_cast<uint8_t>(lastStage.colSumA[cx] / static_cast<uint32_t>(ks));
+        } else {
+            outRow[outOff] = outRow[outOff + 1] = outRow[outOff + 2] = outRow[outOff + 3] = 0;
+        }
+    }
+
+    // 出力の origin を計算（バッファ左上のワールド座標）
+    Point outputOrigin;
+    outputOrigin.x = interLeft;
+    outputOrigin.y = request.origin.y;
+
+    return RenderResponse(std::move(output), outputOrigin);
 }
 
 void VerticalBlurNode::updateStageCache(int stageIndex, Node* upstream, const RenderRequest& request, int newY) {
@@ -466,20 +613,36 @@ void VerticalBlurNode::updateStageCache(int stageIndex, Node* upstream, const Re
 
 void VerticalBlurNode::fetchRowToStageCache(BlurStage& stage, Node* upstream, const RenderRequest& request,
                                              int srcY, int cacheIndex) {
+    // キャッシュ幅・原点を使用してリクエスト作成
     RenderRequest upstreamReq;
-    upstreamReq.width = request.width;
+    upstreamReq.width = static_cast<int16_t>(cacheWidth_);
     upstreamReq.height = 1;
-    upstreamReq.origin.x = request.origin.x;
+    upstreamReq.origin.x = cacheOriginX_;
     upstreamReq.origin.y = to_fixed(srcY);
 
-    RenderResponse result = upstream->pullProcess(upstreamReq);
+    // 上流のデータ範囲を取得して記録
+    DataRange dataRange = upstream->getDataRange(upstreamReq);
+    stage.rowDataRange[static_cast<size_t>(cacheIndex)] = dataRange;
 
     // キャッシュ行をゼロクリア
     ViewPort dstView = stage.rowCache[static_cast<size_t>(cacheIndex)].view();
     std::memset(dstView.data, 0, static_cast<size_t>(cacheWidth_) * 4);
 
+    if (!dataRange.hasData()) {
+        return;
+    }
+
+    RenderResponse result = upstream->pullProcess(upstreamReq);
     if (!result.isValid()) {
         return;
+    }
+
+    // upstreamOriginX_はpullProcessPipelineで出力のorigin.x計算に使用
+    // アフィン変換された場合、各行のorigin.xが異なる可能性があるため、
+    // AABBのorigin.x（cacheOriginX_、onPullPrepareで設定済み）を使用する
+    if (!upstreamOriginXSet_) {
+        upstreamOriginX_ = cacheOriginX_;
+        upstreamOriginXSet_ = true;
     }
 
     ImageBuffer converted = convertFormat(std::move(result.buffer),
@@ -487,7 +650,9 @@ void VerticalBlurNode::fetchRowToStageCache(BlurStage& stage, Node* upstream, co
     ViewPort srcView = converted.view();
 
     // 入力データをキャッシュにコピー（オフセット考慮）
-    int srcOffsetX = from_fixed(upstreamReq.origin.x - result.origin.x);
+    // cacheOriginX_（更新済み）を使用して正しい座標でコピーする
+    // result.origin.x - cacheOriginX_ = 入力バッファ左端 - キャッシュ左端
+    int srcOffsetX = from_fixed(result.origin.x - cacheOriginX_);
     int dstStartX = std::max(0, srcOffsetX);
     int srcStartX = std::max(0, -srcOffsetX);
     int copyWidth = std::min(static_cast<int>(srcView.width) - srcStartX, cacheWidth_ - dstStartX);
@@ -495,6 +660,8 @@ void VerticalBlurNode::fetchRowToStageCache(BlurStage& stage, Node* upstream, co
         const uint8_t* srcPtr = static_cast<const uint8_t*>(srcView.data) + srcStartX * 4;
         std::memcpy(static_cast<uint8_t*>(dstView.data) + dstStartX * 4, srcPtr, static_cast<size_t>(copyWidth) * 4);
     }
+
+    (void)request;  // 現在は未使用（将来の拡張用）
 }
 
 void VerticalBlurNode::fetchRowFromPrevStage(int stageIndex, Node* upstream, const RenderRequest& request,
@@ -509,6 +676,10 @@ void VerticalBlurNode::fetchRowFromPrevStage(int stageIndex, Node* upstream, con
     ViewPort dstView = stage.rowCache[static_cast<size_t>(cacheIndex)].view();
     uint8_t* dstRow = static_cast<uint8_t*>(dstView.data);
 
+    // 有効範囲を追跡
+    int16_t startX = static_cast<int16_t>(cacheWidth_);
+    int16_t endX = 0;
+
     int ks = kernelSize();
     for (size_t x = 0; x < static_cast<size_t>(cacheWidth_); x++) {
         size_t off = x * 4;
@@ -517,10 +688,16 @@ void VerticalBlurNode::fetchRowFromPrevStage(int stageIndex, Node* upstream, con
             dstRow[off + 1] = static_cast<uint8_t>(prevStage.colSumG[x] / prevStage.colSumA[x]);
             dstRow[off + 2] = static_cast<uint8_t>(prevStage.colSumB[x] / prevStage.colSumA[x]);
             dstRow[off + 3] = static_cast<uint8_t>(prevStage.colSumA[x] / static_cast<uint32_t>(ks));
+            // 有効範囲を更新
+            if (static_cast<int16_t>(x) < startX) startX = static_cast<int16_t>(x);
+            endX = static_cast<int16_t>(x + 1);
         } else {
             dstRow[off] = dstRow[off + 1] = dstRow[off + 2] = dstRow[off + 3] = 0;
         }
     }
+
+    // DataRangeを記録
+    stage.rowDataRange[static_cast<size_t>(cacheIndex)] = DataRange{startX, endX};
 }
 
 void VerticalBlurNode::updateStageColSum(BlurStage& stage, int cacheIndex, bool add) {
@@ -563,6 +740,7 @@ void VerticalBlurNode::initializeStage(BlurStage& stage, int width) {
     size_t cacheRows = static_cast<size_t>(kernelSize());  // radius*2+1
     stage.rowCache.resize(cacheRows);
     stage.rowOriginX.assign(cacheRows, 0);
+    stage.rowDataRange.assign(cacheRows, DataRange{0, 0});  // 空範囲で初期化
     for (size_t i = 0; i < cacheRows; i++) {
         stage.rowCache[i] = ImageBuffer(width, 1, PixelFormatIDs::RGBA8_Straight,
                                         InitPolicy::Zero, allocator_);
@@ -666,9 +844,11 @@ void VerticalBlurNode::emitBlurredLinePipeline() {
     lastStage.pushOutputY++;
 
     // origin計算
+    // lastInputOriginY_は最後に受信した入力行のorigin.y
+    // 出力行のorigin.yは、入力行との差分を減算して求める
     int_fixed originX = baseOriginX_;
     int rowDiff = (stages_[0].pushInputY - 1) - pushOutputY_;
-    int_fixed originY = lastInputOriginY_ + to_fixed(rowDiff);
+    int_fixed originY = lastInputOriginY_ - to_fixed(rowDiff);
 
     RenderRequest outReq;
     outReq.width = static_cast<int16_t>(cacheWidth_);
@@ -694,13 +874,14 @@ void VerticalBlurNode::storeInputRowToStageCache(BlurStage& stage, const ImageBu
     // キャッシュをゼロクリア
     std::memset(dstData, 0, static_cast<size_t>(cacheWidth_) * 4);
 
-    // コピー範囲の計算
-    int dstStart = std::max(0, -xOffset);
-    int srcStart = std::max(0, xOffset);
-    int dstEnd = std::min(cacheWidth_, srcWidth - xOffset);
-    int copyWidth = dstEnd - dstStart;
+    // コピー範囲の計算（pull pathのfetchRowToStageCacheと同じロジック）
+    // xOffset > 0: 入力がキャッシュより右にある → cache[xOffset]に書き込み
+    // xOffset < 0: 入力がキャッシュより左にある → source[-xOffset]から読み込み
+    int dstStart = std::max(0, xOffset);
+    int srcStart = std::max(0, -xOffset);
+    int copyWidth = std::min(srcWidth - srcStart, cacheWidth_ - dstStart);
 
-    if (copyWidth > 0 && srcStart < srcWidth) {
+    if (copyWidth > 0) {
         std::memcpy(dstData + dstStart * 4, srcData + srcStart * 4, static_cast<size_t>(copyWidth) * 4);
     }
 }

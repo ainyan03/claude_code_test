@@ -62,12 +62,13 @@ struct RenderRequest {
 
     // マージン分拡大（フィルタ用）
     // 左右上下に適用されるため width/height は margin*2 増加
+    // origin は左上に移動（ワールド座標なので減算）
     RenderRequest expand(int margin) const {
         int_fixed marginFixed = to_fixed(margin);
         return {
             static_cast<int16_t>(width + margin * 2),
             static_cast<int16_t>(height + margin * 2),
-            {origin.x + marginFixed, origin.y + marginFixed}
+            {origin.x - marginFixed, origin.y - marginFixed}
         };
     }
 };
@@ -147,16 +148,16 @@ struct PrepareResponse {
         if (width <= 0 || height <= 0) return false;
         if (request.width <= 0 || request.height <= 0) return false;
 
-        // 各矩形の範囲を基準点からの相対座標で計算
-        // AABB（this）の範囲
-        float aabbLeft = -fixed_to_float(origin.x);
-        float aabbTop = -fixed_to_float(origin.y);
+        // 各矩形のワールド座標範囲を計算
+        // AABB（this）の範囲（originはバッファ左上のワールド座標）
+        float aabbLeft = fixed_to_float(origin.x);
+        float aabbTop = fixed_to_float(origin.y);
         float aabbRight = aabbLeft + static_cast<float>(width);
         float aabbBottom = aabbTop + static_cast<float>(height);
 
-        // リクエスト矩形の範囲
-        float reqLeft = -fixed_to_float(request.origin.x);
-        float reqTop = -fixed_to_float(request.origin.y);
+        // リクエスト矩形の範囲（originはリクエスト左上のワールド座標）
+        float reqLeft = fixed_to_float(request.origin.x);
+        float reqTop = fixed_to_float(request.origin.y);
         float reqRight = reqLeft + static_cast<float>(request.width);
         float reqBottom = reqTop + static_cast<float>(request.height);
 
@@ -172,14 +173,16 @@ struct PrepareResponse {
         if (width <= 0 || height <= 0) return DataRange{0, 0};
         if (request.width <= 0 || request.height <= 0) return DataRange{0, 0};
 
-        // 各矩形の範囲を基準点からの相対座標で計算
-        float aabbLeft = -fixed_to_float(origin.x);
-        float aabbTop = -fixed_to_float(origin.y);
+        // 各矩形のワールド座標範囲を計算
+        // originはバッファ左上のワールド座標
+        float aabbLeft = fixed_to_float(origin.x);
+        float aabbTop = fixed_to_float(origin.y);
         float aabbRight = aabbLeft + static_cast<float>(width);
         float aabbBottom = aabbTop + static_cast<float>(height);
 
-        float reqLeft = -fixed_to_float(request.origin.x);
-        float reqTop = -fixed_to_float(request.origin.y);
+        // リクエスト範囲（originはリクエスト左上のワールド座標）
+        float reqLeft = fixed_to_float(request.origin.x);
+        float reqTop = fixed_to_float(request.origin.y);
         float reqRight = reqLeft + static_cast<float>(request.width);
         float reqBottom = reqTop + static_cast<float>(request.height);
 
@@ -218,22 +221,22 @@ struct PrepareResponse {
 
 // 入力矩形にアフィン変換を適用し、出力AABBを計算
 // inputWidth/Height: 入力矩形サイズ
-// inputOrigin: 入力矩形の基準点（固定小数点）
-// matrix: 適用するアフィン変換
-// 戻り値: 変換後のAABB（width, height, origin）
+// inputOrigin: 入力矩形の基準点（pivot、バッファ座標、固定小数点）
+// matrix: 適用するアフィン変換（tx/ty が position を含む）
+// 戻り値: 変換後のAABB（width, height, origin はバッファ左上のワールド座標）
 inline void calcAffineAABB(
     int inputWidth, int inputHeight,
     Point inputOrigin,
     const AffineMatrix& matrix,
     int16_t& outWidth, int16_t& outHeight, Point& outOrigin)
 {
-    // 入力矩形の4角（基準点からの相対座標）
+    // 入力矩形の4角（pivot を原点とした相対座標）
     float left = -fixed_to_float(inputOrigin.x);
     float top = -fixed_to_float(inputOrigin.y);
     float right = left + static_cast<float>(inputWidth);
     float bottom = top + static_cast<float>(inputHeight);
 
-    // 4角をアフィン変換
+    // 4角をアフィン変換（結果はワールド座標）
     float x0 = matrix.a * left  + matrix.b * top    + matrix.tx;
     float y0 = matrix.c * left  + matrix.d * top    + matrix.ty;
     float x1 = matrix.a * right + matrix.b * top    + matrix.tx;
@@ -254,10 +257,11 @@ inline void calcAffineAABB(
     if (y3 < minY) minY = y3; if (y3 > maxY) maxY = y3;
 
     // 結果を設定（ceilで切り上げてピクセル境界に合わせる）
+    // origin はバッファ左上のワールド座標
     outWidth = static_cast<int16_t>(std::ceil(maxX - minX));
     outHeight = static_cast<int16_t>(std::ceil(maxY - minY));
-    outOrigin.x = float_to_fixed(-minX);
-    outOrigin.y = float_to_fixed(-minY);
+    outOrigin.x = float_to_fixed(minX);
+    outOrigin.y = float_to_fixed(minY);
 }
 
 // 出力矩形から逆変換で必要な入力範囲を計算

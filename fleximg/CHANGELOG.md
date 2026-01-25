@@ -1,5 +1,42 @@
 # Changelog
 
+## [2.50.0] - 2026-01-25
+
+### 破壊的変更
+
+- **origin 座標系の統一**: `origin` の意味を「バッファ左上のワールド座標」に統一
+  - 旧: SourceNode の origin は「画像内の基準点（pivot）位置」
+  - 新: 全ノードで origin は「バッファ[0,0]のワールド座標」を意味
+  - RenderRequest/RenderResponse の origin も同様に統一
+  - offset 計算: `src.origin - dst.origin`（ワールド座標の差分）
+
+### 座標系変更に伴う修正
+
+- **SourceNode**: origin パラメータの解釈を変更（pivot → ワールド座標）
+- **SinkNode**: 配置計算を `originX_ + input.origin.x` 方式に変更
+- **LcdSinkNode**: m5stack サンプルの座標計算を SinkNode と統一
+- **canvas_utils**: placeFirst/placeUnder のオフセット計算を新座標系に修正
+- **NinePatchSourceNode**: パッチ配置の座標計算を修正
+- **MatteNode**: 全体の座標計算を新座標系に修正
+- **テスト**: blend_test, filter_nodes_test を新座標系に対応
+
+### 機能追加
+
+- **NinePatchSourceNode**: `getDataRange()` オーバーライドを追加
+  - 9パッチ全体の有効データ範囲（X方向の和集合）を返す
+- **FilterNodeBase**: `getDataRange()` を上流に伝播するオーバーライドを追加
+
+### パフォーマンス改善
+
+- **VerticalBlurNode: バッファサイズ最適化**
+  - キャッシュ幅を画面全体ではなく上流AABBに基づいて確保
+  - 各行の有効範囲（DataRange）を記録し、出力を最適化
+  - `getDataRange()` オーバーライドを追加（上下radius行の和集合を返す）
+  - getDataRange/pullProcess 間のキャッシュ機構を導入
+  - 出力origin計算をキャッシュ座標系基準に変更し、端数成分による位置ずれを解消
+
+---
+
 ## [2.49.0] - 2026-01-24
 
 ### パフォーマンス改善
