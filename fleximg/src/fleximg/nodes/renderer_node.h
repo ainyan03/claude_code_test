@@ -17,20 +17,18 @@ namespace FLEXIMG_NAMESPACE {
 // パイプライン実行の発火点となるノードです。
 // - 入力: 1ポート（上流の処理ノード）
 // - 出力: 1ポート（下流のSinkNode/DistributorNode）
-// - 仮想スクリーンサイズと基準点を持つ
+// - 仮想スクリーンサイズを持つ（origin は下流から自動設定）
 // - タイル分割処理を制御
 //
 // 使用例:
 //   SourceNode src;
-//   AffineNode affine;
 //   RendererNode renderer;
-//   SinkNode sink(output, 960, 540);
+//   SinkNode sink(output);
 //
-//   src >> affine >> renderer >> sink;
+//   src >> renderer >> sink;
 //
-//   renderer.setVirtualScreen(1920, 1080, 960, 540);
 //   renderer.setTileConfig({64, 64});
-//   renderer.exec();
+//   renderer.exec();  // virtualScreen は SinkNode から自動設定
 //
 
 class RendererNode : public Node {
@@ -44,17 +42,11 @@ public:
     // ========================================
 
     // 仮想スクリーン設定
-    void setVirtualScreen(int width, int height, int_fixed originX, int_fixed originY) {
+    // サイズのみ指定、origin は下流ノード（SinkNode）から自動設定される
+    void setVirtualScreen(int width, int height) {
         virtualWidth_ = width;
         virtualHeight_ = height;
-        originX_ = originX;
-        originY_ = originY;
-    }
-
-    void setVirtualScreen(int width, int height) {
-        setVirtualScreen(width, height,
-                         to_fixed(width / 2),
-                         to_fixed(height / 2));
+        // origin は execPrepare で下流から自動設定
     }
 
     // タイル設定
@@ -87,10 +79,6 @@ public:
     // アクセサ
     int virtualWidth() const { return virtualWidth_; }
     int virtualHeight() const { return virtualHeight_; }
-    int_fixed originX() const { return originX_; }
-    int_fixed originY() const { return originY_; }
-    float originXf() const { return fixed_to_float(originX_); }
-    float originYf() const { return fixed_to_float(originY_); }
     const TileConfig& tileConfig() const { return tileConfig_; }
 
     const char* name() const override { return "RendererNode"; }
@@ -279,16 +267,18 @@ PrepareStatus RendererNode::execPrepare() {
     }
 
     // ========================================
-    // Step 2: virtualScreenを自動設定（未設定の場合）
+    // Step 2: virtualScreenとoriginを設定
     // ========================================
+    // originは常に下流から取得（SinkNodeの座標系に合わせる）
+    // pushResult.origin はスクリーン左上のワールド座標（新座標系）
+    // originX_ は「ワールド原点のスクリーン座標」として使うため符号を反転
+    originX_ = -pushResult.origin.x;
+    originY_ = -pushResult.origin.y;
+
+    // virtualScreenサイズは未設定の場合のみ自動設定
     if (virtualWidth_ == 0 || virtualHeight_ == 0) {
-        // 下流から返されたAABBでvirtualScreenを設定
-        // pushResult.origin はスクリーン左上のワールド座標（新座標系）
-        // originX_ は「ワールド原点のスクリーン座標」として使うため符号を反転
         virtualWidth_ = pushResult.width;
         virtualHeight_ = pushResult.height;
-        originX_ = -pushResult.origin.x;
-        originY_ = -pushResult.origin.y;
     }
 
     // ========================================

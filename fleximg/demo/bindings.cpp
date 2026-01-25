@@ -841,8 +841,8 @@ private:
             // SinkNodeを作成
             info.node = std::make_unique<SinkNode>();
             info.node->setTarget(info.targetView);
-            info.node->setOrigin(float_to_fixed(static_cast<float>(gnode->pivotX)),
-                                 float_to_fixed(static_cast<float>(gnode->pivotY)));
+            info.node->setPivot(float_to_fixed(static_cast<float>(gnode->pivotX)),
+                                float_to_fixed(static_cast<float>(gnode->pivotY)));
 
             // アフィン変換行列の適用（単位行列でない場合のみ）
             if (gnode->affineMatrix.a != 1.0 || gnode->affineMatrix.b != 0.0 ||
@@ -872,9 +872,8 @@ private:
 
         // RendererNodeを作成
         auto rendererNode = std::make_unique<RendererNode>();
-        rendererNode->setVirtualScreen(canvasWidth_, canvasHeight_,
-                                        float_to_fixed(static_cast<float>(dstOriginX_)),
-                                        float_to_fixed(static_cast<float>(dstOriginY_)));
+        // origin は SinkNode から自動設定されるため、サイズのみ指定
+        rendererNode->setVirtualScreen(canvasWidth_, canvasHeight_);
 
         // 再帰的にノードを構築
         std::function<Node*(const std::string&)> buildNode;
