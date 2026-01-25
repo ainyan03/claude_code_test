@@ -124,11 +124,11 @@ public:
         }
     }
 
-    // 基準点設定（デフォルトは左上 (0,0)）
-    void setOrigin(int_fixed x, int_fixed y) {
-        if (originX_ != x || originY_ != y) {
-            originX_ = x;
-            originY_ = y;
+    // 基準点設定（pivot: 画像内のアンカーポイント、デフォルトは左上 (0,0)）
+    void setPivot(int_fixed x, int_fixed y) {
+        if (pivotX_ != x || pivotY_ != y) {
+            pivotX_ = x;
+            pivotY_ = y;
             geometryValid_ = false;  // アフィン行列の再計算が必要
         }
     }
@@ -159,8 +159,8 @@ public:
 
     float outputWidth() const { return outputWidth_; }
     float outputHeight() const { return outputHeight_; }
-    int_fixed originX() const { return originX_; }
-    int_fixed originY() const { return originY_; }
+    int_fixed pivotX() const { return pivotX_; }
+    int_fixed pivotY() const { return pivotY_; }
 
     // 境界座標（読み取り用）
     int16_t srcLeft() const { return srcLeft_; }
@@ -211,9 +211,9 @@ private:
     float outputWidth_ = 0.0f;
     float outputHeight_ = 0.0f;
 
-    // 基準点（出力座標系）
-    int_fixed originX_ = 0;
-    int_fixed originY_ = 0;
+    // 基準点（pivot: 回転・配置の中心、出力座標系）
+    int_fixed pivotX_ = 0;
+    int_fixed pivotY_ = 0;
 
     // 配置位置（アフィン行列のtx/tyに加算）
     float positionX_ = 0.0f;
@@ -329,7 +329,7 @@ PrepareResponse NinePatchSourceNode::onPullPrepare(const PrepareRequest& request
         // 出力矩形に順変換を適用して出力側のAABBを計算
         calcAffineAABB(
             static_cast<int>(outputWidth_), static_cast<int>(outputHeight_),
-            {originX_, originY_},
+            {pivotX_, pivotY_},
             matrixWithPos,
             result.width, result.height, result.origin);
     } else {
@@ -338,8 +338,8 @@ PrepareResponse NinePatchSourceNode::onPullPrepare(const PrepareRequest& request
         result.height = static_cast<int16_t>(outputHeight_);
         // 新座標系: originはバッファ左上のワールド座標
         // position - origin = バッファ[0,0]のワールド座標
-        result.origin.x = float_to_fixed(positionX_) - originX_;
-        result.origin.y = float_to_fixed(positionY_) - originY_;
+        result.origin.x = float_to_fixed(positionX_) - pivotX_;
+        result.origin.y = float_to_fixed(positionY_) - pivotY_;
     }
     return result;
 }
@@ -528,8 +528,8 @@ void NinePatchSourceNode::updatePatchGeometry() {
     bool hasHStretch = effW[1] > 0 && !hClipping;  // 横方向伸縮部が存在かつクリッピングなし
     bool hasVStretch = effH[1] > 0 && !vClipping;  // 縦方向伸縮部が存在かつクリッピングなし
 
-    float originXf = static_cast<float>(originX_) / INT_FIXED_ONE;
-    float originYf = static_cast<float>(originY_) / INT_FIXED_ONE;
+    float pivotXf = static_cast<float>(pivotX_) / INT_FIXED_ONE;
+    float pivotYf = static_cast<float>(pivotY_) / INT_FIXED_ONE;
 
     for (int row = 0; row < 3; row++) {
         for (int col = 0; col < 3; col++) {
@@ -565,7 +565,7 @@ void NinePatchSourceNode::updatePatchGeometry() {
                 ViewPort subView = view_ops::subView(source_,
                     srcX[col] + dx, srcY[row] + dy, effW[col] + dw, effH[row] + dh);
                 patches_[idx].setSource(subView);
-                patches_[idx].setOrigin(0, 0);
+                patches_[idx].setPivot(0, 0);
             }
 
             // スケール計算
@@ -594,8 +594,8 @@ void NinePatchSourceNode::updatePatchGeometry() {
             }
 
             // 平行移動量
-            float tx = patchOffsetX_[col] + dx - originXf + positionX_;
-            float ty = patchOffsetY_[row] + dy - originYf + positionY_;
+            float tx = patchOffsetX_[col] + dx - pivotXf + positionX_;
+            float ty = patchOffsetY_[row] + dy - pivotYf + positionY_;
 
             // バイリニア時の伸縮部位置補正
             if (interpolationMode_ == InterpolationMode::Bilinear) {

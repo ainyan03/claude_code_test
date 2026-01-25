@@ -311,21 +311,21 @@ void setup() {
 
     // 前景ソース（回転する画像）
     foregroundSource.setSource(foregroundImage.view());
-    foregroundSource.setOrigin(
+    foregroundSource.setPivot(
         float_to_fixed(foregroundImage.width() / 2.0f),
         float_to_fixed(foregroundImage.height() / 2.0f)
     );
 
     // 背景ソース（静止画像）
     backgroundSource.setSource(backgroundImage.view());
-    backgroundSource.setOrigin(
+    backgroundSource.setPivot(
         float_to_fixed(backgroundImage.width() / 2.0f),
         float_to_fixed(backgroundImage.height() / 2.0f)
     );
 
     // マスクソース
     maskSource.setSource(maskImage.view());
-    maskSource.setOrigin(
+    maskSource.setPivot(
         float_to_fixed(maskImage.width() / 2.0f),
         float_to_fixed(maskImage.height() / 2.0f)
     );

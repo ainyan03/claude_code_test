@@ -101,8 +101,8 @@ struct GraphNode {
     std::string type;
     std::string id;
     int imageId = -1;
-    double srcOriginX = 0;  // 基準点X（pivot）
-    double srcOriginY = 0;  // 基準点Y（pivot）
+    double pivotX = 0;  // 基準点X（pivot: 画像内のアンカーポイント）
+    double pivotY = 0;  // 基準点Y（pivot: 画像内のアンカーポイント）
     float outputWidth = 0;    // sinkノード用: 出力バッファ幅、ninepatchノード用: 出力幅（小数対応）
     float outputHeight = 0;   // sinkノード用: 出力バッファ高さ、ninepatchノード用: 出力高さ（小数対応）
     std::string filterType;
@@ -337,21 +337,23 @@ public:
                 if (nodeObj["imageId"].typeOf().as<std::string>() != "undefined") {
                     node.imageId = nodeObj["imageId"].as<int>();
                 }
-                // 既存API: originX/originY（互換性維持）
-                if (nodeObj["originX"].typeOf().as<std::string>() != "undefined") {
-                    node.srcOriginX = nodeObj["originX"].as<double>();
-                }
-                if (nodeObj["originY"].typeOf().as<std::string>() != "undefined") {
-                    node.srcOriginY = nodeObj["originY"].as<double>();
-                }
-                // 新API: pivot オブジェクト（originのエイリアス）
+                // 新API: pivot オブジェクト（推奨）
                 if (nodeObj["pivot"].typeOf().as<std::string>() != "undefined") {
                     auto pivot = nodeObj["pivot"];
                     if (pivot["x"].typeOf().as<std::string>() != "undefined") {
-                        node.srcOriginX = pivot["x"].as<double>();
+                        node.pivotX = pivot["x"].as<double>();
                     }
                     if (pivot["y"].typeOf().as<std::string>() != "undefined") {
-                        node.srcOriginY = pivot["y"].as<double>();
+                        node.pivotY = pivot["y"].as<double>();
+                    }
+                }
+                // 旧API: originX/originY（後方互換）
+                else {
+                    if (nodeObj["originX"].typeOf().as<std::string>() != "undefined") {
+                        node.pivotX = nodeObj["originX"].as<double>();
+                    }
+                    if (nodeObj["originY"].typeOf().as<std::string>() != "undefined") {
+                        node.pivotY = nodeObj["originY"].as<double>();
                     }
                 }
                 if (nodeObj["bilinear"].typeOf().as<std::string>() != "undefined") {
@@ -478,12 +480,12 @@ public:
                 if (nodeObj["outputHeight"].typeOf().as<std::string>() != "undefined") {
                     node.outputHeight = nodeObj["outputHeight"].as<float>();
                 }
-                // Sink固有の基準点（仮想スクリーン上の切り出し位置）
+                // Sink固有の基準点（仮想スクリーン上の切り出し位置、origin のまま）
                 if (nodeObj["originX"].typeOf().as<std::string>() != "undefined") {
-                    node.srcOriginX = nodeObj["originX"].as<double>();
+                    node.pivotX = nodeObj["originX"].as<double>();
                 }
                 if (nodeObj["originY"].typeOf().as<std::string>() != "undefined") {
-                    node.srcOriginY = nodeObj["originY"].as<double>();
+                    node.pivotY = nodeObj["originY"].as<double>();
                 }
                 // アフィン変換行列（AffineCapability対応）
                 if (nodeObj["matrix"].typeOf().as<std::string>() != "undefined") {
@@ -514,11 +516,24 @@ public:
                 if (nodeObj["outputHeight"].typeOf().as<std::string>() != "undefined") {
                     node.outputHeight = nodeObj["outputHeight"].as<float>();
                 }
-                if (nodeObj["originX"].typeOf().as<std::string>() != "undefined") {
-                    node.srcOriginX = nodeObj["originX"].as<double>();
+                // 新API: pivot オブジェクト（推奨）
+                if (nodeObj["pivot"].typeOf().as<std::string>() != "undefined") {
+                    auto pivot = nodeObj["pivot"];
+                    if (pivot["x"].typeOf().as<std::string>() != "undefined") {
+                        node.pivotX = pivot["x"].as<double>();
+                    }
+                    if (pivot["y"].typeOf().as<std::string>() != "undefined") {
+                        node.pivotY = pivot["y"].as<double>();
+                    }
                 }
-                if (nodeObj["originY"].typeOf().as<std::string>() != "undefined") {
-                    node.srcOriginY = nodeObj["originY"].as<double>();
+                // 旧API: originX/originY（後方互換）
+                else {
+                    if (nodeObj["originX"].typeOf().as<std::string>() != "undefined") {
+                        node.pivotX = nodeObj["originX"].as<double>();
+                    }
+                    if (nodeObj["originY"].typeOf().as<std::string>() != "undefined") {
+                        node.pivotY = nodeObj["originY"].as<double>();
+                    }
                 }
                 // バイリニア補間
                 if (nodeObj["bilinear"].typeOf().as<std::string>() != "undefined") {
@@ -826,8 +841,8 @@ private:
             // SinkNodeを作成
             info.node = std::make_unique<SinkNode>();
             info.node->setTarget(info.targetView);
-            info.node->setOrigin(float_to_fixed(static_cast<float>(gnode->srcOriginX)),
-                                 float_to_fixed(static_cast<float>(gnode->srcOriginY)));
+            info.node->setOrigin(float_to_fixed(static_cast<float>(gnode->pivotX)),
+                                 float_to_fixed(static_cast<float>(gnode->pivotY)));
 
             // アフィン変換行列の適用（単位行列でない場合のみ）
             if (gnode->affineMatrix.a != 1.0 || gnode->affineMatrix.b != 0.0 ||
@@ -885,8 +900,8 @@ private:
 
                 auto src = std::make_unique<SourceNode>();
                 src->setSource(viewIt->second);
-                src->setOrigin(float_to_fixed(static_cast<float>(gnode.srcOriginX)),
-                               float_to_fixed(static_cast<float>(gnode.srcOriginY)));
+                src->setPivot(float_to_fixed(static_cast<float>(gnode.pivotX)),
+                              float_to_fixed(static_cast<float>(gnode.pivotY)));
                 // 配置位置は affineMatrix.tx/ty で管理（setPosition廃止）
                 if (gnode.bilinear) {
                     src->setInterpolationMode(InterpolationMode::Bilinear);
@@ -919,8 +934,8 @@ private:
                     gnode.outputWidth > 0 ? gnode.outputWidth : static_cast<float>(viewIt->second.width - 2),
                     gnode.outputHeight > 0 ? gnode.outputHeight : static_cast<float>(viewIt->second.height - 2)
                 );
-                np->setOrigin(float_to_fixed(static_cast<float>(gnode.srcOriginX)),
-                              float_to_fixed(static_cast<float>(gnode.srcOriginY)));
+                np->setPivot(float_to_fixed(static_cast<float>(gnode.pivotX)),
+                             float_to_fixed(static_cast<float>(gnode.pivotY)));
                 // 配置位置は affineMatrix.tx/ty で管理（setPosition廃止）
                 if (gnode.bilinear) {
                     np->setInterpolationMode(InterpolationMode::Bilinear);

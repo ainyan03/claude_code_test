@@ -1403,15 +1403,15 @@ function createOriginSection(options) {
 
     const label = document.createElement('div');
     label.className = 'node-detail-label';
-    label.textContent = '原点';
+    label.textContent = '基準点 (Pivot)';
     section.appendChild(label);
 
     // 9点セレクタ
-    const originGrid = document.createElement('div');
-    originGrid.className = 'node-origin-grid';
-    originGrid.style.cssText = 'width: 60px; height: 60px; margin: 0 auto 8px;';
+    const pivotGrid = document.createElement('div');
+    pivotGrid.className = 'node-origin-grid';
+    pivotGrid.style.cssText = 'width: 60px; height: 60px; margin: 0 auto 8px;';
 
-    const originValues = [
+    const pivotValues = [
         { x: 0, y: 0 }, { x: 0.5, y: 0 }, { x: 1, y: 0 },
         { x: 0, y: 0.5 }, { x: 0.5, y: 0.5 }, { x: 1, y: 0.5 },
         { x: 0, y: 1 }, { x: 0.5, y: 1 }, { x: 1, y: 1 }
@@ -1425,31 +1425,31 @@ function createOriginSection(options) {
     };
 
     const updateGridSelection = (x, y) => {
-        originGrid.querySelectorAll('.node-origin-point').forEach(btn => {
+        pivotGrid.querySelectorAll('.node-origin-point').forEach(btn => {
             const bx = parseFloat(btn.dataset.x);
             const by = parseFloat(btn.dataset.y);
             btn.classList.toggle('selected', bx === x && by === y);
         });
     };
 
-    originValues.forEach(({ x, y }) => {
+    pivotValues.forEach(({ x, y }) => {
         const btn = document.createElement('button');
         btn.className = 'node-origin-point';
         btn.dataset.x = String(x);
         btn.dataset.y = String(y);
-        if (node.originX === x && node.originY === y) {
+        if (node.pivotX === x && node.pivotY === y) {
             btn.classList.add('selected');
         }
         btn.addEventListener('click', () => {
-            node.originX = x;
-            node.originY = y;
+            node.pivotX = x;
+            node.pivotY = y;
             updateGridSelection(x, y);
             updateSliders(x, y);
             if (onChange) onChange();
         });
-        originGrid.appendChild(btn);
+        pivotGrid.appendChild(btn);
     });
-    section.appendChild(originGrid);
+    section.appendChild(pivotGrid);
 
     // X スライダー
     const xRow = document.createElement('div');
@@ -1462,17 +1462,17 @@ function createOriginSection(options) {
     sliderX.min = '0';
     sliderX.max = '1';
     sliderX.step = '0.01';
-    sliderX.value = String(node.originX ?? 0.5);
+    sliderX.value = String(node.pivotX ?? 0.5);
     sliderX.style.cssText = 'flex: 1;';
     displayX = document.createElement('span');
     displayX.style.cssText = 'min-width: 36px; text-align: right; font-size: 11px;';
-    displayX.textContent = (node.originX ?? 0.5).toFixed(2);
+    displayX.textContent = (node.pivotX ?? 0.5).toFixed(2);
 
     sliderX.addEventListener('input', (e) => {
         const val = parseFloat(e.target.value);
-        node.originX = val;
+        node.pivotX = val;
         displayX.textContent = val.toFixed(2);
-        updateGridSelection(val, node.originY);
+        updateGridSelection(val, node.pivotY);
         if (onChange) onChange();
     });
 
@@ -1492,17 +1492,17 @@ function createOriginSection(options) {
     sliderY.min = '0';
     sliderY.max = '1';
     sliderY.step = '0.01';
-    sliderY.value = String(node.originY ?? 0.5);
+    sliderY.value = String(node.pivotY ?? 0.5);
     sliderY.style.cssText = 'flex: 1;';
     displayY = document.createElement('span');
     displayY.style.cssText = 'min-width: 36px; text-align: right; font-size: 11px;';
-    displayY.textContent = (node.originY ?? 0.5).toFixed(2);
+    displayY.textContent = (node.pivotY ?? 0.5).toFixed(2);
 
     sliderY.addEventListener('input', (e) => {
         const val = parseFloat(e.target.value);
-        node.originY = val;
+        node.pivotY = val;
         displayY.textContent = val.toFixed(2);
-        updateGridSelection(node.originX, val);
+        updateGridSelection(node.pivotX, val);
         if (onChange) onChange();
     });
 
@@ -2773,9 +2773,9 @@ function addImageNodeFromLibrary(contentId) {
         title: content.name,
         posX: posX,
         posY: posY,
-        // 元画像の原点（正規化座標 0.0〜1.0）
-        originX: 0.5,
-        originY: 0.5
+        // 画像内のアンカーポイント（正規化座標 0.0〜1.0）
+        pivotX: 0.5,
+        pivotY: 0.5
     };
 
     globalNodes.push(imageNode);
@@ -3198,14 +3198,14 @@ function drawGlobalNode(node) {
             img.style.cssText = 'width: 32px; height: 32px; object-fit: cover; border-radius: 3px;';
             thumbRow.appendChild(img);
 
-            // 原点表示（コンパクト）
-            const originText = document.createElement('span');
-            originText.style.cssText = 'font-size: 10px; color: #666;';
-            const ox = node.originX ?? 0.5;
-            const oy = node.originY ?? 0.5;
-            const originNames = { '0,0': '左上', '0.5,0': '上', '1,0': '右上', '0,0.5': '左', '0.5,0.5': '中央', '1,0.5': '右', '0,1': '左下', '0.5,1': '下', '1,1': '右下' };
-            originText.textContent = originNames[`${ox},${oy}`] || '中央';
-            thumbRow.appendChild(originText);
+            // 基準点表示（コンパクト）
+            const pivotText = document.createElement('span');
+            pivotText.style.cssText = 'font-size: 10px; color: #666;';
+            const px = node.pivotX ?? 0.5;
+            const py = node.pivotY ?? 0.5;
+            const pivotNames = { '0,0': '左上', '0.5,0': '上', '1,0': '右上', '0,0.5': '左', '0.5,0.5': '中央', '1,0.5': '右', '0,1': '左下', '0.5,1': '下', '1,1': '右下' };
+            pivotText.textContent = pivotNames[`${px},${py}`] || '中央';
+            thumbRow.appendChild(pivotText);
 
             controls.appendChild(thumbRow);
         }
@@ -4176,9 +4176,9 @@ function addNinePatchNode(contentId = null) {
         // 出力サイズ（デフォルトはコンテンツサイズ）
         outputWidth: contentWidth,
         outputHeight: contentHeight,
-        // 原点（正規化座標 0.0〜1.0）
-        originX: 0.5,
-        originY: 0.5
+        // 画像内のアンカーポイント（正規化座標 0.0〜1.0）
+        pivotX: 0.5,
+        pivotY: 0.5
     };
 
     globalNodes.push(ninepatchNode);
@@ -4271,19 +4271,21 @@ function updatePreviewFromGraph() {
 
     // ノードデータをC++に渡す形式に変換
     const nodesForCpp = globalNodes.map(node => {
-        // 画像ノード: 正規化originをピクセル座標に変換、contentIdをcppImageIdに変換
+        // 画像ノード: 正規化pivotをピクセル座標に変換、contentIdをcppImageIdに変換
         if (node.type === 'image') {
             const content = contentLibrary.find(c => c.id === node.contentId);
             if (content) {
-                const ox = node.originX ?? 0.5;
-                const oy = node.originY ?? 0.5;
+                const px = node.pivotX ?? 0.5;
+                const py = node.pivotY ?? 0.5;
 
                 return {
                     ...node,
                     imageId: content.cppImageId,  // C++側に渡す数値ID
-                    // ピクセル座標に変換してC++に渡す
-                    originX: ox * content.width,
-                    originY: oy * content.height,
+                    // ピクセル座標に変換してC++に渡す（pivot オブジェクト形式）
+                    pivot: {
+                        x: px * content.width,
+                        y: py * content.height
+                    },
                     bilinear: node.bilinear || false,  // バイリニア補間フラグ
                     matrix: getAffineMatrix(node)  // アフィン変換行列（matrixModeに応じて計算）
                 };
@@ -4333,16 +4335,18 @@ function updatePreviewFromGraph() {
                 const outW = node.outputWidth ?? (content.width - 2);
                 const outH = node.outputHeight ?? (content.height - 2);
                 // 正規化座標（0.0〜1.0）をピクセル座標に変換
-                const ox = (node.originX ?? 0.5) * outW;
-                const oy = (node.originY ?? 0.5) * outH;
+                const px = (node.pivotX ?? 0.5) * outW;
+                const py = (node.pivotY ?? 0.5) * outH;
 
                 return {
                     ...node,
                     imageId: content.cppImageId,  // C++側に渡す数値ID
                     outputWidth: outW,
                     outputHeight: outH,
-                    originX: ox,
-                    originY: oy,
+                    pivot: {
+                        x: px,
+                        y: py
+                    },
                     bilinear: node.bilinear || false,  // バイリニア補間フラグ
                     matrix: getAffineMatrix(node)  // アフィン変換行列（matrixModeに応じて計算）
                 };
