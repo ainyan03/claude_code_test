@@ -22,6 +22,12 @@ namespace FLEXIMG_NAMESPACE {
 // - setMatrix(), matrix()
 // - setRotation(), setScale(), setTranslation(), setRotationScale()
 //
+// 座標系と視覚効果:
+// - 変換式: src = Inv * (buf - pivot - tx) + pivot - center
+// - pivot: 回転中心位置（回転なしの場合、変更しても画像は動かない）
+// - tx/ty: 平行移動（回転の影響を受けない）
+// - center: バッファ中央（tx=0でワールド原点がバッファ中央に表示される）
+//
 
 class SinkNode : public Node, public AffineCapability {
 public:
@@ -30,20 +36,35 @@ public:
         initPorts(1, 0);  // 入力1、出力0
     }
 
-    SinkNode(const ViewPort& vp, int_fixed originX = 0, int_fixed originY = 0)
-        : target_(vp), originX_(originX), originY_(originY) {
+    SinkNode(const ViewPort& vp, int_fixed pivotX = 0, int_fixed pivotY = 0)
+        : target_(vp), pivotX_(pivotX), pivotY_(pivotY) {
         initPorts(1, 0);
     }
 
     // ターゲット設定
     void setTarget(const ViewPort& vp) { target_ = vp; }
-    void setOrigin(int_fixed x, int_fixed y) { originX_ = x; originY_ = y; }
+
+    // pivot 設定（出力バッファ座標、変換の中心点）
+    void setPivot(int_fixed x, int_fixed y) { pivotX_ = x; pivotY_ = y; }
+    void setPivot(float x, float y) {
+        pivotX_ = float_to_fixed(x);
+        pivotY_ = float_to_fixed(y);
+    }
+
+    // 便利メソッド: ターゲット中央を pivot に設定
+    void setPivotCenter() {
+        pivotX_ = to_fixed(target_.width / 2);
+        pivotY_ = to_fixed(target_.height / 2);
+    }
 
     // アクセサ
     const ViewPort& target() const { return target_; }
     ViewPort& target() { return target_; }
-    int_fixed originX() const { return originX_; }
-    int_fixed originY() const { return originY_; }
+    int_fixed pivotX() const { return pivotX_; }
+    int_fixed pivotY() const { return pivotY_; }
+    std::pair<float, float> getPivot() const {
+        return {fixed_to_float(pivotX_), fixed_to_float(pivotY_)};
+    }
 
     // キャンバスサイズ（targetから取得）
     int16_t canvasWidth() const { return target_.width; }
@@ -70,13 +91,13 @@ protected:
 
 private:
     ViewPort target_;
-    int_fixed originX_ = 0;  // 出力先の基準点X（固定小数点 Q16.16）
-    int_fixed originY_ = 0;  // 出力先の基準点Y（固定小数点 Q16.16）
+    int_fixed pivotX_ = 0;  // 変換の中心点X（出力バッファ座標、固定小数点 Q16.16）
+    int_fixed pivotY_ = 0;  // 変換の中心点Y（出力バッファ座標、固定小数点 Q16.16）
 
     // アフィン伝播用メンバ変数（事前計算済み）
-    AffinePrecomputed affine_;     // 逆行列・ピクセル中心オフセット
-    int32_t baseTx_ = 0;           // 事前計算済みオフセットX（Q16.16、dstOrigin込み）
-    int32_t baseTy_ = 0;           // 事前計算済みオフセットY（Q16.16、dstOrigin込み）
+    Matrix2x2_fixed invMatrix_;    // 逆行列（固定小数点）
+    int32_t baseTx_ = 0;           // 事前計算済みオフセットX（Q16.16、pivot込み）
+    int32_t baseTy_ = 0;           // 事前計算済みオフセットY（Q16.16、pivot込み）
     bool hasAffine_ = false;       // アフィン変換が伝播されているか
 
     // アフィン変換付きプッシュ処理
@@ -107,28 +128,37 @@ PrepareResponse SinkNode::onPushPrepare(const PrepareRequest& request) {
     bool hasTransform = false;
 
     if (request.hasPushAffine || hasLocalTransform()) {
-        // 行列合成: request.pushAffineMatrix * localMatrix_
-        // AffineNode直列接続と同じ解釈順序（自身の変換が先、上流の変換が後）
+        // 行列合成: localMatrix_ * request.pushAffineMatrix
+        // Pull側と同じ合成順序（自身の変換を先に掛ける）
         if (request.hasPushAffine) {
-            combinedMatrix = request.pushAffineMatrix * localMatrix_;
+            combinedMatrix = localMatrix_ * request.pushAffineMatrix;
         } else {
             combinedMatrix = localMatrix_;
         }
         hasTransform = true;
 
-        // 逆行列とピクセル中心オフセットを計算（共通処理）
-        affine_ = precomputeInverseAffine(combinedMatrix);
+        // 逆行列を固定小数点に変換
+        invMatrix_ = inverseFixed(combinedMatrix);
 
-        if (affine_.isValid()) {
-            // dstOrigin（自身のorigin）を減算して baseTx/Ty を計算
-            const int32_t dstOriginXInt = from_fixed(originX_);
-            const int32_t dstOriginYInt = from_fixed(originY_);
-            baseTx_ = affine_.invTxFixed
-                    - (dstOriginXInt * affine_.invMatrix.a)
-                    - (dstOriginYInt * affine_.invMatrix.b);
-            baseTy_ = affine_.invTyFixed
-                    - (dstOriginXInt * affine_.invMatrix.c)
-                    - (dstOriginYInt * affine_.invMatrix.d);
+        if (invMatrix_.valid) {
+            // 変換式: src = Inv * (buf - pivot - tx) + pivot - center
+            // - pivot: 回転中心位置（回転なしの場合、変更しても画像は動かない）
+            // - tx/ty: 平行移動（回転の影響を受けない）
+            // - center: バッファ中央オフセット（tx=0でワールド原点がバッファ中央に来る）
+            int_fixed txFixed = float_to_fixed(combinedMatrix.tx);
+            int_fixed tyFixed = float_to_fixed(combinedMatrix.ty);
+            int_fixed centerX = to_fixed(target_.width / 2);
+            int_fixed centerY = to_fixed(target_.height / 2);
+            // (pivot + tx) を Inv で変換し、pivot - center を加算
+            int64_t combinedX = pivotX_ + txFixed;
+            int64_t combinedY = pivotY_ + tyFixed;
+            int64_t invCombinedX = (combinedX * invMatrix_.a
+                                  + combinedY * invMatrix_.b) >> INT_FIXED_SHIFT;
+            int64_t invCombinedY = (combinedX * invMatrix_.c
+                                  + combinedY * invMatrix_.d) >> INT_FIXED_SHIFT;
+            // baseTx_ = pivot - center - Inv * (pivot + tx)
+            baseTx_ = pivotX_ - centerX - static_cast<int32_t>(invCombinedX);
+            baseTy_ = pivotY_ - centerY - static_cast<int32_t>(invCombinedY);
         }
         hasAffine_ = true;
     } else {
@@ -141,19 +171,37 @@ PrepareResponse SinkNode::onPushPrepare(const PrepareRequest& request) {
     result.status = PrepareStatus::Prepared;
     result.preferredFormat = target_.formatID;
 
-    if (hasTransform && affine_.isValid()) {
-        // 出力矩形に逆変換を適用して入力側で必要な範囲を計算
+    if (hasTransform && invMatrix_.valid) {
+        // 逆行列でAABBを計算（buf→src変換の結果範囲）
+        // 変換式: src = Inv * (buf - pivot - tx) + pivot - center
+        // (pivot + tx) を "pivot" として渡し、計算後に (pivot - center) を加算
+        AffineMatrix aabbMatrix = combinedMatrix;
+        aabbMatrix.tx = 0;
+        aabbMatrix.ty = 0;
+        int_fixed combinedPivotX = pivotX_ + float_to_fixed(combinedMatrix.tx);
+        int_fixed combinedPivotY = pivotY_ + float_to_fixed(combinedMatrix.ty);
+        int_fixed centerX = to_fixed(target_.width / 2);
+        int_fixed centerY = to_fixed(target_.height / 2);
         calcInverseAffineAABB(
             target_.width, target_.height,
-            {originX_, originY_},
-            combinedMatrix,
+            {combinedPivotX, combinedPivotY},
+            aabbMatrix,
             result.width, result.height, result.origin);
+        // (pivot - center) を加算（Inv の外で加算される項）
+        result.origin.x += pivotX_ - centerX;
+        result.origin.y += pivotY_ - centerY;
     } else {
         // アフィンなしの場合
-        // origin は出力バッファ左上のワールド座標
+        // 変換式: src = buf - tx - center
+        // バッファ左上 (0, 0) のワールド座標 = -tx - center
         result.width = target_.width;
         result.height = target_.height;
-        result.origin = {-originX_, -originY_};
+        int_fixed centerX = to_fixed(target_.width / 2);
+        int_fixed centerY = to_fixed(target_.height / 2);
+        result.origin = {
+            -float_to_fixed(localMatrix_.tx) - centerX,
+            -float_to_fixed(localMatrix_.ty) - centerY
+        };
     }
     return result;
 }
@@ -175,11 +223,14 @@ void SinkNode::onPushProcess(RenderResponse&& input,
     ViewPort inputView = input.view();
 
     // 配置計算（固定小数点演算）
-    // input.origin: 入力バッファ左上のワールド座標
-    // originX_/Y_: 出力バッファ内でのワールド原点の位置（バッファ座標）
-    // dstX = originX_ + input.origin.x（ワールド座標を出力バッファ座標に変換）
-    int dstX = from_fixed(originX_ + input.origin.x);
-    int dstY = from_fixed(originY_ + input.origin.y);
+    // 変換式: src = buf - tx - center → buf = src + tx + center
+    // pivotは回転なしの場合影響しない
+    int_fixed txFixed = float_to_fixed(localMatrix_.tx);
+    int_fixed tyFixed = float_to_fixed(localMatrix_.ty);
+    int_fixed centerX = to_fixed(target_.width / 2);
+    int_fixed centerY = to_fixed(target_.height / 2);
+    int dstX = from_fixed(input.origin.x + txFixed + centerX);
+    int dstY = from_fixed(input.origin.y + tyFixed + centerY);
 
     // クリッピング処理
     int srcX = 0, srcY = 0;
@@ -201,7 +252,7 @@ void SinkNode::onPushProcess(RenderResponse&& input,
 
 void SinkNode::pushProcessWithAffine(RenderResponse&& input) {
     // 特異行列チェック
-    if (!affine_.isValid()) {
+    if (!invMatrix_.valid) {
         return;
     }
 
@@ -217,28 +268,34 @@ void SinkNode::pushProcessWithAffine(RenderResponse&& input) {
         inputView = input.view();
     }
 
-    // アフィン変換を適用してターゲットに書き込み（dstOrigin は事前計算済み）
+    // アフィン変換を適用してターゲットに書き込み（pivot は事前計算済み）
     applyAffine(target_, inputView, input.origin.x, input.origin.y);
 }
 
 void SinkNode::applyAffine(ViewPort& dst,
                            const ViewPort& src, int_fixed srcOriginX, int_fixed srcOriginY) {
-    if (!affine_.isValid()) return;
+    if (!invMatrix_.valid) return;
 
-    // srcOrigin分のみ計算（baseTx_/baseTy_ は dstOrigin 込みで事前計算済み）
-    // 新座標系: srcOrigin は入力バッファ左上のワールド座標なので減算
+    // srcOrigin分のみ計算（baseTx_/baseTy_ は pivot 込みで事前計算済み）
+    // srcOrigin は入力バッファ左上のワールド座標
     const int32_t srcOriginXInt = from_fixed(srcOriginX);
     const int32_t srcOriginYInt = from_fixed(srcOriginY);
 
-    const int32_t fixedInvTx = baseTx_
-                        - (srcOriginXInt << INT_FIXED_SHIFT);
-    const int32_t fixedInvTy = baseTy_
-                        - (srcOriginYInt << INT_FIXED_SHIFT);
+    // baseTx_はすでにworldオフセットを含む
+    // srcOriginは入力バッファの左上のworld座標なので減算
+    const int32_t fixedTx = baseTx_ - (srcOriginXInt << INT_FIXED_SHIFT);
+    const int32_t fixedTy = baseTy_ - (srcOriginYInt << INT_FIXED_SHIFT);
+
+    // ピクセル中心オフセット（逆行列用）
+    int_fixed rowOffsetX = invMatrix_.b >> 1;
+    int_fixed rowOffsetY = invMatrix_.d >> 1;
+    int_fixed dxOffsetX = invMatrix_.a >> 1;
+    int_fixed dxOffsetY = invMatrix_.c >> 1;
 
     // 共通DDA処理を呼び出し
-    view_ops::affineTransform(dst, src, fixedInvTx, fixedInvTy,
-                              affine_.invMatrix, affine_.rowOffsetX, affine_.rowOffsetY,
-                              affine_.dxOffsetX, affine_.dxOffsetY);
+    view_ops::affineTransform(dst, src, fixedTx, fixedTy,
+                              invMatrix_, rowOffsetX, rowOffsetY,
+                              dxOffsetX, dxOffsetY);
 }
 
 } // namespace FLEXIMG_NAMESPACE

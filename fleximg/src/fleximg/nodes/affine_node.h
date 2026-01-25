@@ -106,8 +106,10 @@ PrepareResponse AffineNode::onPushPrepare(const PrepareRequest& request) {
     // 下流に渡すためのコピーを作成し、自身の行列を累積
     PrepareRequest downstreamRequest = request;
     if (downstreamRequest.hasPushAffine) {
-        // 既存の行列（上流側）に自身の行列（下流側）を後から掛ける
-        downstreamRequest.pushAffineMatrix = downstreamRequest.pushAffineMatrix * localMatrix_;
+        // Pull側と同じ合成順序にするため、自身の行列を先に掛ける
+        // Pull側: M2 * M1（下流から上流へ伝播、後から掛ける）
+        // Push側: M2 * M1（上流から下流へ伝播、先に掛ける）
+        downstreamRequest.pushAffineMatrix = localMatrix_ * downstreamRequest.pushAffineMatrix;
     } else {
         downstreamRequest.pushAffineMatrix = localMatrix_;
         downstreamRequest.hasPushAffine = true;

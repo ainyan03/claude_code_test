@@ -68,19 +68,23 @@ static bool hasNonZeroPixels(const ViewPort& view) {
 // =============================================================================
 
 TEST_CASE("Pipeline: basic source -> renderer -> sink") {
-    ImageBuffer srcImg = createGradientImage(64, 64);
-    ImageBuffer dstImg(64, 64, PixelFormatIDs::RGBA8_Straight);
+    const int imgSize = 64;
+    ImageBuffer srcImg = createGradientImage(imgSize, imgSize);
+    ImageBuffer dstImg(imgSize, imgSize, PixelFormatIDs::RGBA8_Straight);
+
+    // センタリングされたpivotを使用（SinkNodeのcenterオフセットと整合させる）
+    int_fixed centerPivot = float_to_fixed(imgSize / 2.0f);
 
     SourceNode src;
     src.setSource(srcImg.view());
-    src.setPivot(0, 0);
+    src.setPivot(centerPivot, centerPivot);
 
     RendererNode renderer;
-    renderer.setVirtualScreen(64, 64, 0, 0);
+    renderer.setVirtualScreen(imgSize, imgSize);
 
     SinkNode sink;
     sink.setTarget(dstImg.view());
-    sink.setOrigin(0, 0);
+    sink.setPivot(centerPivot, centerPivot);
 
     src >> renderer >> sink;
     renderer.exec();
@@ -111,18 +115,23 @@ TEST_CASE("Pipeline: with centered origin") {
 // =============================================================================
 
 TEST_CASE("Pipeline: tiled rendering produces same result") {
-    ImageBuffer srcImg = createGradientImage(128, 128);
-    ImageBuffer dstImg1(128, 128, PixelFormatIDs::RGBA8_Straight);
-    ImageBuffer dstImg2(128, 128, PixelFormatIDs::RGBA8_Straight);
+    const int imgSize = 128;
+    ImageBuffer srcImg = createGradientImage(imgSize, imgSize);
+    ImageBuffer dstImg1(imgSize, imgSize, PixelFormatIDs::RGBA8_Straight);
+    ImageBuffer dstImg2(imgSize, imgSize, PixelFormatIDs::RGBA8_Straight);
+
+    int_fixed centerPivot = float_to_fixed(imgSize / 2.0f);
 
     // タイルなし
     {
         SourceNode src;
         src.setSource(srcImg.view());
+        src.setPivot(centerPivot, centerPivot);
         RendererNode renderer;
-        renderer.setVirtualScreen(128, 128, 0, 0);
+        renderer.setVirtualScreen(imgSize, imgSize);
         SinkNode sink;
         sink.setTarget(dstImg1.view());
+        sink.setPivot(centerPivot, centerPivot);
         src >> renderer >> sink;
         renderer.exec();
     }
@@ -131,11 +140,13 @@ TEST_CASE("Pipeline: tiled rendering produces same result") {
     {
         SourceNode src;
         src.setSource(srcImg.view());
+        src.setPivot(centerPivot, centerPivot);
         RendererNode renderer;
-        renderer.setVirtualScreen(128, 128, 0, 0);
+        renderer.setVirtualScreen(imgSize, imgSize);
         renderer.setTileConfig(32, 32);
         SinkNode sink;
         sink.setTarget(dstImg2.view());
+        sink.setPivot(centerPivot, centerPivot);
         src >> renderer >> sink;
         renderer.exec();
     }
@@ -144,44 +155,53 @@ TEST_CASE("Pipeline: tiled rendering produces same result") {
 }
 
 TEST_CASE("Pipeline: various tile sizes") {
-    ImageBuffer srcImg = createGradientImage(100, 100);
-    ImageBuffer dstImgBase(100, 100, PixelFormatIDs::RGBA8_Straight);
+    const int imgSize = 100;
+    ImageBuffer srcImg = createGradientImage(imgSize, imgSize);
+    ImageBuffer dstImgBase(imgSize, imgSize, PixelFormatIDs::RGBA8_Straight);
+
+    int_fixed centerPivot = float_to_fixed(imgSize / 2.0f);
 
     // ベース（タイルなし）
     {
         SourceNode src;
         src.setSource(srcImg.view());
+        src.setPivot(centerPivot, centerPivot);
         RendererNode renderer;
-        renderer.setVirtualScreen(100, 100, 0, 0);
+        renderer.setVirtualScreen(imgSize, imgSize);
         SinkNode sink;
         sink.setTarget(dstImgBase.view());
+        sink.setPivot(centerPivot, centerPivot);
         src >> renderer >> sink;
         renderer.exec();
     }
 
     SUBCASE("16x16 tiles") {
-        ImageBuffer dstImg(100, 100, PixelFormatIDs::RGBA8_Straight);
+        ImageBuffer dstImg(imgSize, imgSize, PixelFormatIDs::RGBA8_Straight);
         SourceNode src;
         src.setSource(srcImg.view());
+        src.setPivot(centerPivot, centerPivot);
         RendererNode renderer;
-        renderer.setVirtualScreen(100, 100, 0, 0);
+        renderer.setVirtualScreen(imgSize, imgSize);
         renderer.setTileConfig(16, 16);
         SinkNode sink;
         sink.setTarget(dstImg.view());
+        sink.setPivot(centerPivot, centerPivot);
         src >> renderer >> sink;
         renderer.exec();
         CHECK(comparePixels(dstImgBase.view(), dstImg.view()));
     }
 
     SUBCASE("64x64 tiles") {
-        ImageBuffer dstImg(100, 100, PixelFormatIDs::RGBA8_Straight);
+        ImageBuffer dstImg(imgSize, imgSize, PixelFormatIDs::RGBA8_Straight);
         SourceNode src;
         src.setSource(srcImg.view());
+        src.setPivot(centerPivot, centerPivot);
         RendererNode renderer;
-        renderer.setVirtualScreen(100, 100, 0, 0);
+        renderer.setVirtualScreen(imgSize, imgSize);
         renderer.setTileConfig(64, 64);
         SinkNode sink;
         sink.setTarget(dstImg.view());
+        sink.setPivot(centerPivot, centerPivot);
         src >> renderer >> sink;
         renderer.exec();
         CHECK(comparePixels(dstImgBase.view(), dstImg.view()));
