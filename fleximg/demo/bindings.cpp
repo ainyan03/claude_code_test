@@ -480,12 +480,12 @@ public:
                 if (nodeObj["outputHeight"].typeOf().as<std::string>() != "undefined") {
                     node.outputHeight = nodeObj["outputHeight"].as<float>();
                 }
-                // Sink固有の基準点（仮想スクリーン上の切り出し位置、origin のまま）
-                if (nodeObj["originX"].typeOf().as<std::string>() != "undefined") {
-                    node.pivotX = nodeObj["originX"].as<double>();
+                // Sink固有の基準点（pivot: ワールド原点に対応するバッファ座標）
+                if (nodeObj["pivotX"].typeOf().as<std::string>() != "undefined") {
+                    node.pivotX = nodeObj["pivotX"].as<double>();
                 }
-                if (nodeObj["originY"].typeOf().as<std::string>() != "undefined") {
-                    node.pivotY = nodeObj["originY"].as<double>();
+                if (nodeObj["pivotY"].typeOf().as<std::string>() != "undefined") {
+                    node.pivotY = nodeObj["pivotY"].as<double>();
                 }
                 // アフィン変換行列（AffineCapability対応）
                 if (nodeObj["matrix"].typeOf().as<std::string>() != "undefined") {
@@ -872,8 +872,8 @@ private:
 
         // RendererNodeを作成
         auto rendererNode = std::make_unique<RendererNode>();
-        // origin は SinkNode から自動設定されるため、サイズのみ指定
         rendererNode->setVirtualScreen(canvasWidth_, canvasHeight_);
+        rendererNode->setPivot(static_cast<float>(dstOriginX_), static_cast<float>(dstOriginY_));
 
         // 再帰的にノードを構築
         std::function<Node*(const std::string&)> buildNode;

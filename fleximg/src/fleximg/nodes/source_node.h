@@ -367,10 +367,6 @@ bool SourceNode::calcScanlineRange(const RenderRequest& request,
         return false;
     }
 
-    // dstOrigin分を計算（Q16.16 → int）
-    const int32_t dstOriginXInt = from_fixed(request.origin.x);
-    const int32_t dstOriginYInt = from_fixed(request.origin.y);
-
     // LovyanGFX/pixel_image.hpp 方式: 事前計算済み境界値を使った範囲計算
     const int32_t invA = affine_.invMatrix.a;
     const int32_t invB = affine_.invMatrix.b;
@@ -378,13 +374,15 @@ bool SourceNode::calcScanlineRange(const RenderRequest& request,
     const int32_t invD = affine_.invMatrix.d;
 
     // 事前計算統合版（オフセット加算を削減）
-    // 新座標系: request.origin はワールド座標なので加算（旧座標系では符号反転だったため減算だった）
+    // 新座標系: request.origin はワールド座標なので加算
+    // request.origin は Q16.16、invA/B/C/D も Q16.16 なので、掛け算は Q32.32
+    // >> INT_FIXED_SHIFT で Q16.16 に戻す（小数精度を保持）
     const int32_t baseXWithHalf = baseTxWithOffsets_
-                        + (dstOriginXInt * invA)
-                        + (dstOriginYInt * invB);
+        + static_cast<int32_t>((static_cast<int64_t>(request.origin.x) * invA) >> INT_FIXED_SHIFT)
+        + static_cast<int32_t>((static_cast<int64_t>(request.origin.y) * invB) >> INT_FIXED_SHIFT);
     const int32_t baseYWithHalf = baseTyWithOffsets_
-                        + (dstOriginXInt * invC)
-                        + (dstOriginYInt * invD);
+        + static_cast<int32_t>((static_cast<int64_t>(request.origin.x) * invC) >> INT_FIXED_SHIFT)
+        + static_cast<int32_t>((static_cast<int64_t>(request.origin.y) * invD) >> INT_FIXED_SHIFT);
 
     int32_t left = 0;
     int32_t right = request.width;
@@ -467,17 +465,19 @@ RenderResponse SourceNode::pullProcessWithAffine(const RenderRequest& request) {
 #endif
 
     // DDA転写に必要な変数を計算
-    const int32_t dstOriginXInt = from_fixed(request.origin.x);
-    const int32_t dstOriginYInt = from_fixed(request.origin.y);
     const int32_t invA = affine_.invMatrix.a;
+    const int32_t invB = affine_.invMatrix.b;
     const int32_t invC = affine_.invMatrix.c;
+    const int32_t invD = affine_.invMatrix.d;
     // 新座標系: request.origin はワールド座標なので加算
+    // request.origin は Q16.16、invA/B/C/D も Q16.16 なので、掛け算は Q32.32
+    // >> INT_FIXED_SHIFT で Q16.16 に戻す（小数精度を保持）
     const int32_t baseXWithHalf = baseTxWithOffsets_
-                        + (dstOriginXInt * invA)
-                        + (dstOriginYInt * affine_.invMatrix.b);
+        + static_cast<int32_t>((static_cast<int64_t>(request.origin.x) * invA) >> INT_FIXED_SHIFT)
+        + static_cast<int32_t>((static_cast<int64_t>(request.origin.y) * invB) >> INT_FIXED_SHIFT);
     const int32_t baseYWithHalf = baseTyWithOffsets_
-                        + (dstOriginXInt * invC)
-                        + (dstOriginYInt * affine_.invMatrix.d);
+        + static_cast<int32_t>((static_cast<int64_t>(request.origin.x) * invC) >> INT_FIXED_SHIFT)
+        + static_cast<int32_t>((static_cast<int64_t>(request.origin.y) * invD) >> INT_FIXED_SHIFT);
 
     // DDA転写（1行のみ）
     // srcX_fixed = invA * dxStart + baseXWithHalf
