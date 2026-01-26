@@ -136,8 +136,8 @@ private:
     };
     mutable DataRangeCache rangeCache_;
 
-    // キャッシュを無効化
-    void invalidateRangeCache() { rangeCache_.origin = {INT32_MIN, INT32_MIN}; }
+    // キャッシュを無効化（rangeCache_はmutableなのでconst関数から呼び出し可能）
+    void invalidateRangeCache() const { rangeCache_.origin = {INT32_MIN, INT32_MIN}; }
 
     // スキャンライン有効範囲を計算（getDataRange/pullProcessWithAffineで共用）
     // 戻り値: true=有効範囲あり, false=有効範囲なし
@@ -446,12 +446,21 @@ bool SourceNode::calcScanlineRange(const RenderRequest& request,
 
 // getDataRange: アフィン変換を考慮した正確なデータ範囲を返す
 DataRange SourceNode::getDataRange(const RenderRequest& request) const {
-    // アフィン変換がない場合は基底クラスの実装を使用
+    // AABB判定（アフィンの有無に関わらず共通）
+    DataRange aabbRange = Node::getDataRange(request);
+
+    // アフィン変換がない場合はAABB結果をそのまま返す
     if (!hasAffine_) {
-        return Node::getDataRange(request);
+        return aabbRange;
     }
 
-    // スキャンライン範囲を計算（baseX/baseY もキャッシュ用に取得）
+    // アフィンあり: AABB範囲外なら早期リターン（calcScanlineRangeをスキップ）
+    if (!aabbRange.hasData()) {
+        invalidateRangeCache();
+        return aabbRange;  // 空範囲
+    }
+
+    // AABB内の場合のみスキャンライン範囲を計算（baseX/baseY もキャッシュ用に取得）
     int32_t dxStart, dxEnd, baseX, baseY;
     bool hasData = calcScanlineRange(request, dxStart, dxEnd, &baseX, &baseY);
 
