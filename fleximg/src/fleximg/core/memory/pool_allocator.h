@@ -13,6 +13,7 @@
 #include <cstdint>
 
 #include "../common.h"
+#include "allocator.h"
 
 namespace FLEXIMG_NAMESPACE {
 namespace core {
@@ -106,6 +107,101 @@ private:
     bool searchFromHead_ = true;        // 探索方向（交互に切り替え）
     PoolStats stats_;
     bool initialized_ = false;
+};
+
+// ========================================================================
+// PoolAllocatorAdapter - IAllocatorインターフェースアダプタ
+// ========================================================================
+//
+// PoolAllocatorをIAllocatorインターフェースでラップします。
+// - プールから確保できない場合はDefaultAllocatorにフォールバック
+// - FLEXIMG_DEBUG_PERF_METRICS定義時は統計情報を記録
+//
+// 使用例:
+//   PoolAllocator pool;
+//   pool.initialize(memory, 512, 32, false);
+//   PoolAllocatorAdapter adapter(pool);
+//   renderer.setAllocator(&adapter);
+//
+
+class PoolAllocatorAdapter : public IAllocator {
+public:
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    /// @brief 統計情報（デバッグビルド時のみ有効）
+    struct Stats {
+        size_t poolHits = 0;        ///< プールから確保成功
+        size_t poolMisses = 0;      ///< プールから確保失敗（フォールバック）
+        size_t poolDeallocs = 0;    ///< プールへ解放
+        size_t defaultDeallocs = 0; ///< DefaultAllocatorへ解放
+        size_t lastAllocSize = 0;   ///< 最後の確保サイズ
+
+        void reset() {
+            poolHits = poolMisses = poolDeallocs = defaultDeallocs = 0;
+            lastAllocSize = 0;
+        }
+    };
+#endif
+
+    /// @brief コンストラクタ
+    /// @param pool 使用するPoolAllocator
+    /// @param allowFallback プール確保失敗時にDefaultAllocatorへフォールバックするか
+    explicit PoolAllocatorAdapter(PoolAllocator& pool, bool allowFallback = true)
+        : pool_(pool), allowFallback_(allowFallback) {}
+
+    void* allocate(size_t bytes, size_t /* alignment */ = 16) override {
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        stats_.lastAllocSize = bytes;
+#endif
+        void* ptr = pool_.allocate(bytes);
+        if (ptr) {
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+            stats_.poolHits++;
+#endif
+            return ptr;
+        }
+
+        // プールから確保できない場合
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        stats_.poolMisses++;
+#endif
+        if (allowFallback_) {
+            return DefaultAllocator::instance().allocate(bytes);
+        }
+        return nullptr;
+    }
+
+    void deallocate(void* ptr) override {
+        if (pool_.deallocate(ptr)) {
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+            stats_.poolDeallocs++;
+#endif
+        } else {
+            // プール外のポインタはDefaultAllocatorで解放
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+            stats_.defaultDeallocs++;
+#endif
+            if (allowFallback_) {
+                DefaultAllocator::instance().deallocate(ptr);
+            }
+        }
+    }
+
+    const char* name() const override { return "PoolAllocatorAdapter"; }
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    /// @brief 統計情報取得（デバッグビルド時のみ）
+    const Stats& stats() const { return stats_; }
+
+    /// @brief 統計情報リセット（デバッグビルド時のみ）
+    void resetStats() { stats_.reset(); }
+#endif
+
+private:
+    PoolAllocator& pool_;
+    bool allowFallback_;
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    Stats stats_;
+#endif
 };
 
 } // namespace memory
