@@ -121,12 +121,18 @@ private:
     int32_t baseTxWithOffsets_ = 0;  // 事前計算統合: invTx + srcPivot + rowOffset + dxOffset
     int32_t baseTyWithOffsets_ = 0;  // 事前計算統合: invTy + srcPivot + rowOffset + dxOffset
 
+    // Prepare時のorigin（Process時の差分計算用）
+    int_fixed prepareOriginX_ = 0;
+    int_fixed prepareOriginY_ = 0;
+
     // getDataRange/pullProcess 間のキャッシュ
     // originが極端な値（INT32_MIN）の場合はキャッシュ無効
     struct DataRangeCache {
         Point origin = {INT32_MIN, INT32_MIN};  // キャッシュキー（無効値で初期化）
         int32_t dxStart = 0;
         int32_t dxEnd = 0;
+        int32_t baseXWithHalf = 0;  // DDA用ベース座標X
+        int32_t baseYWithHalf = 0;  // DDA用ベース座標Y
     };
     mutable DataRangeCache rangeCache_;
 
@@ -135,7 +141,11 @@ private:
 
     // スキャンライン有効範囲を計算（getDataRange/pullProcessWithAffineで共用）
     // 戻り値: true=有効範囲あり, false=有効範囲なし
-    bool calcScanlineRange(const RenderRequest& request, int32_t& dxStart, int32_t& dxEnd) const;
+    // baseXWithHalf/baseYWithHalf はオプショナル出力（nullptrなら出力しない）
+    bool calcScanlineRange(const RenderRequest& request,
+                           int32_t& dxStart, int32_t& dxEnd,
+                           int32_t* baseXWithHalf = nullptr,
+                           int32_t* baseYWithHalf = nullptr) const;
 
     // アフィン変換付きプル処理（スキャンライン専用）
     RenderResponse pullProcessWithAffine(const RenderRequest& request);
@@ -161,6 +171,10 @@ PrepareResponse SourceNode::onPullPrepare(const PrepareRequest& request) {
     // 範囲キャッシュを無効化（アフィン行列が変わる可能性があるため）
     invalidateRangeCache();
 
+    // Prepare時のoriginを保存（Process時の差分計算用）
+    prepareOriginX_ = request.origin.x;
+    prepareOriginY_ = request.origin.y;
+
     // AABB計算用の行列（合成済み）
     AffineMatrix combinedMatrix;
     bool hasTransform = false;
@@ -182,11 +196,22 @@ PrepareResponse SourceNode::onPullPrepare(const PrepareRequest& request) {
 
         if (affine_.isValid()) {
             const int32_t invA = affine_.invMatrix.a;
+            const int32_t invB = affine_.invMatrix.b;
             const int32_t invC = affine_.invMatrix.c;
+            const int32_t invD = affine_.invMatrix.d;
 
             // pivot は既に Q16.16 なのでそのまま使用
             const int32_t srcPivotXFixed16 = pivotX_;
             const int32_t srcPivotYFixed16 = pivotY_;
+
+            // prepareOrigin を逆行列で変換（Prepare時に1回だけ計算）
+            // Q16.16 × Q16.16 = Q32.32、右シフトで Q16.16 に戻す
+            const int32_t prepareOffsetX = static_cast<int32_t>(
+                (static_cast<int64_t>(prepareOriginX_) * invA
+               + static_cast<int64_t>(prepareOriginY_) * invB) >> INT_FIXED_SHIFT);
+            const int32_t prepareOffsetY = static_cast<int32_t>(
+                (static_cast<int64_t>(prepareOriginX_) * invC
+               + static_cast<int64_t>(prepareOriginY_) * invD) >> INT_FIXED_SHIFT);
 
             // バイリニア補間かどうかで有効範囲とオフセットが異なる
             const bool useBilinear = (interpolationMode_ == InterpolationMode::Bilinear)
@@ -205,13 +230,16 @@ PrepareResponse SourceNode::onPullPrepare(const PrepareRequest& request) {
                 ys2_ = invC + (invC < 0 ? 0 : (fpHeight_ - 1));
 
                 // バイリニア: pivot の小数部を保持し、0.5 ピクセル減算（ピクセル中心基準）
+                // + prepareOffset でPrepare時のoriginを事前反映
                 constexpr int32_t halfPixel = 1 << (INT_FIXED_SHIFT - 1);  // 0.5 in Q16.16
                 baseTxWithOffsets_ = affine_.invTxFixed
                                    + srcPivotXFixed16 - halfPixel
-                                   + affine_.rowOffsetX + affine_.dxOffsetX;
+                                   + affine_.rowOffsetX + affine_.dxOffsetX
+                                   + prepareOffsetX;
                 baseTyWithOffsets_ = affine_.invTyFixed
                                    + srcPivotYFixed16 - halfPixel
-                                   + affine_.rowOffsetY + affine_.dxOffsetY;
+                                   + affine_.rowOffsetY + affine_.dxOffsetY
+                                   + prepareOffsetY;
                 useBilinear_ = true;
             } else {
                 // 最近傍: pivot の小数部を保持
@@ -224,12 +252,15 @@ PrepareResponse SourceNode::onPullPrepare(const PrepareRequest& request) {
                 ys2_ = invC + (invC < 0 ? 0 : (fpHeight_ - 1));
 
                 // dxOffset を含める（半ピクセルオフセット）
+                // + prepareOffset でPrepare時のoriginを事前反映
                 baseTxWithOffsets_ = affine_.invTxFixed
                                    + srcPivotXFixed16
-                                   + affine_.rowOffsetX + affine_.dxOffsetX;
+                                   + affine_.rowOffsetX + affine_.dxOffsetX
+                                   + prepareOffsetX;
                 baseTyWithOffsets_ = affine_.invTyFixed
                                    + srcPivotYFixed16
-                                   + affine_.rowOffsetY + affine_.dxOffsetY;
+                                   + affine_.rowOffsetY + affine_.dxOffsetY
+                                   + prepareOffsetY;
                 useBilinear_ = false;
             }
 
@@ -361,7 +392,8 @@ RenderResponse SourceNode::onPullProcess(const RenderRequest& request) {
 // スキャンライン有効範囲を計算（getDataRange/pullProcessWithAffineで共用）
 // 戻り値: true=有効範囲あり, false=有効範囲なし
 bool SourceNode::calcScanlineRange(const RenderRequest& request,
-                                   int32_t& dxStart, int32_t& dxEnd) const {
+                                   int32_t& dxStart, int32_t& dxEnd,
+                                   int32_t* outBaseX, int32_t* outBaseY) const {
     // 特異行列チェック
     if (!affine_.isValid()) {
         return false;
@@ -373,38 +405,41 @@ bool SourceNode::calcScanlineRange(const RenderRequest& request,
     const int32_t invC = affine_.invMatrix.c;
     const int32_t invD = affine_.invMatrix.d;
 
-    // 事前計算統合版（オフセット加算を削減）
-    // 新座標系: request.origin はワールド座標なので加算
-    // request.origin は Q16.16、invA/B/C/D も Q16.16 なので、掛け算は Q32.32
-    // >> INT_FIXED_SHIFT で Q16.16 に戻す（小数精度を保持）
-    const int32_t baseXWithHalf = baseTxWithOffsets_
-        + static_cast<int32_t>((static_cast<int64_t>(request.origin.x) * invA) >> INT_FIXED_SHIFT)
-        + static_cast<int32_t>((static_cast<int64_t>(request.origin.y) * invB) >> INT_FIXED_SHIFT);
-    const int32_t baseYWithHalf = baseTyWithOffsets_
-        + static_cast<int32_t>((static_cast<int64_t>(request.origin.x) * invC) >> INT_FIXED_SHIFT)
-        + static_cast<int32_t>((static_cast<int64_t>(request.origin.y) * invD) >> INT_FIXED_SHIFT);
+    // Prepare時のoriginからの差分（ピクセル単位の整数）
+    // RendererNodeはピクセル単位でタイル分割するため、差分は常に整数
+    const int32_t deltaX = from_fixed(request.origin.x - prepareOriginX_);
+    const int32_t deltaY = from_fixed(request.origin.y - prepareOriginY_);
+
+    // 整数 × Q16.16 = Q16.16（int32_t範囲内）
+    // baseTxWithOffsets_ は Prepare時のoriginに対応した値として事前計算済み
+    const int32_t baseX = baseTxWithOffsets_ + deltaX * invA + deltaY * invB;
+    const int32_t baseY = baseTyWithOffsets_ + deltaX * invC + deltaY * invD;
 
     int32_t left = 0;
     int32_t right = request.width;
 
     if (invA) {
-        left  = std::max(left, (xs1_ - baseXWithHalf) / invA);
-        right = std::min(right, (xs2_ - baseXWithHalf) / invA);
-    } else if (static_cast<uint32_t>(baseXWithHalf) >= static_cast<uint32_t>(fpWidth_)) {
+        left  = std::max(left, (xs1_ - baseX) / invA);
+        right = std::min(right, (xs2_ - baseX) / invA);
+    } else if (static_cast<uint32_t>(baseX) >= static_cast<uint32_t>(fpWidth_)) {
         left = 1;
         right = 0;
     }
 
     if (invC) {
-        left  = std::max(left, (ys1_ - baseYWithHalf) / invC);
-        right = std::min(right, (ys2_ - baseYWithHalf) / invC);
-    } else if (static_cast<uint32_t>(baseYWithHalf) >= static_cast<uint32_t>(fpHeight_)) {
+        left  = std::max(left, (ys1_ - baseY) / invC);
+        right = std::min(right, (ys2_ - baseY) / invC);
+    } else if (static_cast<uint32_t>(baseY) >= static_cast<uint32_t>(fpHeight_)) {
         left = 1;
         right = 0;
     }
 
     dxStart = left;
     dxEnd = right - 1;  // right は排他的なので -1
+
+    // DDA用ベース座標を出力（オプショナル）
+    if (outBaseX) *outBaseX = baseX;
+    if (outBaseY) *outBaseY = baseY;
 
     return dxStart <= dxEnd;
 }
@@ -416,14 +451,16 @@ DataRange SourceNode::getDataRange(const RenderRequest& request) const {
         return Node::getDataRange(request);
     }
 
-    // スキャンライン範囲を計算
-    int32_t dxStart, dxEnd;
-    bool hasData = calcScanlineRange(request, dxStart, dxEnd);
+    // スキャンライン範囲を計算（baseX/baseY もキャッシュ用に取得）
+    int32_t dxStart, dxEnd, baseX, baseY;
+    bool hasData = calcScanlineRange(request, dxStart, dxEnd, &baseX, &baseY);
 
-    // キャッシュに保存
+    // キャッシュに保存（pullProcessWithAffine で再利用）
     rangeCache_.origin = request.origin;
     rangeCache_.dxStart = dxStart;
     rangeCache_.dxEnd = dxEnd;
+    rangeCache_.baseXWithHalf = baseX;
+    rangeCache_.baseYWithHalf = baseY;
 
     if (!hasData) {
         return DataRange{0, 0};  // 有効範囲なし
@@ -436,17 +473,19 @@ DataRange SourceNode::getDataRange(const RenderRequest& request) const {
 // 前提: request.height == 1（RendererNodeはスキャンライン単位で処理）
 // 有効範囲のみのバッファを返し、範囲外の0データを下流に送らない
 RenderResponse SourceNode::pullProcessWithAffine(const RenderRequest& request) {
-    int32_t dxStart, dxEnd;
+    int32_t dxStart, dxEnd, baseX, baseY;
 
     // キャッシュが有効か確認
     if (rangeCache_.origin.x == request.origin.x &&
         rangeCache_.origin.y == request.origin.y) {
-        // キャッシュヒット
+        // キャッシュヒット: 全ての値をキャッシュから取得
         dxStart = rangeCache_.dxStart;
         dxEnd = rangeCache_.dxEnd;
+        baseX = rangeCache_.baseXWithHalf;
+        baseY = rangeCache_.baseYWithHalf;
     } else {
         // キャッシュミス: 計算が必要
-        if (!calcScanlineRange(request, dxStart, dxEnd)) {
+        if (!calcScanlineRange(request, dxStart, dxEnd, &baseX, &baseY)) {
             return RenderResponse(ImageBuffer(), request.origin);
         }
     }
@@ -464,25 +503,11 @@ RenderResponse SourceNode::pullProcessWithAffine(const RenderRequest& request) {
         output.totalBytes(), output.width(), output.height());
 #endif
 
-    // DDA転写に必要な変数を計算
-    const int32_t invA = affine_.invMatrix.a;
-    const int32_t invB = affine_.invMatrix.b;
-    const int32_t invC = affine_.invMatrix.c;
-    const int32_t invD = affine_.invMatrix.d;
-    // 新座標系: request.origin はワールド座標なので加算
-    // request.origin は Q16.16、invA/B/C/D も Q16.16 なので、掛け算は Q32.32
-    // >> INT_FIXED_SHIFT で Q16.16 に戻す（小数精度を保持）
-    const int32_t baseXWithHalf = baseTxWithOffsets_
-        + static_cast<int32_t>((static_cast<int64_t>(request.origin.x) * invA) >> INT_FIXED_SHIFT)
-        + static_cast<int32_t>((static_cast<int64_t>(request.origin.y) * invB) >> INT_FIXED_SHIFT);
-    const int32_t baseYWithHalf = baseTyWithOffsets_
-        + static_cast<int32_t>((static_cast<int64_t>(request.origin.x) * invC) >> INT_FIXED_SHIFT)
-        + static_cast<int32_t>((static_cast<int64_t>(request.origin.y) * invD) >> INT_FIXED_SHIFT);
-
     // DDA転写（1行のみ）
-    // srcX_fixed = invA * dxStart + baseXWithHalf
-    int32_t srcX_fixed = invA * dxStart + baseXWithHalf;
-    int32_t srcY_fixed = invC * dxStart + baseYWithHalf;
+    const int32_t invA = affine_.invMatrix.a;
+    const int32_t invC = affine_.invMatrix.c;
+    int32_t srcX_fixed = invA * dxStart + baseX;
+    int32_t srcY_fixed = invC * dxStart + baseY;
 
     void* dstRow = output.data();
 
