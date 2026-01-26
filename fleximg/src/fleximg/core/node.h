@@ -324,14 +324,14 @@ public:
     // ========================================
 
     // このノードがrequestに対して提供できるデータ範囲を取得
-    // デフォルト: 上流があればパススルー、なければAABB
-    // 派生クラス: 範囲を変更するノード（CompositeNode、FilterNode等）はオーバーライド
+    // デフォルト: 上流があればパススルー、なければ空（データなし）
+    // 派生クラス: 範囲を変更するノード（CompositeNode等）はオーバーライド
     virtual DataRange getDataRange(const RenderRequest& request) const {
         Node* upstream = upstreamNode(0);
         if (upstream) {
             return upstream->getDataRange(request);  // 上流パススルー
         }
-        return prepareResponse_.getDataRange(request);  // 上流なしはAABB
+        return DataRange{0, 0};  // 上流なしはデータなし
     }
 
     // prepare応答を取得（派生クラスでの判定用）
