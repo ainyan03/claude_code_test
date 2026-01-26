@@ -440,6 +440,7 @@ RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
     }
 
     // 余白をゼロクリアしてバッファを返す
+#if 0
     if (validStartX > 0) {
         std::memset(canvasRow, 0, static_cast<size_t>(validStartX) * bytesPerPixel);
     }
@@ -447,6 +448,7 @@ RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
         std::memset(canvasRow + static_cast<size_t>(validEndX) * bytesPerPixel, 0,
                     static_cast<size_t>(canvasWidth - validEndX) * bytesPerPixel);
     }
+#endif
     return RenderResponse(std::move(canvasBuf), Point{canvasOriginX, canvasOriginY});
 }
 

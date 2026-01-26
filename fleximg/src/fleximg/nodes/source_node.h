@@ -447,7 +447,7 @@ bool SourceNode::calcScanlineRange(const RenderRequest& request,
 // getDataRange: アフィン変換を考慮した正確なデータ範囲を返す
 DataRange SourceNode::getDataRange(const RenderRequest& request) const {
     // AABB判定（アフィンの有無に関わらず共通）
-    DataRange aabbRange = Node::getDataRange(request);
+    DataRange aabbRange = prepareResponse_.getDataRange(request);
 
     // アフィン変換がない場合はAABB結果をそのまま返す
     if (!hasAffine_) {
