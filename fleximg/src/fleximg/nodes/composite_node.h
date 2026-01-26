@@ -434,21 +434,10 @@ RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
         }
     }
 
-    // 全ての入力が空だった場合（事前判定で回避されるはずだが念のため、originは維持）
     if (validStartX >= validEndX) {
         return RenderResponse(ImageBuffer(), request.origin);
     }
 
-    // 余白をゼロクリアしてバッファを返す
-#if 0
-    if (validStartX > 0) {
-        std::memset(canvasRow, 0, static_cast<size_t>(validStartX) * bytesPerPixel);
-    }
-    if (validEndX < canvasWidth) {
-        std::memset(canvasRow + static_cast<size_t>(validEndX) * bytesPerPixel, 0,
-                    static_cast<size_t>(canvasWidth - validEndX) * bytesPerPixel);
-    }
-#endif
     return RenderResponse(std::move(canvasBuf), Point{canvasOriginX, canvasOriginY});
 }
 
