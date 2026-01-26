@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.53.0] - 2026-01-26
+
+### リファクタリング
+
+- **int_fast16_t 最適化**: ESP32等の32ビットマイコンでのレジスタ演算効率化
+  - 対象ノード: SourceNode, CompositeNode, HorizontalBlurNode, VerticalBlurNode, RendererNode, NinePatchSourceNode
+  - ループカウンタ・一時変数を `int_fast16_t` に変更
+  - 関数引数を `int_fast16_t` に変更（メンバ変数は `int16_t` を維持）
+  - `auto + static_cast` パターンを採用（DRY原則）
+
+### ドキュメント
+
+- **CODING_STYLE.md**: レジスタ操作 vs メモリ格納のガイドラインを追加
+  - `auto + static_cast` パターンの推奨を明記
+
+---
+
 ## [2.52.0] - 2026-01-26
 
 ### 機能追加

@@ -23,7 +23,7 @@ fleximg は組み込み環境への移植を見据えて設計されています
 | 構造体メンバ（座標等） | `int16_t`, `int32_t` | サイズが明確、メモリ効率重視 |
 | 関数引数（座標等） | `int_fast16_t`, `int_fast32_t` | 32bitマイコンでのビット切り詰め回避 |
 | ローカル変数（演算用） | `int_fast16_t`, `int_fast32_t` | 演算速度優先の場面で使用 |
-| ループカウンタ | `int`, `size_t` | 終端変数と型を一致させる |
+| ループカウンタ | `int_fast16_t`, `size_t` | レジスタ演算最適化、終端変数と型を一致 |
 | 固定小数点 | `int32_t` | `int_fixed8`, `int_fixed16` として定義済み |
 | 配列サイズ/インデックス | `size_t` | 標準ライブラリとの互換性 |
 | バッファサイズ | `size_t` | `memcpy` 等の引数に適合 |
@@ -70,6 +70,56 @@ int width = srcEndX - srcX;
 - `int` のサイズはプラットフォーム依存（16bit〜32bit）
 - `int_fast16_t` は「16bit以上の最速型」という意図が明確
 - ViewPortの設計パターン（引数`int_fast16_t`、メンバ`int16_t`）と一貫性を保つ
+
+### レジスタ操作 vs メモリ格納
+
+ESP32等の32ビットマイコンでは、レジスタ操作とメモリ格納で最適な型が異なる。
+
+| 用途 | 推奨型 | 理由 |
+|------|--------|------|
+| ループカウンタ | `int_fast16_t` | レジスタ上で演算、符号拡張オーバーヘッド回避 |
+| 一時変数 | `int_fast16_t` | レジスタ上で演算 |
+| 構造体メンバ | `int16_t`, `int8_t` | メモリ効率重視 |
+| 静的配列（小規模） | `uint8_t[]` | メモリ効率重視 |
+
+**例: 描画順序配列**
+```cpp
+// メモリ効率: uint8_t配列、ループ変数: auto（型推論）
+constexpr uint8_t drawOrder[9] = { 4, 1, 3, 5, 7, 0, 2, 6, 8 };
+for (auto i : drawOrder) {
+    auto col = static_cast<int_fast16_t>(i % 3);
+    auto row = static_cast<int_fast16_t>(i / 3);
+    // ...
+}
+```
+
+**例: ループカウンタと一時変数**
+```cpp
+// auto + static_cast パターン: 型情報はキャストに集約
+auto startX = static_cast<int_fast16_t>(request.width);
+auto endX = static_cast<int_fast16_t>(0);
+for (auto i = static_cast<int_fast16_t>(0); i < 9; i++) {
+    // ...
+}
+```
+
+### `auto` + `static_cast` パターン
+
+キャストして代入する場面では `auto` を積極的に活用する。
+
+```cpp
+// 推奨: 型情報がキャストに集約され、DRY原則に従う
+auto srcX = static_cast<int_fast16_t>(from_fixed_floor(value));
+auto width = static_cast<int_fast16_t>(srcEndX - srcX);
+
+// 非推奨: 型名が重複
+int_fast16_t srcX = static_cast<int_fast16_t>(from_fixed_floor(value));
+```
+
+**利点:**
+- DRY原則: 型情報の重複を避ける
+- 可読性: 行が短くなり、重要な部分（キャスト先の型）に注目しやすい
+- 保守性: 型を変更する場合、キャスト式の一箇所だけ修正すれば良い
 
 ### 最速型 (`int_fast*_t`) の使用
 
@@ -348,6 +398,7 @@ using flex_int32 = int_fast32_t;
 
 ## 変更履歴
 
+- 2026-01-26: レジスタ操作 vs メモリ格納のガイドラインを追加、ループカウンタ推奨型を更新
 - 2026-01-20: パフォーマンス計測（FLEXIMG_METRICS_SCOPE）のガイドラインを追加
 - 2026-01-19: `int`を避ける方針、`float_to_fixed()`使用規約を追加
 - 2026-01-19: 追加警告オプション（-Wconversion等）を必須化、全警告を解消

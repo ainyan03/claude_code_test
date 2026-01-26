@@ -365,7 +365,7 @@ RenderResponse RendererNode::applyDataRangeDebug(Node* upstream,
     constexpr uint8_t GREEN[] = {0, 255, 100, 128};    // getDataRange境界マーカー（半透明）
 
     // まず全体をデバッグ色で初期化
-    for (int16_t x = 0; x < request.width; ++x) {
+    for (int_fast16_t x = 0; x < request.width; ++x) {
         const uint8_t* color;
         if (x >= exactRange.startX && x < exactRange.endX) {
             // 正確な範囲内: 後で実データで上書き
