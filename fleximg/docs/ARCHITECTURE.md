@@ -483,7 +483,7 @@ src/fleximg/
 │   └── memory/               # メモリ管理（fleximg::core::memory 名前空間）
 │       ├── allocator.h       # IAllocator, DefaultAllocator
 │       ├── platform.h        # IPlatformMemory（組込み環境対応）
-│       ├── pool_allocator.h  # PoolAllocator（ビットマップ方式）
+│       ├── pool_allocator.h  # PoolAllocator, PoolAllocatorAdapter
 │       └── buffer_handle.h   # BufferHandle（RAII）
 │
 ├── image/                    # 画像処理
