@@ -50,22 +50,66 @@ fleximg の WebUI はノードグラフエディタです。
 | ワイヤー | ポート間を結ぶ線（データの流れ） |
 | パイプライン | ノードとワイヤーで構成された処理全体 |
 
-### pivot と origin の違い
+### pivot の概念
 
-fleximg では座標関連で「pivot」と「origin」という2つの用語を使い分けています。
+fleximg では **pivot** を「ワールド原点 (0,0) に対応する点」として統一的に扱います。
 
-| 用語 | 意味 | 使用箇所 |
-|------|------|----------|
-| **pivot** | 画像内のアンカーポイント（回転・配置の中心） | SourceNode, NinePatchSourceNode |
-| **origin** | バッファ左上のワールド座標 | RenderRequest, RenderResponse, SinkNode, RendererNode |
+| ノード | pivot の意味 |
+|--------|-------------|
+| SourceNode | 画像内のこの点がワールド原点に対応 |
+| RendererNode | スクリーン上のこの点がワールド原点に対応 |
+| SinkNode | バッファ内のこの点が回転中心 |
 
-**pivot の例:**
-画像の中心を基準に回転させたい場合、`setPivot(width/2, height/2)` を設定します。
-画像の左上を基準にしたい場合は `setPivot(0, 0)` とします。
+回転を適用すると、ワールド原点を軸として回転が行われます。
+つまり、SourceNode の pivot と RendererNode の pivot は
+「ワールド原点で出会う」関係にあります。
 
-**origin の例:**
-RendererNode の origin は仮想スクリーン上の座標系の原点を表します。
-RenderResponse の origin はそのバッファの左上隅のワールド座標です。
+```
+SourceNode          RendererNode         結果
+pivot(16,16)   →    pivot(50,50)    →   画像位置
+    ↓                    ↓
+ソース内の           スクリーン上の
+この点が...          この位置に表示
+
+    └── ワールド原点 (0,0) で一致 ──┘
+```
+
+**pivot の設定例:**
+```cpp
+SourceNode src(imageView);
+src.setPivot(width/2, height/2);  // 画像中央がワールド原点に対応
+
+RendererNode renderer;
+renderer.setVirtualScreen(640, 480);
+renderer.setPivot(320, 240);  // スクリーン中央にワールド原点を表示
+// または
+renderer.setPivotCenter();    // 同じ効果
+```
+
+### RenderRequest/Response の origin
+
+`RenderRequest` と `RenderResponse` の `origin` は、バッファ左上のワールド座標を表します。
+これは pivot とは異なり、スキャンライン処理で各行のバッファ位置を特定するために使用されます。
+
+### pivot と tx/ty の違い
+
+アフィン変換において、pivot と tx/ty は異なる役割を持ちます。
+
+| パラメータ | 回転時の効果 | 回転なしの効果 |
+|-----------|-------------|---------------|
+| **pivot** | 回転中心が変わる（形が変わる） | 効果なし |
+| **tx/ty** | 回転後に平行移動（形は同じ） | 平行移動 |
+
+**例: 時計の針**
+
+```
+pivot = 針の根元
+tx, ty = 時計盤上での位置
+
+回転角度を変えると:
+- pivot を中心に針が回転
+- tx, ty で時計盤の中心に配置
+```
 
 ### 基本操作
 
@@ -209,14 +253,14 @@ RendererNode が実行されると:
 
 ---
 
-## 基準点と座標系
+## pivot と座標系
 
-### なぜ基準点が必要か
+### なぜ pivot が必要か
 
 画像の「どこを中心に」回転・拡大するかを指定するためです。
 
 ```
-【左上が基準点】              【中央が基準点】
+【左上が pivot】              【中央が pivot】
 回転すると...                 回転すると...
 ┌───┐      ╱╲               ┌───┐      ╱╲
 │ ● │  →  ╱  ╲              │   │  →  ╲  ╱
@@ -224,20 +268,20 @@ RendererNode が実行されると:
          ↑左上を軸に回転     └───┘      ↑中央を軸に回転
 ```
 
-### origin の意味
+### pivot の位置
 
-`origin` はバッファ内での基準点の位置を表します。
+`pivot` はバッファ内での回転中心の位置を表します。
 
 ```
 100x100の画像で:
-  origin = (0, 0)   → 左上が基準点
-  origin = (50, 50) → 中央が基準点
-  origin = (100, 100) → 右下が基準点
+  pivot = (0, 0)   → 左上が回転中心
+  pivot = (50, 50) → 中央が回転中心
+  pivot = (100, 100) → 右下が回転中心
 ```
 
-### 基準点一致ルール
+### pivot 一致ルール
 
-**SourceNode と SinkNode の基準点が同じ位置に来るように配置されます。**
+**SourceNode と SinkNode の pivot がワールド原点で一致するように配置されます。**
 
 詳細は [DESIGN_RENDERER_NODE.md](DESIGN_RENDERER_NODE.md) を参照してください。
 

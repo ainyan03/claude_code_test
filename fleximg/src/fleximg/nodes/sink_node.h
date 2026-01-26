@@ -23,10 +23,10 @@ namespace FLEXIMG_NAMESPACE {
 // - setRotation(), setScale(), setTranslation(), setRotationScale()
 //
 // 座標系と視覚効果:
-// - 変換式: src = Inv * (buf - pivot - tx) + pivot - center
-// - pivot: 回転中心位置（回転なしの場合、変更しても画像は動かない）
-// - tx/ty: 平行移動（回転の影響を受けない）
-// - center: バッファ中央（tx=0でワールド原点がバッファ中央に表示される）
+// - pivot: ワールド原点 (0,0) に対応するバッファ座標 + アフィン回転中心
+// - tx/ty: 平行移動（アフィン時は回転の影響を受けない）
+// - 変換式（アフィンあり）: src = Inv * (buf - pivot - tx) + pivot
+// - 変換式（アフィンなし）: src = buf - pivot - tx
 //
 
 class SinkNode : public Node, public AffineCapability {
@@ -141,24 +141,22 @@ PrepareResponse SinkNode::onPushPrepare(const PrepareRequest& request) {
         invMatrix_ = inverseFixed(combinedMatrix);
 
         if (invMatrix_.valid) {
-            // 変換式: src = Inv * (buf - pivot - tx) + pivot - center
-            // - pivot: 回転中心位置（回転なしの場合、変更しても画像は動かない）
+            // 変換式: src = Inv * (buf - pivot - tx)
+            // - pivot: ワールド原点 (0,0) に対応するバッファ座標 + 回転中心
             // - tx/ty: 平行移動（回転の影響を受けない）
-            // - center: バッファ中央オフセット（tx=0でワールド原点がバッファ中央に来る）
+            // 全て int_fixed (Q16.16) で演算し、小数精度を保持
             int_fixed txFixed = float_to_fixed(combinedMatrix.tx);
             int_fixed tyFixed = float_to_fixed(combinedMatrix.ty);
-            int_fixed centerX = to_fixed(target_.width / 2);
-            int_fixed centerY = to_fixed(target_.height / 2);
-            // (pivot + tx) を Inv で変換し、pivot - center を加算
+            // (pivot + tx) を Inv で変換
             int64_t combinedX = pivotX_ + txFixed;
             int64_t combinedY = pivotY_ + tyFixed;
             int64_t invCombinedX = (combinedX * invMatrix_.a
                                   + combinedY * invMatrix_.b) >> INT_FIXED_SHIFT;
             int64_t invCombinedY = (combinedX * invMatrix_.c
                                   + combinedY * invMatrix_.d) >> INT_FIXED_SHIFT;
-            // baseTx_ = pivot - center - Inv * (pivot + tx)
-            baseTx_ = pivotX_ - centerX - static_cast<int32_t>(invCombinedX);
-            baseTy_ = pivotY_ - centerY - static_cast<int32_t>(invCombinedY);
+            // baseTx_ = -Inv * (pivot + tx)
+            baseTx_ = -static_cast<int32_t>(invCombinedX);
+            baseTy_ = -static_cast<int32_t>(invCombinedY);
         }
         hasAffine_ = true;
     } else {
@@ -173,34 +171,28 @@ PrepareResponse SinkNode::onPushPrepare(const PrepareRequest& request) {
 
     if (hasTransform && invMatrix_.valid) {
         // 逆行列でAABBを計算（buf→src変換の結果範囲）
-        // 変換式: src = Inv * (buf - pivot - tx) + pivot - center
-        // (pivot + tx) を "pivot" として渡し、計算後に (pivot - center) を加算
+        // 変換式: src = Inv * (buf - pivot - tx)
+        // (pivot + tx) を "pivot" として渡す
         AffineMatrix aabbMatrix = combinedMatrix;
         aabbMatrix.tx = 0;
         aabbMatrix.ty = 0;
         int_fixed combinedPivotX = pivotX_ + float_to_fixed(combinedMatrix.tx);
         int_fixed combinedPivotY = pivotY_ + float_to_fixed(combinedMatrix.ty);
-        int_fixed centerX = to_fixed(target_.width / 2);
-        int_fixed centerY = to_fixed(target_.height / 2);
         calcInverseAffineAABB(
             target_.width, target_.height,
             {combinedPivotX, combinedPivotY},
             aabbMatrix,
             result.width, result.height, result.origin);
-        // (pivot - center) を加算（Inv の外で加算される項）
-        result.origin.x += pivotX_ - centerX;
-        result.origin.y += pivotY_ - centerY;
     } else {
         // アフィンなしの場合
-        // 変換式: src = buf - tx - center
-        // バッファ左上 (0, 0) のワールド座標 = -tx - center
+        // 変換式: src = buf - tx - pivot
+        // バッファ左上 (0, 0) のワールド座標 = -tx - pivot
         result.width = target_.width;
         result.height = target_.height;
-        int_fixed centerX = to_fixed(target_.width / 2);
-        int_fixed centerY = to_fixed(target_.height / 2);
+        // pivotX_/pivotY_ は int_fixed (Q16.16) で小数成分を保持
         result.origin = {
-            -float_to_fixed(localMatrix_.tx) - centerX,
-            -float_to_fixed(localMatrix_.ty) - centerY
+            -float_to_fixed(localMatrix_.tx) - pivotX_,
+            -float_to_fixed(localMatrix_.ty) - pivotY_
         };
     }
     return result;
@@ -223,14 +215,12 @@ void SinkNode::onPushProcess(RenderResponse&& input,
     ViewPort inputView = input.view();
 
     // 配置計算（固定小数点演算）
-    // 変換式: src = buf - tx - center → buf = src + tx + center
-    // pivotは回転なしの場合影響しない
+    // 変換式: src = buf - tx - pivot → buf = src + tx + pivot
+    // 全て int_fixed (Q16.16) で演算し、最終的にピクセル座標へ変換
     int_fixed txFixed = float_to_fixed(localMatrix_.tx);
     int_fixed tyFixed = float_to_fixed(localMatrix_.ty);
-    int_fixed centerX = to_fixed(target_.width / 2);
-    int_fixed centerY = to_fixed(target_.height / 2);
-    int dstX = from_fixed(input.origin.x + txFixed + centerX);
-    int dstY = from_fixed(input.origin.y + tyFixed + centerY);
+    int dstX = from_fixed(input.origin.x + txFixed + pivotX_);
+    int dstY = from_fixed(input.origin.y + tyFixed + pivotY_);
 
     // クリッピング処理
     int srcX = 0, srcY = 0;

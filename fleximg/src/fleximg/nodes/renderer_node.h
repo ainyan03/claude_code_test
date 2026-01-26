@@ -17,7 +17,7 @@ namespace FLEXIMG_NAMESPACE {
 // パイプライン実行の発火点となるノードです。
 // - 入力: 1ポート（上流の処理ノード）
 // - 出力: 1ポート（下流のSinkNode/DistributorNode）
-// - 仮想スクリーンサイズを持つ（origin は下流から自動設定）
+// - 仮想スクリーンサイズと pivot を持つ（pivot は独立して機能）
 // - タイル分割処理を制御
 //
 // 使用例:
@@ -27,8 +27,10 @@ namespace FLEXIMG_NAMESPACE {
 //
 //   src >> renderer >> sink;
 //
+//   renderer.setVirtualScreen(320, 240);
+//   renderer.setPivotCenter();  // 明示的に設定が必要
 //   renderer.setTileConfig({64, 64});
-//   renderer.exec();  // virtualScreen は SinkNode から自動設定
+//   renderer.exec();
 //
 
 class RendererNode : public Node {
@@ -42,11 +44,31 @@ public:
     // ========================================
 
     // 仮想スクリーン設定
-    // サイズのみ指定、origin は下流ノード（SinkNode）から自動設定される
+    // サイズを指定。pivot は setPivot() または setPivotCenter() で別途設定
     void setVirtualScreen(int width, int height) {
         virtualWidth_ = width;
         virtualHeight_ = height;
-        // origin は execPrepare で下流から自動設定
+    }
+
+    // pivot設定（スクリーン座標でワールド原点の表示位置を指定）
+    void setPivot(int_fixed x, int_fixed y) {
+        pivotX_ = x;
+        pivotY_ = y;
+    }
+    void setPivot(float x, float y) {
+        pivotX_ = float_to_fixed(x);
+        pivotY_ = float_to_fixed(y);
+    }
+
+    // 中央をpivotに設定（幾何学的中心）
+    void setPivotCenter() {
+        pivotX_ = to_fixed(virtualWidth_) >> 1;
+        pivotY_ = to_fixed(virtualHeight_) >> 1;
+    }
+
+    // アクセサ
+    std::pair<float, float> getPivot() const {
+        return {fixed_to_float(pivotX_), fixed_to_float(pivotY_)};
     }
 
     // タイル設定
@@ -166,8 +188,8 @@ protected:
 private:
     int virtualWidth_ = 0;
     int virtualHeight_ = 0;
-    int_fixed originX_ = 0;
-    int_fixed originY_ = 0;
+    int_fixed pivotX_ = 0;
+    int_fixed pivotY_ = 0;
     TileConfig tileConfig_;
     bool debugCheckerboard_ = false;
     bool debugDataRange_ = false;
@@ -203,8 +225,8 @@ private:
         req.width = static_cast<int16_t>(virtualWidth_);
         req.height = static_cast<int16_t>(virtualHeight_);
         // スクリーン左上（座標0,0）のワールド座標
-        req.origin.x = -originX_;
-        req.origin.y = -originY_;
+        req.origin.x = -pivotX_;
+        req.origin.y = -pivotY_;
         return req;
     }
 
@@ -223,8 +245,8 @@ private:
         req.width = static_cast<int16_t>(tileW);
         req.height = static_cast<int16_t>(tileH);
         // タイル左上のワールド座標 = スクリーン座標 - ワールド原点のスクリーン座標
-        req.origin.x = to_fixed(tileLeft) - originX_;
-        req.origin.y = to_fixed(tileTop) - originY_;
+        req.origin.x = to_fixed(tileLeft) - pivotX_;
+        req.origin.y = to_fixed(tileTop) - pivotY_;
         return req;
     }
 };
@@ -267,14 +289,9 @@ PrepareStatus RendererNode::execPrepare() {
     }
 
     // ========================================
-    // Step 2: virtualScreenとoriginを設定
+    // Step 2: virtualScreenサイズを設定
     // ========================================
-    // originは常に下流から取得（SinkNodeの座標系に合わせる）
-    // pushResult.origin はスクリーン左上のワールド座標（新座標系）
-    // originX_ は「ワールド原点のスクリーン座標」として使うため符号を反転
-    originX_ = -pushResult.origin.x;
-    originY_ = -pushResult.origin.y;
-
+    // pivot は独立して機能（setPivot() で設定済み、上書きしない）
     // virtualScreenサイズは未設定の場合のみ自動設定
     if (virtualWidth_ == 0 || virtualHeight_ == 0) {
         virtualWidth_ = pushResult.width;

@@ -17,7 +17,7 @@ const CONTENT_TYPES = {
 
 let canvasWidth = 800;
 let canvasHeight = 600;
-let canvasOrigin = { x: 400, y: 300 };  // キャンバス原点（ピクセル座標）
+let canvasOrigin = { x: 400, y: 300 };  // キャンバスpivot（ワールド原点のスクリーン座標）
 let previewScale = 1;  // 表示倍率（1〜5）
 let isResetting = false;  // リセット中フラグ（beforeunloadで保存をスキップ）
 
@@ -400,6 +400,15 @@ function throttledUpdatePreview() {
     });
 }
 
+// デバウンス用ユーティリティ
+function debounce(func, wait) {
+    let timeout;
+    return function(...args) {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(this, args), wait);
+    };
+}
+
 // サイドバー開閉ロジック
 function setupSidebar() {
     const sidebar = document.getElementById('sidebar');
@@ -761,8 +770,8 @@ function initDefaultState() {
             posY: 550,
             virtualWidth: 1920,
             virtualHeight: 1080,
-            originX: 960,
-            originY: 540,
+            pivotX: 960,
+            pivotY: 540,
             tileWidth: 0,      // 横方向は分割なし（height は内部的に常に1）
             tileHeight: 0
         }
@@ -775,8 +784,8 @@ function initDefaultState() {
     const rendererNode = globalNodes[0];
     canvasWidth = rendererNode.virtualWidth;
     canvasHeight = rendererNode.virtualHeight;
-    canvasOrigin.x = rendererNode.originX;
-    canvasOrigin.y = rendererNode.originY;
+    canvasOrigin.x = rendererNode.pivotX;
+    canvasOrigin.y = rendererNode.pivotY;
     tileWidth = rendererNode.tileWidth;
     tileHeight = rendererNode.tileHeight;
 
@@ -1394,125 +1403,175 @@ function createTabContainer(options) {
     return { wrapper, tabHeader, tabContent };
 }
 
-// 9点セレクタ + 正規化スライダーのセクションを作成
-function createOriginSection(options) {
-    const { node, container, onChange } = options;
+// 9点セレクタ + ピクセル座標入力のセクションを作成（汎用）
+// options: { node, container, onChange, width, height, sizeLabel }
+// - width/height: 基準となるサイズ（SourceNodeは画像サイズ、Renderer/Sinkは仮想スクリーン/出力サイズ）
+// - sizeLabel: サイズ表示のラベル（省略可）
+function createPivotSection(options) {
+    const { node, container, onChange, width, height, sizeLabel } = options;
+
+    // 初期値：未設定の場合は中央
+    if (node.pivotX === undefined) node.pivotX = width / 2;
+    if (node.pivotY === undefined) node.pivotY = height / 2;
 
     const section = document.createElement('div');
     section.className = 'node-detail-section';
 
     const label = document.createElement('div');
     label.className = 'node-detail-label';
-    label.textContent = '基準点 (Pivot)';
+    label.textContent = 'pivot';
     section.appendChild(label);
 
-    // 9点セレクタ
+    // 横並びコンテナ（9点セレクタ左、XY入力右）
+    const row = document.createElement('div');
+    row.style.cssText = 'display: flex; align-items: flex-start; gap: 12px;';
+
+    // 9点セレクタ（クイック選択）
     const pivotGrid = document.createElement('div');
     pivotGrid.className = 'node-origin-grid';
-    pivotGrid.style.cssText = 'width: 60px; height: 60px; margin: 0 auto 8px;';
+    pivotGrid.style.cssText = 'width: 54px; height: 54px; flex-shrink: 0;';
 
-    const pivotValues = [
-        { x: 0, y: 0 }, { x: 0.5, y: 0 }, { x: 1, y: 0 },
-        { x: 0, y: 0.5 }, { x: 0.5, y: 0.5 }, { x: 1, y: 0.5 },
-        { x: 0, y: 1 }, { x: 0.5, y: 1 }, { x: 1, y: 1 }
+    // 9点の正規化座標（0, 0.5, 1）
+    const pivotRatios = [
+        { rx: 0, ry: 0 }, { rx: 0.5, ry: 0 }, { rx: 1, ry: 0 },
+        { rx: 0, ry: 0.5 }, { rx: 0.5, ry: 0.5 }, { rx: 1, ry: 0.5 },
+        { rx: 0, ry: 1 }, { rx: 0.5, ry: 1 }, { rx: 1, ry: 1 }
     ];
 
-    let sliderX, sliderY, displayX, displayY;
+    let inputX, inputY;
 
-    const updateSliders = (x, y) => {
-        if (sliderX) { sliderX.value = String(x); displayX.textContent = x.toFixed(2); }
-        if (sliderY) { sliderY.value = String(y); displayY.textContent = y.toFixed(2); }
+    const updateInputs = (x, y) => {
+        if (inputX) inputX.value = x;
+        if (inputY) inputY.value = y;
     };
 
-    const updateGridSelection = (x, y) => {
+    // 現在のサイズを取得（RendererNodeは virtualWidth/Height を持つ）
+    const getCurrentSize = () => {
+        const w = node.virtualWidth ?? width;
+        const h = node.virtualHeight ?? height;
+        return { w, h };
+    };
+
+    // 現在のpivotが9点のいずれかに一致するか判定
+    const updateGridSelection = (px, py) => {
+        const { w, h } = getCurrentSize();
         pivotGrid.querySelectorAll('.node-origin-point').forEach(btn => {
-            const bx = parseFloat(btn.dataset.x);
-            const by = parseFloat(btn.dataset.y);
-            btn.classList.toggle('selected', bx === x && by === y);
+            const rx = parseFloat(btn.dataset.rx);
+            const ry = parseFloat(btn.dataset.ry);
+            const expectedX = rx * w;
+            const expectedY = ry * h;
+            // 0.5の誤差を許容
+            const match = Math.abs(px - expectedX) < 0.5 && Math.abs(py - expectedY) < 0.5;
+            btn.classList.toggle('selected', match);
         });
     };
 
-    pivotValues.forEach(({ x, y }) => {
+    pivotRatios.forEach(({ rx, ry }) => {
         const btn = document.createElement('button');
         btn.className = 'node-origin-point';
-        btn.dataset.x = String(x);
-        btn.dataset.y = String(y);
-        if (node.pivotX === x && node.pivotY === y) {
+        btn.dataset.rx = String(rx);
+        btn.dataset.ry = String(ry);
+        // 初期選択状態
+        const expectedX = rx * width;
+        const expectedY = ry * height;
+        if (Math.abs(node.pivotX - expectedX) < 0.5 && Math.abs(node.pivotY - expectedY) < 0.5) {
             btn.classList.add('selected');
         }
         btn.addEventListener('click', () => {
-            node.pivotX = x;
-            node.pivotY = y;
-            updateGridSelection(x, y);
-            updateSliders(x, y);
+            // 現在のサイズを取得（変更後の値を使用）
+            const { w, h } = getCurrentSize();
+            node.pivotX = rx * w;
+            node.pivotY = ry * h;
+            updateGridSelection(node.pivotX, node.pivotY);
+            updateInputs(node.pivotX, node.pivotY);
             if (onChange) onChange();
         });
         pivotGrid.appendChild(btn);
     });
-    section.appendChild(pivotGrid);
+    row.appendChild(pivotGrid);
 
-    // X スライダー
+    // XY入力エリア
+    const inputArea = document.createElement('div');
+    inputArea.style.cssText = 'display: flex; flex-direction: column; gap: 4px; flex: 1;';
+
+    // X ピクセル座標入力
     const xRow = document.createElement('div');
-    xRow.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 4px;';
+    xRow.style.cssText = 'display: flex; align-items: center; gap: 4px;';
     const xLabel = document.createElement('label');
     xLabel.textContent = 'X:';
-    xLabel.style.cssText = 'min-width: 20px;';
-    sliderX = document.createElement('input');
-    sliderX.type = 'range';
-    sliderX.min = '0';
-    sliderX.max = '1';
-    sliderX.step = '0.01';
-    sliderX.value = String(node.pivotX ?? 0.5);
-    sliderX.style.cssText = 'flex: 1;';
-    displayX = document.createElement('span');
-    displayX.style.cssText = 'min-width: 36px; text-align: right; font-size: 11px;';
-    displayX.textContent = (node.pivotX ?? 0.5).toFixed(2);
+    xLabel.style.cssText = 'min-width: 16px; font-size: 11px;';
+    inputX = document.createElement('input');
+    inputX.type = 'number';
+    inputX.step = '0.5';
+    inputX.value = node.pivotX;
+    inputX.style.cssText = 'width: 60px; font-size: 11px;';
 
-    sliderX.addEventListener('input', (e) => {
-        const val = parseFloat(e.target.value);
+    inputX.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value) || 0;
         node.pivotX = val;
-        displayX.textContent = val.toFixed(2);
         updateGridSelection(val, node.pivotY);
         if (onChange) onChange();
     });
 
     xRow.appendChild(xLabel);
-    xRow.appendChild(sliderX);
-    xRow.appendChild(displayX);
-    section.appendChild(xRow);
+    xRow.appendChild(inputX);
+    inputArea.appendChild(xRow);
 
-    // Y スライダー
+    // Y ピクセル座標入力
     const yRow = document.createElement('div');
-    yRow.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+    yRow.style.cssText = 'display: flex; align-items: center; gap: 4px;';
     const yLabel = document.createElement('label');
     yLabel.textContent = 'Y:';
-    yLabel.style.cssText = 'min-width: 20px;';
-    sliderY = document.createElement('input');
-    sliderY.type = 'range';
-    sliderY.min = '0';
-    sliderY.max = '1';
-    sliderY.step = '0.01';
-    sliderY.value = String(node.pivotY ?? 0.5);
-    sliderY.style.cssText = 'flex: 1;';
-    displayY = document.createElement('span');
-    displayY.style.cssText = 'min-width: 36px; text-align: right; font-size: 11px;';
-    displayY.textContent = (node.pivotY ?? 0.5).toFixed(2);
+    yLabel.style.cssText = 'min-width: 16px; font-size: 11px;';
+    inputY = document.createElement('input');
+    inputY.type = 'number';
+    inputY.step = '0.5';
+    inputY.value = node.pivotY;
+    inputY.style.cssText = 'width: 60px; font-size: 11px;';
 
-    sliderY.addEventListener('input', (e) => {
-        const val = parseFloat(e.target.value);
+    inputY.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value) || 0;
         node.pivotY = val;
-        displayY.textContent = val.toFixed(2);
         updateGridSelection(node.pivotX, val);
         if (onChange) onChange();
     });
 
     yRow.appendChild(yLabel);
-    yRow.appendChild(sliderY);
-    yRow.appendChild(displayY);
-    section.appendChild(yRow);
+    yRow.appendChild(inputY);
+    inputArea.appendChild(yRow);
+
+    // サイズ参考表示
+    if (sizeLabel !== false) {
+        const sizeInfo = document.createElement('div');
+        sizeInfo.style.cssText = 'font-size: 9px; color: #666; margin-top: 2px;';
+        sizeInfo.textContent = sizeLabel || `${width} × ${height}`;
+        inputArea.appendChild(sizeInfo);
+    }
+
+    row.appendChild(inputArea);
+    section.appendChild(row);
 
     container.appendChild(section);
-    return section;
+    return { section, updateInputs, updateGridSelection };
+}
+
+// SourceNode用のpivotセクション（画像サイズ基準）
+function createOriginSection(options) {
+    const { node, container, onChange } = options;
+
+    // コンテンツから画像サイズを取得
+    const content = contentLibrary.find(c => c.id === node.contentId);
+    const imgWidth = content ? content.width : 100;
+    const imgHeight = content ? content.height : 100;
+
+    return createPivotSection({
+        node,
+        container,
+        onChange,
+        width: imgWidth,
+        height: imgHeight,
+        sizeLabel: `画像: ${imgWidth} × ${imgHeight}`
+    });
 }
 
 // アフィン変換コントロールセクションを作成（共通関数）
@@ -1969,8 +2028,8 @@ function addSinkNodeFromLibrary(contentId) {
         contentId: contentId,
         posX: posX,
         posY: posY,
-        originX: Math.round(content.width / 2),   // 仮想スクリーン上の基準座標（中央）
-        originY: Math.round(content.height / 2),
+        pivotX: content.width / 2,   // 仮想スクリーン上の基準座標（中央）
+        pivotY: content.height / 2,
         outputFormat: DEFAULT_PIXEL_FORMAT
     };
 
@@ -2773,9 +2832,9 @@ function addImageNodeFromLibrary(contentId) {
         title: content.name,
         posX: posX,
         posY: posY,
-        // 画像内のアンカーポイント（正規化座標 0.0〜1.0）
-        pivotX: 0.5,
-        pivotY: 0.5
+        // 画像内のアンカーポイント（ピクセル座標）
+        pivotX: content.width / 2,
+        pivotY: content.height / 2
     };
 
     globalNodes.push(imageNode);
@@ -2978,8 +3037,8 @@ function renderNodeGraph() {
             title: 'Renderer',
             virtualWidth: canvasWidth,
             virtualHeight: canvasHeight,
-            originX: canvasOrigin.x,
-            originY: canvasOrigin.y,
+            pivotX: canvasOrigin.x,
+            pivotY: canvasOrigin.y,
             posX: 700,
             posY: 550
         });
@@ -3201,10 +3260,24 @@ function drawGlobalNode(node) {
             // 基準点表示（コンパクト）
             const pivotText = document.createElement('span');
             pivotText.style.cssText = 'font-size: 10px; color: #666;';
-            const px = node.pivotX ?? 0.5;
-            const py = node.pivotY ?? 0.5;
-            const pivotNames = { '0,0': '左上', '0.5,0': '上', '1,0': '右上', '0,0.5': '左', '0.5,0.5': '中央', '1,0.5': '右', '0,1': '左下', '0.5,1': '下', '1,1': '右下' };
-            pivotText.textContent = pivotNames[`${px},${py}`] || '中央';
+            const px = node.pivotX ?? (content.width / 2);
+            const py = node.pivotY ?? (content.height / 2);
+            // ピクセル座標から位置名を判定
+            const getPivotName = (px, py, w, h) => {
+                const rx = px / w, ry = py / h;
+                const eps = 0.01;
+                if (Math.abs(rx) < eps && Math.abs(ry) < eps) return '左上';
+                if (Math.abs(rx - 0.5) < eps && Math.abs(ry) < eps) return '上';
+                if (Math.abs(rx - 1) < eps && Math.abs(ry) < eps) return '右上';
+                if (Math.abs(rx) < eps && Math.abs(ry - 0.5) < eps) return '左';
+                if (Math.abs(rx - 0.5) < eps && Math.abs(ry - 0.5) < eps) return '中央';
+                if (Math.abs(rx - 1) < eps && Math.abs(ry - 0.5) < eps) return '右';
+                if (Math.abs(rx) < eps && Math.abs(ry - 1) < eps) return '左下';
+                if (Math.abs(rx - 0.5) < eps && Math.abs(ry - 1) < eps) return '下';
+                if (Math.abs(rx - 1) < eps && Math.abs(ry - 1) < eps) return '右下';
+                return `${px.toFixed(0)},${py.toFixed(0)}`;
+            };
+            pivotText.textContent = getPivotName(px, py, content.width, content.height);
             thumbRow.appendChild(pivotText);
 
             controls.appendChild(thumbRow);
@@ -3397,10 +3470,10 @@ function drawGlobalNode(node) {
 
         const vw = node.virtualWidth ?? canvasWidth;
         const vh = node.virtualHeight ?? canvasHeight;
-        const ox = node.originX ?? canvasOrigin.x;
-        const oy = node.originY ?? canvasOrigin.y;
+        const px = node.pivotX ?? canvasOrigin.x;
+        const py = node.pivotY ?? canvasOrigin.y;
 
-        controls.innerHTML = `${vw}×${vh}<br>原点: ${ox.toFixed(0)}, ${oy.toFixed(0)}`;
+        controls.innerHTML = `${vw}×${vh}<br>pivot: ${px.toFixed(1)}, ${py.toFixed(1)}`;
         nodeBox.appendChild(controls);
     }
 
@@ -4176,9 +4249,9 @@ function addNinePatchNode(contentId = null) {
         // 出力サイズ（デフォルトはコンテンツサイズ）
         outputWidth: contentWidth,
         outputHeight: contentHeight,
-        // 画像内のアンカーポイント（正規化座標 0.0〜1.0）
-        pivotX: 0.5,
-        pivotY: 0.5
+        // 画像内のアンカーポイント（ピクセル座標）
+        pivotX: contentWidth / 2,
+        pivotY: contentHeight / 2
     };
 
     globalNodes.push(ninepatchNode);
@@ -4271,20 +4344,21 @@ function updatePreviewFromGraph() {
 
     // ノードデータをC++に渡す形式に変換
     const nodesForCpp = globalNodes.map(node => {
-        // 画像ノード: 正規化pivotをピクセル座標に変換、contentIdをcppImageIdに変換
+        // 画像ノード: pivotはピクセル座標、contentIdをcppImageIdに変換
         if (node.type === 'image') {
             const content = contentLibrary.find(c => c.id === node.contentId);
             if (content) {
-                const px = node.pivotX ?? 0.5;
-                const py = node.pivotY ?? 0.5;
+                // pivotは既にピクセル座標（未設定時は中央）
+                const px = node.pivotX ?? (content.width / 2);
+                const py = node.pivotY ?? (content.height / 2);
 
                 return {
                     ...node,
                     imageId: content.cppImageId,  // C++側に渡す数値ID
-                    // ピクセル座標に変換してC++に渡す（pivot オブジェクト形式）
+                    // ピクセル座標をそのままC++に渡す（pivot オブジェクト形式）
                     pivot: {
-                        x: px * content.width,
-                        y: py * content.height
+                        x: px,
+                        y: py
                     },
                     bilinear: node.bilinear || false,  // バイリニア補間フラグ
                     matrix: getAffineMatrix(node)  // アフィン変換行列（matrixModeに応じて計算）
@@ -4303,11 +4377,16 @@ function updatePreviewFromGraph() {
         if (node.type === 'sink') {
             const content = contentLibrary.find(c => c.id === node.contentId);
             if (content) {
+                // pivotは既にピクセル座標（未設定時は中央）
+                const px = node.pivotX ?? (content.width / 2);
+                const py = node.pivotY ?? (content.height / 2);
                 return {
                     ...node,
                     outputWidth: content.width,
                     outputHeight: content.height,
                     imageId: content.cppImageId,  // 出力先の画像ID
+                    pivotX: px,
+                    pivotY: py,
                     matrix: getAffineMatrix(node)  // アフィン変換行列（matrixModeに応じて計算）
                 };
             }
@@ -4334,9 +4413,9 @@ function updatePreviewFromGraph() {
             if (content) {
                 const outW = node.outputWidth ?? (content.width - 2);
                 const outH = node.outputHeight ?? (content.height - 2);
-                // 正規化座標（0.0〜1.0）をピクセル座標に変換
-                const px = (node.pivotX ?? 0.5) * outW;
-                const py = (node.pivotY ?? 0.5) * outH;
+                // pivotは既にピクセル座標（未設定時は中央）
+                const px = node.pivotX ?? (outW / 2);
+                const py = node.pivotY ?? (outH / 2);
 
                 return {
                     ...node,
@@ -5115,7 +5194,7 @@ function buildImageDetailContent(node) {
                 id: 'basic',
                 label: '基本設定',
                 buildContent: (tabContainer) => {
-                    // 原点セクション（9点セレクタ + X,Yスライダー）
+                    // pivotセクション（9点セレクタ + X,Yスライダー）
                     createOriginSection({
                         node,
                         container: tabContainer,
@@ -5454,6 +5533,9 @@ function buildAffineDetailContent(node) {
 
 // Rendererノードの詳細コンテンツ
 function buildRendererDetailContent(node) {
+    const currentWidth = node.virtualWidth ?? canvasWidth;
+    const currentHeight = node.virtualHeight ?? canvasHeight;
+
     // === 仮想スクリーンサイズ ===
     const sizeSection = document.createElement('div');
     sizeSection.className = 'node-detail-section';
@@ -5470,9 +5552,9 @@ function buildRendererDetailContent(node) {
     widthLabel.textContent = '幅';
     const widthInput = document.createElement('input');
     widthInput.type = 'number';
-    widthInput.min = '100';
+    widthInput.min = '1';
     widthInput.max = '4096';
-    widthInput.value = node.virtualWidth ?? canvasWidth;
+    widthInput.value = currentWidth;
     widthInput.style.width = '80px';
     widthRow.appendChild(widthLabel);
     widthRow.appendChild(widthInput);
@@ -5485,75 +5567,66 @@ function buildRendererDetailContent(node) {
     heightLabel.textContent = '高さ';
     const heightInput = document.createElement('input');
     heightInput.type = 'number';
-    heightInput.min = '100';
+    heightInput.min = '1';
     heightInput.max = '4096';
-    heightInput.value = node.virtualHeight ?? canvasHeight;
+    heightInput.value = currentHeight;
     heightInput.style.width = '80px';
     heightRow.appendChild(heightLabel);
     heightRow.appendChild(heightInput);
     sizeSection.appendChild(heightRow);
 
-    // 原点X
-    const originXRow = document.createElement('div');
-    originXRow.className = 'node-detail-row';
-    const originXLabel = document.createElement('label');
-    originXLabel.textContent = '原点X';
-    const originXInput = document.createElement('input');
-    originXInput.type = 'number';
-    originXInput.value = Math.round(node.originX ?? canvasOrigin.x);
-    originXInput.style.width = '80px';
-    originXRow.appendChild(originXLabel);
-    originXRow.appendChild(originXInput);
-    sizeSection.appendChild(originXRow);
+    // サイズ変更を即時反映（デバウンス付き）
+    const applySize = debounce(() => {
+        const newWidth = parseInt(widthInput.value);
+        const newHeight = parseInt(heightInput.value);
 
-    // 原点Y
-    const originYRow = document.createElement('div');
-    originYRow.className = 'node-detail-row';
-    const originYLabel = document.createElement('label');
-    originYLabel.textContent = '原点Y';
-    const originYInput = document.createElement('input');
-    originYInput.type = 'number';
-    originYInput.value = Math.round(node.originY ?? canvasOrigin.y);
-    originYInput.style.width = '80px';
-    originYRow.appendChild(originYLabel);
-    originYRow.appendChild(originYInput);
-    sizeSection.appendChild(originYRow);
+        // 無効な値はスキップ
+        if (isNaN(newWidth) || isNaN(newHeight) || newWidth < 1 || newHeight < 1) {
+            return;
+        }
 
-    // 適用ボタン
-    const applyRow = document.createElement('div');
-    applyRow.className = 'node-detail-row';
-    applyRow.style.justifyContent = 'flex-end';
-    const applyBtn = document.createElement('button');
-    applyBtn.className = 'primary-btn';
-    applyBtn.textContent = '適用';
-    applyBtn.style.marginTop = '8px';
-    applyBtn.addEventListener('click', () => {
-        node.virtualWidth = parseInt(widthInput.value);
-        node.virtualHeight = parseInt(heightInput.value);
-        node.originX = parseFloat(originXInput.value);
-        node.originY = parseFloat(originYInput.value);
+        node.virtualWidth = newWidth;
+        node.virtualHeight = newHeight;
 
         // グローバル変数も更新
         canvasWidth = node.virtualWidth;
         canvasHeight = node.virtualHeight;
-        canvasOrigin.x = node.originX;
-        canvasOrigin.y = node.originY;
+        canvasOrigin.x = node.pivotX;
+        canvasOrigin.y = node.pivotY;
 
-        // SinkノードのサイズはcontentLibraryから取得するため、ここでは同期しない
-        // 各Sinkは独自のcontentIdで出力バッファを参照する
-
-        // キャンバスをリサイズ＆原点を更新
+        // キャンバスをリサイズ＆pivotを更新
         resizeCanvas(node.virtualWidth, node.virtualHeight);
         if (graphEvaluator) {
             graphEvaluator.setDstOrigin(canvasOrigin.x, canvasOrigin.y);
         }
         renderNodeGraph();
         throttledUpdatePreview();
-    });
-    applyRow.appendChild(applyBtn);
-    sizeSection.appendChild(applyRow);
+    }, 300);
+
+    widthInput.addEventListener('input', applySize);
+    heightInput.addEventListener('input', applySize);
 
     detailPanelContent.appendChild(sizeSection);
+
+    // === pivot セクション（9点セレクタ + XY入力）===
+    const onPivotChange = () => {
+        canvasOrigin.x = node.pivotX;
+        canvasOrigin.y = node.pivotY;
+        if (graphEvaluator) {
+            graphEvaluator.setDstOrigin(canvasOrigin.x, canvasOrigin.y);
+        }
+        renderNodeGraph();
+        throttledUpdatePreview();
+    };
+
+    createPivotSection({
+        node,
+        container: detailPanelContent,
+        onChange: onPivotChange,
+        width: currentWidth,
+        height: currentHeight,
+        sizeLabel: false  // サイズは上のセクションで表示済み
+    });
 
     // === デバッグ設定 ===
     const tileSection = document.createElement('div');
@@ -5637,51 +5710,31 @@ function buildSinkDetailContent(node) {
                     const outputWidth = content?.width ?? 0;
                     const outputHeight = content?.height ?? 0;
 
-                    // サイズ表示（読み取り専用）
-                    const sizeRow = document.createElement('div');
-                    sizeRow.className = 'node-detail-row';
-                    const sizeLabel = document.createElement('label');
-                    sizeLabel.textContent = 'サイズ';
-                    const sizeValue = document.createElement('span');
-                    sizeValue.textContent = `${outputWidth} x ${outputHeight}`;
-                    sizeValue.style.color = '#888';
-                    sizeRow.appendChild(sizeLabel);
-                    sizeRow.appendChild(sizeValue);
-                    section.appendChild(sizeRow);
+                    tabContainer.appendChild(section);
 
-                    // 原点X
-                    const originXRow = document.createElement('div');
-                    originXRow.className = 'node-detail-row';
-                    const originXLabel = document.createElement('label');
-                    originXLabel.textContent = '原点X';
-                    const originXInput = document.createElement('input');
-                    originXInput.type = 'number';
-                    originXInput.value = Math.round(node.originX ?? 0);
-                    originXInput.style.width = '80px';
-                    originXRow.appendChild(originXLabel);
-                    originXRow.appendChild(originXInput);
-                    section.appendChild(originXRow);
+                    // pivot セクション（9点セレクタ + XY入力）
+                    createPivotSection({
+                        node,
+                        container: tabContainer,
+                        onChange: onUpdate,
+                        width: outputWidth || 100,
+                        height: outputHeight || 100,
+                        sizeLabel: `出力: ${outputWidth} × ${outputHeight}`
+                    });
 
-                    // 原点Y
-                    const originYRow = document.createElement('div');
-                    originYRow.className = 'node-detail-row';
-                    const originYLabel = document.createElement('label');
-                    originYLabel.textContent = '原点Y';
-                    const originYInput = document.createElement('input');
-                    originYInput.type = 'number';
-                    originYInput.value = Math.round(node.originY ?? 0);
-                    originYInput.style.width = '80px';
-                    originYRow.appendChild(originYLabel);
-                    originYRow.appendChild(originYInput);
-                    section.appendChild(originYRow);
+                    // ピクセルフォーマット選択セクション
+                    const formatSection = document.createElement('div');
+                    formatSection.className = 'node-detail-section';
 
-                    // ピクセルフォーマット選択
+                    const formatSectionLabel = document.createElement('div');
+                    formatSectionLabel.className = 'node-detail-label';
+                    formatSectionLabel.textContent = 'フォーマット';
+                    formatSection.appendChild(formatSectionLabel);
+
                     const formatRow = document.createElement('div');
                     formatRow.className = 'node-detail-row';
-                    const formatLabel = document.createElement('label');
-                    formatLabel.textContent = 'フォーマット';
                     const formatSelect = document.createElement('select');
-                    formatSelect.style.width = '120px';
+                    formatSelect.style.width = '140px';
 
                     const currentFormat = node.outputFormat ?? DEFAULT_PIXEL_FORMAT;
                     PIXEL_FORMATS.forEach(fmt => {
@@ -5693,35 +5746,19 @@ function buildSinkDetailContent(node) {
                         formatSelect.appendChild(option);
                     });
 
-                    formatRow.appendChild(formatLabel);
-                    formatRow.appendChild(formatSelect);
-                    section.appendChild(formatRow);
-
-                    // 適用ボタン
-                    const applyRow = document.createElement('div');
-                    applyRow.className = 'node-detail-row';
-                    applyRow.style.justifyContent = 'flex-end';
-                    const applyBtn = document.createElement('button');
-                    applyBtn.className = 'primary-btn';
-                    applyBtn.textContent = '適用';
-                    applyBtn.style.marginTop = '8px';
-                    applyBtn.addEventListener('click', () => {
-                        node.originX = parseFloat(originXInput.value);
-                        node.originY = parseFloat(originYInput.value);
+                    formatSelect.addEventListener('change', () => {
                         node.outputFormat = formatSelect.value;
-
                         // Sink出力フォーマットをC++側に設定
                         if (graphEvaluator) {
                             graphEvaluator.setSinkFormat(node.id, node.outputFormat);
                         }
-
                         onUpdate();
                         scheduleAutoSave();
                     });
-                    applyRow.appendChild(applyBtn);
-                    section.appendChild(applyRow);
 
-                    tabContainer.appendChild(section);
+                    formatRow.appendChild(formatSelect);
+                    formatSection.appendChild(formatRow);
+                    tabContainer.appendChild(formatSection);
                 }
             },
             {
@@ -5754,7 +5791,7 @@ function buildNinePatchDetailContent(node) {
                 id: 'basic',
                 label: '基本設定',
                 buildContent: (tabContainer) => {
-                    // 原点セクション（9点セレクタ + X,Yスライダー）
+                    // pivotセクション（9点セレクタ + X,Yスライダー）
                     createOriginSection({
                         node,
                         container: tabContainer,
@@ -5899,10 +5936,10 @@ function deleteNode(node) {
     scheduleAutoSave();
 }
 
-// 原点選択グリッドのセットアップ
+// pivot選択グリッドのセットアップ
 // gridId: グリッド要素のID
 // initialOrigin: 初期値 {x, y}（0.0〜1.0）
-// onChange: 変更時のコールバック (origin) => void
+// onChange: 変更時のコールバック (pivot) => void
 function setupOriginGrid(gridId, initialOrigin, onChange) {
     const grid = document.getElementById(gridId);
     if (!grid) return;
@@ -5930,7 +5967,7 @@ function setupOriginGrid(gridId, initialOrigin, onChange) {
             points.forEach(p => p.classList.remove('selected'));
             point.classList.add('selected');
 
-            // 原点値を取得してコールバック
+            // pivot値を取得してコールバック
             const origin = {
                 x: parseFloat(point.dataset.x),
                 y: parseFloat(point.dataset.y)
@@ -5945,7 +5982,7 @@ function setupOriginGrid(gridId, initialOrigin, onChange) {
 // ========================================
 
 const STATE_STORAGE_KEY = 'imageTransformPreviewState';
-const STATE_VERSION = 2;  // コンテンツライブラリ対応
+const STATE_VERSION = 4;  // SourceNode pivot をピクセル座標に統一
 
 // アプリ状態をオブジェクトとして取得
 function getAppState() {
@@ -6255,9 +6292,9 @@ async function restoreAppState(state) {
             canvas.height = canvasHeight;
             graphEvaluator.setCanvasSize(canvasWidth, canvasHeight);
         }
-        if (rendererNode.originX !== undefined) {
-            canvasOrigin.x = rendererNode.originX;
-            canvasOrigin.y = rendererNode.originY;
+        if (rendererNode.pivotX !== undefined) {
+            canvasOrigin.x = rendererNode.pivotX;
+            canvasOrigin.y = rendererNode.pivotY;
             graphEvaluator.setDstOrigin(canvasOrigin.x, canvasOrigin.y);
         }
         // タイル設定も同期

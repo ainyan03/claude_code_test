@@ -81,6 +81,7 @@ TEST_CASE("Pipeline: basic source -> renderer -> sink") {
 
     RendererNode renderer;
     renderer.setVirtualScreen(imgSize, imgSize);
+    renderer.setPivot(centerPivot, centerPivot);  // pivot を明示的に設定
 
     SinkNode sink;
     sink.setTarget(dstImg.view());
@@ -129,6 +130,7 @@ TEST_CASE("Pipeline: tiled rendering produces same result") {
         src.setPivot(centerPivot, centerPivot);
         RendererNode renderer;
         renderer.setVirtualScreen(imgSize, imgSize);
+        renderer.setPivot(centerPivot, centerPivot);  // pivot を明示的に設定
         SinkNode sink;
         sink.setTarget(dstImg1.view());
         sink.setPivot(centerPivot, centerPivot);
@@ -143,6 +145,7 @@ TEST_CASE("Pipeline: tiled rendering produces same result") {
         src.setPivot(centerPivot, centerPivot);
         RendererNode renderer;
         renderer.setVirtualScreen(imgSize, imgSize);
+        renderer.setPivot(centerPivot, centerPivot);  // pivot を明示的に設定
         renderer.setTileConfig(32, 32);
         SinkNode sink;
         sink.setTarget(dstImg2.view());
@@ -168,6 +171,7 @@ TEST_CASE("Pipeline: various tile sizes") {
         src.setPivot(centerPivot, centerPivot);
         RendererNode renderer;
         renderer.setVirtualScreen(imgSize, imgSize);
+        renderer.setPivot(centerPivot, centerPivot);  // pivot を明示的に設定
         SinkNode sink;
         sink.setTarget(dstImgBase.view());
         sink.setPivot(centerPivot, centerPivot);
@@ -182,6 +186,7 @@ TEST_CASE("Pipeline: various tile sizes") {
         src.setPivot(centerPivot, centerPivot);
         RendererNode renderer;
         renderer.setVirtualScreen(imgSize, imgSize);
+        renderer.setPivot(centerPivot, centerPivot);  // pivot を明示的に設定
         renderer.setTileConfig(16, 16);
         SinkNode sink;
         sink.setTarget(dstImg.view());
@@ -198,6 +203,7 @@ TEST_CASE("Pipeline: various tile sizes") {
         src.setPivot(centerPivot, centerPivot);
         RendererNode renderer;
         renderer.setVirtualScreen(imgSize, imgSize);
+        renderer.setPivot(centerPivot, centerPivot);  // pivot を明示的に設定
         renderer.setTileConfig(64, 64);
         SinkNode sink;
         sink.setTarget(dstImg.view());

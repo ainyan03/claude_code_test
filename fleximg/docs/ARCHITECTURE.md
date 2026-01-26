@@ -37,7 +37,8 @@ SinkNode（出力先）
 
 ```cpp
 RendererNode renderer;
-renderer.setVirtualScreen(640, 480, 320, 240);  // 幅, 高さ, 基準X, 基準Y
+renderer.setVirtualScreen(640, 480);
+renderer.setPivotCenter();  // スクリーン中央にワールド原点を配置
 renderer.setTileConfig(TileConfig{64, 64});  // tileWidth=64（tileHeightは無視）
 renderer.exec();
 ```
@@ -218,13 +219,15 @@ affine.connectFrom(source);    // source → affine
 SourceNode source(imageView);
 AffineNode affine;
 RendererNode renderer;
-SinkNode sink(outputView, canvasWidth / 2, canvasHeight / 2);
+SinkNode sink(outputView);
+sink.setPivotCenter();
 
 // 接続: source → affine → renderer → sink
 source >> affine >> renderer >> sink;
 
 // 実行
-renderer.setVirtualScreen(canvasWidth, canvasHeight, canvasWidth / 2, canvasHeight / 2);
+renderer.setVirtualScreen(canvasWidth, canvasHeight);
+renderer.setPivotCenter();
 renderer.exec();
 ```
 
@@ -547,15 +550,17 @@ ViewPort outputView = outputBuffer.view();
 
 // ノード作成
 SourceNode source(inputView);
-source.setOrigin(to_fixed(inputView.width / 2), to_fixed(inputView.height / 2));
+source.setPivot(inputView.width / 2.0f, inputView.height / 2.0f);
 
 AffineNode affine;
 affine.setMatrix(AffineMatrix::rotate(0.5f));  // 約30度回転
 
 RendererNode renderer;
-renderer.setVirtualScreen(320, 240, 160, 120);  // キャンバス中央を基準点に
+renderer.setVirtualScreen(320, 240);
+renderer.setPivotCenter();  // キャンバス中央がワールド原点
 
-SinkNode sink(outputView, 160, 120);  // キャンバス中央
+SinkNode sink(outputView);
+sink.setPivotCenter();  // キャンバス中央
 
 // 接続
 source >> affine >> renderer >> sink;
@@ -569,7 +574,8 @@ renderer.exec();
 
 ```cpp
 RendererNode renderer;
-renderer.setVirtualScreen(1920, 1080, 960, 540);
+renderer.setVirtualScreen(1920, 1080);
+renderer.setPivotCenter();  // スクリーン中央にワールド原点を配置
 renderer.setTileConfig(TileConfig{64, 64});
 renderer.exec();
 ```
