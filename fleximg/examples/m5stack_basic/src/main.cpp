@@ -457,7 +457,7 @@ void loop() {
     M5.update();
 
     // ボタン処理
-    if (M5.BtnA.wasPressed()) {
+    if (M5.BtnA.wasSingleClicked()) {
         int mode = static_cast<int>(currentMode);
         mode = (mode + 1) % static_cast<int>(DemoMode::MODE_COUNT);
         currentMode = static_cast<DemoMode>(mode);
@@ -465,16 +465,20 @@ void loop() {
         needsUIUpdate = true;
     }
 
-    if (M5.BtnB.wasPressed()) {
+    if (M5.BtnB.wasSingleClicked()) {
         int level = static_cast<int>(speedLevel);
         level = (level + 1) % static_cast<int>(SpeedLevel::LEVEL_COUNT);
         speedLevel = static_cast<SpeedLevel>(level);
         needsUIUpdate = true;
     }
 
-    if (M5.BtnC.wasPressed()) {
+    if (M5.BtnC.wasSingleClicked()) {
         reverseDirection = !reverseDirection;
         needsUIUpdate = true;
+    }
+
+    if (M5.BtnC.wasDoubleClicked()) {
+        lcdSink.setDrawEnabled(!lcdSink.getDrawEnabled());
     }
 
     // UI更新
