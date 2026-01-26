@@ -24,6 +24,7 @@
 #include "../src/fleximg/nodes/ninepatch_source_node.h"
 #include "../src/fleximg/nodes/matte_node.h"
 #include "../src/fleximg/core/format_metrics.h"
+#include "../src/fleximg/core/memory/pool_allocator.h"
 
 using namespace emscripten;
 using namespace FLEXIMG_NAMESPACE;
@@ -180,7 +181,11 @@ std::unique_ptr<AffineNode> createAffineNode(const GraphNode& gnode) {
 class NodeGraphEvaluatorWrapper {
 public:
     NodeGraphEvaluatorWrapper(int width, int height)
-        : canvasWidth_(width), canvasHeight_(height) {}
+        : canvasWidth_(width), canvasHeight_(height) {
+        // パイプライン用PoolAllocatorを初期化
+        poolAllocator_.initialize(poolMemory_, POOL_BLOCK_SIZE, POOL_BLOCK_COUNT, false);
+        poolAdapter_ = std::make_unique<core::memory::PoolAllocatorAdapter>(poolAllocator_);
+    }
 
     void setCanvasSize(int width, int height) {
         canvasWidth_ = width;
@@ -652,6 +657,26 @@ public:
         result.set("maxAllocBytes", static_cast<double>(lastPerfMetrics_.maxAllocBytes));
         result.set("maxAllocWidth", lastPerfMetrics_.maxAllocWidth);
         result.set("maxAllocHeight", lastPerfMetrics_.maxAllocHeight);
+        // PoolAllocator統計
+        {
+            val poolStats = val::object();
+            const auto& adapterStats = poolAdapter_->stats();
+            poolStats.set("poolHits", static_cast<int>(adapterStats.poolHits));
+            poolStats.set("poolMisses", static_cast<int>(adapterStats.poolMisses));
+            poolStats.set("poolDeallocs", static_cast<int>(adapterStats.poolDeallocs));
+            poolStats.set("defaultDeallocs", static_cast<int>(adapterStats.defaultDeallocs));
+            poolStats.set("lastAllocSize", static_cast<int>(adapterStats.lastAllocSize));
+            // PoolAllocator本体の統計
+            const auto& coreStats = poolAllocator_.stats();
+            poolStats.set("totalAllocations", static_cast<int>(coreStats.totalAllocations));
+            poolStats.set("totalDeallocations", static_cast<int>(coreStats.totalDeallocations));
+            poolStats.set("usedBlocks", static_cast<int>(poolAllocator_.usedBlockCount()));
+            poolStats.set("peakUsedBlocks", static_cast<int>(coreStats.peakUsedBlocks));
+            poolStats.set("freeBlocks", static_cast<int>(poolAllocator_.freeBlockCount()));
+            poolStats.set("blockSize", static_cast<int>(poolAllocator_.blockSize()));
+            poolStats.set("blockCount", static_cast<int>(poolAllocator_.blockCount()));
+            result.set("poolAllocator", poolStats);
+        }
 #else
         result.set("filterTime", 0);
         result.set("affineTime", 0);
@@ -668,6 +693,24 @@ public:
         result.set("maxAllocBytes", 0);
         result.set("maxAllocWidth", 0);
         result.set("maxAllocHeight", 0);
+        // PoolAllocator統計（リリースビルドでも基本情報は取得可能）
+        {
+            val poolStats = val::object();
+            poolStats.set("poolHits", 0);
+            poolStats.set("poolMisses", 0);
+            poolStats.set("poolDeallocs", 0);
+            poolStats.set("defaultDeallocs", 0);
+            poolStats.set("lastAllocSize", 0);
+            const auto& coreStats = poolAllocator_.stats();
+            poolStats.set("totalAllocations", static_cast<int>(coreStats.totalAllocations));
+            poolStats.set("totalDeallocations", static_cast<int>(coreStats.totalDeallocations));
+            poolStats.set("usedBlocks", static_cast<int>(poolAllocator_.usedBlockCount()));
+            poolStats.set("peakUsedBlocks", static_cast<int>(coreStats.peakUsedBlocks));
+            poolStats.set("freeBlocks", static_cast<int>(poolAllocator_.freeBlockCount()));
+            poolStats.set("blockSize", static_cast<int>(poolAllocator_.blockSize()));
+            poolStats.set("blockCount", static_cast<int>(poolAllocator_.blockCount()));
+            result.set("poolAllocator", poolStats);
+        }
 #endif
 
         return result;
@@ -755,6 +798,13 @@ private:
     // Sink別出力管理（複数Sink対応）
     std::map<std::string, SinkOutput> sinkOutputs_;
     std::map<std::string, PixelFormatID> sinkFormats_;
+
+    // パイプライン用PoolAllocator（動作検証用）
+    static constexpr size_t POOL_BLOCK_SIZE = 1024;
+    static constexpr size_t POOL_BLOCK_COUNT = 32;
+    uint8_t poolMemory_[POOL_BLOCK_SIZE * POOL_BLOCK_COUNT];
+    core::memory::PoolAllocator poolAllocator_;
+    std::unique_ptr<core::memory::PoolAllocatorAdapter> poolAdapter_;
 
     // グラフを解析してv2ノードを構築・実行
     // 戻り値: 0 = 成功、非0 = エラー（PrepareStatus値）
@@ -874,6 +924,13 @@ private:
         auto rendererNode = std::make_unique<RendererNode>();
         rendererNode->setVirtualScreen(canvasWidth_, canvasHeight_);
         rendererNode->setPivot(static_cast<float>(dstOriginX_), static_cast<float>(dstOriginY_));
+        rendererNode->setAllocator(poolAdapter_.get());
+
+        // フレームごとの統計をリセット
+        poolAllocator_.resetStats();
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        poolAdapter_->resetStats();
+#endif
 
         // 再帰的にノードを構築
         std::function<Node*(const std::string&)> buildNode;
