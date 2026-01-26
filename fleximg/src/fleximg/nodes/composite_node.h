@@ -92,6 +92,17 @@ protected:
     int nodeTypeForMetrics() const override { return NodeType::Composite; }
 
 private:
+    // 有効な上流のキャッシュエントリ（Node* + DataRange）
+    struct UpstreamCacheEntry {
+        Node* node;
+        DataRange range;
+    };
+
+    // 有効な上流のみを格納するキャッシュ（onPullPrepareで確保、onPullFinalizeで解放）
+    UpstreamCacheEntry* upstreamCache_ = nullptr;
+    int_fast16_t upstreamCacheCapacity_ = 0;  // 確保サイズ（inputCount）
+    mutable int_fast16_t validUpstreamCount_ = 0;  // 有効エントリ数（calcUpstreamRangeUnionで設定）
+
     // getDataRange/onPullProcess 間のキャッシュ
     struct DataRangeCache {
         Point origin = {INT32_MIN, INT32_MIN};  // キャッシュキー（無効値で初期化）
@@ -100,7 +111,7 @@ private:
     };
     mutable DataRangeCache rangeCache_;
 
-    // 全上流のgetDataRange和集合を計算（キャッシュなし）
+    // 全上流のgetDataRange和集合を計算し、各上流のDataRangeをキャッシュに保存
     DataRange calcUpstreamRangeUnion(const RenderRequest& request) const;
 };
 
@@ -118,6 +129,20 @@ namespace FLEXIMG_NAMESPACE {
 // ============================================================================
 
 PrepareResponse CompositeNode::onPullPrepare(const PrepareRequest& request) {
+    // 有効な上流キャッシュを確保（最大で入力数分）
+    {
+        auto cacheInputCount = inputCount();
+        if (cacheInputCount > 0 && allocator()) {
+            size_t cacheSize = static_cast<size_t>(cacheInputCount) * sizeof(UpstreamCacheEntry);
+            void* mem = allocator()->allocate(cacheSize, alignof(UpstreamCacheEntry));
+            if (mem) {
+                upstreamCache_ = static_cast<UpstreamCacheEntry*>(mem);
+                upstreamCacheCapacity_ = cacheInputCount;
+                validUpstreamCount_ = 0;  // calcUpstreamRangeUnionで設定される
+            }
+        }
+    }
+
     PrepareResponse merged;
     merged.status = PrepareStatus::Prepared;
     int validUpstreamCount = 0;
@@ -209,6 +234,16 @@ PrepareResponse CompositeNode::onPullPrepare(const PrepareRequest& request) {
 }
 
 void CompositeNode::onPullFinalize() {
+    // キャッシュを解放
+    if (upstreamCache_ && allocator()) {
+        allocator()->deallocate(upstreamCache_);
+        upstreamCache_ = nullptr;
+        upstreamCacheCapacity_ = 0;
+        validUpstreamCount_ = 0;
+    }
+    // キャッシュキーも無効化
+    rangeCache_.origin = {INT32_MIN, INT32_MIN};
+
     finalize();
     auto numInputs = inputCount();
     for (int_fast16_t i = 0; i < numInputs; ++i) {
@@ -219,21 +254,33 @@ void CompositeNode::onPullFinalize() {
     }
 }
 
-// 全上流のgetDataRange和集合を計算
+// 全上流のgetDataRange和集合を計算し、有効な上流のみキャッシュに保存
 DataRange CompositeNode::calcUpstreamRangeUnion(const RenderRequest& request) const {
     auto numInputs = inputCount();
     int_fast16_t startX = request.width;  // 右端で初期化
     int_fast16_t endX = 0;                // 左端で初期化
+    int_fast16_t cacheIndex = 0;          // キャッシュ書き込み位置
 
     for (int_fast16_t i = 0; i < numInputs; i++) {
         Node* upstream = upstreamNode(i);
         if (!upstream) continue;
+
         DataRange range = upstream->getDataRange(request);
-        if (range.hasData()) {
-            if (range.startX < startX) startX = range.startX;
-            if (range.endX > endX) endX = range.endX;
+        if (!range.hasData()) continue;
+
+        // 有効な上流のみキャッシュに追加
+        if (upstreamCache_ && cacheIndex < upstreamCacheCapacity_) {
+            upstreamCache_[cacheIndex].node = upstream;
+            upstreamCache_[cacheIndex].range = range;
+            ++cacheIndex;
         }
+
+        // 和集合を更新
+        if (range.startX < startX) startX = range.startX;
+        if (range.endX > endX) endX = range.endX;
     }
+
+    validUpstreamCount_ = cacheIndex;
     return DataRange{static_cast<int16_t>(startX), static_cast<int16_t>(endX)};  // startX >= endX はデータなし
 }
 
@@ -305,16 +352,13 @@ RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
     int validStartX = canvasWidth;  // 左端（右端で初期化）
     int validEndX = 0;              // 右端（左端で初期化）
 
-    // under合成: 入力を順に評価して合成
-    // 入力ポート0が最前面、以降が背面
+    // under合成: 有効な上流のみ順に評価して合成
+    // 入力ポート0が最前面、以降が背面（キャッシュは同じ順序で格納）
     bool isFirstContent = true;
-    for (int_fast16_t i = 0; i < numInputs; i++) {
-        Node* upstream = upstreamNode(i);
-        if (!upstream) continue;
-
-        // 範囲外の上流はスキップ（prepare時のAABBで判定）
-        DataRange range = upstream->getDataRange(request);
-        if (!range.hasData()) continue;
+    for (int_fast16_t i = 0; i < validUpstreamCount_; i++) {
+        // キャッシュから取得（hasData()チェック不要、キャッシュに入っている時点で有効）
+        Node* upstream = upstreamCache_[i].node;
+        // DataRange range = upstreamCache_[i].range;  // 現在未使用だが将来の最適化用
 
         // 上流を評価（計測対象外）
         RenderResponse inputResult = upstream->pullProcess(request);
