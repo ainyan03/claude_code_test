@@ -60,58 +60,6 @@ private:
     Stats stats_;
 };
 
-// PoolAllocatorをIAllocatorとして使用するためのアダプタ（統計付き）
-class PoolAllocatorAdapter : public fleximg::core::memory::IAllocator {
-public:
-    // 統計情報
-    struct Stats {
-        size_t poolHits = 0;        // プールから確保成功
-        size_t poolMisses = 0;      // プールから確保失敗（フォールバック）
-        size_t poolDeallocs = 0;    // プールへ解放
-        size_t defaultDeallocs = 0; // DefaultAllocatorへ解放
-        size_t lastAllocSize = 0;   // 最後の確保サイズ
-
-        void reset() {
-            poolHits = poolMisses = poolDeallocs = defaultDeallocs = 0;
-            lastAllocSize = 0;
-        }
-    };
-
-    PoolAllocatorAdapter(fleximg::core::memory::PoolAllocator& pool)
-        : pool_(pool) {}
-
-    void* allocate(size_t bytes, size_t /* alignment */ = 16) override {
-        stats_.lastAllocSize = bytes;
-        void* ptr = pool_.allocate(bytes);
-        if (ptr) {
-            stats_.poolHits++;
-            return ptr;
-        }
-        // プールから確保できない場合はDefaultAllocatorにフォールバック
-        stats_.poolMisses++;
-        return fleximg::core::memory::DefaultAllocator::instance().allocate(bytes);
-    }
-
-    void deallocate(void* ptr) override {
-        if (pool_.deallocate(ptr)) {
-            stats_.poolDeallocs++;
-        } else {
-            // プール外のポインタはDefaultAllocatorで解放
-            stats_.defaultDeallocs++;
-            fleximg::core::memory::DefaultAllocator::instance().deallocate(ptr);
-        }
-    }
-
-    const char* name() const override { return "PoolAllocatorAdapter"; }
-
-    const Stats& stats() const { return stats_; }
-    void resetStats() { stats_.reset(); }
-
-private:
-    fleximg::core::memory::PoolAllocator& pool_;
-    Stats stats_;
-};
-
 // カスタムSinkNode
 #include "lcd_sink_node.h"
 
@@ -246,14 +194,14 @@ static ImageBuffer createHexagramMask(int width, int height) {
 // PoolAllocator用のメモリプール（内部RAM使用）
 // fleximg内部で動的に確保されるバッファ用（MatteNode等の一時バッファ）
 // 320幅のスキャンライン: 320 * 4 = 1280バイト
-// 余裕を持って2KB x 8ブロック = 16KB
-static constexpr size_t POOL_BLOCK_SIZE = 2 * 1024;  // 2KB per block
-static constexpr size_t POOL_BLOCK_COUNT = 8;        // 8 blocks = 16KB
+// 余裕を持って512B x 32ブロック = 16KB
+static constexpr size_t POOL_BLOCK_SIZE = 512;  // 512 bytes per block
+static constexpr size_t POOL_BLOCK_COUNT = 32;        // 32 blocks = 16KB
 static uint8_t poolMemory[POOL_BLOCK_SIZE * POOL_BLOCK_COUNT];
 
 // PoolAllocatorとアダプタのインスタンス
 static fleximg::core::memory::PoolAllocator internalPool;
-static PoolAllocatorAdapter* poolAdapter = nullptr;
+static fleximg::core::memory::PoolAllocatorAdapter* poolAdapter = nullptr;
 
 // グローバル変数
 static ImageBuffer foregroundImage;
@@ -291,7 +239,7 @@ void setup() {
 
     // PoolAllocatorを初期化（fleximg内部バッファ用）
     internalPool.initialize(poolMemory, POOL_BLOCK_SIZE, POOL_BLOCK_COUNT, false);
-    static PoolAllocatorAdapter adapter(internalPool);
+    static fleximg::core::memory::PoolAllocatorAdapter adapter(internalPool);
     poolAdapter = &adapter;
 
     M5.Display.printf("Pool: %zu x %zu bytes\n", POOL_BLOCK_COUNT, POOL_BLOCK_SIZE);
@@ -332,6 +280,7 @@ void setup() {
 
     // レンダラー設定
     renderer.setVirtualScreen(drawW, drawH);
+    renderer.setPivotCenter();
     renderer.setAllocator(poolAdapter);  // 内部バッファ用アロケータを設定
 
     // LCD出力設定
@@ -418,15 +367,16 @@ void loop() {
         frameCount = 0;
         lastTime = now;
 
-        // 統計取得
-        const auto& poolStats = poolAdapter->stats();
-        const auto& defaultStats = TrackedDefaultAllocator::instance().stats();
-
         // FPS・アロケータ統計表示更新
         int16_t dispH = static_cast<int16_t>(M5.Display.height());
         M5.Display.fillRect(0, dispH - 60, 250, 60, TFT_BLACK);
         M5.Display.setCursor(0, dispH - 60);
         M5.Display.printf("FPS:%.1f", static_cast<double>(fps));
+
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+        // 統計取得（デバッグビルド時のみ）
+        const auto& poolStats = poolAdapter->stats();
+        const auto& defaultStats = TrackedDefaultAllocator::instance().stats();
         M5.Display.setCursor(0, dispH - 45);
         M5.Display.printf("Pool  A:%zu F:%zu",
                           poolStats.poolHits, poolStats.poolDeallocs);
@@ -436,5 +386,6 @@ void loop() {
         M5.Display.setCursor(0, dispH - 15);
         M5.Display.printf("Miss:%zu Size:%zu",
                           poolStats.poolMisses, poolStats.lastAllocSize);
+#endif
     }
 }

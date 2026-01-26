@@ -502,9 +502,9 @@ RenderResponse VerticalBlurNode::pullProcessPipeline(Node* upstream, const Rende
         range = getDataRange(request);
     }
 
-    // 有効なデータがない場合は空を返す
+    // 有効なデータがない場合は空を返す（originは維持）
     if (!range.hasData()) {
-        return RenderResponse();
+        return RenderResponse(ImageBuffer(), request.origin);
     }
 
     FLEXIMG_METRICS_SCOPE(NodeType::VerticalBlur);
@@ -522,9 +522,9 @@ RenderResponse VerticalBlurNode::pullProcessPipeline(Node* upstream, const Rende
     int_fixed interLeft = std::max(cacheLeft, reqLeft);
     int_fixed interRight = std::min(cacheRight, reqRight);
 
-    // 交差領域がなければ空を返す
+    // 交差領域がなければ空を返す（originは維持）
     if (interLeft >= interRight) {
-        return RenderResponse();
+        return RenderResponse(ImageBuffer(), request.origin);
     }
 
     // キャッシュ内のオフセットと出力幅を計算（SourceNodeと同じ丸め方式）

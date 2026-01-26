@@ -130,6 +130,18 @@ static CompositeNode composite(4);  // 4入力
 static RendererNode renderer;
 static LcdSinkNode lcdSink;
 
+// PoolAllocator用のメモリプール（内部RAM使用）
+// fleximg内部で動的に確保されるバッファ用（CompositeNode等の一時バッファ）
+// 320幅のスキャンライン: 320 * 4 = 1280バイト
+// 余裕を持って512B x 32ブロック = 16KB
+static constexpr size_t POOL_BLOCK_SIZE = 512;  // 512 bytes per block
+static constexpr size_t POOL_BLOCK_COUNT = 32;  // 32 blocks = 16KB
+static uint8_t poolMemory[POOL_BLOCK_SIZE * POOL_BLOCK_COUNT];
+
+// PoolAllocatorとアダプタのインスタンス
+static fleximg::core::memory::PoolAllocator internalPool;
+static fleximg::core::memory::PoolAllocatorAdapter* poolAdapter = nullptr;
+
 // 画面サイズ
 static int16_t drawW = 320;
 static int16_t drawH = 200;
@@ -190,6 +202,11 @@ void setup() {
     drawX = (screenW - drawW) / 2;
     drawY = 40;  // 上部40pxはUI用
 
+    // PoolAllocatorを初期化（fleximg内部バッファ用）
+    internalPool.initialize(poolMemory, POOL_BLOCK_SIZE, POOL_BLOCK_COUNT, false);
+    static fleximg::core::memory::PoolAllocatorAdapter adapter(internalPool);
+    poolAdapter = &adapter;
+
     // モード0用画像（従来互換）
     srcImage = createColorGradientImage(80, 80, 255, 180, 100);
 
@@ -220,6 +237,8 @@ void setup() {
 
     // レンダラー設定
     renderer.setVirtualScreen(drawW, drawH);
+    renderer.setPivotCenter();
+    renderer.setAllocator(poolAdapter);  // 内部バッファ用アロケータを設定
 
     // LCD出力設定
     lcdSink.setTarget(&M5.Display, drawX, drawY, drawW, drawH);

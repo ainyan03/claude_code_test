@@ -218,11 +218,11 @@ RenderResponse HorizontalBlurNode::onPullProcess(const RenderRequest& request) {
     // 上流のデータ範囲を取得して出力バッファサイズを最適化
     DataRange upstreamRange = upstream->getDataRange(inputReq);
     if (!upstreamRange.hasData()) {
-        return RenderResponse();
+        return RenderResponse(ImageBuffer(), request.origin);
     }
 
     RenderResponse input = upstream->pullProcess(inputReq);
-    if (!input.isValid()) return RenderResponse();
+    if (!input.isValid()) return RenderResponse(ImageBuffer(), request.origin);
 
     FLEXIMG_METRICS_SCOPE(NodeType::HorizontalBlur);
 
@@ -276,7 +276,7 @@ RenderResponse HorizontalBlurNode::onPullProcess(const RenderRequest& request) {
     if (blurredEndX > request.width) blurredEndX = request.width;
 
     if (blurredStartX >= blurredEndX) {
-        return RenderResponse();
+        return RenderResponse(ImageBuffer(), request.origin);
     }
 
     int16_t outputWidth = blurredEndX - blurredStartX;

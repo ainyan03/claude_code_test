@@ -1,5 +1,27 @@
 # Changelog
 
+## [2.52.0] - 2026-01-26
+
+### 機能追加
+
+- **PoolAllocatorAdapter**: `pool_allocator.h` に `IAllocator` インターフェースアダプタを追加
+  - `PoolAllocator` を `IAllocator` としてラップし、`RendererNode::setAllocator()` で使用可能に
+  - プール確保失敗時は `DefaultAllocator` にフォールバック（`allowFallback` パラメータで制御可能）
+  - `FLEXIMG_DEBUG_PERF_METRICS` 定義時のみ統計情報（`Stats`）を保持（リリースビルドでは除外）
+
+### バグ修正
+
+- **RenderResponse の origin 維持**: 範囲外リクエスト時に空レスポンスを返す際、`origin` が失われる問題を修正
+  - 影響ノード: `CompositeNode`, `HorizontalBlurNode`, `VerticalBlurNode`, `NinePatchSourceNode`
+  - 修正内容: `RenderResponse()` → `RenderResponse(ImageBuffer(), request.origin)` に変更
+
+### サンプル更新
+
+- **m5stack_basic**: `PoolAllocator` / `PoolAllocatorAdapter` を追加、`renderer.setPivotCenter()` 追加
+- **m5stack_matte**: ローカル定義の `PoolAllocatorAdapter` を削除し、fleximg 本体のものを使用
+
+---
+
 ## [2.51.0] - 2026-01-25
 
 ### 破壊的変更
