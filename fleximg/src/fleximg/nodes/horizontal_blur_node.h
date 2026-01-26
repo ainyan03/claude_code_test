@@ -381,10 +381,10 @@ void HorizontalBlurNode::applyHorizontalBlur(const ViewPort& srcView, int inputO
     // 初期ウィンドウの合計（出力x=0に対応）
     uint32_t sumR = 0, sumG = 0, sumB = 0, sumA = 0;
 
-    for (int kx = -radius_; kx <= radius_; kx++) {
-        int srcX = inputOffset + kx;
+    for (auto kx = static_cast<int_fast16_t>(-radius_); kx <= radius_; kx++) {
+        auto srcX = static_cast<int_fast16_t>(inputOffset + kx);
         if (srcX >= 0 && srcX < inputWidth) {
-            int off = srcX * 4;
+            auto off = srcX * 4;
             uint32_t a = srcRow[off + 3];
             sumR += srcRow[off] * a;
             sumG += srcRow[off + 1] * a;
@@ -395,11 +395,11 @@ void HorizontalBlurNode::applyHorizontalBlur(const ViewPort& srcView, int inputO
     writeBlurredPixel(dstRow, 0, sumR, sumG, sumB, sumA);
 
     // スライディング: x = 1 to outputWidth-1
-    for (int x = 1; x < outputWidth; x++) {
+    for (int_fast16_t x = 1; x < outputWidth; x++) {
         // 出ていくピクセル
-        int oldSrcX = inputOffset + x - 1 - radius_;
+        auto oldSrcX = static_cast<int_fast16_t>(inputOffset + x - 1 - radius_);
         if (oldSrcX >= 0 && oldSrcX < inputWidth) {
-            int off = oldSrcX * 4;
+            auto off = oldSrcX * 4;
             uint32_t a = srcRow[off + 3];
             sumR -= srcRow[off] * a;
             sumG -= srcRow[off + 1] * a;
@@ -408,9 +408,9 @@ void HorizontalBlurNode::applyHorizontalBlur(const ViewPort& srcView, int inputO
         }
 
         // 入ってくるピクセル
-        int newSrcX = inputOffset + x + radius_;
+        auto newSrcX = static_cast<int_fast16_t>(inputOffset + x + radius_);
         if (newSrcX >= 0 && newSrcX < inputWidth) {
-            int off = newSrcX * 4;
+            auto off = newSrcX * 4;
             uint32_t a = srcRow[off + 3];
             sumR += srcRow[off] * a;
             sumG += srcRow[off + 1] * a;

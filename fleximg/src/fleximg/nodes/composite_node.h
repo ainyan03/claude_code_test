@@ -43,7 +43,7 @@ namespace FLEXIMG_NAMESPACE {
 
 class CompositeNode : public Node, public AffineCapability {
 public:
-    explicit CompositeNode(int inputCount = 2) {
+    explicit CompositeNode(int_fast16_t inputCount = 2) {
         initPorts(inputCount, 1);  // 入力N、出力1
     }
 
@@ -52,18 +52,18 @@ public:
     // ========================================
 
     // 入力数を変更（既存接続は維持）
-    void setInputCount(int count) {
+    void setInputCount(int_fast16_t count) {
         if (count < 1) count = 1;
         inputs_.resize(static_cast<size_t>(count));
-        for (int i = 0; i < count; ++i) {
+        for (int_fast16_t i = 0; i < count; ++i) {
             if (inputs_[static_cast<size_t>(i)].owner == nullptr) {
                 inputs_[static_cast<size_t>(i)] = Port(this, i);
             }
         }
     }
 
-    int inputCount() const {
-        return static_cast<int>(inputs_.size());
+    int_fast16_t inputCount() const {
+        return static_cast<int_fast16_t>(inputs_.size());
     }
 
     // ========================================
@@ -139,8 +139,8 @@ PrepareResponse CompositeNode::onPullPrepare(const PrepareRequest& request) {
     }
 
     // 全上流へ伝播し、結果をマージ（AABB和集合）
-    int numInputs = inputCount();
-    for (int i = 0; i < numInputs; ++i) {
+    auto numInputs = inputCount();
+    for (int_fast16_t i = 0; i < numInputs; ++i) {
         Node* upstream = upstreamNode(i);
         if (upstream) {
             // 各上流に同じリクエストを伝播
@@ -210,8 +210,8 @@ PrepareResponse CompositeNode::onPullPrepare(const PrepareRequest& request) {
 
 void CompositeNode::onPullFinalize() {
     finalize();
-    int numInputs = inputCount();
-    for (int i = 0; i < numInputs; ++i) {
+    auto numInputs = inputCount();
+    for (int_fast16_t i = 0; i < numInputs; ++i) {
         Node* upstream = upstreamNode(i);
         if (upstream) {
             upstream->pullFinalize();
@@ -221,11 +221,11 @@ void CompositeNode::onPullFinalize() {
 
 // 全上流のgetDataRange和集合を計算
 DataRange CompositeNode::calcUpstreamRangeUnion(const RenderRequest& request) const {
-    int numInputs = inputCount();
-    int16_t startX = request.width;  // 右端で初期化
-    int16_t endX = 0;                // 左端で初期化
+    auto numInputs = inputCount();
+    int_fast16_t startX = request.width;  // 右端で初期化
+    int_fast16_t endX = 0;                // 左端で初期化
 
-    for (int i = 0; i < numInputs; i++) {
+    for (int_fast16_t i = 0; i < numInputs; i++) {
         Node* upstream = upstreamNode(i);
         if (!upstream) continue;
         DataRange range = upstream->getDataRange(request);
@@ -234,7 +234,7 @@ DataRange CompositeNode::calcUpstreamRangeUnion(const RenderRequest& request) co
             if (range.endX > endX) endX = range.endX;
         }
     }
-    return DataRange{startX, endX};  // startX >= endX はデータなし
+    return DataRange{static_cast<int16_t>(startX), static_cast<int16_t>(endX)};  // startX >= endX はデータなし
 }
 
 // getDataRange: 全上流のgetDataRange和集合を返す
@@ -254,7 +254,7 @@ DataRange CompositeNode::getDataRange(const RenderRequest& request) const {
 // under合成: 手前から奥へ処理し、不透明な部分は後のレイヤーをスキップ
 // 最適化: height=1 前提（パイプラインは常にスキャンライン単位で処理）
 RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
-    int numInputs = inputCount();
+    auto numInputs = inputCount();
     if (numInputs == 0) return RenderResponse();
 
     // キャンバス範囲を取得（キャッシュがあれば再利用）
@@ -308,7 +308,7 @@ RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
     // under合成: 入力を順に評価して合成
     // 入力ポート0が最前面、以降が背面
     bool isFirstContent = true;
-    for (int i = 0; i < numInputs; i++) {
+    for (int_fast16_t i = 0; i < numInputs; i++) {
         Node* upstream = upstreamNode(i);
         if (!upstream) continue;
 

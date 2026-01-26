@@ -49,18 +49,18 @@ public:
     // 通常画像 + 境界座標を明示指定（上級者向け/内部用）
     // left/top/right/bottom: 各角の固定サイズ（ピクセル）
     void setupWithBounds(const ViewPort& image,
-                         int16_t left, int16_t top,
-                         int16_t right, int16_t bottom) {
+                         int_fast16_t left, int_fast16_t top,
+                         int_fast16_t right, int_fast16_t bottom) {
         source_ = image;
-        srcLeft_ = left;
-        srcTop_ = top;
-        srcRight_ = right;
-        srcBottom_ = bottom;
+        srcLeft_ = static_cast<int16_t>(left);
+        srcTop_ = static_cast<int16_t>(top);
+        srcRight_ = static_cast<int16_t>(right);
+        srcBottom_ = static_cast<int16_t>(bottom);
         // クリッピングなしの初期状態
-        effectiveSrcLeft_ = left;
-        effectiveSrcRight_ = right;
-        effectiveSrcTop_ = top;
-        effectiveSrcBottom_ = bottom;
+        effectiveSrcLeft_ = static_cast<int16_t>(left);
+        effectiveSrcRight_ = static_cast<int16_t>(right);
+        effectiveSrcTop_ = static_cast<int16_t>(top);
+        effectiveSrcBottom_ = static_cast<int16_t>(bottom);
         sourceValid_ = image.isValid();
         geometryValid_ = false;
 
@@ -88,8 +88,8 @@ public:
             1, 1, ninePatchImage.width - 2, ninePatchImage.height - 2);
 
         // 上辺（y=0）のメタデータを解析 → 横方向の伸縮領域
-        int16_t stretchXStart = -1, stretchXEnd = -1;
-        for (int16_t x = 1; x < ninePatchImage.width - 1; x++) {
+        int_fast16_t stretchXStart = -1, stretchXEnd = -1;
+        for (int_fast16_t x = 1; x < ninePatchImage.width - 1; x++) {
             if (isBlack(x, 0)) {
                 if (stretchXStart < 0) stretchXStart = x - 1;  // 外周を除いた座標
                 stretchXEnd = x - 1;
@@ -97,8 +97,8 @@ public:
         }
 
         // 左辺（x=0）のメタデータを解析 → 縦方向の伸縮領域
-        int16_t stretchYStart = -1, stretchYEnd = -1;
-        for (int16_t y = 1; y < ninePatchImage.height - 1; y++) {
+        int_fast16_t stretchYStart = -1, stretchYEnd = -1;
+        for (int_fast16_t y = 1; y < ninePatchImage.height - 1; y++) {
             if (isBlack(0, y)) {
                 if (stretchYStart < 0) stretchYStart = y - 1;  // 外周を除いた座標
                 stretchYEnd = y - 1;
@@ -106,10 +106,10 @@ public:
         }
 
         // 境界座標を計算
-        int16_t left = (stretchXStart >= 0) ? stretchXStart : 0;
-        int16_t right = (stretchXEnd >= 0) ? (innerImage.width - 1 - stretchXEnd) : 0;
-        int16_t top = (stretchYStart >= 0) ? stretchYStart : 0;
-        int16_t bottom = (stretchYEnd >= 0) ? (innerImage.height - 1 - stretchYEnd) : 0;
+        auto left = static_cast<int_fast16_t>( (stretchXStart >= 0) ? (stretchXStart) : 0);
+        auto right = static_cast<int_fast16_t>( (stretchXEnd >= 0) ? (innerImage.width - 1 - stretchXEnd) : 0);
+        auto top = static_cast<int_fast16_t>( (stretchYStart >= 0) ? (stretchYStart) : 0);
+        auto bottom = static_cast<int_fast16_t>( (stretchYEnd >= 0) ? (innerImage.height - 1 - stretchYEnd) : 0);
 
         // setupWithBounds を呼び出し
         setupWithBounds(innerImage, left, top, right, bottom);
@@ -163,10 +163,10 @@ public:
     int_fixed pivotY() const { return pivotY_; }
 
     // 境界座標（読み取り用）
-    int16_t srcLeft() const { return srcLeft_; }
-    int16_t srcTop() const { return srcTop_; }
-    int16_t srcRight() const { return srcRight_; }
-    int16_t srcBottom() const { return srcBottom_; }
+    int_fast16_t srcLeft() const { return srcLeft_; }
+    int_fast16_t srcTop() const { return srcTop_; }
+    int_fast16_t srcRight() const { return srcRight_; }
+    int_fast16_t srcBottom() const { return srcBottom_; }
 
     const char* name() const override { return "NinePatchSourceNode"; }
     int nodeTypeForMetrics() const override { return NodeType::NinePatch; }
@@ -249,7 +249,7 @@ private:
     void calcSrcPatchSizes();
 
     // 1軸方向のクリッピング計算（横/縦共通）
-    void calcAxisClipping(float outputSize, int16_t srcFixed0, int16_t srcFixed2,
+    void calcAxisClipping(float outputSize, int_fast16_t srcFixed0, int_fast16_t srcFixed2,
                           float& outWidth0, float& outWidth1, float& outWidth2,
                           int16_t& effSrc0, int16_t& effSrc2);
 
@@ -363,18 +363,18 @@ RenderResponse NinePatchSourceNode::onPullProcess(const RenderRequest& request) 
 
     // 描画順序: 伸縮パッチ → 固定パッチ
     // 斜めアフィン時にパッチ継ぎ目のエッジが綺麗に処理される
-    constexpr int drawOrder[9] = {
+    constexpr uint8_t drawOrder[9] = {
         4,           // 中央パッチ（両方向伸縮）を最初に
         1, 3, 5, 7,  // 伸縮パッチ（辺）
         0, 2, 6, 8   // 固定パッチ（角）を最後に
     };
 
     // 各パッチのデータ範囲を収集し、和集合を計算
-    int16_t canvasStartX = request.width;
-    int16_t canvasEndX = 0;
-    for (int i : drawOrder) {
-        int col = i % 3;
-        int row = i / 3;
+    int_fast16_t canvasStartX = request.width;
+    int_fast16_t canvasEndX = 0;
+    for (auto i : drawOrder) {
+        auto col = static_cast<int_fast16_t>(i % 3);
+        auto row = static_cast<int_fast16_t>(i / 3);
         if (patchWidths_[col] <= 0 || patchHeights_[row] <= 0) {
             continue;
         }
@@ -390,7 +390,7 @@ RenderResponse NinePatchSourceNode::onPullProcess(const RenderRequest& request) 
         return RenderResponse(ImageBuffer(), request.origin);
     }
 
-    int16_t canvasWidth = canvasEndX - canvasStartX;
+    int_fast16_t canvasWidth = canvasEndX - canvasStartX;
 
     // キャンバス作成（透明で初期化、必要幅のみ確保）
     // 新座標系: canvasStartX分だけ右にシフト（加算）
@@ -401,10 +401,10 @@ RenderResponse NinePatchSourceNode::onPullProcess(const RenderRequest& request) 
     ViewPort canvasView = canvasBuf.view();
 
     // 全9区画を処理
-    for (int i : drawOrder) {
+    for (auto i : drawOrder) {
         // サイズ0の区画はスキップ
-        int col = i % 3;
-        int row = i / 3;
+        auto col = static_cast<int_fast16_t>(i % 3);
+        auto row = static_cast<int_fast16_t>(i / 3);
         if (patchWidths_[col] <= 0 || patchHeights_[row] <= 0) {
             continue;
         }
@@ -439,12 +439,12 @@ DataRange NinePatchSourceNode::getDataRange(const RenderRequest& request) const 
     }
 
     // 全パッチのデータ範囲の和集合を計算
-    int16_t startX = INT16_MAX;
-    int16_t endX = INT16_MIN;
+    int_fast16_t startX = INT16_MAX;
+    int_fast16_t endX = INT16_MIN;
 
     for (int i = 0; i < 9; i++) {
-        int col = i % 3;
-        int row = i / 3;
+        auto col = static_cast<int_fast16_t>(i % 3);
+        auto row = static_cast<int_fast16_t>(i / 3);
         if (patchWidths_[col] <= 0 || patchHeights_[row] <= 0) {
             continue;
         }
@@ -458,7 +458,7 @@ DataRange NinePatchSourceNode::getDataRange(const RenderRequest& request) const 
     if (startX >= endX) {
         return DataRange{0, 0};
     }
-    return DataRange{startX, endX};
+    return DataRange{static_cast<int16_t>(startX), static_cast<int16_t>(endX)};
 }
 
 // ============================================================================
@@ -474,24 +474,24 @@ void NinePatchSourceNode::calcSrcPatchSizes() {
     srcPatchH_[2] = srcBottom_;
 }
 
-void NinePatchSourceNode::calcAxisClipping(float outputSize, int16_t srcFixed0, int16_t srcFixed2,
+void NinePatchSourceNode::calcAxisClipping(float outputSize, int_fast16_t srcFixed0, int_fast16_t srcFixed2,
                                            float& outWidth0, float& outWidth1, float& outWidth2,
                                            int16_t& effSrc0, int16_t& effSrc2) {
     // クリッピング時もソースビューは元のサイズを維持し、スケールで縮小
     float totalFixed = static_cast<float>(srcFixed0 + srcFixed2);
     if (outputSize < totalFixed && totalFixed > 0) {
         float ratio = outputSize / totalFixed;
-        outWidth0 = srcFixed0 * ratio;
+        outWidth0 = static_cast<float>(srcFixed0) * ratio;
         outWidth1 = 0.0f;
         outWidth2 = outputSize - outWidth0;
         // ソースビューは元のサイズを維持（スケールで縮小して滑らかな描画を実現）
-        effSrc0 = srcFixed0;
-        effSrc2 = srcFixed2;
+        effSrc0 = static_cast<int16_t>(srcFixed0);
+        effSrc2 = static_cast<int16_t>(srcFixed2);
     } else {
-        effSrc0 = srcFixed0;
-        effSrc2 = srcFixed2;
+        effSrc0 = static_cast<int16_t>(srcFixed0);
+        effSrc2 = static_cast<int16_t>(srcFixed2);
         outWidth0 = static_cast<float>(srcFixed0);
-        outWidth1 = outputSize - srcFixed0 - srcFixed2;
+        outWidth1 = outputSize - static_cast<float>(srcFixed0) - static_cast<float>(srcFixed2);
         outWidth2 = static_cast<float>(srcFixed2);
     }
 }
@@ -536,7 +536,7 @@ void NinePatchSourceNode::updatePatchGeometry() {
             int idx = row * 3 + col;
 
             // オーバーラップ量（固定部→伸縮部方向に拡張）
-            int16_t dx = 0, dy = 0, dw = 0, dh = 0;
+            int_fast16_t dx = 0, dy = 0, dw = 0, dh = 0;
 
             // 横方向オーバーラップ
             if (hasHStretch) {
@@ -574,9 +574,9 @@ void NinePatchSourceNode::updatePatchGeometry() {
             // 横方向スケール
             if (col == 1 && srcPatchW_[1] > 0) {
                 // 伸縮部
-                int16_t effSrcW = srcPatchW_[1];
+                int_fast16_t effSrcW = srcPatchW_[1];
                 if (interpolationMode_ == InterpolationMode::Bilinear && effSrcW > 1) effSrcW -= 1;
-                scaleX = patchWidths_[1] / effSrcW;
+                scaleX = patchWidths_[1] / static_cast<float>(effSrcW);
             } else if (hClipping && effW[col] > 0) {
                 // クリッピング時の固定部（出力幅/ソース幅）
                 scaleX = patchWidths_[col] / effW[col];
@@ -585,17 +585,17 @@ void NinePatchSourceNode::updatePatchGeometry() {
             // 縦方向スケール
             if (row == 1 && srcPatchH_[1] > 0) {
                 // 伸縮部
-                int16_t effSrcH = srcPatchH_[1];
+                int_fast16_t effSrcH = srcPatchH_[1];
                 if (interpolationMode_ == InterpolationMode::Bilinear && effSrcH > 1) effSrcH -= 1;
-                scaleY = patchHeights_[1] / effSrcH;
+                scaleY = patchHeights_[1] / static_cast<float>(effSrcH);
             } else if (vClipping && effH[row] > 0) {
                 // クリッピング時の固定部（出力高さ/ソース高さ）
                 scaleY = patchHeights_[row] / effH[row];
             }
 
             // 平行移動量
-            float tx = patchOffsetX_[col] + dx - pivotXf + positionX_;
-            float ty = patchOffsetY_[row] + dy - pivotYf + positionY_;
+            float tx = patchOffsetX_[col] + static_cast<float>(dx) - pivotXf + positionX_;
+            float ty = patchOffsetY_[row] + static_cast<float>(dy) - pivotYf + positionY_;
 
             // バイリニア時の伸縮部位置補正
             if (interpolationMode_ == InterpolationMode::Bilinear) {

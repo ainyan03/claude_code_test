@@ -265,7 +265,7 @@ DataRange VerticalBlurNode::getDataRange(const RenderRequest& request) const {
     // ブラーカーネル範囲内の全行のX範囲の和集合を計算
     RenderRequest rowRequest = request;
     int_fixed baseY = request.origin.y;
-    for (int dy = -expansion; dy <= expansion; ++dy) {
+    for (auto dy = static_cast<int_fast16_t>(-expansion); dy <= expansion; ++dy) {
         rowRequest.origin.y = baseY + to_fixed(dy);
         DataRange rowRange = upstream->getDataRange(rowRequest);
         if (rowRange.hasData()) {
@@ -550,7 +550,7 @@ RenderResponse VerticalBlurNode::pullProcessPipeline(Node* upstream, const Rende
     uint8_t* outRow = static_cast<uint8_t*>(output.view().data);
     int ks = kernelSize();
 
-    for (int cacheX = srcStartX; cacheX < srcEndX; cacheX++) {
+    for (auto cacheX = static_cast<int_fast16_t>(srcStartX); cacheX < srcEndX; cacheX++) {
         size_t outOff = static_cast<size_t>(cacheX - srcStartX) * 4;
 
         if (lastStage.colSumA[static_cast<size_t>(cacheX)] > 0) {
@@ -769,7 +769,7 @@ void VerticalBlurNode::propagatePipelineStages() {
     int ks = kernelSize();
 
     // Stage 0の出力を計算してStage 1以降に伝播
-    for (int s = 1; s < passes_; s++) {
+    for (int_fast16_t s = 1; s < passes_; s++) {
         BlurStage& prevStage = stages_[static_cast<size_t>(s - 1)];
         BlurStage& stage = stages_[static_cast<size_t>(s)];
 
