@@ -323,6 +323,11 @@ void loop() {
 #endif
     M5.update();
 
+    // ボタン処理: ダブルクリックで描画トグル
+    if (M5.BtnC.wasDoubleClicked()) {
+        lcdSink.setDrawEnabled(!lcdSink.getDrawEnabled());
+    }
+
     // アニメーション時間を更新
     animationTime += 0.02f;
     if (animationTime > 2.0f * static_cast<float>(M_PI)) {

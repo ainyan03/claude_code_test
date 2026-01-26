@@ -59,7 +59,12 @@ public:
 
     const char* name() const override { return "LcdSinkNode"; }
 
+    bool getDrawEnabled() const { return drawEnabled_; }
+    void setDrawEnabled(bool en) { drawEnabled_ = en; }
+
 protected:
+    bool drawEnabled_ = true;
+
     int nodeTypeForMetrics() const override { return 100; }  // カスタムノードID
 
     // ========================================
@@ -95,7 +100,7 @@ protected:
                        const RenderRequest& request) override {
         (void)request;
 
-        if (!lcd_) return;
+        if (!lcd_ || !drawEnabled_) return;
 
         ViewPort inputView = input.isValid() ? input.view() : ViewPort();
 
