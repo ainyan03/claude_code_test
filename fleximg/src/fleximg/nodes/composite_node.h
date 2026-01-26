@@ -271,9 +271,9 @@ RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
         canvasEndX = range.endX;
     }
 
-    // 有効なデータがない場合は空を返す
+    // 有効なデータがない場合は空を返す（originは維持）
     if (canvasStartX >= canvasEndX) {
-        return RenderResponse();
+        return RenderResponse(ImageBuffer(), request.origin);
     }
 
     int16_t canvasWidth = canvasEndX - canvasStartX;
@@ -390,9 +390,9 @@ RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
         }
     }
 
-    // 全ての入力が空だった場合（事前判定で回避されるはずだが念のため）
+    // 全ての入力が空だった場合（事前判定で回避されるはずだが念のため、originは維持）
     if (validStartX >= validEndX) {
-        return RenderResponse();
+        return RenderResponse(ImageBuffer(), request.origin);
     }
 
     // 余白をゼロクリアしてバッファを返す

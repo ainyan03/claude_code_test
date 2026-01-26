@@ -353,7 +353,7 @@ void NinePatchSourceNode::onPullFinalize() {
 
 RenderResponse NinePatchSourceNode::onPullProcess(const RenderRequest& request) {
     if (!sourceValid_ || outputWidth_ <= 0 || outputHeight_ <= 0) {
-        return RenderResponse();
+        return RenderResponse(ImageBuffer(), request.origin);
     }
 
     // ジオメトリ計算（まだなら）
@@ -385,9 +385,9 @@ RenderResponse NinePatchSourceNode::onPullProcess(const RenderRequest& request) 
         }
     }
 
-    // 有効なデータがない場合は空を返す
+    // 有効なデータがない場合は空を返す（originは維持）
     if (canvasStartX >= canvasEndX) {
-        return RenderResponse();
+        return RenderResponse(ImageBuffer(), request.origin);
     }
 
     int16_t canvasWidth = canvasEndX - canvasStartX;
