@@ -238,11 +238,14 @@ public:
         }
         // 共通処理: 状態リセット
         prepareResponse_.status = PrepareStatus::Idle;
-        // 共通処理: アロケータをクリア
-        allocator_ = nullptr;
 
         // 派生クラスのカスタム処理を呼び出し
+        // 注: allocator_はonPullFinalize()で使用される可能性があるため、
+        //     クリアはonPullFinalize()の後に行う
         onPullFinalize();
+
+        // 共通処理: アロケータをクリア
+        allocator_ = nullptr;
     }
 
     // ========================================
@@ -296,11 +299,14 @@ public:
         }
         // 共通処理: 状態リセット
         prepareResponse_.status = PrepareStatus::Idle;
-        // 共通処理: アロケータをクリア
-        allocator_ = nullptr;
 
         // 派生クラスのカスタム処理を呼び出し
+        // 注: allocator_はonPushFinalize()で使用される可能性があるため、
+        //     クリアはonPushFinalize()の後に行う
         onPushFinalize();
+
+        // 共通処理: アロケータをクリア
+        allocator_ = nullptr;
     }
 
     // ノード名（デバッグ用）
@@ -532,13 +538,13 @@ ImageBuffer Node::convertFormat(ImageBuffer&& buffer, PixelFormatID target,
                                 FormatConversion mode) {
     bool wasOwning = buffer.ownsMemory();
 
-    // 参照モードのバッファにノードのallocator_を設定してから変換
-    // これにより、toFormat()内で新バッファ作成時にallocator_が使われる
-    if (!wasOwning && allocator_) {
-        buffer.setAllocator(allocator_);
-    }
+    // 参照モードの場合、ノードのallocator_を新バッファ用に渡す
+    // 注: setAllocator()で参照バッファのallocator_を変更すると、
+    //     デストラクタが非所有メモリを解放しようとするバグがあるため、
+    //     toFormat()のallocパラメータで安全に渡す
+    core::memory::IAllocator* newAlloc = wasOwning ? nullptr : allocator_;
 
-    ImageBuffer result = std::move(buffer).toFormat(target, mode);
+    ImageBuffer result = std::move(buffer).toFormat(target, mode, newAlloc);
 
     // 参照→所有モードへの変換時にメトリクス記録
     if (!wasOwning && result.ownsMemory()) {
