@@ -271,6 +271,11 @@ PrepareStatus RendererNode::execPrepare() {
     FormatMetrics::instance().reset();
 #endif
 
+    // アロケータ未設定ならDefaultAllocatorを使用
+    if (!pipelineAllocator_) {
+        pipelineAllocator_ = &core::memory::DefaultAllocator::instance();
+    }
+
     // ========================================
     // Step 1: 下流へ準備を伝播（AABB取得用）
     // ========================================

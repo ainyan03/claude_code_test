@@ -218,8 +218,20 @@ public:
     // mode:
     //   CopyIfNeeded    - 参照モードならコピー作成（デフォルト、編集する場合）
     //   PreferReference - フォーマット一致なら参照のまま返す（読み取り専用の場合）
+    //
+    // alloc:
+    //   新バッファ作成時に使用するアロケータ（オプション）
+    //   - nullptr（デフォルト）: 自身のallocator_を使用
+    //   - non-null: 指定されたアロケータを使用
+    //   注: 参照モードバッファにsetAllocator()を呼ぶと、デストラクタが
+    //       非所有メモリを解放しようとするバグがあるため、このパラメータで
+    //       新バッファのアロケータを安全に指定できる
     ImageBuffer toFormat(PixelFormatID target,
-                         FormatConversion mode = FormatConversion::CopyIfNeeded) && {
+                         FormatConversion mode = FormatConversion::CopyIfNeeded,
+                         core::memory::IAllocator* alloc = nullptr) && {
+        // 新バッファ用アロケータを決定
+        core::memory::IAllocator* newAlloc = alloc ? alloc : allocator_;
+
         if (view_.formatID == target) {
             // フォーマット一致
             if (mode == FormatConversion::PreferReference) {
@@ -230,17 +242,17 @@ public:
                 // 所有モード: そのまま返す
                 return std::move(*this);
             }
-            // 参照モード + CopyIfNeeded: コピー作成（アロケータ引き継ぎ）
+            // 参照モード + CopyIfNeeded: コピー作成
             ImageBuffer copied(view_.width, view_.height, view_.formatID,
-                               InitPolicy::Uninitialized, allocator_);
+                               InitPolicy::Uninitialized, newAlloc);
             if (isValid() && copied.isValid()) {
                 view_ops::copy(copied.view_, 0, 0, view_, 0, 0, view_.width, view_.height);
             }
             return copied;
         }
-        // フォーマット不一致: 常に変換（新バッファ作成、アロケータ引き継ぎ）
+        // フォーマット不一致: 常に変換（新バッファ作成）
         ImageBuffer converted(view_.width, view_.height, target,
-                              InitPolicy::Uninitialized, allocator_);
+                              InitPolicy::Uninitialized, newAlloc);
         if (isValid() && converted.isValid()) {
             // 行単位で変換（サブビューのストライドを正しく処理）
             for (int y = 0; y < view_.height; ++y) {
