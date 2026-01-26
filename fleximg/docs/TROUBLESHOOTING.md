@@ -59,13 +59,14 @@ SourceNode → HBlur → VBlur → Renderer → SinkNode
 
 1. **SinkNode に有効な出力先が設定されているか**
    ```cpp
-   SinkNode sink(outputView, originX, originY);
+   SinkNode sink(outputView, pivotX, pivotY);
    // outputView が有効か確認
    ```
 
 2. **RendererNode の仮想スクリーンが設定されているか**
    ```cpp
-   renderer.setVirtualScreen(width, height, originX, originY);
+   renderer.setVirtualScreen(width, height);
+   renderer.setPivotCenter();  // または renderer.setPivot(pivotX, pivotY);
    ```
 
 3. **ノードが正しく接続されているか**
@@ -102,24 +103,26 @@ NodeA → NodeB → NodeC → NodeA
 
 **チェックポイント**:
 
-1. **SourceNode の origin 設定**
+1. **SourceNode の pivot 設定**
    ```cpp
-   // 画像中央を基準点にする場合
-   source.setOrigin(to_fixed(imageWidth / 2), to_fixed(imageHeight / 2));
+   // 画像中央を pivot にする場合
+   source.setPivot(to_fixed(imageWidth / 2), to_fixed(imageHeight / 2));
    ```
 
-2. **SinkNode の origin 設定**
+2. **SinkNode の pivot 設定**
    ```cpp
-   // キャンバス中央を基準点にする場合
+   // キャンバス中央を pivot にする場合
    SinkNode sink(outputView, canvasWidth / 2, canvasHeight / 2);
+   // または sink.setPivotCenter();
    ```
 
 3. **RendererNode の仮想スクリーン設定**
    ```cpp
-   renderer.setVirtualScreen(width, height, originX, originY);
+   renderer.setVirtualScreen(width, height);
+   renderer.setPivotCenter();  // または renderer.setPivot(pivotX, pivotY);
    ```
 
-**基準点一致ルール**: SourceNode と SinkNode の基準点が一致するように配置されます。詳細は [DESIGN_RENDERER_NODE.md](DESIGN_RENDERER_NODE.md) を参照。
+**pivot 一致ルール**: SourceNode と SinkNode の pivot がワールド原点 (0,0) で一致するように配置されます。詳細は [DESIGN_RENDERER_NODE.md](DESIGN_RENDERER_NODE.md) を参照。
 
 ---
 
@@ -133,10 +136,9 @@ NodeA → NodeB → NodeC → NodeA
 // 回転・拡大後のサイズを考慮
 renderer.setVirtualScreen(
     originalWidth * 2,   // 余裕を持たせる
-    originalHeight * 2,
-    originalWidth,       // 中央を基準点に
-    originalHeight
+    originalHeight * 2
 );
+renderer.setPivotCenter();  // 中央を pivot に設定
 ```
 
 ---

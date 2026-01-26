@@ -26,15 +26,17 @@ AffineNode           →      RendererNode
 
 // ノード作成
 SourceNode src(imageView);
-src.setOrigin(to_fixed(imageView.width / 2), to_fixed(imageView.height / 2));
+src.setPivot(to_fixed(imageView.width / 2), to_fixed(imageView.height / 2));
 
 AffineNode affine;
 affine.setMatrix(AffineMatrix::rotate(0.5f));
 
 RendererNode renderer;
-renderer.setVirtualScreen(320, 240, 160, 120);  // 幅, 高さ, 基準X, 基準Y
+renderer.setVirtualScreen(320, 240);
+renderer.setPivotCenter();  // スクリーン中央にワールド原点を配置
 
-SinkNode sink(outputView, 160, 120);  // 出力先, 基準X, 基準Y
+SinkNode sink(outputView);
+sink.setPivotCenter();  // 出力バッファ中央がワールド原点
 
 // パイプライン構築
 src >> affine >> renderer >> sink;
@@ -49,7 +51,8 @@ renderer.exec();
 
 ```cpp
 RendererNode renderer;
-renderer.setVirtualScreen(1920, 1080, 960, 540);
+renderer.setVirtualScreen(1920, 1080);
+renderer.setPivotCenter();  // または renderer.setPivot(960, 540);
 renderer.setTileConfig(TileConfig{64, 64});  // tileWidth=64のみ有効（tileHeightは無視）
 renderer.exec();
 ```
@@ -59,31 +62,32 @@ renderer.exec();
 
 ## 座標系
 
-### 基準点相対座標
+### pivot とワールド座標
 
-全ての座標は **基準点（origin）からの相対位置** で表現されます。
+全ての座標は **ワールド原点からの相対位置** で表現されます。
+各ノードの pivot は「ワールド原点 (0,0) に対応する点」を表します。
 
 ```
         ↑ 負 (上)
         │
-負 (左) ←─●─→ 正 (右)     ● = 基準点 (origin)
+負 (左) ←─●─→ 正 (右)     ● = ワールド原点 (0,0) = 各ノードの pivot
         │
         ↓ 正 (下)
 ```
 
-### 基準点一致ルール
+### pivot 一致ルール
 
-**SourceNode と SinkNode の基準点が一致するように画像が配置されます。**
+**SourceNode と SinkNode の pivot がワールド原点で出会うように画像が配置されます。**
 
 ```
-SourceNode (100x100, origin: 50,50)     SinkNode (200x200, origin: 100,100)
+SourceNode (100x100, pivot: 50,50)     SinkNode (200x200, pivot: 100,100)
    ┌──────────┐                            ┌────────────────────┐
    │    ●     │                            │                    │
-   │ (50,50)  │  ──基準点が一致──→        │         ●          │
+   │ (50,50)  │  ──pivotがワールド原点で一致──→  │         ●          │
    └──────────┘                            │     (100,100)      │
                                            └────────────────────┘
 
-画像左上の基準点相対座標 = (-50, -50)
+画像左上のワールド座標 = (-50, -50)
 出力での画像左上位置 = (100-50, 100-50) = (50, 50)
 ```
 
@@ -105,13 +109,13 @@ struct RenderResponse {
 
 ### 実例: サイズの異なる画像の配置
 
-originの値によって、画像がどこに配置されるかが決まります。
+pivotの値によって、画像がどこに配置されるかが決まります。
 
 **例1: 小さい画像を大きいキャンバスの中央に配置**
 
 ```
-入力画像: 100x100, origin=(50, 50)  → 画像中央が基準点
-出力キャンバス: 300x200, origin=(150, 100) → キャンバス中央が基準点
+入力画像: 100x100, pivot=(50, 50)  → 画像中央がワールド原点に対応
+出力キャンバス: 300x200, pivot=(150, 100) → キャンバス中央がワールド原点に対応
 
 配置計算:
   dstX = 150 - 50 = 100  (キャンバス上のX座標)
@@ -123,7 +127,7 @@ originの値によって、画像がどこに配置されるかが決まりま�
   │                                 │
   │      ┌───────────┐              │
   │      │  (100x100) │              │
-  │      │     ●     │  ←両方の基準点が一致
+  │      │     ●     │  ←両方の pivot がワールド原点で一致
   │      └───────────┘              │
   │                                 │
   └─────────────────────────────────┘
@@ -132,8 +136,8 @@ originの値によって、画像がどこに配置されるかが決まりま�
 **例2: 同じ画像を左上に配置**
 
 ```
-入力画像: 100x100, origin=(0, 0)    → 画像左上が基準点
-出力キャンバス: 300x200, origin=(0, 0) → キャンバス左上が基準点
+入力画像: 100x100, pivot=(0, 0)    → 画像左上がワールド原点に対応
+出力キャンバス: 300x200, pivot=(0, 0) → キャンバス左上がワールド原点に対応
 
 配置計算:
   dstX = 0 - 0 = 0
@@ -142,7 +146,7 @@ originの値によって、画像がどこに配置されるかが決まりま�
 結果:
   ●───────────┬─────────────────────┐
   │  (100x100) │                     │
-  │            │                      │  ←両方の基準点が左上角で一致
+  │            │                      │  ←両方の pivot が左上角で一致
   ├───────────┘                      │
   │            (300x200)             │
   └─────────────────────────────────┘
@@ -151,8 +155,8 @@ originの値によって、画像がどこに配置されるかが決まりま�
 **例3: 右下に配置**
 
 ```
-入力画像: 100x100, origin=(100, 100) → 画像右下が基準点
-出力キャンバス: 300x200, origin=(300, 200) → キャンバス右下が基準点
+入力画像: 100x100, pivot=(100, 100) → 画像右下がワールド原点に対応
+出力キャンバス: 300x200, pivot=(300, 200) → キャンバス右下がワールド原点に対応
 
 配置計算:
   dstX = 300 - 100 = 200
@@ -164,7 +168,7 @@ originの値によって、画像がどこに配置されるかが決まりま�
   │                                 │
   │                  ┌───────────┐  │
   │                  │  (100x100) │  │
-  └──────────────────┴───────────●  ←両方の基準点が右下角で一致
+  └──────────────────┴───────────●  ←両方の pivot が右下角で一致
 ```
 
 ### 実例: フィルタによるサイズ拡張
@@ -172,40 +176,40 @@ originの値によって、画像がどこに配置されるかが決まりま�
 ブラーなどのフィルタはカーネルサイズ分だけ出力を拡張します。
 
 ```
-入力: 100x100, origin=(50, 50)
+入力: 100x100, pivot=(50, 50)
 HorizontalBlur: radius=5
 
-出力: 110x110, origin=(55, 55)
+出力: 110x110
   ↑ 幅が +10 (radius×2)
-  ↑ origin.xも +5 (radius) 増加
 
 意味:
   - 出力バッファは入力より左右に5ピクセル拡張
-  - 基準点の「バッファ内位置」も同じだけ増加
-  - 世界座標での基準点位置は変わらない
+  - RenderResponse の origin はバッファ左上のワールド座標を表す
+  - pivot（ワールド原点）の位置は変わらない
 ```
 
 ### 実例: スキャンライン処理でのorigin変化
 
-スキャンライン処理（高さ1のバッファで1行ずつ処理）では、各行ごとにorigin.yが変化します。
-これはpull型・push型どちらでも同じです。
+スキャンライン処理（高さ1のバッファで1行ずつ処理）では、各行ごとに
+RenderRequest/Response の origin.y が変化します。
 
 ```
-入力画像: 100x100, origin=(50, 50)
+画像: 100x100, pivot=(50, 50)
 
-行0: origin.y = 50  (バッファ内で基準点は50行目)
-行1: origin.y = 49  (バッファ内で基準点は49行目)
-行2: origin.y = 48
+行0: origin.y = -50  (バッファ左上のワールドY座標)
+行1: origin.y = -49
+行2: origin.y = -48
 ...
-行49: origin.y = 1
-行50: origin.y = 0  (この行が基準点と同じ高さ)
-行51: origin.y = -1
+行49: origin.y = -1
+行50: origin.y = 0  (この行が pivot と同じ高さ)
+行51: origin.y = 1
 ...
-行99: origin.y = -49
+行99: origin.y = 49
 
 ポイント:
-  - 各行のorigin.yは「その1行バッファ内での基準点位置」
-  - 行が下に進むほど、基準点は相対的に上に移動するためorigin.yは減少
+  - origin はバッファ左上のワールド座標
+  - pivot はワールド原点 (0,0) に対応する点
+  - 行が下に進むほど、origin.y は増加（ワールド座標が下方向に進む）
 ```
 
 ## プル/プッシュ API
@@ -291,9 +295,15 @@ class RendererNode : public Node {
 public:
     RendererNode();
 
-    // 仮想スクリーン設定（originは固定小数点Q16.16）
-    void setVirtualScreen(int width, int height, int_fixed originX, int_fixed originY);
-    void setVirtualScreen(int width, int height);  // 中央基準（デフォルト）
+    // 仮想スクリーン設定
+    void setVirtualScreen(int width, int height);
+
+    // pivot設定（スクリーン座標でワールド原点の表示位置を指定）
+    void setPivot(float x, float y);
+    void setPivotCenter();  // 中央に設定
+
+    // pivotアクセサ
+    std::pair<float, float> getPivot() const;
 
     // タイル設定
     void setTileConfig(const TileConfig& config);
