@@ -4700,6 +4700,18 @@ function initDebugDetailsSection() {
                 <div class="debug-metric-row">
                     <span class="debug-metric-label">最大単一</span>
                     <span class="debug-metric-value" id="debug-max-alloc">--</span>
+                </div>
+                <div class="debug-metric-row debug-metric-sub">
+                    <span class="debug-metric-label">├ Pool hits</span>
+                    <span class="debug-metric-value" id="debug-pool-hits">--</span>
+                </div>
+                <div class="debug-metric-row debug-metric-sub">
+                    <span class="debug-metric-label">├ Pool misses</span>
+                    <span class="debug-metric-value" id="debug-pool-misses">--</span>
+                </div>
+                <div class="debug-metric-row debug-metric-sub">
+                    <span class="debug-metric-label">└ Pool peak</span>
+                    <span class="debug-metric-value" id="debug-pool-blocks">--</span>
                 </div>`;
 
     // 構造系ノードのメモリ（Affineは除外）
@@ -4867,6 +4879,24 @@ function updateDebugDetails(metrics) {
             maxAllocEl.textContent = `${formatBytes(metrics.maxAllocBytes)} (${metrics.maxAllocWidth}x${metrics.maxAllocHeight})`;
         } else {
             maxAllocEl.textContent = '--';
+        }
+    }
+
+    // PoolAllocator統計
+    if (metrics.poolAllocator) {
+        const pool = metrics.poolAllocator;
+        const hitsEl = document.getElementById('debug-pool-hits');
+        if (hitsEl) {
+            hitsEl.textContent = pool.poolHits > 0 ? `${pool.poolHits}` : (pool.totalAllocations > 0 ? `${pool.totalAllocations}` : '--');
+        }
+        const missesEl = document.getElementById('debug-pool-misses');
+        if (missesEl) {
+            missesEl.textContent = pool.poolMisses > 0 ? `${pool.poolMisses}` : '--';
+        }
+        const blocksEl = document.getElementById('debug-pool-blocks');
+        if (blocksEl) {
+            // peak/total 形式で表示
+            blocksEl.textContent = `${pool.peakUsedBlocks}/${pool.blockCount}`;
         }
     }
 

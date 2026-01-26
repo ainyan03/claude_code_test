@@ -28,6 +28,7 @@ struct PoolStats {
     size_t totalDeallocations = 0;  // 累計解放回数
     size_t hits = 0;                // 確保成功回数
     size_t misses = 0;              // 確保失敗回数
+    size_t peakUsedBlocks = 0;      // 最大同時使用ブロック数
     uint32_t allocatedBitmap = 0;   // 現在の使用状況（デバッグ用）
 
     void reset() {
@@ -35,6 +36,7 @@ struct PoolStats {
         totalDeallocations = 0;
         hits = 0;
         misses = 0;
+        peakUsedBlocks = 0;
         allocatedBitmap = 0;
     }
 };
@@ -96,6 +98,9 @@ public:
 
     /// @brief 統計情報リセット
     void resetStats() { stats_.reset(); }
+
+    /// @brief ピーク使用ブロック数のみリセット
+    void resetPeakStats() { stats_.peakUsedBlocks = 0; }
 
 private:
     void* poolMemory_ = nullptr;        // プール用メモリ領域（外部管理）
@@ -278,6 +283,12 @@ void* PoolAllocator::allocate(size_t size) {
             blockCounts_[i] = static_cast<uint8_t>(blocksNeeded);  // 確保ブロック数を記録
             stats_.hits++;
             stats_.allocatedBitmap = allocatedBitmap_;
+
+            // ピーク使用ブロック数を更新
+            size_t currentUsed = usedBlockCount();
+            if (currentUsed > stats_.peakUsedBlocks) {
+                stats_.peakUsedBlocks = currentUsed;
+            }
 
             return static_cast<uint8_t*>(poolMemory_) + (static_cast<size_t>(i) * blockSize_);
         }
