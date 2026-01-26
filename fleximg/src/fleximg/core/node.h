@@ -324,10 +324,14 @@ public:
     // ========================================
 
     // このノードがrequestに対して提供できるデータ範囲を取得
-    // デフォルト: prepareResponse_のAABBとrequestの交差範囲
-    // 派生クラス: より正確な範囲をオーバーライド可能（例: アフィン変換考慮）
+    // デフォルト: 上流があればパススルー、なければAABB
+    // 派生クラス: 範囲を変更するノード（CompositeNode、FilterNode等）はオーバーライド
     virtual DataRange getDataRange(const RenderRequest& request) const {
-        return prepareResponse_.getDataRange(request);
+        Node* upstream = upstreamNode(0);
+        if (upstream) {
+            return upstream->getDataRange(request);  // 上流パススルー
+        }
+        return prepareResponse_.getDataRange(request);  // 上流なしはAABB
     }
 
     // prepare応答を取得（派生クラスでの判定用）
