@@ -14,13 +14,6 @@ using namespace fleximg;
 // =============================================================================
 
 TEST_CASE("PixelFormatID constants are valid pointers") {
-#ifdef FLEXIMG_ENABLE_PREMUL
-    SUBCASE("RGBA16_Premultiplied") {
-        CHECK(PixelFormatIDs::RGBA16_Premultiplied != nullptr);
-        CHECK(PixelFormatIDs::RGBA16_Premultiplied->name != nullptr);
-    }
-#endif
-
     SUBCASE("RGBA8_Straight") {
         CHECK(PixelFormatIDs::RGBA8_Straight != nullptr);
         CHECK(PixelFormatIDs::RGBA8_Straight->name != nullptr);
@@ -43,23 +36,11 @@ TEST_CASE("PixelFormatID constants are valid pointers") {
 // =============================================================================
 
 TEST_CASE("PixelFormatDescriptor properties") {
-#ifdef FLEXIMG_ENABLE_PREMUL
-    SUBCASE("RGBA16_Premultiplied") {
-        const auto* desc = PixelFormatIDs::RGBA16_Premultiplied;
-        CHECK(desc->bitsPerPixel == 64);
-        CHECK(desc->bytesPerUnit == 8);
-        CHECK(desc->hasAlpha == true);
-        CHECK(desc->isPremultiplied == true);
-        CHECK(desc->isIndexed == false);
-    }
-#endif
-
     SUBCASE("RGBA8_Straight") {
         const auto* desc = PixelFormatIDs::RGBA8_Straight;
         CHECK(desc->bitsPerPixel == 32);
         CHECK(desc->bytesPerUnit == 4);
         CHECK(desc->hasAlpha == true);
-        CHECK(desc->isPremultiplied == false);
         CHECK(desc->isIndexed == false);
     }
 
@@ -79,45 +60,10 @@ TEST_CASE("PixelFormatDescriptor properties") {
 }
 
 // =============================================================================
-// RGBA16 Premultiplied Alpha Thresholds
-// =============================================================================
-
-#ifdef FLEXIMG_ENABLE_PREMUL
-TEST_CASE("RGBA16 Premultiplied alpha thresholds") {
-    using namespace RGBA16Premul;
-
-    SUBCASE("threshold constants") {
-        CHECK(ALPHA_TRANSPARENT_MAX == 255);
-        CHECK(ALPHA_OPAQUE_MIN == 65280);
-    }
-
-    SUBCASE("isTransparent") {
-        CHECK(isTransparent(0) == true);
-        CHECK(isTransparent(255) == true);
-        CHECK(isTransparent(256) == false);
-        CHECK(isTransparent(65535) == false);
-    }
-
-    SUBCASE("isOpaque") {
-        CHECK(isOpaque(0) == false);
-        CHECK(isOpaque(65279) == false);
-        CHECK(isOpaque(65280) == true);
-        CHECK(isOpaque(65535) == true);
-    }
-}
-#endif
-
-// =============================================================================
 // getBytesPerPixel Tests
 // =============================================================================
 
 TEST_CASE("getBytesPerPixel") {
-#ifdef FLEXIMG_ENABLE_PREMUL
-    SUBCASE("RGBA16_Premultiplied - 8 bytes") {
-        CHECK(getBytesPerPixel(PixelFormatIDs::RGBA16_Premultiplied) == 8);
-    }
-#endif
-
     SUBCASE("RGBA8_Straight - 4 bytes") {
         CHECK(getBytesPerPixel(PixelFormatIDs::RGBA8_Straight) == 4);
     }
@@ -154,9 +100,6 @@ TEST_CASE("getBytesPerPixel") {
 TEST_CASE("getFormatByName") {
     SUBCASE("finds builtin formats by name") {
         CHECK(getFormatByName("RGBA8_Straight") == PixelFormatIDs::RGBA8_Straight);
-#ifdef FLEXIMG_ENABLE_PREMUL
-        CHECK(getFormatByName("RGBA16_Premultiplied") == PixelFormatIDs::RGBA16_Premultiplied);
-#endif
         CHECK(getFormatByName("RGB565_LE") == PixelFormatIDs::RGB565_LE);
         CHECK(getFormatByName("RGB888") == PixelFormatIDs::RGB888);
     }
@@ -195,44 +138,6 @@ TEST_CASE("convertFormat") {
             CHECK(dst[i] == src[i]);
         }
     }
-
-#ifdef FLEXIMG_ENABLE_PREMUL
-    SUBCASE("RGBA8 to RGBA16 conversion") {
-        // RGBA8: opaque red
-        uint8_t src[4] = {255, 0, 0, 255};
-        uint16_t dst[4] = {0};
-
-        convertFormat(src, PixelFormatIDs::RGBA8_Straight,
-                      dst, PixelFormatIDs::RGBA16_Premultiplied, 1);
-
-        // A8=255, A_tmp=256, so:
-        // R16 = 255 * 256 = 65280
-        // G16 = 0 * 256 = 0
-        // B16 = 0 * 256 = 0
-        // A16 = 255 * 256 = 65280
-        CHECK(dst[0] == 65280);  // R
-        CHECK(dst[1] == 0);      // G
-        CHECK(dst[2] == 0);      // B
-        CHECK(dst[3] == 65280);  // A
-    }
-
-    SUBCASE("RGBA16 to RGBA8 conversion") {
-        // RGBA16 Premul: opaque red (max values)
-        uint16_t src[4] = {65280, 0, 0, 65280};
-        uint8_t dst[4] = {0};
-
-        convertFormat(src, PixelFormatIDs::RGBA16_Premultiplied,
-                      dst, PixelFormatIDs::RGBA8_Straight, 1);
-
-        // A8 = 65280 >> 8 = 255
-        // A_tmp = 256
-        // R8 = 65280 / 256 = 255
-        CHECK(dst[0] == 255);  // R
-        CHECK(dst[1] == 0);    // G
-        CHECK(dst[2] == 0);    // B
-        CHECK(dst[3] == 255);  // A
-    }
-#endif
 }
 
 // =============================================================================

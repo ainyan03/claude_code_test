@@ -37,18 +37,6 @@ TEST_CASE("ImageBuffer sized construction") {
         CHECK(buf.stride() == 400);  // 100 * 4
     }
 
-#ifdef FLEXIMG_ENABLE_PREMUL
-    SUBCASE("RGBA16 format") {
-        ImageBuffer buf(64, 64, PixelFormatIDs::RGBA16_Premultiplied);
-
-        CHECK(buf.data() != nullptr);
-        CHECK(buf.width() == 64);
-        CHECK(buf.height() == 64);
-        CHECK(buf.formatID() == PixelFormatIDs::RGBA16_Premultiplied);
-        CHECK(buf.bytesPerPixel() == 8);
-        CHECK(buf.stride() == 512);  // 64 * 8
-    }
-#endif
 }
 
 TEST_CASE("ImageBuffer reference mode") {
@@ -74,12 +62,6 @@ TEST_CASE("ImageBuffer totalBytes") {
         CHECK(buf.totalBytes() == 100 * 50 * 4);
     }
 
-#ifdef FLEXIMG_ENABLE_PREMUL
-    SUBCASE("RGBA16 64x64") {
-        ImageBuffer buf(64, 64, PixelFormatIDs::RGBA16_Premultiplied);
-        CHECK(buf.totalBytes() == 64 * 64 * 8);
-    }
-#endif
 }
 
 TEST_CASE("ImageBuffer InitPolicy") {

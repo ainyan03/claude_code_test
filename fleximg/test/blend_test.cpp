@@ -25,19 +25,6 @@ static void getPixelRGBA8(const ImageBuffer& buf, int x, int y, uint8_t& r, uint
     r = p[0]; g = p[1]; b = p[2]; a = p[3];
 }
 
-#ifdef FLEXIMG_ENABLE_PREMUL
-// RGBA16ピクセルを設定
-static void setPixelRGBA16(ImageBuffer& buf, int x, int y, uint16_t r, uint16_t g, uint16_t b, uint16_t a) {
-    uint16_t* p = static_cast<uint16_t*>(buf.pixelAt(x, y));
-    p[0] = r; p[1] = g; p[2] = b; p[3] = a;
-}
-
-// RGBA16ピクセルを取得
-static void getPixelRGBA16(const ImageBuffer& buf, int x, int y, uint16_t& r, uint16_t& g, uint16_t& b, uint16_t& a) {
-    const uint16_t* p = static_cast<const uint16_t*>(buf.pixelAt(x, y));
-    r = p[0]; g = p[1]; b = p[2]; a = p[3];
-}
-#endif
 
 // =============================================================================
 // canvas_utils::placeFirst Tests
@@ -96,30 +83,6 @@ TEST_CASE("placeFirst with offset") {
     CHECK(a == 0);
 }
 
-#ifdef FLEXIMG_ENABLE_PREMUL
-TEST_CASE("placeFirst format conversion RGBA8 to RGBA16") {
-    ImageBuffer src(4, 4, PixelFormatIDs::RGBA8_Straight);
-    ImageBuffer dst(4, 4, PixelFormatIDs::RGBA16_Premultiplied);
-
-    // srcに不透明赤ピクセル
-    setPixelRGBA8(src, 1, 1, 255, 0, 0, 255);
-
-    ViewPort dstView = dst.viewRef();
-    canvas_utils::placeFirst(dstView, to_fixed(2), to_fixed(2),
-                             src.view(), to_fixed(2), to_fixed(2));
-
-    // RGBA16形式で確認
-    uint16_t r, g, b, a;
-    getPixelRGBA16(dst, 1, 1, r, g, b, a);
-
-    // 不透明（alpha >= ALPHA_OPAQUE_MIN）であること
-    CHECK(a >= RGBA16Premul::ALPHA_OPAQUE_MIN);
-    // 赤成分が支配的であること
-    CHECK(r > 0);
-    CHECK(g == 0);
-    CHECK(b == 0);
-}
-#endif
 
 TEST_CASE("placeFirst clipping") {
     ImageBuffer src(4, 4, PixelFormatIDs::RGBA8_Straight);
@@ -154,103 +117,6 @@ TEST_CASE("placeFirst clipping") {
     CHECK(r == 0);
     CHECK(a == 0);
 }
-
-// =============================================================================
-// blend::onto Tests
-// [DEPRECATED] 将来削除予定 - blend::onto は廃止されました
-// =============================================================================
-#if 0
-
-TEST_CASE("blend::onto opaque over transparent") {
-    ImageBuffer src(4, 4, PixelFormatIDs::RGBA16_Premultiplied);
-    ImageBuffer dst(4, 4, PixelFormatIDs::RGBA16_Premultiplied);
-
-    // srcに不透明赤ピクセル（プリマルチプライド）
-    uint16_t opaqueAlpha = 65535;
-    setPixelRGBA16(src, 1, 1, 65535, 0, 0, opaqueAlpha);
-
-    blend::onto(dst.viewRef(), to_fixed(2), to_fixed(2),
-                src.view(), to_fixed(2), to_fixed(2));
-
-    uint16_t r, g, b, a;
-    getPixelRGBA16(dst, 1, 1, r, g, b, a);
-
-    // 不透明なsrcがdstを完全に上書き
-    CHECK(r == 65535);
-    CHECK(g == 0);
-    CHECK(b == 0);
-    CHECK(a == 65535);
-}
-
-TEST_CASE("blend::onto transparent src skipped") {
-    ImageBuffer src(4, 4, PixelFormatIDs::RGBA16_Premultiplied, InitPolicy::Zero);
-    ImageBuffer dst(4, 4, PixelFormatIDs::RGBA16_Premultiplied);
-
-    // dstに緑ピクセル
-    setPixelRGBA16(dst, 1, 1, 0, 65535, 0, 65535);
-
-    // srcは透明（デフォルト）
-
-    blend::onto(dst.viewRef(), to_fixed(2), to_fixed(2),
-                src.view(), to_fixed(2), to_fixed(2));
-
-    uint16_t r, g, b, a;
-    getPixelRGBA16(dst, 1, 1, r, g, b, a);
-
-    // 透明なsrcはスキップされ、dstは変更されない
-    CHECK(r == 0);
-    CHECK(g == 65535);
-    CHECK(b == 0);
-    CHECK(a == 65535);
-}
-
-TEST_CASE("blend::onto semi-transparent blending") {
-    ImageBuffer src(4, 4, PixelFormatIDs::RGBA16_Premultiplied);
-    ImageBuffer dst(4, 4, PixelFormatIDs::RGBA16_Premultiplied);
-
-    // dstに不透明緑
-    setPixelRGBA16(dst, 1, 1, 0, 65535, 0, 65535);
-
-    // srcに半透明赤（alpha=32768, 約50%）
-    // プリマルチプライド: R = 65535 * 0.5 = 32768
-    uint16_t halfAlpha = 32768;
-    setPixelRGBA16(src, 1, 1, halfAlpha, 0, 0, halfAlpha);
-
-    blend::onto(dst.viewRef(), to_fixed(2), to_fixed(2),
-                src.view(), to_fixed(2), to_fixed(2));
-
-    uint16_t r, g, b, a;
-    getPixelRGBA16(dst, 1, 1, r, g, b, a);
-
-    // ブレンド結果: 赤と緑が混合
-    CHECK(r > 0);
-    CHECK(g > 0);
-    CHECK(a > halfAlpha);  // アルファは合成で増加
-}
-
-TEST_CASE("blend::onto RGBA8 to RGBA16 conversion") {
-    ImageBuffer src(4, 4, PixelFormatIDs::RGBA8_Straight);
-    ImageBuffer dst(4, 4, PixelFormatIDs::RGBA16_Premultiplied);
-
-    // dstに不透明緑
-    setPixelRGBA16(dst, 1, 1, 0, 65535, 0, 65535);
-
-    // srcに不透明赤（RGBA8 Straight）
-    setPixelRGBA8(src, 1, 1, 255, 0, 0, 255);
-
-    blend::onto(dst.viewRef(), to_fixed(2), to_fixed(2),
-                src.view(), to_fixed(2), to_fixed(2));
-
-    uint16_t r, g, b, a;
-    getPixelRGBA16(dst, 1, 1, r, g, b, a);
-
-    // 不透明な赤がdstを上書き
-    CHECK(r > 60000);  // 高い赤成分
-    CHECK(g < 5000);   // 緑はほぼなし
-    CHECK(a >= RGBA16Premul::ALPHA_OPAQUE_MIN);
-}
-
-#endif // DEPRECATED blend::onto Tests
 
 // =============================================================================
 // Edge Cases
