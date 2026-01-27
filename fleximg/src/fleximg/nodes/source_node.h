@@ -264,38 +264,30 @@ PrepareResponse SourceNode::onPullPrepare(const PrepareRequest& request) {
                 useBilinear_ = false;
             }
 
-            // ドットバイドット判定（逆行列の増分値で判定）
-            // 単位行列（変換なし）の場合のみ DDA をスキップし、高速な非アフィンパスを使用
-            // pivot の小数部もチェック（アフィンパスでは整数部のみ使用するため）
-            // 注: invTxFixed/invTyFixed がゼロでない場合は、アフィン行列に平行移動が
-            // 含まれているため、非アフィンパスは使えない（NinePatch のパッチ位置など）
-            // 注: a == -one や d == -one（反転）の場合も非アフィンパスでは処理できない
+            // 平行移動のみ判定（逆行列の2x2部分が単位行列かどうか）
+            // 単位行列の場合は DDA をスキップし、高速な非アフィンパスを使用
+            // 非アフィンパスではピクセル中心モデルにより、平行移動・小数pivot も正しく処理
+            // 注: a == -one や d == -one（反転）の場合は非アフィンパスでは処理できない
             constexpr int32_t one = 1 << INT_FIXED_SHIFT;  // 65536 (Q16.16)
-            bool isDotByDot =
+            bool isTranslationOnly =
                 affine_.invMatrix.a == one &&          // a == 1 のみ（-1は反転なので不可）
                 affine_.invMatrix.d == one &&          // d == 1 のみ（-1は反転なので不可）
                 affine_.invMatrix.b == 0 &&
-                affine_.invMatrix.c == 0 &&
-                affine_.invTxFixed == 0 &&             // 平行移動がない（tx = 0）
-                affine_.invTyFixed == 0 &&             // 平行移動がない（ty = 0）
-                (pivotX_ & 0xFFFF) == 0 &&             // pivot の小数部が0（Q16.16）
-                (pivotY_ & 0xFFFF) == 0;
+                affine_.invMatrix.c == 0;
 
-            if (isDotByDot) {
+            if (isTranslationOnly) {
                 hasAffine_ = false;
-                // position は pullProcess の非アフィンパスで pivot オフセットとして適用
+                // 非アフィンパスでピクセル中心モデルにより座標計算
             } else {
                 hasAffine_ = true;
             }
 
 // Note: 詳細デバッグ出力は実機では負荷が高いためコメントアウト
 // #ifdef FLEXIMG_DEBUG_PERF_METRICS
-//             printf("[SourceNode] isDotByDot=%s (invA=%d, invD=%d, invB=%d, invC=%d, txFrac=%d, tyFrac=%d, pxFrac=%d, pyFrac=%d)\n",
-//                    isDotByDot ? "true" : "false",
+//             printf("[SourceNode] isTranslationOnly=%s (invA=%d, invD=%d, invB=%d, invC=%d)\n",
+//                    isTranslationOnly ? "true" : "false",
 //                    affine_.invMatrix.a, affine_.invMatrix.d,
-//                    affine_.invMatrix.b, affine_.invMatrix.c,
-//                    affine_.invTxFixed & 0xFFFF, affine_.invTyFixed & 0xFFFF,
-//                    pivotX_ & 0xFFFF, pivotY_ & 0xFFFF);
+//                    affine_.invMatrix.b, affine_.invMatrix.c);
 // #endif
         } else {
             // 逆行列が無効（特異行列）
@@ -343,46 +335,48 @@ RenderResponse SourceNode::onPullProcess(const RenderRequest& request) {
         return pullProcessWithAffine(request);
     }
 
-    // ソース画像のワールド座標範囲（固定小数点 Q16.16）
-    // localMatrix_.tx/ty が設定されている場合、position として適用
+    // ピクセル中心モデルによる座標計算（アフィンパスとの一貫性確保）
+    // 出力ピクセル dx の中心座標 = request.origin.x + to_fixed(dx) + HALF
+    // ソースピクセル = floor((中心座標 - imgLeft) / pixel_size)
+    //               = from_fixed_floor(request.origin.x + HALF - imgLeft) + dx
+    //               = srcBaseX + dx
     int_fixed posOffsetX = float_to_fixed(localMatrix_.tx);
     int_fixed posOffsetY = float_to_fixed(localMatrix_.ty);
     int_fixed imgLeft = posOffsetX - pivotX_;   // 画像左端のワールドX座標
     int_fixed imgTop = posOffsetY - pivotY_;    // 画像上端のワールドY座標
-    int_fixed imgRight = imgLeft + to_fixed(source_.width);
-    int_fixed imgBottom = imgTop + to_fixed(source_.height);
 
-    // 要求範囲のワールド座標（固定小数点 Q16.16）
-    int_fixed reqLeft = request.origin.x;
-    int_fixed reqTop = request.origin.y;
-    int_fixed reqRight = reqLeft + to_fixed(request.width);
-    int_fixed reqBottom = reqTop + to_fixed(request.height);
+    // srcBase: 出力dx=0に対応するソースピクセルインデックス
+    int32_t srcBaseX = from_fixed_floor(request.origin.x + INT_FIXED_HALF - imgLeft);
+    int32_t srcBaseY = from_fixed_floor(request.origin.y + INT_FIXED_HALF - imgTop);
 
-    // 交差領域
-    int_fixed interLeft = std::max(imgLeft, reqLeft);
-    int_fixed interTop = std::max(imgTop, reqTop);
-    int_fixed interRight = std::min(imgRight, reqRight);
-    int_fixed interBottom = std::min(imgBottom, reqBottom);
+    // 有効範囲: srcBase + dx が [0, srcSize) に収まる dx の範囲
+    // srcBase + dxStart >= 0  →  dxStart >= -srcBaseX
+    // srcBase + dxEnd < srcSize  →  dxEnd < srcSize - srcBaseX
+    int32_t dxStartX = std::max(0, -srcBaseX);
+    int32_t dxEndX = std::min(static_cast<int32_t>(request.width), source_.width - srcBaseX);
+    int32_t dxStartY = std::max(0, -srcBaseY);
+    int32_t dxEndY = std::min(static_cast<int32_t>(request.height), source_.height - srcBaseY);
 
-    if (interLeft >= interRight || interTop >= interBottom) {
-        // バッファ内基準点位置 = request.origin
+    if (dxStartX >= dxEndX || dxStartY >= dxEndY) {
         return RenderResponse(ImageBuffer(), request.origin);
     }
 
-    // 交差領域のサブビューを参照モードで返す（コピーなし）
-    // 開始位置は floor、終端位置は ceil で計算（タイル境界でのピクセル欠落を防ぐ）
-    auto srcX = static_cast<int_fast16_t>(from_fixed_floor(interLeft - imgLeft));
-    auto srcY = static_cast<int_fast16_t>(from_fixed_floor(interTop - imgTop));
-    auto srcEndX = static_cast<int_fast16_t>(from_fixed_ceil(interRight - imgLeft));
-    auto srcEndY = static_cast<int_fast16_t>(from_fixed_ceil(interBottom - imgTop));
-    auto interW = static_cast<int_fast16_t>(srcEndX - srcX);
-    auto interH = static_cast<int_fast16_t>(srcEndY - srcY);
+    int32_t validW = dxEndX - dxStartX;
+    int32_t validH = dxEndY - dxStartY;
 
     // サブビューの参照モードImageBufferを作成（メモリ確保なし）
-    ImageBuffer result(view_ops::subView(source_, srcX, srcY, interW, interH));
+    auto srcX = static_cast<int_fast16_t>(srcBaseX + dxStartX);
+    auto srcY = static_cast<int_fast16_t>(srcBaseY + dxStartY);
+    ImageBuffer result(view_ops::subView(source_, srcX, srcY,
+                                         static_cast<int_fast16_t>(validW),
+                                         static_cast<int_fast16_t>(validH)));
 
-    // origin = 交差領域左上のワールド座標
-    return RenderResponse(std::move(result), Point{interLeft, interTop});
+    // origin = リクエストグリッドに整列（アフィンパスと同形式）
+    Point adjustedOrigin = {
+        request.origin.x + to_fixed(dxStartX),
+        request.origin.y + to_fixed(dxStartY)
+    };
+    return RenderResponse(std::move(result), adjustedOrigin);
 }
 
 // ============================================================================
