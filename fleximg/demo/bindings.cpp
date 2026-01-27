@@ -693,7 +693,7 @@ public:
         result.set("maxAllocBytes", 0);
         result.set("maxAllocWidth", 0);
         result.set("maxAllocHeight", 0);
-        // PoolAllocator統計（リリースビルドでも基本情報は取得可能）
+        // PoolAllocator統計（リリースビルドでは基本情報のみ）
         {
             val poolStats = val::object();
             poolStats.set("poolHits", 0);
@@ -701,11 +701,10 @@ public:
             poolStats.set("poolDeallocs", 0);
             poolStats.set("defaultDeallocs", 0);
             poolStats.set("lastAllocSize", 0);
-            const auto& coreStats = poolAllocator_.stats();
-            poolStats.set("totalAllocations", static_cast<int>(coreStats.totalAllocations));
-            poolStats.set("totalDeallocations", static_cast<int>(coreStats.totalDeallocations));
+            poolStats.set("totalAllocations", 0);
+            poolStats.set("totalDeallocations", 0);
             poolStats.set("usedBlocks", static_cast<int>(poolAllocator_.usedBlockCount()));
-            poolStats.set("peakUsedBlocks", static_cast<int>(coreStats.peakUsedBlocks));
+            poolStats.set("peakUsedBlocks", 0);
             poolStats.set("freeBlocks", static_cast<int>(poolAllocator_.freeBlockCount()));
             poolStats.set("blockSize", static_cast<int>(poolAllocator_.blockSize()));
             poolStats.set("blockCount", static_cast<int>(poolAllocator_.blockCount()));
@@ -926,9 +925,9 @@ private:
         rendererNode->setPivot(static_cast<float>(dstOriginX_), static_cast<float>(dstOriginY_));
         rendererNode->setAllocator(poolAdapter_.get());
 
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
         // フレームごとの統計をリセット
         poolAllocator_.resetStats();
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
         poolAdapter_->resetStats();
 #endif
 

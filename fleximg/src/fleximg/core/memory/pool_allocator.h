@@ -20,9 +20,10 @@ namespace core {
 namespace memory {
 
 // ========================================================================
-// プールアロケータの統計情報
+// プールアロケータの統計情報（デバッグビルド時のみ有効）
 // ========================================================================
 
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
 struct PoolStats {
     size_t totalAllocations = 0;    // 累計確保回数
     size_t totalDeallocations = 0;  // 累計解放回数
@@ -40,6 +41,7 @@ struct PoolStats {
         allocatedBitmap = 0;
     }
 };
+#endif
 
 // ========================================================================
 // PoolAllocator - ビットマップベースのプールアロケータ
@@ -93,14 +95,16 @@ public:
     /// @brief 空きブロック数取得
     size_t freeBlockCount() const { return blockCount_ - usedBlockCount(); }
 
-    /// @brief 統計情報取得
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
+    /// @brief 統計情報取得（デバッグビルド時のみ）
     const PoolStats& stats() const { return stats_; }
 
-    /// @brief 統計情報リセット
+    /// @brief 統計情報リセット（デバッグビルド時のみ）
     void resetStats() { stats_.reset(); }
 
-    /// @brief ピーク使用ブロック数のみリセット
+    /// @brief ピーク使用ブロック数のみリセット（デバッグビルド時のみ）
     void resetPeakStats() { stats_.peakUsedBlocks = 0; }
+#endif
 
 private:
     void* poolMemory_ = nullptr;        // プール用メモリ領域（外部管理）
@@ -110,7 +114,9 @@ private:
     uint32_t allocatedBitmap_ = 0;      // ブロック使用状況
     uint8_t blockCounts_[32] = {};      // 各ブロックの確保ブロック数（連続確保対応）
     bool searchFromHead_ = true;        // 探索方向（交互に切り替え）
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
     PoolStats stats_;
+#endif
     bool initialized_ = false;
 };
 
@@ -253,13 +259,17 @@ void* PoolAllocator::allocate(size_t size) {
         return nullptr;
     }
 
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
     stats_.totalAllocations++;
+#endif
 
     // 必要なブロック数を計算
     size_t blocksNeeded = (size + blockSize_ - 1) / blockSize_;
 
     if (blocksNeeded > blockCount_) {
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
         stats_.misses++;
+#endif
         return nullptr;
     }
 
@@ -281,6 +291,7 @@ void* PoolAllocator::allocate(size_t size) {
             // 空きブロック発見
             allocatedBitmap_ |= shiftedNeed;
             blockCounts_[i] = static_cast<uint8_t>(blocksNeeded);  // 確保ブロック数を記録
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
             stats_.hits++;
             stats_.allocatedBitmap = allocatedBitmap_;
 
@@ -289,12 +300,15 @@ void* PoolAllocator::allocate(size_t size) {
             if (currentUsed > stats_.peakUsedBlocks) {
                 stats_.peakUsedBlocks = currentUsed;
             }
+#endif
 
             return static_cast<uint8_t*>(poolMemory_) + (static_cast<size_t>(i) * blockSize_);
         }
     }
 
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
     stats_.misses++;
+#endif
     return nullptr;
 }
 
@@ -331,13 +345,17 @@ bool PoolAllocator::deallocate(void* ptr) {
         blocksToFree = 1;  // フォールバック（通常は起きない）
     }
 
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
     stats_.totalDeallocations++;
+#endif
 
     // 確保時のブロック数分のビットをクリア
     uint32_t freeBitmap = ((1U << blocksToFree) - 1) << blockIndex;
     allocatedBitmap_ &= ~freeBitmap;
     blockCounts_[blockIndex] = 0;  // 記録をクリア
+#ifdef FLEXIMG_DEBUG_PERF_METRICS
     stats_.allocatedBitmap = allocatedBitmap_;
+#endif
 
     return true;
 }
