@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.54.0] - 2026-01-27
+
+### 削除
+
+- **RGBA16_Premultiplied フォーマット撤去**: `FLEXIMG_ENABLE_PREMUL` 条件コンパイルコードをすべて削除
+  - `PixelFormatDescriptor` 構造体から `isPremultiplied`, `toPremul`, `fromPremul`, `blendUnderPremul` メンバを削除
+  - `rgba16_premul.h` ファイルを削除
+  - 各フォーマット（RGBA8_Straight, RGB565, RGB888, RGB332, Alpha8）のPremul関連関数を削除
+  - `CompositeNode`, `canvas_utils.h` のPremulパスを削除
+  - `FormatIdx` から `RGBA16_Premultiplied` を削除、`OpType` を整理（`BlendUnderStraight` → `BlendUnder` にリネーム）
+  - テストファイル（`precision_analysis.cpp` 削除、各テストのPremulブロック除去）
+  - ビルド設定（`build.sh` の `--premul` フラグ、`platformio.ini` の `FLEXIMG_ENABLE_PREMUL` 行）
+  - ベンチマーク（`examples/bench/src/main.cpp` のPremulベンチマーク）
+  - ドキュメント更新
+
+---
+
 ## [2.53.0] - 2026-01-26
 
 ### リファクタリング

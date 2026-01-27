@@ -270,7 +270,7 @@ canvas_utils::placeFirst(canvas, request.origin.x, request.origin.y,
 > **Note**: `blend::onto` および `canvas_utils::placeOnto` は廃止されました。
 > over合成はunder合成に統一され、CompositeNode等では `placeFirst` + `placeUnder` 方式を使用します。
 
-これらは固定小数点の基準点座標（`int_fixed` Q16.16）を使用し、PixelFormatDescriptor の変換関数（toPremul, blendUnderPremul）を利用します。
+これらは固定小数点の基準点座標（`int_fixed` Q16.16）を使用し、PixelFormatDescriptor の変換関数（toStraight, blendUnderStraight）を利用します。
 
 ## 設計の利点
 

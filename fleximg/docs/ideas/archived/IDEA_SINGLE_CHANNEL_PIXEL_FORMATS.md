@@ -52,7 +52,6 @@ const PixelFormatDescriptor Alpha8 = {
       ChannelDescriptor(0, 0),   // No B
       ChannelDescriptor(0, 0) }, // No A (data is alpha itself)
     true,   // hasAlpha = true
-    false,  // isPremultiplied
     false,  // isIndexed
     0,      // maxPaletteSize
     BitOrder::MSBFirst,
@@ -139,7 +138,6 @@ const PixelFormatDescriptor Alpha8 = {
       ChannelDescriptor(0, 0),
       ChannelDescriptor(0, 0) },
     true,   // hasAlpha
-    false,  // isPremultiplied
     false,  // isIndexed
     0,      // maxPaletteSize
     BitOrder::MSBFirst,
@@ -157,7 +155,6 @@ const PixelFormatDescriptor Alpha8 = {
 
 ```cpp
 namespace BuiltinFormats {
-    extern const PixelFormatDescriptor RGBA16_Premultiplied;
     extern const PixelFormatDescriptor RGBA8_Straight;
     extern const PixelFormatDescriptor RGB565_LE;
     extern const PixelFormatDescriptor RGB565_BE;
@@ -168,9 +165,6 @@ namespace BuiltinFormats {
 }
 
 namespace PixelFormatIDs {
-    // 16bit RGBA系
-    inline const PixelFormatID RGBA16_Premultiplied = &BuiltinFormats::RGBA16_Premultiplied;
-
     // 8bit RGBA系
     inline const PixelFormatID RGBA8_Straight = &BuiltinFormats::RGBA8_Straight;
 
@@ -189,7 +183,6 @@ namespace PixelFormatIDs {
 
 // 組み込みフォーマット一覧
 inline const PixelFormatID builtinFormats[] = {
-    PixelFormatIDs::RGBA16_Premultiplied,
     PixelFormatIDs::RGBA8_Straight,
     PixelFormatIDs::RGB565_LE,
     PixelFormatIDs::RGB565_BE,

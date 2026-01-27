@@ -222,24 +222,21 @@ PerfMetricsと同様に `FLEXIMG_DEBUG_PERF_METRICS` マクロで有効化。
 
 ```cpp
 namespace FormatIdx {
-    constexpr int RGBA16_Premultiplied = 0;
-    constexpr int RGBA8_Straight = 1;
-    constexpr int RGB565_LE = 2;
-    constexpr int RGB565_BE = 3;
-    constexpr int RGB332 = 4;
-    constexpr int RGB888 = 5;
-    constexpr int BGR888 = 6;
-    constexpr int Alpha8 = 7;
-    constexpr int Count = 8;
+    constexpr int RGBA8_Straight = 0;
+    constexpr int RGB565_LE = 1;
+    constexpr int RGB565_BE = 2;
+    constexpr int RGB332 = 3;
+    constexpr int RGB888 = 4;
+    constexpr int BGR888 = 5;
+    constexpr int Alpha8 = 6;
+    constexpr int Count = 7;
 }
 
 namespace OpType {
     constexpr int ToStraight = 0;    // 各フォーマット → RGBA8_Straight
     constexpr int FromStraight = 1;  // RGBA8_Straight → 各フォーマット
-    constexpr int ToPremul = 2;      // 各フォーマット → RGBA16_Premultiplied
-    constexpr int FromPremul = 3;    // RGBA16_Premultiplied → 各フォーマット
-    constexpr int BlendUnder = 4;    // 各フォーマット → Premul dst (under合成)
-    constexpr int Count = 5;
+    constexpr int BlendUnder = 2;    // under合成
+    constexpr int Count = 3;
 }
 
 struct FormatOpEntry {
@@ -275,7 +272,7 @@ static void rgb565le_toStraight(void* dst, const void* src, int pixelCount, cons
 ### WebUI表示
 
 デバッグセクションの「フォーマット変換」に以下を表示:
-- 操作別合計（toStraight, fromStraight, toPremul, fromPremul, blendUnder）
+- 操作別合計（toStraight, fromStraight, blendUnder）
 - フォーマット別内訳（各フォーマットの操作別ピクセル数・呼び出し回数）
 
 ### UI変換の除外

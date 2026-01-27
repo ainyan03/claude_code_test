@@ -313,21 +313,6 @@ struct RenderResponse {
 | フォーマット | 用途 | 備考 |
 |-------------|------|------|
 | RGBA8_Straight | 入出力、合成、フィルタ処理 | **デフォルト** |
-| RGBA16_Premultiplied | 高精度合成・アフィン変換 | `FLEXIMG_ENABLE_PREMUL` 定義時のみ |
-
-### 変換方式（FLEXIMG_ENABLE_PREMUL時）
-
-```cpp
-// RGBA8_Straight → RGBA16_Premultiplied
-A_tmp = A8 + 1;          // 1-256（ゼロ除算回避）
-A16 = 255 * A_tmp;       // 255-65280
-R16 = R8 * A_tmp;        // 乗算のみ、除算なし
-
-// RGBA16_Premultiplied → RGBA8_Straight
-A8 = A16 >> 8;           // 0-255
-A_tmp = A8 + 1;          // 1-256
-R8 = R16 / A_tmp;        // 除数範囲が限定的
-```
 
 ## 操作モジュール
 
@@ -395,15 +380,6 @@ namespace canvas_utils {
     // 最初の画像をキャンバスに配置（ブレンド不要）
     void placeFirst(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canvasOriginY,
                     const ViewPort& src, int_fixed srcOriginX, int_fixed srcOriginY);
-
-#ifdef FLEXIMG_ENABLE_PREMUL
-    // Premul形式のキャンバス作成
-    ImageBuffer createPremulCanvas(int width, int height, InitPolicy init, IAllocator* alloc);
-
-    // under合成でレイヤーを配置
-    void placeUnder(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canvasOriginY,
-                    const ViewPort& src, int_fixed srcOriginX, int_fixed srcOriginY);
-#endif
 }
 ```
 
@@ -489,9 +465,8 @@ src/fleximg/
 ├── image/                    # 画像処理
 │   ├── pixel_format.h        # ピクセルフォーマット共通定義・ユーティリティ
 │   ├── pixel_format/         # 各フォーマットの個別実装
-│   │   ├── rgba8_straight.h  # RGBA8_Straight + invUnpremulTable
+│   │   ├── rgba8_straight.h  # RGBA8_Straight
 │   │   ├── alpha8.h          # Alpha8
-│   │   ├── rgba16_premul.h   # RGBA16_Premultiplied（PREMUL条件）
 │   │   ├── rgb565.h          # RGB565_LE/BE + ルックアップテーブル + swap16
 │   │   ├── rgb332.h          # RGB332 + ルックアップテーブル
 │   │   └── rgb888.h          # RGB888/BGR888 + swap24
