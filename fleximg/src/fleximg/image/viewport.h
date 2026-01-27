@@ -204,6 +204,14 @@ void clear(ViewPort& dst, int x, int y, int width, int height) {
 
 namespace detail {
 
+// BPP → ネイティブ型マッピング（ロード・ストア分離用）
+// BPP 1, 2, 4 はネイティブ型で直接ロード・ストア可能
+// BPP 3 はネイティブ型が存在しないため copyPixel (memcpy) 経由
+template<size_t BPP> struct PixelType {};
+template<> struct PixelType<1> { using type = uint8_t; };
+template<> struct PixelType<2> { using type = uint16_t; };
+template<> struct PixelType<4> { using type = uint32_t; };
+
 // ピクセル転写ヘルパー（共通コード）
 // Index: dstBase からのピクセル単位オフセット（コンパイル時定数）
 // ESP32 Xtensa の S32I 等の固定オフセット付きストア命令を活用するため、
@@ -218,6 +226,15 @@ inline void copyPixel(uint8_t* __restrict__ dst, const uint8_t* __restrict__ src
             reinterpret_cast<const uint16_t*>(src)[src_offset];
     } else if constexpr (BytesPerPixel == 1) {
         dst[Index] = src[src_offset];
+    } else if constexpr (BytesPerPixel == 3) {
+        constexpr size_t d = Index * 3;
+        size_t s = src_offset * 3;
+        auto p0 = src[s];
+        auto p1 = src[s + 1];
+        auto p2 = src[s + 2];
+        dst[d]     = p0;
+        dst[d + 1] = p1;
+        dst[d + 2] = p2;
     } else {
         std::memcpy(&dst[Index * BytesPerPixel], &src[src_offset * BytesPerPixel], BytesPerPixel);
     }
@@ -245,19 +262,32 @@ inline void copyRowDDA_ConstY(
 
     int count4 = count >> 2;
     for (int i = 0; i < count4; i++) {
-        int32_t sx0 = srcX >> INT_FIXED_SHIFT;
-        srcX += incrX;
-        int32_t sx1 = srcX >> INT_FIXED_SHIFT;
-        srcX += incrX;
-        int32_t sx2 = srcX >> INT_FIXED_SHIFT;
-        srcX += incrX;
-        int32_t sx3 = srcX >> INT_FIXED_SHIFT;
-        srcX += incrX;
-
-        copyPixel<BytesPerPixel, 0>(dstRow, srcRowBase, static_cast<size_t>(sx0));
-        copyPixel<BytesPerPixel, 1>(dstRow, srcRowBase, static_cast<size_t>(sx1));
-        copyPixel<BytesPerPixel, 2>(dstRow, srcRowBase, static_cast<size_t>(sx2));
-        copyPixel<BytesPerPixel, 3>(dstRow, srcRowBase, static_cast<size_t>(sx3));
+        if constexpr (BytesPerPixel == 3) {
+            // BPP==3: byte単位でロード・ストア分離（3bytes × 4pixels）
+            size_t s0 = static_cast<size_t>(srcX >> INT_FIXED_SHIFT) * 3; srcX += incrX;
+            size_t s1 = static_cast<size_t>(srcX >> INT_FIXED_SHIFT) * 3; srcX += incrX;
+            size_t s2 = static_cast<size_t>(srcX >> INT_FIXED_SHIFT) * 3; srcX += incrX;
+            size_t s3 = static_cast<size_t>(srcX >> INT_FIXED_SHIFT) * 3; srcX += incrX;
+            uint8_t p00 = srcRowBase[s0], p01 = srcRowBase[s0+1], p02 = srcRowBase[s0+2];
+            dstRow[0]  = p00; dstRow[1]  = p01; dstRow[2]  = p02;
+            uint8_t p10 = srcRowBase[s1], p11 = srcRowBase[s1+1], p12 = srcRowBase[s1+2];
+            dstRow[3]  = p10; dstRow[4]  = p11; dstRow[5]  = p12;
+            uint8_t p20 = srcRowBase[s2], p21 = srcRowBase[s2+1], p22 = srcRowBase[s2+2];
+            dstRow[6]  = p20; dstRow[7]  = p21; dstRow[8]  = p22;
+            uint8_t p30 = srcRowBase[s3], p31 = srcRowBase[s3+1], p32 = srcRowBase[s3+2];
+            dstRow[9]  = p30; dstRow[10] = p31; dstRow[11] = p32;
+        } else {
+            // BPP 1, 2, 4: ネイティブ型でロード・ストア分離
+            using T = typename PixelType<BytesPerPixel>::type;
+            auto p0 = reinterpret_cast<const T*>(srcRowBase)[srcX >> INT_FIXED_SHIFT]; srcX += incrX;
+            auto p1 = reinterpret_cast<const T*>(srcRowBase)[srcX >> INT_FIXED_SHIFT]; srcX += incrX;
+            auto p2 = reinterpret_cast<const T*>(srcRowBase)[srcX >> INT_FIXED_SHIFT]; srcX += incrX;
+            auto p3 = reinterpret_cast<const T*>(srcRowBase)[srcX >> INT_FIXED_SHIFT]; srcX += incrX;
+            reinterpret_cast<T*>(dstRow)[0] = p0;
+            reinterpret_cast<T*>(dstRow)[1] = p1;
+            reinterpret_cast<T*>(dstRow)[2] = p2;
+            reinterpret_cast<T*>(dstRow)[3] = p3;
+        }
         dstRow += BytesPerPixel * 4;
     }
 }
@@ -279,7 +309,7 @@ inline void copyRowDDA_ConstX(
     for (int i = 0; i < remainder; i++) {
         int32_t sy = srcY >> INT_FIXED_SHIFT;
         const uint8_t* srcPixel = srcColBase
-            + static_cast<size_t>(sy) * static_cast<size_t>(srcStride);
+            + static_cast<size_t>(sy * srcStride);
         copyPixel<BytesPerPixel>(dstRow, srcPixel);
         dstRow += BytesPerPixel;
         srcY += incrY;
@@ -287,19 +317,37 @@ inline void copyRowDDA_ConstX(
 
     int count4 = count >> 2;
     for (int i = 0; i < count4; i++) {
-        int32_t sy0 = srcY >> INT_FIXED_SHIFT;
-        srcY += incrY;
-        int32_t sy1 = srcY >> INT_FIXED_SHIFT;
-        srcY += incrY;
-        int32_t sy2 = srcY >> INT_FIXED_SHIFT;
-        srcY += incrY;
-        int32_t sy3 = srcY >> INT_FIXED_SHIFT;
-        srcY += incrY;
+        int32_t sy0 = srcY >> INT_FIXED_SHIFT; srcY += incrY;
+        int32_t sy1 = srcY >> INT_FIXED_SHIFT; srcY += incrY;
+        int32_t sy2 = srcY >> INT_FIXED_SHIFT; srcY += incrY;
+        int32_t sy3 = srcY >> INT_FIXED_SHIFT; srcY += incrY;
 
-        copyPixel<BytesPerPixel, 0>(dstRow, srcColBase + static_cast<size_t>(sy0) * static_cast<size_t>(srcStride));
-        copyPixel<BytesPerPixel, 1>(dstRow, srcColBase + static_cast<size_t>(sy1) * static_cast<size_t>(srcStride));
-        copyPixel<BytesPerPixel, 2>(dstRow, srcColBase + static_cast<size_t>(sy2) * static_cast<size_t>(srcStride));
-        copyPixel<BytesPerPixel, 3>(dstRow, srcColBase + static_cast<size_t>(sy3) * static_cast<size_t>(srcStride));
+        if constexpr (BytesPerPixel == 3) {
+            // BPP==3: byte単位でピクセルごとにロード・ストア
+            const uint8_t* r0 = srcColBase + static_cast<size_t>(sy0 * srcStride);
+            uint8_t p00 = r0[0], p01 = r0[1], p02 = r0[2];
+            dstRow[0] = p00; dstRow[1] = p01; dstRow[2] = p02;
+            const uint8_t* r1 = srcColBase + static_cast<size_t>(sy1 * srcStride);
+            uint8_t p10 = r1[0], p11 = r1[1], p12 = r1[2];
+            dstRow[3] = p10; dstRow[4] = p11; dstRow[5] = p12;
+            const uint8_t* r2 = srcColBase + static_cast<size_t>(sy2 * srcStride);
+            uint8_t p20 = r2[0], p21 = r2[1], p22 = r2[2];
+            dstRow[6] = p20; dstRow[7] = p21; dstRow[8] = p22;
+            const uint8_t* r3 = srcColBase + static_cast<size_t>(sy3 * srcStride);
+            uint8_t p30 = r3[0], p31 = r3[1], p32 = r3[2];
+            dstRow[9] = p30; dstRow[10] = p31; dstRow[11] = p32;
+        } else {
+            // BPP 1, 2, 4: ネイティブ型でロード・ストア分離
+            using T = typename PixelType<BytesPerPixel>::type;
+            auto p0 = *reinterpret_cast<const T*>(srcColBase + static_cast<size_t>(sy0 * srcStride));
+            auto p1 = *reinterpret_cast<const T*>(srcColBase + static_cast<size_t>(sy1 * srcStride));
+            auto p2 = *reinterpret_cast<const T*>(srcColBase + static_cast<size_t>(sy2 * srcStride));
+            auto p3 = *reinterpret_cast<const T*>(srcColBase + static_cast<size_t>(sy3 * srcStride));
+            reinterpret_cast<T*>(dstRow)[0] = p0;
+            reinterpret_cast<T*>(dstRow)[1] = p1;
+            reinterpret_cast<T*>(dstRow)[2] = p2;
+            reinterpret_cast<T*>(dstRow)[3] = p3;
+        }
         dstRow += BytesPerPixel * 4;
     }
 }
@@ -345,10 +393,32 @@ inline void copyRowDDA_Impl(
         int32_t sy3 = srcY >> INT_FIXED_SHIFT;
         srcX += incrX; srcY += incrY;
 
-        copyPixel<BytesPerPixel, 0>(dstRow, srcData + static_cast<size_t>(sy0 * srcStride), static_cast<size_t>(sx0));
-        copyPixel<BytesPerPixel, 1>(dstRow, srcData + static_cast<size_t>(sy1 * srcStride), static_cast<size_t>(sx1));
-        copyPixel<BytesPerPixel, 2>(dstRow, srcData + static_cast<size_t>(sy2 * srcStride), static_cast<size_t>(sx2));
-        copyPixel<BytesPerPixel, 3>(dstRow, srcData + static_cast<size_t>(sy3 * srcStride), static_cast<size_t>(sx3));
+        if constexpr (BytesPerPixel == 3) {
+            // BPP==3: byte単位でピクセルごとにロード・ストア
+            const uint8_t* r0 = srcData + static_cast<size_t>(sy0 * srcStride) + static_cast<size_t>(sx0) * 3;
+            uint8_t p00 = r0[0], p01 = r0[1], p02 = r0[2];
+            dstRow[0] = p00; dstRow[1] = p01; dstRow[2] = p02;
+            const uint8_t* r1 = srcData + static_cast<size_t>(sy1 * srcStride) + static_cast<size_t>(sx1) * 3;
+            uint8_t p10 = r1[0], p11 = r1[1], p12 = r1[2];
+            dstRow[3] = p10; dstRow[4] = p11; dstRow[5] = p12;
+            const uint8_t* r2 = srcData + static_cast<size_t>(sy2 * srcStride) + static_cast<size_t>(sx2) * 3;
+            uint8_t p20 = r2[0], p21 = r2[1], p22 = r2[2];
+            dstRow[6] = p20; dstRow[7] = p21; dstRow[8] = p22;
+            const uint8_t* r3 = srcData + static_cast<size_t>(sy3 * srcStride) + static_cast<size_t>(sx3) * 3;
+            uint8_t p30 = r3[0], p31 = r3[1], p32 = r3[2];
+            dstRow[9] = p30; dstRow[10] = p31; dstRow[11] = p32;
+        } else {
+            // BPP 1, 2, 4: ネイティブ型でロード・ストア分離
+            using T = typename PixelType<BytesPerPixel>::type;
+            auto p0 = reinterpret_cast<const T*>(srcData + static_cast<size_t>(sy0 * srcStride))[sx0];
+            auto p1 = reinterpret_cast<const T*>(srcData + static_cast<size_t>(sy1 * srcStride))[sx1];
+            auto p2 = reinterpret_cast<const T*>(srcData + static_cast<size_t>(sy2 * srcStride))[sx2];
+            auto p3 = reinterpret_cast<const T*>(srcData + static_cast<size_t>(sy3 * srcStride))[sx3];
+            reinterpret_cast<T*>(dstRow)[0] = p0;
+            reinterpret_cast<T*>(dstRow)[1] = p1;
+            reinterpret_cast<T*>(dstRow)[2] = p2;
+            reinterpret_cast<T*>(dstRow)[3] = p3;
+        }
         dstRow += BytesPerPixel * 4;
     }
 }
@@ -380,7 +450,7 @@ void copyRowDDA(
     if (syFirst == syLast) {
         // Y座標一定パス（高頻度: 回転なし拡大縮小・平行移動、微小Y変動も含む）
         const uint8_t* srcRowBase = srcData
-            + static_cast<size_t>(syFirst) * static_cast<size_t>(srcStride);
+            + static_cast<size_t>(syFirst * srcStride);
         switch (bpp) {
             case 4: detail::copyRowDDA_ConstY<4>(dstRow, srcRowBase, srcX, incrX, count); break;
             case 3: detail::copyRowDDA_ConstY<3>(dstRow, srcRowBase, srcX, incrX, count); break;
@@ -391,7 +461,7 @@ void copyRowDDA(
     } else if (sxFirst == sxLast) {
         // X座標一定パス（微小X変動も含む）
         const uint8_t* srcColBase = srcData
-            + static_cast<size_t>(sxFirst) * static_cast<size_t>(bpp);
+            + static_cast<size_t>(sxFirst * bpp);
         switch (bpp) {
             case 4: detail::copyRowDDA_ConstX<4>(dstRow, srcColBase, srcStride, srcY, incrY, count); break;
             case 3: detail::copyRowDDA_ConstX<3>(dstRow, srcColBase, srcStride, srcY, incrY, count); break;
