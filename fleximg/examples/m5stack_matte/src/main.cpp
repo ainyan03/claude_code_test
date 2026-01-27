@@ -21,45 +21,6 @@
 #include "fleximg/image/pixel_format.h"
 #include "fleximg/operations/filters.h"
 
-// DefaultAllocatorの統計を追跡するラッパー
-class TrackedDefaultAllocator : public fleximg::core::memory::IAllocator {
-public:
-    struct Stats {
-        size_t allocCount = 0;
-        size_t deallocCount = 0;
-        size_t lastAllocSize = 0;
-
-        void reset() {
-            allocCount = deallocCount = 0;
-            lastAllocSize = 0;
-        }
-    };
-
-    void* allocate(size_t bytes, size_t alignment = 16) override {
-        stats_.allocCount++;
-        stats_.lastAllocSize = bytes;
-        return fleximg::core::memory::DefaultAllocator::instance().allocate(bytes, alignment);
-    }
-
-    void deallocate(void* ptr) override {
-        if (ptr) stats_.deallocCount++;
-        fleximg::core::memory::DefaultAllocator::instance().deallocate(ptr);
-    }
-
-    const char* name() const override { return "TrackedDefaultAllocator"; }
-
-    const Stats& stats() const { return stats_; }
-    void resetStats() { stats_.reset(); }
-
-    static TrackedDefaultAllocator& instance() {
-        static TrackedDefaultAllocator s_instance;
-        return s_instance;
-    }
-
-private:
-    Stats stats_;
-};
-
 // カスタムSinkNode
 #include "lcd_sink_node.h"
 
@@ -69,9 +30,8 @@ using namespace fleximg;
 
 // チェッカーボード画像を作成（前景用）
 static ImageBuffer createForegroundImage(int width, int height) {
-    // 元画像はTrackedDefaultAllocatorで統計追跡
     ImageBuffer img(width, height, PixelFormatIDs::RGBA8_Straight, InitPolicy::Uninitialized,
-                    &TrackedDefaultAllocator::instance());
+                    &core::memory::DefaultAllocator::instance());
 
     const int cellSize = 16;  // チェッカーボードのセルサイズ
 
@@ -101,7 +61,7 @@ static ImageBuffer createForegroundImage(int width, int height) {
 // 縦ストライプ + 横グラデーション画像を作成（背景用）
 static ImageBuffer createBackgroundImage(int width, int height) {
     ImageBuffer img(width, height, PixelFormatIDs::RGBA8_Straight, InitPolicy::Uninitialized,
-                    &TrackedDefaultAllocator::instance());
+                    &core::memory::DefaultAllocator::instance());
 
     const int stripeWidth = 12;  // ストライプの幅
 
@@ -152,7 +112,7 @@ static bool pointInTriangle(float px, float py,
 // 六芒星マスクを作成（くっきり）
 static ImageBuffer createHexagramMask(int width, int height) {
     ImageBuffer img(width, height, PixelFormatIDs::Alpha8, InitPolicy::Uninitialized,
-                    &TrackedDefaultAllocator::instance());
+                    &core::memory::DefaultAllocator::instance());
 
     float centerX = static_cast<float>(width) / 2.0f;
     float centerY = static_cast<float>(height) / 2.0f;
@@ -381,16 +341,14 @@ void loop() {
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         // 統計取得（デバッグビルド時のみ）
         const auto& poolStats = poolAdapter->stats();
-        const auto& defaultStats = TrackedDefaultAllocator::instance().stats();
         M5.Display.setCursor(0, dispH - 45);
         M5.Display.printf("Pool  A:%zu F:%zu",
                           poolStats.poolHits, poolStats.poolDeallocs);
         M5.Display.setCursor(0, dispH - 30);
         M5.Display.printf("Deflt A:%zu F:%zu",
-                          defaultStats.allocCount, defaultStats.deallocCount);
+                          poolStats.poolMisses, poolStats.defaultDeallocs);
         M5.Display.setCursor(0, dispH - 15);
-        M5.Display.printf("Miss:%zu Size:%zu",
-                          poolStats.poolMisses, poolStats.lastAllocSize);
+        M5.Display.printf("Size:%zu", poolStats.lastAllocSize);
 #endif
     }
 }
