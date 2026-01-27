@@ -204,11 +204,112 @@ void clear(ViewPort& dst, int x, int y, int width, int height) {
 
 namespace detail {
 
-// DDA行転写の低レベル実装（テンプレート）
+// ピクセル転写ヘルパー（共通コード）
+// Index: dstBase からのピクセル単位オフセット（コンパイル時定数）
+// ESP32 Xtensa の S32I 等の固定オフセット付きストア命令を活用するため、
+// 配列インデクスで書き込み先を指定する（ポインタ加算ではなく）
+template<size_t BytesPerPixel, size_t Index = 0>
+inline void copyPixel(uint8_t* __restrict__ dst, const uint8_t* __restrict__ src, size_t src_offset = 0) {
+    if constexpr (BytesPerPixel == 4) {
+        reinterpret_cast<uint32_t*>(dst)[Index] =
+            reinterpret_cast<const uint32_t*>(src)[src_offset];
+    } else if constexpr (BytesPerPixel == 2) {
+        reinterpret_cast<uint16_t*>(dst)[Index] =
+            reinterpret_cast<const uint16_t*>(src)[src_offset];
+    } else if constexpr (BytesPerPixel == 1) {
+        dst[Index] = src[src_offset];
+    } else {
+        std::memcpy(&dst[Index * BytesPerPixel], &src[src_offset * BytesPerPixel], BytesPerPixel);
+    }
+}
+
+// DDA行転写: Y座標一定パス（ソース行が同一の場合）
+// srcRowBase = srcData + sy * srcStride（呼び出し前に計算済み）
+// 4ピクセル単位展開でループオーバーヘッドを削減
+template<size_t BytesPerPixel>
+inline void copyRowDDA_ConstY(
+    uint8_t* __restrict__ dstRow,
+    const uint8_t* __restrict__ srcRowBase,
+    int_fixed srcX,
+    int_fixed incrX,
+    int count
+) {
+    // 端数を先に処理し、4ピクセルループを最後に連続実行する
+    int remainder = count & 3;
+    for (int i = 0; i < remainder; i++) {
+        int32_t sx = srcX >> INT_FIXED_SHIFT;
+        copyPixel<BytesPerPixel>(dstRow, srcRowBase, static_cast<size_t>(sx));
+        dstRow += BytesPerPixel;
+        srcX += incrX;
+    }
+
+    int count4 = count >> 2;
+    for (int i = 0; i < count4; i++) {
+        int32_t sx0 = srcX >> INT_FIXED_SHIFT;
+        srcX += incrX;
+        int32_t sx1 = srcX >> INT_FIXED_SHIFT;
+        srcX += incrX;
+        int32_t sx2 = srcX >> INT_FIXED_SHIFT;
+        srcX += incrX;
+        int32_t sx3 = srcX >> INT_FIXED_SHIFT;
+        srcX += incrX;
+
+        copyPixel<BytesPerPixel, 0>(dstRow, srcRowBase, static_cast<size_t>(sx0));
+        copyPixel<BytesPerPixel, 1>(dstRow, srcRowBase, static_cast<size_t>(sx1));
+        copyPixel<BytesPerPixel, 2>(dstRow, srcRowBase, static_cast<size_t>(sx2));
+        copyPixel<BytesPerPixel, 3>(dstRow, srcRowBase, static_cast<size_t>(sx3));
+        dstRow += BytesPerPixel * 4;
+    }
+}
+
+// DDA行転写: X座標一定パス（ソース列が同一の場合）
+// srcColBase = srcData + sx * BPP（呼び出し前に加算済み）
+// 4ピクセル単位展開でループオーバーヘッドを削減
+template<size_t BytesPerPixel>
+inline void copyRowDDA_ConstX(
+    uint8_t* __restrict__ dstRow,
+    const uint8_t* __restrict__ srcColBase,
+    int32_t srcStride,
+    int_fixed srcY,
+    int_fixed incrY,
+    int count
+) {
+    // 端数を先に処理し、4ピクセルループを最後に連続実行する
+    int remainder = count & 3;
+    for (int i = 0; i < remainder; i++) {
+        int32_t sy = srcY >> INT_FIXED_SHIFT;
+        const uint8_t* srcPixel = srcColBase
+            + static_cast<size_t>(sy) * static_cast<size_t>(srcStride);
+        copyPixel<BytesPerPixel>(dstRow, srcPixel);
+        dstRow += BytesPerPixel;
+        srcY += incrY;
+    }
+
+    int count4 = count >> 2;
+    for (int i = 0; i < count4; i++) {
+        int32_t sy0 = srcY >> INT_FIXED_SHIFT;
+        srcY += incrY;
+        int32_t sy1 = srcY >> INT_FIXED_SHIFT;
+        srcY += incrY;
+        int32_t sy2 = srcY >> INT_FIXED_SHIFT;
+        srcY += incrY;
+        int32_t sy3 = srcY >> INT_FIXED_SHIFT;
+        srcY += incrY;
+
+        copyPixel<BytesPerPixel, 0>(dstRow, srcColBase + static_cast<size_t>(sy0) * static_cast<size_t>(srcStride));
+        copyPixel<BytesPerPixel, 1>(dstRow, srcColBase + static_cast<size_t>(sy1) * static_cast<size_t>(srcStride));
+        copyPixel<BytesPerPixel, 2>(dstRow, srcColBase + static_cast<size_t>(sy2) * static_cast<size_t>(srcStride));
+        copyPixel<BytesPerPixel, 3>(dstRow, srcColBase + static_cast<size_t>(sy3) * static_cast<size_t>(srcStride));
+        dstRow += BytesPerPixel * 4;
+    }
+}
+
+// DDA行転写の汎用実装（両方非ゼロ、回転を含む変換）
+// 4ピクセル単位展開でループオーバーヘッドを削減
 template<size_t BytesPerPixel>
 inline void copyRowDDA_Impl(
-    uint8_t* dstRow,
-    const uint8_t* srcData,
+    uint8_t* __restrict__ dstRow,
+    const uint8_t* __restrict__ srcData,
     int32_t srcStride,
     int_fixed srcX,
     int_fixed srcY,
@@ -216,34 +317,39 @@ inline void copyRowDDA_Impl(
     int_fixed incrY,
     int count
 ) {
-    for (int i = 0; i < count; i++) {
-        uint32_t sx = static_cast<uint32_t>(srcX) >> INT_FIXED_SHIFT;
-        uint32_t sy = static_cast<uint32_t>(srcY) >> INT_FIXED_SHIFT;
-
+    // 端数を先に処理し、4ピクセルループを最後に連続実行する
+    int remainder = count & 3;
+    for (int i = 0; i < remainder; i++) {
+        int32_t sx = srcX >> INT_FIXED_SHIFT;
+        int32_t sy = srcY >> INT_FIXED_SHIFT;
         const uint8_t* srcPixel = srcData
-            + static_cast<size_t>(sy) * static_cast<size_t>(srcStride)
-            + static_cast<size_t>(sx) * BytesPerPixel;
-
-        if constexpr (BytesPerPixel == 8) {
-            reinterpret_cast<uint32_t*>(dstRow)[0] =
-                reinterpret_cast<const uint32_t*>(srcPixel)[0];
-            reinterpret_cast<uint32_t*>(dstRow)[1] =
-                reinterpret_cast<const uint32_t*>(srcPixel)[1];
-        } else if constexpr (BytesPerPixel == 4) {
-            *reinterpret_cast<uint32_t*>(dstRow) =
-                *reinterpret_cast<const uint32_t*>(srcPixel);
-        } else if constexpr (BytesPerPixel == 2) {
-            *reinterpret_cast<uint16_t*>(dstRow) =
-                *reinterpret_cast<const uint16_t*>(srcPixel);
-        } else if constexpr (BytesPerPixel == 1) {
-            *dstRow = *srcPixel;
-        } else {
-            std::memcpy(dstRow, srcPixel, BytesPerPixel);
-        }
-
+            + static_cast<size_t>(sy * srcStride);
+        copyPixel<BytesPerPixel>(dstRow, srcPixel, static_cast<size_t>(sx));
         dstRow += BytesPerPixel;
         srcX += incrX;
         srcY += incrY;
+    }
+
+    int count4 = count >> 2;
+    for (int i = 0; i < count4; i++) {
+        int32_t sx0 = srcX >> INT_FIXED_SHIFT;
+        int32_t sy0 = srcY >> INT_FIXED_SHIFT;
+        srcX += incrX; srcY += incrY;
+        int32_t sx1 = srcX >> INT_FIXED_SHIFT;
+        int32_t sy1 = srcY >> INT_FIXED_SHIFT;
+        srcX += incrX; srcY += incrY;
+        int32_t sx2 = srcX >> INT_FIXED_SHIFT;
+        int32_t sy2 = srcY >> INT_FIXED_SHIFT;
+        srcX += incrX; srcY += incrY;
+        int32_t sx3 = srcX >> INT_FIXED_SHIFT;
+        int32_t sy3 = srcY >> INT_FIXED_SHIFT;
+        srcX += incrX; srcY += incrY;
+
+        copyPixel<BytesPerPixel, 0>(dstRow, srcData + static_cast<size_t>(sy0 * srcStride), static_cast<size_t>(sx0));
+        copyPixel<BytesPerPixel, 1>(dstRow, srcData + static_cast<size_t>(sy1 * srcStride), static_cast<size_t>(sx1));
+        copyPixel<BytesPerPixel, 2>(dstRow, srcData + static_cast<size_t>(sy2 * srcStride), static_cast<size_t>(sx2));
+        copyPixel<BytesPerPixel, 3>(dstRow, srcData + static_cast<size_t>(sy3 * srcStride), static_cast<size_t>(sx3));
+        dstRow += BytesPerPixel * 4;
     }
 }
 
@@ -263,30 +369,45 @@ void copyRowDDA(
     uint8_t* dstRow = static_cast<uint8_t*>(dst);
     const uint8_t* srcData = static_cast<const uint8_t*>(src.data);
     int32_t srcStride = src.stride;
+    auto bpp = getBytesPerPixel(src.formatID);
 
-    switch (getBytesPerPixel(src.formatID)) {
-        case 8:
-            detail::copyRowDDA_Impl<8>(dstRow, srcData, srcStride,
-                srcX, srcY, incrX, incrY, count);
-            break;
-        case 4:
-            detail::copyRowDDA_Impl<4>(dstRow, srcData, srcStride,
-                srcX, srcY, incrX, incrY, count);
-            break;
-        case 3:
-            detail::copyRowDDA_Impl<3>(dstRow, srcData, srcStride,
-                srcX, srcY, incrX, incrY, count);
-            break;
-        case 2:
-            detail::copyRowDDA_Impl<2>(dstRow, srcData, srcStride,
-                srcX, srcY, incrX, incrY, count);
-            break;
-        case 1:
-            detail::copyRowDDA_Impl<1>(dstRow, srcData, srcStride,
-                srcX, srcY, incrX, incrY, count);
-            break;
-        default:
-            break;
+    // ソース座標の整数部が全ピクセルで同一か判定（座標は呼び出し側で非負が保証済み）
+    int32_t syFirst = srcY >> INT_FIXED_SHIFT;
+    int32_t syLast  = (srcY + incrY * count) >> INT_FIXED_SHIFT;
+    int32_t sxFirst = srcX >> INT_FIXED_SHIFT;
+    int32_t sxLast  = (srcX + incrX * count) >> INT_FIXED_SHIFT;
+
+    if (syFirst == syLast) {
+        // Y座標一定パス（高頻度: 回転なし拡大縮小・平行移動、微小Y変動も含む）
+        const uint8_t* srcRowBase = srcData
+            + static_cast<size_t>(syFirst) * static_cast<size_t>(srcStride);
+        switch (bpp) {
+            case 4: detail::copyRowDDA_ConstY<4>(dstRow, srcRowBase, srcX, incrX, count); break;
+            case 3: detail::copyRowDDA_ConstY<3>(dstRow, srcRowBase, srcX, incrX, count); break;
+            case 2: detail::copyRowDDA_ConstY<2>(dstRow, srcRowBase, srcX, incrX, count); break;
+            case 1: detail::copyRowDDA_ConstY<1>(dstRow, srcRowBase, srcX, incrX, count); break;
+            default: break;
+        }
+    } else if (sxFirst == sxLast) {
+        // X座標一定パス（微小X変動も含む）
+        const uint8_t* srcColBase = srcData
+            + static_cast<size_t>(sxFirst) * static_cast<size_t>(bpp);
+        switch (bpp) {
+            case 4: detail::copyRowDDA_ConstX<4>(dstRow, srcColBase, srcStride, srcY, incrY, count); break;
+            case 3: detail::copyRowDDA_ConstX<3>(dstRow, srcColBase, srcStride, srcY, incrY, count); break;
+            case 2: detail::copyRowDDA_ConstX<2>(dstRow, srcColBase, srcStride, srcY, incrY, count); break;
+            case 1: detail::copyRowDDA_ConstX<1>(dstRow, srcColBase, srcStride, srcY, incrY, count); break;
+            default: break;
+        }
+    } else {
+        // 汎用パス（回転を含む変換）
+        switch (bpp) {
+            case 4: detail::copyRowDDA_Impl<4>(dstRow, srcData, srcStride, srcX, srcY, incrX, incrY, count); break;
+            case 3: detail::copyRowDDA_Impl<3>(dstRow, srcData, srcStride, srcX, srcY, incrX, incrY, count); break;
+            case 2: detail::copyRowDDA_Impl<2>(dstRow, srcData, srcStride, srcX, srcY, incrX, incrY, count); break;
+            case 1: detail::copyRowDDA_Impl<1>(dstRow, srcData, srcStride, srcX, srcY, incrX, incrY, count); break;
+            default: break;
+        }
     }
 }
 
