@@ -381,6 +381,65 @@ function pushExistingNodes(newX, newY, newWidth = 160, newHeight = 70) {
     }
 }
 
+// パフォーマンス計測値のスムージング（適応型EMA + 非活動リセット + グラフ構造変更検知）
+class PerfSmoother {
+    constructor(inactivityThreshold = 200) {
+        this._ema = {};
+        this._lastCallTime = 0;
+        this._isInactive = true;
+        this._graphSig = '';
+        this._inactivityThreshold = inactivityThreshold;
+    }
+
+    reset() {
+        this._ema = {};
+    }
+
+    // 各フレーム開始時に呼び出し。非活動判定とグラフ構造チェック。
+    beginFrame(nodesCount, connectionsCount) {
+        const now = performance.now();
+        this._isInactive = (now - this._lastCallTime) > this._inactivityThreshold;
+        this._lastCallTime = now;
+
+        // グラフ構造変更でリセット
+        const sig = `${nodesCount}:${connectionsCount}`;
+        if (sig !== this._graphSig) {
+            this._graphSig = sig;
+            this.reset();
+            this._isInactive = true; // 構造変更も非活動扱い
+        }
+    }
+
+    // 計測値をスムージング。keyは "total", "node_3_time" 等。
+    smooth(key, rawValue) {
+        if (rawValue == null || rawValue <= 0) return rawValue;
+
+        const prev = this._ema[key];
+
+        // 初回 or 非活動後 → 生値をそのまま採用
+        if (prev == null || this._isInactive) {
+            this._ema[key] = rawValue;
+            return rawValue;
+        }
+
+        // 適応型alpha
+        let alpha = 0.3;
+        if (prev > 0) {
+            const ratio = rawValue / prev;
+            if (ratio > 2.0) {
+                alpha = 0.1;  // 上方向スパイク（GC疑い）→ 強く抑制
+            } else if (ratio < 0.5) {
+                alpha = 0.7;  // 大幅な減少 → 素早く追従
+            }
+        }
+
+        this._ema[key] = alpha * rawValue + (1 - alpha) * prev;
+        return this._ema[key];
+    }
+}
+
+const perfSmoother = new PerfSmoother();
+
 // requestAnimationFrame用のフラグ
 let updatePreviewScheduled = false;
 
@@ -4310,6 +4369,7 @@ function getFilterDisplayName(filterType) {
 // グラフベースのプレビュー更新（C++側で完結）
 function updatePreviewFromGraph() {
     const perfStart = performance.now();
+    perfSmoother.beginFrame(globalNodes.length, globalConnections.length);
 
     // フォーカス中のコンテンツを取得
     const focusedContent = contentLibrary.find(c => c.id === focusedContentId);
@@ -4493,10 +4553,15 @@ function updatePreviewFromGraph() {
 
         // C++側の詳細計測結果を取得（時間はマイクロ秒）
         const metrics = graphEvaluator.getPerfMetrics();
-        const totalTime = performance.now() - perfStart;
+        const rawTotalTime = performance.now() - perfStart;
 
-        // マイクロ秒→ミリ秒変換ヘルパー
-        const usToMs = (us) => (us / 1000).toFixed(2);
+        // スムージング適用
+        const totalTime = perfSmoother.smooth('total', rawTotalTime);
+        const smoothedEvalTime = perfSmoother.smooth('eval', evalTime);
+        const smoothedDrawTime = perfSmoother.smooth('draw', drawTime);
+
+        // マイクロ秒表示ヘルパー（C++由来の値はμs単位で精度1μs）
+        const formatUs = (us) => Math.round(us);
 
         // 詳細ログ出力（NODE_TYPESを使用）
         const details = [];
@@ -4505,7 +4570,8 @@ function updatePreviewFromGraph() {
                 const m = metrics.nodes[i];
                 const typeDef = NodeTypeHelper.byIndex(i);
                 if (m.count > 0 && typeDef) {
-                    let entry = `${typeDef.name}: ${usToMs(m.time_us)}ms (x${m.count})`;
+                    const smoothedTime = perfSmoother.smooth(`node_${i}_time`, m.time_us);
+                    let entry = `${typeDef.name}: ${formatUs(smoothedTime)}us (x${m.count})`;
                     // ピクセル効率を表示（showEfficiencyフラグで制御）
                     if (typeDef.showEfficiency && m.requestedPixels > 0) {
                         const efficiency = ((1.0 - m.wasteRatio) * 100).toFixed(1);
@@ -4521,10 +4587,10 @@ function updatePreviewFromGraph() {
             }
         }
 
-        console.log(`[Perf] Total: ${totalTime.toFixed(1)}ms | WASM: ${evalTime.toFixed(1)}ms (${details.join(', ')}) | Draw: ${drawTime.toFixed(1)}ms`);
+        console.log(`[Perf] Total: ${totalTime.toFixed(1)}ms | WASM: ${smoothedEvalTime.toFixed(1)}ms (${details.join(', ')}) | Draw: ${smoothedDrawTime.toFixed(1)}ms`);
 
         // デバッグステータスバーを更新
-        updateDebugStatusBar(totalTime, evalTime, details);
+        updateDebugStatusBar(totalTime, smoothedEvalTime, details);
 
         // サイドバーのデバッグ詳細セクションを更新
         updateDebugDetails(metrics);
@@ -4785,7 +4851,7 @@ function initDebugDetailsSection() {
 function updateDebugDetails(metrics) {
     if (!metrics) return;
 
-    const usToMs = (us) => (us / 1000).toFixed(2);
+    const formatUs = (us) => Math.round(us);
     const formatBytes = (bytes) => {
         if (bytes < 1024) return `${bytes} B`;
         if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -4798,11 +4864,12 @@ function updateDebugDetails(metrics) {
             const m = metrics.nodes[def.index];
             if (!m) continue;
 
-            // 処理時間
+            // 処理時間（スムージング適用）
             const timeEl = document.getElementById(`debug-${key}-time`);
             if (timeEl) {
                 if (m.count > 0) {
-                    let text = `${usToMs(m.time_us)}ms (x${m.count})`;
+                    const smoothedTime = perfSmoother.smooth(`detail_${key}_time`, m.time_us);
+                    let text = `${formatUs(smoothedTime)}us (x${m.count})`;
                     if (def.showEfficiency && m.requestedPixels > 0) {
                         const efficiency = ((1.0 - m.wasteRatio) * 100).toFixed(1);
                         text += ` [${efficiency}%]`;
@@ -4840,21 +4907,23 @@ function updateDebugDetails(metrics) {
         }
     }
 
-    // ノード合計時間
+    // ノード合計時間（スムージング適用、μs表示）
     const totalEl = document.getElementById('debug-total-time');
     if (totalEl && metrics.totalTime !== undefined) {
-        totalEl.textContent = `${usToMs(metrics.totalTime)}ms`;
+        const smoothedTotal = perfSmoother.smooth('detail_total', metrics.totalTime);
+        totalEl.textContent = `${formatUs(smoothedTotal)}us`;
     }
 
-    // オーバーヘッド計算と表示
+    // オーバーヘッド計算と表示（スムージング適用、μs表示）
     const overheadEl = document.getElementById('debug-overhead-time');
     if (overheadEl && metrics.nodes) {
         const rendererMetrics = metrics.nodes[NODE_TYPES.renderer.index];
         if (rendererMetrics && rendererMetrics.time_us > 0 && metrics.totalTime !== undefined) {
-            const overhead = rendererMetrics.time_us - metrics.totalTime;
-            const overheadMs = usToMs(overhead);
-            const overheadPercent = ((overhead / rendererMetrics.time_us) * 100).toFixed(1);
-            overheadEl.textContent = `${overheadMs}ms (${overheadPercent}%)`;
+            const smoothedRenderer = perfSmoother.smooth('detail_renderer_time', rendererMetrics.time_us);
+            const smoothedTotal = perfSmoother.smooth('detail_overhead_total', metrics.totalTime);
+            const overhead = smoothedRenderer - smoothedTotal;
+            const overheadPercent = ((overhead / smoothedRenderer) * 100).toFixed(1);
+            overheadEl.textContent = `${formatUs(overhead)}us (${overheadPercent}%)`;
         } else {
             overheadEl.textContent = '--';
         }
