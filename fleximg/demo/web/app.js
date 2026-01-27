@@ -4829,14 +4829,6 @@ function initDebugDetailsSection() {
                     <span class="debug-metric-value" id="debug-fmt-fromStraight">--</span>
                 </div>
                 <div class="debug-metric-row debug-metric-sub">
-                    <span class="debug-metric-label">├ toPremul</span>
-                    <span class="debug-metric-value" id="debug-fmt-toPremul">--</span>
-                </div>
-                <div class="debug-metric-row debug-metric-sub">
-                    <span class="debug-metric-label">├ fromPremul</span>
-                    <span class="debug-metric-value" id="debug-fmt-fromPremul">--</span>
-                </div>
-                <div class="debug-metric-row debug-metric-sub">
                     <span class="debug-metric-label">└ blendUnder</span>
                     <span class="debug-metric-value" id="debug-fmt-blendUnder">--</span>
                 </div>
@@ -4987,7 +4979,7 @@ function updateFormatMetrics() {
     };
 
     // 操作別合計
-    const opNames = ['toStraight', 'fromStraight', 'toPremul', 'fromPremul', 'blendUnder'];
+    const opNames = ['toStraight', 'fromStraight', 'blendUnder'];
     if (fmtMetrics.opTotals) {
         for (let i = 0; i < fmtMetrics.opTotals.length && i < opNames.length; i++) {
             const op = fmtMetrics.opTotals[i];
@@ -5016,7 +5008,7 @@ function updateFormatMetrics() {
     const detailContainer = document.getElementById('debug-fmt-details');
     if (detailContainer && fmtMetrics.formats) {
         let html = '';
-        const opLabels = ['toStraight', 'fromStraight', 'toPremul', 'fromPremul', 'blendUnder'];
+        const opLabels = ['toStraight', 'fromStraight', 'blendUnder'];
 
         for (const fmt of fmtMetrics.formats) {
             // 使用されているフォーマットのみ表示

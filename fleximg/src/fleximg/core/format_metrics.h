@@ -16,7 +16,7 @@ namespace core {
 // FLEXIMG_DEBUG_PERF_METRICS が定義されている場合のみ有効。
 //
 // 使用例（各変換関数の先頭に1行追加）:
-//   static void rgb565le_blendUnderPremul(..., int pixelCount, ...) {
+//   static void rgb565le_blendUnderStraight(..., int pixelCount, ...) {
 //       FLEXIMG_FMT_METRICS(RGB565_LE, BlendUnder, pixelCount);
 //       // 既存の処理...
 //   }
@@ -36,15 +36,14 @@ namespace core {
 //
 
 namespace FormatIdx {
-    constexpr int RGBA16_Premultiplied = 0;
-    constexpr int RGBA8_Straight = 1;
-    constexpr int RGB565_LE = 2;
-    constexpr int RGB565_BE = 3;
-    constexpr int RGB332 = 4;
-    constexpr int RGB888 = 5;
-    constexpr int BGR888 = 6;
-    constexpr int Alpha8 = 7;
-    constexpr int Count = 8;
+    constexpr int RGBA8_Straight = 0;
+    constexpr int RGB565_LE = 1;
+    constexpr int RGB565_BE = 2;
+    constexpr int RGB332 = 3;
+    constexpr int RGB888 = 4;
+    constexpr int BGR888 = 5;
+    constexpr int Alpha8 = 6;
+    constexpr int Count = 7;
 }
 
 // ========================================================================
@@ -54,11 +53,8 @@ namespace FormatIdx {
 namespace OpType {
     constexpr int ToStraight = 0;        // 各フォーマット → RGBA8_Straight
     constexpr int FromStraight = 1;      // RGBA8_Straight → 各フォーマット
-    constexpr int ToPremul = 2;          // 各フォーマット → RGBA16_Premultiplied
-    constexpr int FromPremul = 3;        // RGBA16_Premultiplied → 各フォーマット
-    constexpr int BlendUnder = 4;        // 各フォーマット → Premul dst (under合成)
-    constexpr int BlendUnderStraight = 5;// 各フォーマット → Straight dst (under合成)
-    constexpr int Count = 6;
+    constexpr int BlendUnder = 2;        // 各フォーマット → Straight dst (under合成)
+    constexpr int Count = 3;
 }
 
 // ========================================================================

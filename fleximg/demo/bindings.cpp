@@ -723,11 +723,11 @@ public:
 
         // フォーマット名配列
         static const char* formatNames[] = {
-            "RGBA16_Premul", "RGBA8_Straight", "RGB565_LE", "RGB565_BE",
+            "RGBA8_Straight", "RGB565_LE", "RGB565_BE",
             "RGB332", "RGB888", "BGR888", "Alpha8"
         };
         static const char* opNames[] = {
-            "toStraight", "fromStraight", "toPremul", "fromPremul", "blendUnder"
+            "toStraight", "fromStraight", "blendUnder"
         };
 
         // フォーマット別データ
