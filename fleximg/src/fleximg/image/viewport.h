@@ -206,39 +206,11 @@ namespace detail {
 
 // BPP → ネイティブ型マッピング（ロード・ストア分離用）
 // BPP 1, 2, 4 はネイティブ型で直接ロード・ストア可能
-// BPP 3 はネイティブ型が存在しないため copyPixel (memcpy) 経由
+// BPP 3 はネイティブ型が存在しないため byte 単位で処理
 template<size_t BPP> struct PixelType {};
 template<> struct PixelType<1> { using type = uint8_t; };
 template<> struct PixelType<2> { using type = uint16_t; };
 template<> struct PixelType<4> { using type = uint32_t; };
-
-// ピクセル転写ヘルパー（共通コード）
-// Index: dstBase からのピクセル単位オフセット（コンパイル時定数）
-// ESP32 Xtensa の S32I 等の固定オフセット付きストア命令を活用するため、
-// 配列インデクスで書き込み先を指定する（ポインタ加算ではなく）
-template<size_t BytesPerPixel, size_t Index = 0>
-inline void copyPixel(uint8_t* __restrict__ dst, const uint8_t* __restrict__ src, size_t src_offset = 0) {
-    if constexpr (BytesPerPixel == 4) {
-        reinterpret_cast<uint32_t*>(dst)[Index] =
-            reinterpret_cast<const uint32_t*>(src)[src_offset];
-    } else if constexpr (BytesPerPixel == 2) {
-        reinterpret_cast<uint16_t*>(dst)[Index] =
-            reinterpret_cast<const uint16_t*>(src)[src_offset];
-    } else if constexpr (BytesPerPixel == 1) {
-        dst[Index] = src[src_offset];
-    } else if constexpr (BytesPerPixel == 3) {
-        constexpr size_t d = Index * 3;
-        size_t s = src_offset * 3;
-        auto p0 = src[s];
-        auto p1 = src[s + 1];
-        auto p2 = src[s + 2];
-        dst[d]     = p0;
-        dst[d + 1] = p1;
-        dst[d + 2] = p2;
-    } else {
-        std::memcpy(&dst[Index * BytesPerPixel], &src[src_offset * BytesPerPixel], BytesPerPixel);
-    }
-}
 
 // DDA行転写: Y座標一定パス（ソース行が同一の場合）
 // srcRowBase = srcData + sy * srcStride（呼び出し前に計算済み）
@@ -253,16 +225,17 @@ inline void copyRowDDA_ConstY(
 ) {
     // 端数を先に処理し、4ピクセルループを最後に連続実行する
     int remainder = count & 3;
-    for (int i = 0; i < remainder; i++) {
-        int32_t sx = srcX >> INT_FIXED_SHIFT;
-        copyPixel<BytesPerPixel>(dstRow, srcRowBase, static_cast<size_t>(sx));
-        dstRow += BytesPerPixel;
-        srcX += incrX;
-    }
 
-    int count4 = count >> 2;
-    for (int i = 0; i < count4; i++) {
-        if constexpr (BytesPerPixel == 3) {
+    if constexpr (BytesPerPixel == 3) {
+        for (int i = 0; i < remainder; i++) {
+            // BPP==3: byte単位でロード・ストア分離（3bytes × 4pixels）
+            size_t s0 = static_cast<size_t>(srcX >> INT_FIXED_SHIFT) * 3; srcX += incrX;
+            uint8_t p00 = srcRowBase[s0], p01 = srcRowBase[s0+1], p02 = srcRowBase[s0+2];
+            dstRow[0]  = p00; dstRow[1]  = p01; dstRow[2]  = p02;
+            dstRow += BytesPerPixel;
+        }
+        int count4 = count >> 2;
+        for (int i = 0; i < count4; i++) {
             // BPP==3: byte単位でロード・ストア分離（3bytes × 4pixels）
             size_t s0 = static_cast<size_t>(srcX >> INT_FIXED_SHIFT) * 3; srcX += incrX;
             size_t s1 = static_cast<size_t>(srcX >> INT_FIXED_SHIFT) * 3; srcX += incrX;
@@ -276,19 +249,31 @@ inline void copyRowDDA_ConstY(
             dstRow[6]  = p20; dstRow[7]  = p21; dstRow[8]  = p22;
             uint8_t p30 = srcRowBase[s3], p31 = srcRowBase[s3+1], p32 = srcRowBase[s3+2];
             dstRow[9]  = p30; dstRow[10] = p31; dstRow[11] = p32;
-        } else {
-            // BPP 1, 2, 4: ネイティブ型でロード・ストア分離
-            using T = typename PixelType<BytesPerPixel>::type;
-            auto p0 = reinterpret_cast<const T*>(srcRowBase)[srcX >> INT_FIXED_SHIFT]; srcX += incrX;
-            auto p1 = reinterpret_cast<const T*>(srcRowBase)[srcX >> INT_FIXED_SHIFT]; srcX += incrX;
-            auto p2 = reinterpret_cast<const T*>(srcRowBase)[srcX >> INT_FIXED_SHIFT]; srcX += incrX;
-            auto p3 = reinterpret_cast<const T*>(srcRowBase)[srcX >> INT_FIXED_SHIFT]; srcX += incrX;
-            reinterpret_cast<T*>(dstRow)[0] = p0;
-            reinterpret_cast<T*>(dstRow)[1] = p1;
-            reinterpret_cast<T*>(dstRow)[2] = p2;
-            reinterpret_cast<T*>(dstRow)[3] = p3;
+            dstRow += BytesPerPixel * 4;
         }
-        dstRow += BytesPerPixel * 4;
+    } else {
+        using T = typename PixelType<BytesPerPixel>::type;
+        auto src = reinterpret_cast<const T*>(srcRowBase);
+        auto dst = reinterpret_cast<T*>(dstRow);
+        for (int i = 0; i < remainder; i++) {
+            // BPP 1, 2, 4: ネイティブ型でロード・ストア分離
+            auto p0 = src[srcX >> INT_FIXED_SHIFT]; srcX += incrX;
+            dst[0] = p0;
+            dst += 1;
+        }
+        int count4 = count >> 2;
+        for (int i = 0; i < count4; i++) {
+            // BPP 1, 2, 4: ネイティブ型でロード・ストア分離
+            auto p0 = src[srcX >> INT_FIXED_SHIFT]; srcX += incrX;
+            auto p1 = src[srcX >> INT_FIXED_SHIFT]; srcX += incrX;
+            auto p2 = src[srcX >> INT_FIXED_SHIFT]; srcX += incrX;
+            auto p3 = src[srcX >> INT_FIXED_SHIFT]; srcX += incrX;
+            dst[0] = p0;
+            dst[1] = p1;
+            dst[2] = p2;
+            dst[3] = p3;
+            dst += 4;
+        }
     }
 }
 
@@ -306,13 +291,24 @@ inline void copyRowDDA_ConstX(
 ) {
     // 端数を先に処理し、4ピクセルループを最後に連続実行する
     int remainder = count & 3;
-    for (int i = 0; i < remainder; i++) {
-        int32_t sy = srcY >> INT_FIXED_SHIFT;
-        const uint8_t* srcPixel = srcColBase
-            + static_cast<size_t>(sy * srcStride);
-        copyPixel<BytesPerPixel>(dstRow, srcPixel);
-        dstRow += BytesPerPixel;
-        srcY += incrY;
+    if constexpr (BytesPerPixel == 3) {
+        for (int i = 0; i < remainder; i++) {
+            int32_t sy = srcY >> INT_FIXED_SHIFT; srcY += incrY;
+            const uint8_t* r = srcColBase + static_cast<size_t>(sy * srcStride);
+            uint8_t p0 = r[0], p1 = r[1], p2 = r[2];
+            dstRow[0] = p0; dstRow[1] = p1; dstRow[2] = p2;
+            dstRow += BytesPerPixel;
+        }
+    } else {
+        using T = typename PixelType<BytesPerPixel>::type;
+        auto dst = reinterpret_cast<T*>(dstRow);
+        for (int i = 0; i < remainder; i++) {
+            int32_t sy = srcY >> INT_FIXED_SHIFT; srcY += incrY;
+            auto p = *reinterpret_cast<const T*>(srcColBase + static_cast<size_t>(sy * srcStride));
+            dst[0] = p;
+            dst += 1;
+        }
+        dstRow = reinterpret_cast<uint8_t*>(dst);
     }
 
     int count4 = count >> 2;
@@ -367,15 +363,28 @@ inline void copyRowDDA_Impl(
 ) {
     // 端数を先に処理し、4ピクセルループを最後に連続実行する
     int remainder = count & 3;
-    for (int i = 0; i < remainder; i++) {
-        int32_t sx = srcX >> INT_FIXED_SHIFT;
-        int32_t sy = srcY >> INT_FIXED_SHIFT;
-        const uint8_t* srcPixel = srcData
-            + static_cast<size_t>(sy * srcStride);
-        copyPixel<BytesPerPixel>(dstRow, srcPixel, static_cast<size_t>(sx));
-        dstRow += BytesPerPixel;
-        srcX += incrX;
-        srcY += incrY;
+    if constexpr (BytesPerPixel == 3) {
+        for (int i = 0; i < remainder; i++) {
+            int32_t sx = srcX >> INT_FIXED_SHIFT;
+            int32_t sy = srcY >> INT_FIXED_SHIFT;
+            srcX += incrX; srcY += incrY;
+            const uint8_t* r = srcData + static_cast<size_t>(sy * srcStride) + static_cast<size_t>(sx) * 3;
+            uint8_t p0 = r[0], p1 = r[1], p2 = r[2];
+            dstRow[0] = p0; dstRow[1] = p1; dstRow[2] = p2;
+            dstRow += BytesPerPixel;
+        }
+    } else {
+        using T = typename PixelType<BytesPerPixel>::type;
+        auto dst = reinterpret_cast<T*>(dstRow);
+        for (int i = 0; i < remainder; i++) {
+            int32_t sx = srcX >> INT_FIXED_SHIFT;
+            int32_t sy = srcY >> INT_FIXED_SHIFT;
+            srcX += incrX; srcY += incrY;
+            auto p = reinterpret_cast<const T*>(srcData + static_cast<size_t>(sy * srcStride))[sx];
+            dst[0] = p;
+            dst += 1;
+        }
+        dstRow = reinterpret_cast<uint8_t*>(dst);
     }
 
     int count4 = count >> 2;
