@@ -14,7 +14,7 @@
 
 ```bash
 cd fleximg/demo/web
-python3 -m http.server 8080
+python3 server.py
 ```
 
 #### 2. ブラウザでアクセス
@@ -94,7 +94,7 @@ cd path/to/fleximg
 
 # サーバー起動
 cd demo/web
-python3 -m http.server 8080
+python3 server.py
 ```
 
 ビルドが成功すると、`demo/web/`ディレクトリに `fleximg.wasm` と `fleximg.js` が生成されます。

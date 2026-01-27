@@ -99,10 +99,12 @@ cd fleximg
 
 ```bash
 cd demo/web
-python3 -m http.server 8080
+python3 server.py
 ```
 
 ブラウザで `http://localhost:8080` を開いてください。
+
+> **Note**: `server.py` はCross-Origin Isolationヘッダ（COOP/COEP）を付与し、`performance.now()` の高精度タイマーを有効にします。
 
 ## プロジェクト構造
 
