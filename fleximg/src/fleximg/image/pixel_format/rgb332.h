@@ -128,104 +128,6 @@ static void rgb332_fromStraight(void* dst, const void* src, int pixelCount, cons
 }
 #undef RGBA8_TO_RGB332
 
-#ifdef FLEXIMG_ENABLE_PREMUL
-// blendUnderPremul: srcフォーマット(RGB332)からPremul形式のdstへunder合成
-// 最適化: ルックアップテーブル + SWAR (SIMD Within A Register)
-static void rgb332_blendUnderPremul(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
-    FLEXIMG_FMT_METRICS(RGB332, BlendUnder, pixelCount);
-    uint16_t* __restrict__ d = static_cast<uint16_t*>(dst);
-    const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
-
-    // プリデクリメント方式（RGBA8_Straightと同様のパターン）
-    s -= 1;
-    d -= 4;
-
-    for (int i = 0; i < pixelCount; ++i) {
-        d += 4;
-        s += 1;
-
-        // dstアルファを8bit精度で取得（リトルエンディアン前提で上位バイト直接読み取り）
-        uint_fast8_t dstA8 = reinterpret_cast<uint8_t*>(d)[7];
-
-        // dst が不透明 → スキップ
-        if (dstA8 == 255) continue;
-
-        // RGB332 → RGBA8 変換（ルックアップテーブル使用、32bitロード）
-        uint32_t rgba = rgb332ToRgba8[*s];
-        uint_fast8_t srcR8 = static_cast<uint_fast8_t>(rgba);
-        uint_fast8_t srcG8 = static_cast<uint_fast8_t>(rgba >> 8);
-        uint_fast8_t srcB8 = static_cast<uint_fast8_t>(rgba >> 16);
-
-        // dst が透明 → 単純コピー（16bit形式で、alphaは不透明扱い）
-        if (dstA8 == 0) {
-            d[0] = static_cast<uint16_t>(srcR8 << 8);
-            d[1] = static_cast<uint16_t>(srcG8 << 8);
-            d[2] = static_cast<uint16_t>(srcB8 << 8);
-            d[3] = RGBA16Premul::ALPHA_OPAQUE_MIN;
-            continue;
-        }
-
-        // under合成（SWAR最適化: RGとBAを32bitにパックして同時演算）
-        uint_fast16_t invDstA8 = 255 - dstA8;
-
-        // RGチャンネル: srcRG * invDstA8 を計算して加算
-        uint32_t srcRG = srcR8 + (static_cast<uint32_t>(srcG8) << 16);
-        uint32_t dstRG = d[0] + (static_cast<uint32_t>(d[1]) << 16);
-        uint32_t blendRG = dstRG + srcRG * invDstA8;
-        d[0] = static_cast<uint16_t>(blendRG);
-        d[1] = static_cast<uint16_t>(blendRG >> 16);
-
-        // BAチャンネル: srcBA * invDstA8 を計算して加算（RGB332は不透明なのでsrcA=255）
-        uint32_t srcBA = srcB8 + (static_cast<uint32_t>(255) << 16);
-        uint32_t dstBA = d[2] + (static_cast<uint32_t>(d[3]) << 16);
-        uint32_t blendBA = dstBA + srcBA * invDstA8;
-        d[2] = static_cast<uint16_t>(blendBA);
-        d[3] = static_cast<uint16_t>(blendBA >> 16);
-    }
-}
-
-// toPremul: RGB332のsrcからPremul形式のdstへ変換コピー
-static void rgb332_toPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
-    FLEXIMG_FMT_METRICS(RGB332, ToPremul, pixelCount);
-    uint16_t* d = static_cast<uint16_t*>(dst);
-    const uint8_t* s = static_cast<const uint8_t*>(src);
-
-    for (int i = 0; i < pixelCount; ++i) {
-        // RGB332 → RGBA8 変換（ルックアップテーブル使用、32bitロード）
-        uint32_t rgba = rgb332ToRgba8[s[i]];
-
-        int idx = i * 4;
-        d[idx]     = static_cast<uint16_t>((rgba & 0xFF) << 8);
-        d[idx + 1] = static_cast<uint16_t>(((rgba >> 8) & 0xFF) << 8);
-        d[idx + 2] = static_cast<uint16_t>(((rgba >> 16) & 0xFF) << 8);
-        d[idx + 3] = RGBA16Premul::ALPHA_OPAQUE_MIN;
-    }
-}
-
-// fromPremul: Premul形式のsrcからRGB332のdstへ変換コピー
-static void rgb332_fromPremul(void* dst, const void* src, int pixelCount, const ConvertParams*) {
-    FLEXIMG_FMT_METRICS(RGB332, FromPremul, pixelCount);
-    uint8_t* d = static_cast<uint8_t*>(dst);
-    const uint16_t* s = static_cast<const uint16_t*>(src);
-
-    for (int i = 0; i < pixelCount; ++i) {
-        int idx = i * 4;
-        uint16_t r16 = s[idx];
-        uint16_t g16 = s[idx + 1];
-        uint16_t b16 = s[idx + 2];
-        uint16_t a16 = s[idx + 3];
-
-        uint8_t a8 = a16 >> 8;
-        uint16_t a_tmp = a8 + 1;
-        uint8_t r = static_cast<uint8_t>(r16 / a_tmp);
-        uint8_t g = static_cast<uint8_t>(g16 / a_tmp);
-        uint8_t b = static_cast<uint8_t>(b16 / a_tmp);
-
-        d[i] = static_cast<uint8_t>((r & 0xE0) | ((g >> 5) << 2) | (b >> 6));
-    }
-}
-#endif // FLEXIMG_ENABLE_PREMUL
-
 // ------------------------------------------------------------------------
 // フォーマット定義
 // ------------------------------------------------------------------------
@@ -243,7 +145,6 @@ const PixelFormatDescriptor RGB332 = {
       ChannelDescriptor(ChannelType::Blue, 2, 0),
       ChannelDescriptor() },  // R, G, B, (no A)
     false,  // hasAlpha
-    false,  // isPremultiplied
     false,  // isIndexed
     0,      // maxPaletteSize
     BitOrder::MSBFirst,
@@ -252,15 +153,6 @@ const PixelFormatDescriptor RGB332 = {
     rgb332_fromStraight,
     nullptr,  // toStraightIndexed
     nullptr,  // fromStraightIndexed
-#ifdef FLEXIMG_ENABLE_PREMUL
-    rgb332_toPremul,
-    rgb332_fromPremul,
-    rgb332_blendUnderPremul,
-#else
-    nullptr,  // toPremul
-    nullptr,  // fromPremul
-    nullptr,  // blendUnderPremul
-#endif
     nullptr,  // blendUnderStraight
     nullptr,  // siblingEndian
     nullptr   // swapEndian

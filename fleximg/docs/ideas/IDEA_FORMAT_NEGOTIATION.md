@@ -116,7 +116,7 @@ switch (convertPlan_.type) {
 
 ```cpp
 class BrightnessNode : public FilterNodeBase {
-    static constexpr PixelFormatID preferredInput = RGBA16_Premultiplied;
+    static constexpr PixelFormatID preferredInput = RGBA8_Straight;
     static constexpr PixelFormatID preferredOutput = RGBA8_Straight;
 };
 ```

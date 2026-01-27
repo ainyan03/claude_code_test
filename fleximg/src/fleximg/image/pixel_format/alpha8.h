@@ -72,7 +72,6 @@ const PixelFormatDescriptor Alpha8 = {
     { ChannelDescriptor(ChannelType::Alpha, 8, 0),
       ChannelDescriptor(), ChannelDescriptor(), ChannelDescriptor() },  // Alpha only
     true,   // hasAlpha
-    false,  // isPremultiplied
     false,  // isIndexed
     0,      // maxPaletteSize
     BitOrder::MSBFirst,
@@ -81,9 +80,6 @@ const PixelFormatDescriptor Alpha8 = {
     alpha8_fromStraight,
     nullptr,  // toStraightIndexed
     nullptr,  // fromStraightIndexed
-    nullptr,  // toPremul
-    nullptr,  // fromPremul
-    nullptr,  // blendUnderPremul
     nullptr,  // blendUnderStraight
     nullptr,  // siblingEndian
     nullptr   // swapEndian

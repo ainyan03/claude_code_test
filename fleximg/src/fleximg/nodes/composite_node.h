@@ -19,8 +19,7 @@ namespace FLEXIMG_NAMESPACE {
 // - 出力: 1ポート
 //
 // 合成方式:
-// - デフォルト: 8bit Straight形式（省メモリ、4バイト/ピクセル）
-// - FLEXIMG_ENABLE_PREMUL定義時: 16bit Premultiplied形式（高精度、8バイト/ピクセル）
+// - 8bit Straight形式（4バイト/ピクセル）
 //
 // 合成順序（under合成）:
 // - 入力ポート0が最前面（最初に描画）
@@ -212,11 +211,7 @@ PrepareResponse CompositeNode::onPullPrepare(const PrepareRequest& request) {
         // - 上流が1つのみ → パススルー（merged.preferredFormatはそのまま）
         // - 上流が複数 → 合成フォーマットを使用
         if (validUpstreamCount > 1) {
-#ifdef FLEXIMG_ENABLE_PREMUL
-            merged.preferredFormat = PixelFormatIDs::RGBA16_Premultiplied;
-#else
             merged.preferredFormat = PixelFormatIDs::RGBA8_Straight;
-#endif
         }
     } else {
         // 上流がない場合はサイズ0を返す
@@ -331,15 +326,9 @@ RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
     int_fixed canvasOriginY = request.origin.y;
 
     // キャンバスを作成（height=1、必要幅のみ確保）
-#ifdef FLEXIMG_ENABLE_PREMUL
-    // 16bit Premultiplied形式: 8バイト/ピクセル（高精度）
-    constexpr size_t bytesPerPixel = 8;
-    PixelFormatID canvasFormat = PixelFormatIDs::RGBA16_Premultiplied;
-#else
-    // 8bit Straight形式: 4バイト/ピクセル（省メモリ）
+    // 8bit Straight形式: 4バイト/ピクセル
     constexpr size_t bytesPerPixel = 4;
     PixelFormatID canvasFormat = PixelFormatIDs::RGBA8_Straight;
-#endif
     ImageBuffer canvasBuf(canvasWidth, 1, canvasFormat,
                           InitPolicy::Uninitialized, allocator());
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
@@ -404,21 +393,7 @@ RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
                 validEndX = curEndX;
             }
 
-            // under合成
-#ifdef FLEXIMG_ENABLE_PREMUL
-            // 16bit Premultiplied形式でのunder合成
-            if (srcFmt->blendUnderPremul) {
-                srcFmt->blendUnderPremul(dstRow, srcRow, copyWidth, nullptr);
-            } else if (srcFmt->toPremul) {
-                // blendUnderPremulがない場合、一時バッファでPremul変換してからブレンド
-                ImageBuffer tempBuf(copyWidth, 1, PixelFormatIDs::RGBA16_Premultiplied,
-                                    InitPolicy::Uninitialized, allocator());
-                srcFmt->toPremul(tempBuf.view().pixelAt(0, 0), srcRow, copyWidth, nullptr);
-                PixelFormatIDs::RGBA16_Premultiplied->blendUnderPremul(
-                    dstRow, tempBuf.view().pixelAt(0, 0), copyWidth, nullptr);
-            }
-#else
-            // 8bit Straight形式でのunder合成
+            // under合成（8bit Straight形式）
             if (srcFmt->blendUnderStraight) {
                 srcFmt->blendUnderStraight(dstRow, srcRow, copyWidth, nullptr);
             } else if (srcFmt->toStraight) {
@@ -429,7 +404,6 @@ RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
                 PixelFormatIDs::RGBA8_Straight->blendUnderStraight(
                     dstRow, tempBuf.view().pixelAt(0, 0), copyWidth, nullptr);
             }
-#endif
             // 対応関数がない場合はスキップ
         }
     }

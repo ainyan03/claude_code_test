@@ -89,7 +89,6 @@ const PixelFormatDescriptor Index8 = {
       ChannelDescriptor(0, 0),   // No B
       ChannelDescriptor(0, 0) }, // No A
     false,  // hasAlpha (パレットがアルファを持つ可能性はある)
-    false,  // isPremultiplied
     true,   // isIndexed ← 重要
     256,    // maxPaletteSize
     BitOrder::MSBFirst,
@@ -324,7 +323,7 @@ private:
 
 #### 動機
 
-現状の提案ではパレットを **RGBA16形式に固定** していたが、実用上は以下の問題がある：
+現状の提案ではパレットを **RGBA8形式に固定** していたが、実用上は以下の問題がある：
 
 1. **既存データとの非互換性**
    - GIFパレット: RGB888形式（3byte/色）
@@ -334,11 +333,11 @@ private:
 
 2. **メモリオーバーヘッド**
    - RGB565パレット（256色）: 512 bytes
-   - RGBA16パレット（256色）: 2,048 bytes（4倍）
+   - RGBA8パレット（256色）: 1,024 bytes（2倍）
    - 組み込み環境では無視できない差
 
 3. **変換コスト**
-   - RGB565 → RGBA16 → RGB565 のような往復変換は非効率
+   - RGB565 → RGBA8 → RGB565 のような往復変換は非効率
 
 #### 提案：パレットもPixelFormatIDで管理
 
@@ -526,7 +525,6 @@ inline void convertFormat(...) {
 | RGB565_LE/BE | 2 bytes | GIF、レトロゲーム、組み込み、メモリ効率重視 |
 | RGB888 | 3 bytes | PNG、標準的なパレット |
 | BGR888 | 3 bytes | 一部のハードウェア |
-| RGBA16_Premultiplied | 8 bytes | 合成処理が必要な場合のみ |
 | RGB332 | 1 byte | 超低メモリ環境 |
 
 #### 使用例
@@ -589,10 +587,8 @@ ImageBuffer applyCustomPalette(const ImageBuffer& indexBuffer) {
 - RGB565:  512 bytes
 - RGB888:  768 bytes
 - RGBA8:  1,024 bytes（基本形式）
-- RGBA16: 2,048 bytes
 
 RGB565採用で RGBA8比で 50% メモリ削減
-RGBA16は合成処理が必要な場合のみ使用（通常は不要）
 ```
 
 #### メリット
@@ -1041,9 +1037,8 @@ ImageBuffer toGameBoyStyle(const ImageBuffer& rgba8Buffer) {
 パレットは **RGBA8_Straight形式** を内部標準とする理由：
 
 - パイプライン標準のRGBA8_Straightと統一
-- メモリ効率（RGBA16の1/2）
+- メモリ効率が良い
 - アルファチャンネル対応（透過GIF等）
-- 合成処理が必要な場合のみRGBA16_Premultipliedに変換
 
 ### 2. アルファ対応パレット
 

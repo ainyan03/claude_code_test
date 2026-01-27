@@ -18,17 +18,6 @@ struct PixelFormatDescriptor;
 
 using PixelFormatID = const PixelFormatDescriptor*;
 
-#ifdef FLEXIMG_ENABLE_PREMUL
-// RGBA16_Premultiplied用アルファ閾値
-namespace RGBA16Premul {
-    constexpr uint16_t ALPHA_TRANSPARENT_MAX = 255;
-    constexpr uint16_t ALPHA_OPAQUE_MIN = 65280;
-
-    inline constexpr bool isTransparent(uint16_t a) { return a <= ALPHA_TRANSPARENT_MAX; }
-    inline constexpr bool isOpaque(uint16_t a) { return a >= ALPHA_OPAQUE_MIN; }
-}
-#endif
-
 // ========================================================================
 // 変換パラメータ
 // ========================================================================
@@ -127,7 +116,6 @@ struct PixelFormatDescriptor {
 
     // アルファ情報
     bool hasAlpha;
-    bool isPremultiplied;
 
     // パレット情報（インデックスカラーの場合）
     bool isIndexed;
@@ -159,23 +147,6 @@ struct PixelFormatDescriptor {
     ToStraightIndexedFunc toStraightIndexed;
     FromStraightIndexedFunc fromStraightIndexed;
 
-    // ========================================================================
-    // Premul形式（RGBA16_Premultiplied）との変換・ブレンド関数
-    // ========================================================================
-
-    // 関数型定義（統一シグネチャ）
-    // ToPremulFunc: このフォーマットのsrcからPremul形式のdstへ変換コピー
-    using ToPremulFunc = ConvertFunc;
-
-    // FromPremulFunc: Premul形式のsrcからこのフォーマットのdstへ変換コピー
-    using FromPremulFunc = ConvertFunc;
-
-    // BlendUnderPremulFunc: srcフォーマットからPremul形式のdstへunder合成
-    //   - dst が不透明なら何もしない（スキップ）
-    //   - dst が透明なら単純変換コピー（toPremul相当）
-    //   - dst が半透明ならunder合成
-    using BlendUnderPremulFunc = ConvertFunc;
-
     // BlendUnderStraightFunc: srcフォーマットからStraight形式(RGBA8)のdstへunder合成
     //   - dst が不透明なら何もしない（スキップ）
     //   - dst が透明なら単純コピー
@@ -184,11 +155,6 @@ struct PixelFormatDescriptor {
 
     // SwapEndianFunc: エンディアン違いの兄弟フォーマットとの変換
     using SwapEndianFunc = ConvertFunc;
-
-    // 関数ポインタ（Premul形式用、未実装の場合は nullptr）
-    ToPremulFunc toPremul;
-    FromPremulFunc fromPremul;
-    BlendUnderPremulFunc blendUnderPremul;
 
     // 関数ポインタ（Straight形式用、未実装の場合は nullptr）
     BlendUnderStraightFunc blendUnderStraight;
@@ -239,7 +205,6 @@ struct PixelFormatDescriptor {
 
 #include "pixel_format/rgba8_straight.h"
 #include "pixel_format/alpha8.h"
-#include "pixel_format/rgba16_premul.h"
 #include "pixel_format/rgb565.h"
 #include "pixel_format/rgb332.h"
 #include "pixel_format/rgb888.h"
@@ -260,9 +225,6 @@ inline int_fast8_t getBytesPerPixel(PixelFormatID formatID) {
 
 // 組み込みフォーマット一覧（名前検索用）
 inline const PixelFormatID builtinFormats[] = {
-#ifdef FLEXIMG_ENABLE_PREMUL
-    PixelFormatIDs::RGBA16_Premultiplied,
-#endif
     PixelFormatIDs::RGBA8_Straight,
     PixelFormatIDs::RGB565_LE,
     PixelFormatIDs::RGB565_BE,
@@ -297,7 +259,6 @@ inline const char* getFormatName(PixelFormatID formatID) {
 // 2つのフォーマット間で変換
 // - 同一フォーマット: 単純コピー
 // - エンディアン違いの兄弟: swapEndian
-// - Premul形式との直接変換（toPremul/fromPremul）
 // - それ以外はStraight形式（RGBA8_Straight）経由で変換
 inline void convertFormat(const void* src, PixelFormatID srcFormat,
                           void* dst, PixelFormatID dstFormat,
@@ -321,20 +282,6 @@ inline void convertFormat(const void* src, PixelFormatID srcFormat,
         srcFormat->swapEndian(dst, src, pixelCount, params);
         return;
     }
-
-#ifdef FLEXIMG_ENABLE_PREMUL
-    // Premul形式への直接変換（toPremul）
-    if (dstFormat == PixelFormatIDs::RGBA16_Premultiplied && srcFormat->toPremul) {
-        srcFormat->toPremul(dst, src, pixelCount, params);
-        return;
-    }
-
-    // Premul形式からの直接変換（fromPremul）
-    if (srcFormat == PixelFormatIDs::RGBA16_Premultiplied && dstFormat->fromPremul) {
-        dstFormat->fromPremul(dst, src, pixelCount, params);
-        return;
-    }
-#endif
 
     // Straight形式（RGBA8_Straight）経由で変換
     // 一時バッファを確保（スレッドローカル）

@@ -163,7 +163,6 @@ const PixelFormatDescriptor Alpha8 = {
     { ChannelDescriptor(ChannelType::Alpha, 8, 0),
       ChannelDescriptor(), ChannelDescriptor(), ChannelDescriptor() },
     true,   // hasAlpha
-    false,  // isPremultiplied
     false,  // isIndexed
     0,      // maxPaletteSize
     BitOrder::MSBFirst,
@@ -338,7 +337,7 @@ const PixelFormatDescriptor Gray8 = {
 
 | ドキュメント | 内容 |
 |-------------|------|
-| DESIGN_PIXEL_FORMAT.md | RGBA8/RGBA16変換アルゴリズム |
+| DESIGN_PIXEL_FORMAT.md | RGBA8変換アルゴリズム |
 | IDEA_ALPHA_MERGE_SPLIT_NODES.md | Alpha8の主要ユースケース |
 | pixel_format.h/cpp | 実装ファイル |
 
@@ -350,7 +349,6 @@ const PixelFormatDescriptor Gray8 = {
 | `src/fleximg/image/pixel_format/` | 各フォーマット実装（stb-style） |
 | ├── `rgba8_straight.h` | RGBA8_Straight + invUnpremulTable |
 | ├── `alpha8.h` | Alpha8 |
-| ├── `rgba16_premul.h` | RGBA16_Premultiplied（`FLEXIMG_ENABLE_PREMUL`ガード） |
 | ├── `rgb565.h` | RGB565_LE/BE + ルックアップテーブル |
 | ├── `rgb332.h` | RGB332 + ルックアップテーブル |
 | └── `rgb888.h` | RGB888/BGR888 |

@@ -2,19 +2,10 @@
 
 ## 概要
 
-ピクセルフォーマット別の `blendUnderPremul` / `blendUnderStraight` 関数について、
+ピクセルフォーマット別の `blendUnderStraight` 関数について、
 **直接パス**と**間接パス**の性能比較を行った結果です。
 
 ### パス定義
-
-**Premul モード:**
-
-| パス | 処理内容 |
-|------|----------|
-| 直接パス | `srcFormat->blendUnderPremul(dst, src, count)` |
-| 間接パス | `srcFormat->toPremul(tmp, src, count)` + `RGBA16_Premultiplied->blendUnderPremul(dst, tmp, count)` |
-
-**Straight モード:**
 
 | パス | 処理内容 |
 |------|----------|
@@ -41,34 +32,6 @@
 - **コンパイラ**: pio (Arduino framework) -Os
 - **ピクセル数**: 4096
 - **反復回数**: 1000
-
----
-
-## blendUnderPremul 結果
-
-### PC (x86-64 / Apple Silicon)
-
-| Format | Direct(us) | Indirect(us) | Ratio |
-|--------|------------|--------------|-------|
-| RGB332 | 4.04 | 2.20 | 0.55x |
-| RGB565_LE | 4.72 | 4.75 | 1.01x |
-| RGB565_BE | 4.16 | 4.10 | 0.99x |
-| RGB888 | 2.18 | 2.69 | 1.23x |
-| BGR888 | 1.95 | 2.64 | 1.36x |
-| RGBA8_Straight | 1.92 | 2.90 | 1.51x |
-
-### M5Stack Core2 (ESP32)
-
-| Format | Direct(us) | Indirect(us) | Ratio |
-|--------|------------|--------------|-------|
-| RGB332 | 1336 | 1782 | **1.33x** |
-| RGB565_LE | 1302 | 1585 | **1.22x** |
-| RGB565_BE | 1354 | 1688 | **1.25x** |
-| RGB888 | 1165 | 1662 | **1.43x** |
-| BGR888 | 1165 | 1662 | **1.43x** |
-| RGBA8_Straight | 930 | 1361 | **1.46x** |
-
-> **Ratio**: Indirect / Direct（1より大きい場合、直接パスが高速）
 
 ---
 
@@ -247,16 +210,15 @@ pio run -e bench_m5stack_core2 -t upload
 
 | コマンド | 説明 |
 |----------|------|
-| `c [fmt]` | 変換ベンチマーク (toStraight/fromStraight/toPremul/fromPremul) |
+| `c [fmt]` | 変換ベンチマーク (toStraight/fromStraight) |
 | `b [fmt]` | BlendUnderベンチマーク (Direct vs Indirect) |
-| `s [fmt]` | Pathway比較 (Premul vs Straight) [FLEXIMG_ENABLE_PREMUL時のみ] |
 | `u [pat]` | blendUnderStraight Dstパターン別ベンチマーク |
 | `d` | アルファ分布分析 |
 | `a` | 全ベンチマーク実行 |
 | `l` | フォーマット一覧 |
 | `h` | ヘルプ |
 
-**フォーマット指定**: `all | rgb332 | rgb565le | rgb565be | rgb888 | bgr888 | rgba8 | rgba16p`
+**フォーマット指定**: `all | rgb332 | rgb565le | rgb565be | rgb888 | bgr888 | rgba8`
 
 **Dstパターン指定**: `all | trans | opaque | semi | mixed`
 

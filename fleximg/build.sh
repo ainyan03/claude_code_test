@@ -6,15 +6,12 @@
 # Usage:
 #   ./build.sh            リリースビルド（8bit Straight合成、省メモリ）
 #   ./build.sh --debug    デバッグビルド（性能計測有効）
-#   ./build.sh --premul   16bit Premul合成モード（高精度）
 
 set -e
 
 # オプション判定
 DEBUG_MODE=0
-PREMUL_MODE=0
 DEBUG_FLAGS=""
-PREMUL_FLAGS=""
 RELEASE_FLAGS="-DNDEBUG"  # リリースビルドではassertを無効化
 for arg in "$@"; do
     case $arg in
@@ -23,27 +20,12 @@ for arg in "$@"; do
             DEBUG_FLAGS="-DFLEXIMG_DEBUG"
             RELEASE_FLAGS=""  # デバッグビルドではassertを有効化
             ;;
-        --premul)
-            PREMUL_MODE=1
-            PREMUL_FLAGS="-DFLEXIMG_ENABLE_PREMUL"
-            ;;
     esac
 done
 
 # ビルドモード表示
-BUILD_MODE=""
 if [ $DEBUG_MODE -eq 1 ]; then
-    BUILD_MODE="DEBUG"
-fi
-if [ $PREMUL_MODE -eq 1 ]; then
-    if [ -n "$BUILD_MODE" ]; then
-        BUILD_MODE="$BUILD_MODE + PREMUL"
-    else
-        BUILD_MODE="PREMUL"
-    fi
-fi
-if [ -n "$BUILD_MODE" ]; then
-    echo "🔨 Building fleximg WebAssembly demo ($BUILD_MODE mode)..."
+    echo "🔨 Building fleximg WebAssembly demo (DEBUG mode)..."
 else
     echo "🔨 Building fleximg WebAssembly demo..."
 fi
@@ -68,12 +50,7 @@ BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
 GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
 
-# 合成モード判定
-if [ $PREMUL_MODE -eq 1 ]; then
-    COMPOSITE_MODE="16bit Premul"
-else
-    COMPOSITE_MODE="8bit Straight"
-fi
+COMPOSITE_MODE="8bit Straight"
 
 echo "// Build information - auto-generated" > demo/web/version.js
 echo "const BUILD_INFO = {" >> demo/web/version.js
@@ -99,7 +76,6 @@ emcc src/fleximg/fleximg.cpp \
     -O3 \
     $RELEASE_FLAGS \
     $DEBUG_FLAGS \
-    $PREMUL_FLAGS \
     -s WASM=1 \
     -s ALLOW_MEMORY_GROWTH=1 \
     -s MODULARIZE=1 \
