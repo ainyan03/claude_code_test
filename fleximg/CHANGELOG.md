@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.55.0] - 2026-01-27
+
+### パフォーマンス改善
+
+- **CompositeNode 非重複領域の convertFormat 最適化**: 2枚目以降のレイヤーで既存の有効範囲と重複しない領域に `convertFormat` を使用し、不要な `memset` + alpha判定を排除
+  - 完全非重複: ギャップのゼロクリア + `convertFormat` で直接書き込み（`blendUnderStraight` をスキップ）
+  - 部分重複: 3分割処理（左非重複=`convertFormat`, 重複=`blendUnderStraight`, 右非重複=`convertFormat`）
+  - fallback パスの一時バッファサイズを重複幅に縮小（メモリ効率改善）
+
+### テスト
+
+- **CompositeNode 非重複パターンテスト追加**: 5ケース（完全非重複/隣接/部分重複/完全内包/半透明部分重複）
+
+---
+
 ## [2.54.0] - 2026-01-27
 
 ### 削除
