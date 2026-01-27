@@ -381,30 +381,65 @@ RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
             validEndX = curEndX;
             isFirstContent = false;
         } else {
-            // 2回目以降: 範囲拡張があれば拡張部分をゼロクリア
-            if (dstStartX < validStartX) {
-                std::memset(canvasRow + static_cast<size_t>(dstStartX) * bytesPerPixel, 0,
-                            static_cast<size_t>(validStartX - dstStartX) * bytesPerPixel);
-                validStartX = dstStartX;
-            }
-            if (curEndX > validEndX) {
-                std::memset(canvasRow + static_cast<size_t>(validEndX) * bytesPerPixel, 0,
-                            static_cast<size_t>(curEndX - validEndX) * bytesPerPixel);
-                validEndX = curEndX;
+            // 2回目以降: 非重複領域はconvertFormat、重複領域のみblend
+            const auto* srcBytes = static_cast<const uint8_t*>(srcRow);
+            size_t srcBpp = static_cast<size_t>(getBytesPerPixel(srcFmt));
+
+            int overlapStart = std::max(dstStartX, validStartX);
+            int overlapEnd   = std::min(curEndX, validEndX);
+
+            if (overlapStart >= overlapEnd) {
+                // 完全非重複: ギャップ領域をゼロクリアしてconvertFormat
+                if (curEndX <= validStartX) {
+                    // 新規が左側: ギャップ [curEndX, validStartX)
+                    std::memset(canvasRow + static_cast<size_t>(curEndX) * bytesPerPixel, 0,
+                                static_cast<size_t>(validStartX - curEndX) * bytesPerPixel);
+                } else if (dstStartX >= validEndX) {
+                    // 新規が右側: ギャップ [validEndX, dstStartX)
+                    std::memset(canvasRow + static_cast<size_t>(validEndX) * bytesPerPixel, 0,
+                                static_cast<size_t>(dstStartX - validEndX) * bytesPerPixel);
+                }
+                FLEXIMG_NAMESPACE::convertFormat(srcRow, srcFmt, dstRow, canvasFormat, copyWidth);
+            } else {
+                // 重複あり: 3分割処理
+                // 左側非重複 [dstStartX, overlapStart)
+                int leftWidth = overlapStart - dstStartX;
+                if (leftWidth > 0) {
+                    FLEXIMG_NAMESPACE::convertFormat(
+                        srcBytes, srcFmt,
+                        canvasRow + static_cast<size_t>(dstStartX) * bytesPerPixel,
+                        canvasFormat, leftWidth);
+                }
+
+                // 重複領域 [overlapStart, overlapEnd)
+                int overlapWidth = overlapEnd - overlapStart;
+                int overlapSrcOffset = overlapStart - dstStartX;
+                const uint8_t* overlapSrc = srcBytes + static_cast<size_t>(overlapSrcOffset) * srcBpp;
+                uint8_t* overlapDst = canvasRow + static_cast<size_t>(overlapStart) * bytesPerPixel;
+                if (srcFmt->blendUnderStraight) {
+                    srcFmt->blendUnderStraight(overlapDst, overlapSrc, overlapWidth, nullptr);
+                } else if (srcFmt->toStraight) {
+                    ImageBuffer tempBuf(overlapWidth, 1, PixelFormatIDs::RGBA8_Straight,
+                                        InitPolicy::Uninitialized, allocator());
+                    srcFmt->toStraight(tempBuf.view().pixelAt(0, 0), overlapSrc, overlapWidth, nullptr);
+                    PixelFormatIDs::RGBA8_Straight->blendUnderStraight(
+                        overlapDst, tempBuf.view().pixelAt(0, 0), overlapWidth, nullptr);
+                }
+
+                // 右側非重複 [overlapEnd, curEndX)
+                int rightWidth = curEndX - overlapEnd;
+                if (rightWidth > 0) {
+                    int rightSrcOffset = overlapEnd - dstStartX;
+                    FLEXIMG_NAMESPACE::convertFormat(
+                        srcBytes + static_cast<size_t>(rightSrcOffset) * srcBpp, srcFmt,
+                        canvasRow + static_cast<size_t>(overlapEnd) * bytesPerPixel,
+                        canvasFormat, rightWidth);
+                }
             }
 
-            // under合成（8bit Straight形式）
-            if (srcFmt->blendUnderStraight) {
-                srcFmt->blendUnderStraight(dstRow, srcRow, copyWidth, nullptr);
-            } else if (srcFmt->toStraight) {
-                // blendUnderStraightがない場合、一時バッファでStraight変換してからブレンド
-                ImageBuffer tempBuf(copyWidth, 1, PixelFormatIDs::RGBA8_Straight,
-                                    InitPolicy::Uninitialized, allocator());
-                srcFmt->toStraight(tempBuf.view().pixelAt(0, 0), srcRow, copyWidth, nullptr);
-                PixelFormatIDs::RGBA8_Straight->blendUnderStraight(
-                    dstRow, tempBuf.view().pixelAt(0, 0), copyWidth, nullptr);
-            }
-            // 対応関数がない場合はスキップ
+            // 有効範囲を更新
+            if (dstStartX < validStartX) validStartX = dstStartX;
+            if (curEndX > validEndX) validEndX = curEndX;
         }
     }
 
