@@ -65,18 +65,6 @@ inline void placeFirst(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canv
         return;
     }
 
-#ifdef FLEXIMG_ENABLE_PREMUL
-    // キャンバスがRGBA16_Premultiplied → toPremul関数を使用
-    if (canvas.formatID == PixelFormatIDs::RGBA16_Premultiplied && src.formatID->toPremul) {
-        for (int y = 0; y < copyHeight; y++) {
-            const void* srcRow = src.pixelAt(srcStartX, srcStartY + y);
-            void* dstRow = canvas.pixelAt(dstStartX, dstStartY + y);
-            src.formatID->toPremul(dstRow, srcRow, copyWidth, nullptr);
-        }
-        return;
-    }
-#endif
-
     // キャンバスがRGBA8_Straight → toStraight関数を使用
     if (canvas.formatID == PixelFormatIDs::RGBA8_Straight && src.formatID->toStraight) {
         for (int y = 0; y < copyHeight; y++) {
@@ -115,73 +103,6 @@ inline RenderResponse ensureBlendableFormat(RenderResponse&& input) {
         savedOrigin
     );
 }
-
-#ifdef FLEXIMG_ENABLE_PREMUL
-// ========================================================================
-// RGBA16_Premultiplied 形式のキャンバス操作（under合成用）
-// ========================================================================
-// under合成: 手前のレイヤーから順に処理し、dstが不透明なら何もしない
-// メリット:
-// - 不透明ピクセルで覆われた部分の変換・ブレンド計算をスキップ
-// - SIMD最適化しやすい16bit演算
-// - 中間計算の精度維持
-
-// Premul形式のキャンバス作成（RGBA16_Premultiplied形式）
-// under合成に最適化されたフォーマットでバッファを確保
-// alloc: メモリアロケータ（nullptrの場合はDefaultAllocator使用）
-inline ImageBuffer createPremulCanvas(int width, int height,
-                                      InitPolicy init = InitPolicy::Zero,
-                                      core::memory::IAllocator* alloc = nullptr) {
-    return ImageBuffer(width, height, PixelFormatIDs::RGBA16_Premultiplied, init, alloc);
-}
-
-// under合成でレイヤーを配置
-// canvas: RGBA16_Premultiplied形式のキャンバス
-// src: blendUnderPremul関数を持つフォーマットの入力画像
-// 動作:
-//   - dst が不透明 → スキップ（変換すら不要）
-//   - dst が透明 → 単純変換コピー
-//   - dst が半透明 → under合成
-inline void placeUnder(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canvasOriginY,
-                       const ViewPort& src, int_fixed srcOriginX, int_fixed srcOriginY) {
-    if (!canvas.isValid() || !src.isValid()) return;
-    if (canvas.formatID != PixelFormatIDs::RGBA16_Premultiplied) return;
-
-    // srcフォーマットのblendUnderPremul関数を取得
-    auto blendFunc = src.formatID->blendUnderPremul;
-    if (!blendFunc) return;
-
-    // 新座標系: originはバッファ左上のワールド座標
-    // srcをcanvasに配置する際のオフセット = src左端 - canvas左端
-    int offsetX = from_fixed(srcOriginX - canvasOriginX);
-    int offsetY = from_fixed(srcOriginY - canvasOriginY);
-
-    // クリッピング範囲を計算
-    int srcStartX = std::max(0, -offsetX);
-    int srcStartY = std::max(0, -offsetY);
-    int dstStartX = std::max(0, offsetX);
-    int dstStartY = std::max(0, offsetY);
-    int copyWidth = std::min(src.width - srcStartX, canvas.width - dstStartX);
-    int copyHeight = std::min(src.height - srcStartY, canvas.height - dstStartY);
-
-    if (copyWidth <= 0 || copyHeight <= 0) return;
-
-    // 行ごとにunder合成
-    for (int y = 0; y < copyHeight; y++) {
-        const void* srcRow = src.pixelAt(srcStartX, srcStartY + y);
-        void* dstRow = canvas.pixelAt(dstStartX, dstStartY + y);
-        blendFunc(dstRow, srcRow, copyWidth, nullptr);
-    }
-}
-
-// Premulキャンバスを最終出力フォーマット（RGBA8_Straight）に変換
-inline ImageBuffer finalizePremulCanvas(ImageBuffer&& canvas) {
-    if (!canvas.isValid()) return std::move(canvas);
-    if (canvas.formatID() == PixelFormatIDs::RGBA8_Straight) return std::move(canvas);
-
-    return std::move(canvas).toFormat(PixelFormatIDs::RGBA8_Straight);
-}
-#endif // FLEXIMG_ENABLE_PREMUL
 
 } // namespace canvas_utils
 } // namespace FLEXIMG_NAMESPACE
