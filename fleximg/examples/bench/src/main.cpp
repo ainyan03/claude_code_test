@@ -12,6 +12,7 @@
  *   c [fmt]  : Conversion benchmark (toStraight/fromStraight)
  *   b [fmt]  : BlendUnder benchmark (direct vs indirect path)
  *   u [pat]  : blendUnderStraight benchmark with dst pattern variations
+ *   t [grp]  : copyRowDDA benchmark (DDA scanline transform)
  *   d        : Analyze alpha distribution of test data
  *   a        : All benchmarks
  *   l        : List available formats
@@ -19,6 +20,7 @@
  *
  *   [fmt] = all | rgb332 | rgb565le | rgb565be | rgb888 | bgr888 | rgba8
  *   [pat] = all | trans | opaque | semi | mixed
+ *   [grp] = all | h (horizontal) | v (vertical) | d (diagonal)
  */
 
 // =============================================================================
@@ -42,6 +44,7 @@
 #define FLEXIMG_IMPLEMENTATION
 #include "fleximg/core/common.h"
 #include "fleximg/image/pixel_format.h"
+#include "fleximg/image/viewport.h"
 
 using namespace fleximg;
 
@@ -669,6 +672,118 @@ static void runAlphaDistributionAnalysis() {
 }
 
 // =============================================================================
+// copyRowDDA Benchmark
+// =============================================================================
+
+#ifdef BENCH_M5STACK
+    static constexpr int DDA_SRC_SIZE = 64;    // 64x64 = 4096 pixels = BENCH_PIXELS
+#else
+    static constexpr int DDA_SRC_SIZE = 256;   // 256x256 = 65536 pixels = BENCH_PIXELS
+#endif
+
+struct DDATestCase {
+    const char* name;
+    const char* group;   // "h", "v", "d"
+    int_fixed incrX;
+    int_fixed incrY;
+};
+
+static const DDATestCase ddaTests[] = {
+    // Horizontal only (incrY == 0) — scale without rotation
+    {"H 1:1",  "h", INT_FIXED_ONE,      0},
+    {"H x2",   "h", INT_FIXED_ONE / 2,  0},               // 2x zoom
+    {"H /2",   "h", INT_FIXED_ONE * 2,  0},               // 2x shrink
+    // Vertical only (incrX == 0) — 90-degree rotation equivalent
+    {"V 1:1",  "v", 0,                  INT_FIXED_ONE},
+    {"V x2",   "v", 0,                  INT_FIXED_ONE / 2},
+    {"V /2",   "v", 0,                  INT_FIXED_ONE * 2},
+    // Diagonal (both nonzero) — rotation case
+    {"D 1:1",  "d", 46341,              46341},            // cos(45)*65536
+    {"D x2",   "d", 23170,              23170},            // cos(45)*65536/2
+};
+static constexpr int NUM_DDA_TESTS = sizeof(ddaTests) / sizeof(ddaTests[0]);
+
+// Compute safe pixel count per copyRowDDA call within source bounds
+static int computeDDASafeCount(int_fixed incrX, int_fixed incrY) {
+    int count = DDA_SRC_SIZE * DDA_SRC_SIZE;
+    if (incrX > 0) {
+        count = std::min(count, static_cast<int>(
+            static_cast<int64_t>(DDA_SRC_SIZE - 1) * INT_FIXED_ONE / incrX + 1));
+    }
+    if (incrY > 0) {
+        count = std::min(count, static_cast<int>(
+            static_cast<int64_t>(DDA_SRC_SIZE - 1) * INT_FIXED_ONE / incrY + 1));
+    }
+    return count;
+}
+
+static void benchDDATest(const ViewPort& srcVP, int testIdx) {
+    const auto& test = ddaTests[testIdx];
+    int count = computeDDASafeCount(test.incrX, test.incrY);
+    int numRows = BENCH_PIXELS / count;
+    if (numRows < 1) numRows = 1;
+    int totalPixels = count * numRows;
+
+    uint32_t us = runBenchmark([&]() {
+        uint8_t* dst = bufRGBA8_2;
+        uint8_t* dstLimit = bufRGBA8_2
+            + static_cast<size_t>(BENCH_PIXELS) * 4
+            - static_cast<size_t>(count) * 4;
+        for (int row = 0; row < numRows; row++) {
+            int_fixed srcX = 0;
+            int_fixed srcY = 0;
+            if (test.incrY == 0 && test.incrX != 0) {
+                // Horizontal: vary source row
+                srcY = static_cast<int_fixed>((row % DDA_SRC_SIZE) << INT_FIXED_SHIFT);
+            } else if (test.incrX == 0 && test.incrY != 0) {
+                // Vertical: vary source column
+                srcX = static_cast<int_fixed>((row % DDA_SRC_SIZE) << INT_FIXED_SHIFT);
+            }
+            // Diagonal: always start from (0, 0)
+
+            view_ops::copyRowDDA(dst, srcVP, count, srcX, srcY,
+                                 test.incrX, test.incrY);
+            dst += static_cast<size_t>(count) * 4;
+            if (dst > dstLimit) {
+                dst = bufRGBA8_2;
+            }
+        }
+    });
+
+    double nsPerPixel = (static_cast<double>(us) * 1000.0) / totalPixels;
+    benchPrintf("%-12s %7u %7.2f  (%d x %d rows)\n",
+        test.name, us, nsPerPixel, count, numRows);
+}
+
+static void runDDABenchmark(const char* groupArg) {
+    benchPrintln();
+    benchPrintln("=== copyRowDDA Benchmark ===");
+    benchPrintf("Source: %dx%d RGBA8, Iterations: %d\n",
+        DDA_SRC_SIZE, DDA_SRC_SIZE, ITERATIONS);
+    benchPrintln();
+    benchPrintf("%-12s %7s %7s\n", "Test", "us/frm", "ns/px");
+    benchPrintln("------------ ------- -------");
+
+    ViewPort srcVP(bufRGBA8, DDA_SRC_SIZE, DDA_SRC_SIZE,
+                   PixelFormatIDs::RGBA8_Straight);
+
+    bool all = (strcmp(groupArg, "all") == 0);
+    bool found = false;
+    for (int i = 0; i < NUM_DDA_TESTS; i++) {
+        if (all || strcmp(ddaTests[i].group, groupArg) == 0) {
+            benchDDATest(srcVP, i);
+            found = true;
+        }
+    }
+
+    if (!found) {
+        benchPrintf("Unknown group: %s\n", groupArg);
+        benchPrintln("Available: all | h | v | d");
+    }
+    benchPrintln();
+}
+
+// =============================================================================
 // Command Interface
 // =============================================================================
 
@@ -680,6 +795,7 @@ static void printHelp() {
     benchPrintln("  c [fmt]  : Conversion benchmark");
     benchPrintln("  b [fmt]  : BlendUnder benchmark (Direct vs Indirect)");
     benchPrintln("  u [pat]  : blendUnderStraight with dst pattern variations");
+    benchPrintln("  t [grp]  : copyRowDDA benchmark (DDA scanline transform)");
     benchPrintln("  d        : Analyze alpha distribution of test data");
     benchPrintln("  a        : All benchmarks");
     benchPrintln("  l        : List formats");
@@ -696,12 +812,17 @@ static void printHelp() {
     benchPrintln("Dst Patterns (for 'u' command):");
     benchPrintln("  all | trans | opaque | semi | mixed");
     benchPrintln();
+    benchPrintln("DDA Groups (for 't' command):");
+    benchPrintln("  all | h (horizontal) | v (vertical) | d (diagonal)");
+    benchPrintln();
     benchPrintln("Examples:");
     benchPrintln("  c all     - All conversion benchmarks");
     benchPrintln("  c rgb332  - RGB332 conversion only");
     benchPrintln("  b rgba8   - RGBA8 blend benchmark");
     benchPrintln("  u all     - blendUnderStraight with all dst patterns");
     benchPrintln("  u trans   - blendUnderStraight with transparent dst");
+    benchPrintln("  t all     - copyRowDDA all directions");
+    benchPrintln("  t h       - copyRowDDA horizontal only");
     benchPrintln("  d         - Show alpha distribution analysis");
     benchPrintln();
 }
@@ -741,6 +862,10 @@ static void processCommand(const char* cmd) {
         case 'U':
             runBlendUnderStraightBenchmarks(arg);
             break;
+        case 't':
+        case 'T':
+            runDDABenchmark(arg);
+            break;
         case 'd':
         case 'D':
             runAlphaDistributionAnalysis();
@@ -750,6 +875,7 @@ static void processCommand(const char* cmd) {
             runConvertBenchmark("all");
             runBlendBenchmark("all");
             runBlendUnderStraightBenchmarks("all");
+            runDDABenchmark("all");
             break;
         case 'l':
         case 'L':

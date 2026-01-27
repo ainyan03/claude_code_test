@@ -352,10 +352,10 @@ RenderResponse SourceNode::onPullProcess(const RenderRequest& request) {
     // 有効範囲: srcBase + dx が [0, srcSize) に収まる dx の範囲
     // srcBase + dxStart >= 0  →  dxStart >= -srcBaseX
     // srcBase + dxEnd < srcSize  →  dxEnd < srcSize - srcBaseX
-    int32_t dxStartX = std::max(0, -srcBaseX);
-    int32_t dxEndX = std::min(static_cast<int32_t>(request.width), source_.width - srcBaseX);
-    int32_t dxStartY = std::max(0, -srcBaseY);
-    int32_t dxEndY = std::min(static_cast<int32_t>(request.height), source_.height - srcBaseY);
+    auto dxStartX = std::max<int32_t>(0, -srcBaseX);
+    auto dxEndX = std::min<int32_t>(request.width, source_.width - srcBaseX);
+    auto dxStartY = std::max<int32_t>(0, -srcBaseY);
+    auto dxEndY = std::min<int32_t>(request.height, source_.height - srcBaseY);
 
     if (dxStartX >= dxEndX || dxStartY >= dxEndY) {
         return RenderResponse(ImageBuffer(), request.origin);
