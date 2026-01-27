@@ -12,7 +12,7 @@
  *   c [fmt]  : Conversion benchmark (toStraight/fromStraight)
  *   b [fmt]  : BlendUnder benchmark (direct vs indirect path)
  *   u [pat]  : blendUnderStraight benchmark with dst pattern variations
- *   t [grp]  : copyRowDDA benchmark (DDA scanline transform)
+ *   t [grp] [bpp] : copyRowDDA benchmark (DDA scanline transform)
  *   d        : Analyze alpha distribution of test data
  *   a        : All benchmarks
  *   l        : List available formats
@@ -21,6 +21,7 @@
  *   [fmt] = all | rgb332 | rgb565le | rgb565be | rgb888 | bgr888 | rgba8
  *   [pat] = all | trans | opaque | semi | mixed
  *   [grp] = all | h (horizontal) | v (vertical) | d (diagonal)
+ *   [bpp] = all | 4 | 3 | 2 | 1
  */
 
 // =============================================================================
@@ -717,7 +718,32 @@ static int computeDDASafeCount(int_fixed incrX, int_fixed incrY) {
     return count;
 }
 
-static void benchDDATest(const ViewPort& srcVP, int testIdx) {
+// BPP configurations for multi-format DDA benchmark
+struct DDABppConfig {
+    int bpp;
+    const char* label;
+    PixelFormatID formatID;
+};
+
+static const DDABppConfig ddaBppConfigs[] = {
+    {4, "BPP4", PixelFormatIDs::RGBA8_Straight},
+    {3, "BPP3", PixelFormatIDs::RGB888},
+    {2, "BPP2", PixelFormatIDs::RGB565_LE},
+    {1, "BPP1", PixelFormatIDs::RGB332},
+};
+static constexpr int NUM_DDA_BPP = sizeof(ddaBppConfigs) / sizeof(ddaBppConfigs[0]);
+
+static uint8_t* getDDASourceBuffer(int bpp) {
+    switch (bpp) {
+        case 3: return bufRGB888;
+        case 2: return bufRGB565;
+        case 1: return bufRGB332;
+        default: return bufRGBA8;
+    }
+}
+
+// Run single DDA test, return ns/px
+static double runDDATest(const ViewPort& srcVP, int bpp, int testIdx) {
     const auto& test = ddaTests[testIdx];
     int count = computeDDASafeCount(test.incrX, test.incrY);
     int numRows = BENCH_PIXELS / count;
@@ -728,7 +754,7 @@ static void benchDDATest(const ViewPort& srcVP, int testIdx) {
         uint8_t* dst = bufRGBA8_2;
         uint8_t* dstLimit = bufRGBA8_2
             + static_cast<size_t>(BENCH_PIXELS) * 4
-            - static_cast<size_t>(count) * 4;
+            - static_cast<size_t>(count) * static_cast<size_t>(bpp);
         for (int row = 0; row < numRows; row++) {
             int_fixed srcX = 0;
             int_fixed srcY = 0;
@@ -743,43 +769,127 @@ static void benchDDATest(const ViewPort& srcVP, int testIdx) {
 
             view_ops::copyRowDDA(dst, srcVP, count, srcX, srcY,
                                  test.incrX, test.incrY);
-            dst += static_cast<size_t>(count) * 4;
+            dst += static_cast<size_t>(count) * static_cast<size_t>(bpp);
             if (dst > dstLimit) {
                 dst = bufRGBA8_2;
             }
         }
     });
 
-    double nsPerPixel = (static_cast<double>(us) * 1000.0) / totalPixels;
-    benchPrintf("%-12s %7u %7.2f  (%d x %d rows)\n",
-        test.name, us, nsPerPixel, count, numRows);
+    return (static_cast<double>(us) * 1000.0) / totalPixels;
 }
 
-static void runDDABenchmark(const char* groupArg) {
-    benchPrintln();
-    benchPrintln("=== copyRowDDA Benchmark ===");
-    benchPrintf("Source: %dx%d RGBA8, Iterations: %d\n",
-        DDA_SRC_SIZE, DDA_SRC_SIZE, ITERATIONS);
-    benchPrintln();
-    benchPrintf("%-12s %7s %7s\n", "Test", "us/frm", "ns/px");
-    benchPrintln("------------ ------- -------");
-
-    ViewPort srcVP(bufRGBA8, DDA_SRC_SIZE, DDA_SRC_SIZE,
-                   PixelFormatIDs::RGBA8_Straight);
-
-    bool all = (strcmp(groupArg, "all") == 0);
-    bool found = false;
-    for (int i = 0; i < NUM_DDA_TESTS; i++) {
-        if (all || strcmp(ddaTests[i].group, groupArg) == 0) {
-            benchDDATest(srcVP, i);
-            found = true;
+static void runDDABenchmark(const char* args) {
+    // Parse: "[grp] [bpp]"  grp = all|h|v|d  bpp = all|4|3|2|1
+    char groupStr[16] = "all";
+    char bppStr[16] = "all";
+    {
+        const char* p = args;
+        int len = 0;
+        while (*p && *p != ' ' && len < 15) { groupStr[len++] = *p++; }
+        groupStr[len] = '\0';
+        while (*p == ' ') p++;
+        if (*p) {
+            len = 0;
+            while (*p && *p != ' ' && len < 15) { bppStr[len++] = *p++; }
+            bppStr[len] = '\0';
         }
     }
 
-    if (!found) {
-        benchPrintf("Unknown group: %s\n", groupArg);
-        benchPrintln("Available: all | h | v | d");
+    // Parse BPP filter (0 = all)
+    int bppFilter = 0;
+    if (strcmp(bppStr, "all") != 0) {
+        if (bppStr[0] >= '1' && bppStr[0] <= '4' && bppStr[1] == '\0') {
+            bppFilter = bppStr[0] - '0';
+        } else {
+            benchPrintf("Unknown bpp: %s\n", bppStr);
+            benchPrintln("Available: all | 4 | 3 | 2 | 1");
+            return;
+        }
     }
+
+    // Build active BPP list
+    int activeBppIdx[NUM_DDA_BPP];
+    int numActive = 0;
+    for (int b = 0; b < NUM_DDA_BPP; b++) {
+        if (bppFilter == 0 || ddaBppConfigs[b].bpp == bppFilter) {
+            activeBppIdx[numActive++] = b;
+        }
+    }
+
+    bool allGroups = (strcmp(groupStr, "all") == 0);
+
+    benchPrintln();
+    benchPrintln("=== copyRowDDA Benchmark ===");
+    benchPrintf("Source: %dx%d, Iterations: %d\n", DDA_SRC_SIZE, DDA_SRC_SIZE, ITERATIONS);
+    benchPrintln();
+
+    if (numActive == 1) {
+        // Single-BPP mode: detailed output with us/frm
+        const auto& cfg = ddaBppConfigs[activeBppIdx[0]];
+        ViewPort srcVP(getDDASourceBuffer(cfg.bpp),
+                       DDA_SRC_SIZE, DDA_SRC_SIZE, cfg.formatID);
+
+        benchPrintf("Format: %s\n", cfg.formatID->name);
+        benchPrintln();
+        benchPrintf("%-12s %7s %7s\n", "Test", "us/frm", "ns/px");
+        benchPrintln("------------ ------- -------");
+
+        bool found = false;
+        for (int i = 0; i < NUM_DDA_TESTS; i++) {
+            if (allGroups || strcmp(ddaTests[i].group, groupStr) == 0) {
+                int count = computeDDASafeCount(ddaTests[i].incrX, ddaTests[i].incrY);
+                int numRows = BENCH_PIXELS / count;
+                if (numRows < 1) numRows = 1;
+                int totalPixels = count * numRows;
+
+                double ns = runDDATest(srcVP, cfg.bpp, i);
+                auto us = static_cast<uint32_t>(ns * totalPixels / 1000.0 + 0.5);
+                benchPrintf("%-12s %7u %7.2f  (%d x %d rows)\n",
+                    ddaTests[i].name, us, ns, count, numRows);
+                found = true;
+            }
+        }
+
+        if (!found) {
+            benchPrintf("Unknown group: %s\n", groupStr);
+            benchPrintln("Available: all | h | v | d");
+        }
+    } else {
+        // Multi-BPP mode: ns/px columns side by side
+        benchPrintf("%-12s", "Test");
+        for (int b = 0; b < numActive; b++) {
+            benchPrintf(" %7s", ddaBppConfigs[activeBppIdx[b]].label);
+        }
+        benchPrintln();
+        benchPrint("------------");
+        for (int b = 0; b < numActive; b++) {
+            benchPrint(" -------");
+        }
+        benchPrintln();
+
+        bool found = false;
+        for (int i = 0; i < NUM_DDA_TESTS; i++) {
+            if (allGroups || strcmp(ddaTests[i].group, groupStr) == 0) {
+                benchPrintf("%-12s", ddaTests[i].name);
+                for (int b = 0; b < numActive; b++) {
+                    const auto& cfg = ddaBppConfigs[activeBppIdx[b]];
+                    ViewPort srcVP(getDDASourceBuffer(cfg.bpp),
+                                   DDA_SRC_SIZE, DDA_SRC_SIZE, cfg.formatID);
+                    double ns = runDDATest(srcVP, cfg.bpp, i);
+                    benchPrintf(" %7.2f", ns);
+                }
+                benchPrintln();
+                found = true;
+            }
+        }
+
+        if (!found) {
+            benchPrintf("Unknown group: %s\n", groupStr);
+            benchPrintln("Available: all | h | v | d");
+        }
+    }
+
     benchPrintln();
 }
 
@@ -795,7 +905,7 @@ static void printHelp() {
     benchPrintln("  c [fmt]  : Conversion benchmark");
     benchPrintln("  b [fmt]  : BlendUnder benchmark (Direct vs Indirect)");
     benchPrintln("  u [pat]  : blendUnderStraight with dst pattern variations");
-    benchPrintln("  t [grp]  : copyRowDDA benchmark (DDA scanline transform)");
+    benchPrintln("  t [grp] [bpp] : copyRowDDA benchmark (DDA scanline transform)");
     benchPrintln("  d        : Analyze alpha distribution of test data");
     benchPrintln("  a        : All benchmarks");
     benchPrintln("  l        : List formats");
@@ -813,7 +923,8 @@ static void printHelp() {
     benchPrintln("  all | trans | opaque | semi | mixed");
     benchPrintln();
     benchPrintln("DDA Groups (for 't' command):");
-    benchPrintln("  all | h (horizontal) | v (vertical) | d (diagonal)");
+    benchPrintln("  [grp] = all | h (horizontal) | v (vertical) | d (diagonal)");
+    benchPrintln("  [bpp] = all | 4 | 3 | 2 | 1");
     benchPrintln();
     benchPrintln("Examples:");
     benchPrintln("  c all     - All conversion benchmarks");
@@ -821,8 +932,10 @@ static void printHelp() {
     benchPrintln("  b rgba8   - RGBA8 blend benchmark");
     benchPrintln("  u all     - blendUnderStraight with all dst patterns");
     benchPrintln("  u trans   - blendUnderStraight with transparent dst");
-    benchPrintln("  t all     - copyRowDDA all directions");
-    benchPrintln("  t h       - copyRowDDA horizontal only");
+    benchPrintln("  t all     - copyRowDDA all directions, all BPPs");
+    benchPrintln("  t h       - copyRowDDA horizontal, all BPPs");
+    benchPrintln("  t all 4   - copyRowDDA all directions, BPP4 only");
+    benchPrintln("  t h 2     - copyRowDDA horizontal, BPP2 only");
     benchPrintln("  d         - Show alpha distribution analysis");
     benchPrintln();
 }
