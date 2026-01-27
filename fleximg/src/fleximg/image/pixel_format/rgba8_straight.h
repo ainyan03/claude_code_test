@@ -145,59 +145,113 @@ static void rgba8Straight_blendUnderPremul(void* __restrict__ dst, const void* _
 // - dst が半透明ならunder合成（unpremultiply含む）
 //
 // 最適化:
-// - ポインタインクリメント方式（idx計算削減）
+// - 4ピクセル単位の一括判定（連続不透明/透明領域の高速スキップ）
 // - 32bitメモリアクセス（透明→コピー時）
 // - ESP32: 除算パイプラインを活用（RGB計算でレイテンシ隠蔽）
+
+// 1ピクセルのunder合成処理（インライン展開用マクロ）
+#define BLEND_UNDER_STRAIGHT_1PX(d_ptr, s_ptr) \
+    do { \
+        uint_fast16_t dstA = (d_ptr)[3]; \
+        if (dstA == 255) break; /* dst不透明→スキップ */ \
+        uint_fast16_t srcA = (s_ptr)[3]; \
+        if (srcA == 0) break; /* src透明→スキップ */ \
+        if (dstA == 0) { \
+            *reinterpret_cast<uint32_t*>(d_ptr) = *reinterpret_cast<const uint32_t*>(s_ptr); \
+            break; /* dst透明→コピー */ \
+        } \
+        /* under合成（Straight形式） */ \
+        uint_fast32_t resultR_premul = (d_ptr)[0]; \
+        uint_fast32_t resultG_premul = (d_ptr)[1]; \
+        uint_fast32_t resultB_premul = (d_ptr)[2]; \
+        resultR_premul *= dstA; \
+        resultG_premul *= dstA; \
+        resultB_premul *= dstA; \
+        uint_fast32_t srcR = (s_ptr)[0]; \
+        uint_fast32_t srcG = (s_ptr)[1]; \
+        uint_fast32_t srcB = (s_ptr)[2]; \
+        uint_fast16_t invDstA = 255 - dstA; \
+        srcA *= invDstA; \
+        srcR = (srcR * srcA + 127) / 255; \
+        srcG = (srcG * srcA + 127) / 255; \
+        srcB = (srcB * srcA + 127) / 255; \
+        uint_fast16_t resultA = static_cast<uint_fast16_t>(dstA + (static_cast<uint_fast32_t>(srcA) + 127) / 255); \
+        (d_ptr)[3] = static_cast<uint8_t>(resultA); \
+        resultR_premul = resultR_premul + srcR; \
+        resultG_premul = resultG_premul + srcG; \
+        resultB_premul = resultB_premul + srcB; \
+        resultR_premul /= resultA; \
+        resultG_premul /= resultA; \
+        resultB_premul /= resultA; \
+        (d_ptr)[0] = static_cast<uint8_t>(resultR_premul); \
+        (d_ptr)[1] = static_cast<uint8_t>(resultG_premul); \
+        (d_ptr)[2] = static_cast<uint8_t>(resultB_premul); \
+    } while(0)
+
 static void rgba8Straight_blendUnderStraight(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGBA8_Straight, BlendUnderStraight, pixelCount);
     uint8_t* __restrict__ d = static_cast<uint8_t*>(dst);
     const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
 
-    // プリデクリメント: ループ先頭でインクリメントするため事前に戻す
-    d -= 4;
-    s -= 4;
-
-    for (int i = 0; i < pixelCount; ++i) {
+    // 端数処理（1〜3ピクセル）
+    int remainder = pixelCount & 3;
+    while (remainder--) {
+        BLEND_UNDER_STRAIGHT_1PX(d, s);
         d += 4;
         s += 4;
+    }
 
-        uint_fast16_t dstA = d[3];
+    // 4ピクセル単位でループ
+    int count4 = pixelCount >> 2;
+    while (count4--) {
+        // 4ピクセルのdstアルファを取得
+        uint_fast8_t dstA0 = d[3];
+        uint_fast8_t dstA1 = d[7];
+        uint_fast8_t dstA2 = d[11];
+        uint_fast8_t dstA3 = d[15];
 
-        // dst が不透明 → スキップ
-        if (dstA == 255) continue;
-
-        uint_fast16_t srcA = s[3];
-
-        // src が透明 → スキップ
-        if (srcA == 0) continue;
-
-        // dst が透明 → 32bit単位で単純コピー
-        if (dstA == 0) {
-            *reinterpret_cast<uint32_t*>(d) = *reinterpret_cast<const uint32_t*>(s);
+        // 全て不透明(255) → 4ピクセル一括スキップ
+        if ((dstA0 & dstA1 & dstA2 & dstA3) == 255) {
+            d += 16;
+            s += 16;
             continue;
         }
 
-        // under合成（Straight形式）
-        uint_fast16_t invDstA = 255 - dstA;
+        // 4ピクセルのsrcアルファを取得
+        uint_fast8_t srcA0 = s[3];
+        uint_fast8_t srcA1 = s[7];
+        uint_fast8_t srcA2 = s[11];
+        uint_fast8_t srcA3 = s[15];
 
-        // resultA = dstA + srcA * invDstA / 255
-        uint_fast16_t resultA = static_cast<uint_fast16_t>(dstA + (static_cast<uint_fast32_t>(srcA) * invDstA + 127) / 255);
+        // 全て透明(0) → 4ピクセル一括スキップ
+        if ((srcA0 | srcA1 | srcA2 | srcA3) == 0) {
+            d += 16;
+            s += 16;
+            continue;
+        }
 
-        // Premultiplied計算:
-        // resultC_premul = dstC * dstA + srcC * srcA * invDstA / 255
-        // ESP32: 除算パイプラインがRGB計算でレイテンシ隠蔽
-        // 注意: 明示的キャストで32bit演算を保証（16bit環境でのオーバーフロー防止）
-        uint_fast32_t resultR_premul = d[0] * dstA + (static_cast<uint_fast32_t>(s[0]) * srcA * invDstA + 127) / 255;
-        uint_fast32_t resultG_premul = d[1] * dstA + (static_cast<uint_fast32_t>(s[1]) * srcA * invDstA + 127) / 255;
-        uint_fast32_t resultB_premul = d[2] * dstA + (static_cast<uint_fast32_t>(s[2]) * srcA * invDstA + 127) / 255;
+        // dst全て透明(0) → 4ピクセル一括コピー
+        if ((dstA0 | dstA1 | dstA2 | dstA3) == 0) {
+            reinterpret_cast<uint32_t*>(d)[0] = reinterpret_cast<const uint32_t*>(s)[0];
+            reinterpret_cast<uint32_t*>(d)[1] = reinterpret_cast<const uint32_t*>(s)[1];
+            reinterpret_cast<uint32_t*>(d)[2] = reinterpret_cast<const uint32_t*>(s)[2];
+            reinterpret_cast<uint32_t*>(d)[3] = reinterpret_cast<const uint32_t*>(s)[3];
+            d += 16;
+            s += 16;
+            continue;
+        }
 
-        // Unpremultiply (除算)
-        d[0] = static_cast<uint8_t>(resultR_premul / resultA);
-        d[1] = static_cast<uint8_t>(resultG_premul / resultA);
-        d[2] = static_cast<uint8_t>(resultB_premul / resultA);
-        d[3] = static_cast<uint8_t>(resultA);
+        // 個別処理
+        BLEND_UNDER_STRAIGHT_1PX(d, s);
+        BLEND_UNDER_STRAIGHT_1PX(d + 4, s + 4);
+        BLEND_UNDER_STRAIGHT_1PX(d + 8, s + 8);
+        BLEND_UNDER_STRAIGHT_1PX(d + 12, s + 12);
+
+        d += 16;
+        s += 16;
     }
 }
+#undef BLEND_UNDER_STRAIGHT_1PX
 
 #ifdef FLEXIMG_ENABLE_PREMUL
 // fromPremul: Premul形式(RGBA16_Premultiplied)のsrcからRGBA8_Straightのdstへ変換コピー
