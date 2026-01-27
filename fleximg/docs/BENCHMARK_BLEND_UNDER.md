@@ -7,10 +7,19 @@
 
 ### パス定義
 
+**Premul モード:**
+
 | パス | 処理内容 |
 |------|----------|
 | 直接パス | `srcFormat->blendUnderPremul(dst, src, count)` |
 | 間接パス | `srcFormat->toPremul(tmp, src, count)` + `RGBA16_Premultiplied->blendUnderPremul(dst, tmp, count)` |
+
+**Straight モード:**
+
+| パス | 処理内容 |
+|------|----------|
+| 直接パス | `srcFormat->blendUnderStraight(dst, src, count)` |
+| 間接パス | `srcFormat->toStraight(tmp, src, count)` + `RGBA8_Straight->blendUnderStraight(dst, tmp, count)` |
 
 直接パスは変換と合成を1関数で行い、間接パスは標準形式への変換後に合成を行います。
 
@@ -69,9 +78,87 @@
 
 | Format | Direct(us) | Indirect(us) | Ratio |
 |--------|------------|--------------|-------|
-| RGBA8_Straight | 3.62 | 3.60 | 1.00x |
+| RGB332 | - | 683 | - |
+| RGB565_LE | - | 775 | - |
+| RGB565_BE | - | 780 | - |
+| RGB888 | - | 742 | - |
+| BGR888 | - | 736 | - |
+| RGBA8_Straight | 639 | 639 | 1.00x |
 
-> 他のフォーマットは `blendUnderStraight` 未実装のためスキップ
+> 65536ピクセル、1000回反復
+
+### M5Stack Core2 (ESP32)
+
+| Format | Direct(us) | Indirect(us) | Ratio |
+|--------|------------|--------------|-------|
+| RGB332 | - | 1767 | - |
+| RGB565_LE | - | 1899 | - |
+| RGB565_BE | - | 1899 | - |
+| RGB888 | - | 1793 | - |
+| BGR888 | - | 1793 | - |
+| RGBA8_Straight | 1626 | 1669 | 1.03x |
+
+> 4096ピクセル、1000回反復
+
+---
+
+## blendUnderStraight Dstパターン別結果
+
+### アルファ分布パターン
+
+ソースバッファは96ピクセル周期でアルファ値が変動するパターンを使用：
+
+| 範囲 | アルファ値 | 割合 |
+|------|-----------|------|
+| 0-31 | 0（透明） | 33.3% |
+| 32-47 | 16〜240（増加） | 16.7% |
+| 48-79 | 255（不透明） | 33.3% |
+| 80-95 | 240〜16（減少） | 16.7% |
+
+### Dstパターン定義
+
+| パターン | 説明 | 期待される処理パス |
+|----------|------|-------------------|
+| transparent | 全ピクセル α=0 | copy 66.7%, srcSkip 33.3% |
+| opaque | 全ピクセル α=255 | dstSkip 100% |
+| semi | 全ピクセル α=128 | fullCalc 66.7%, srcSkip 33.3% |
+| mixed | srcと同じ96サイクル | fullCalc 33.3%, dstSkip 33.3%, srcSkip 33.3% |
+
+### PC (x86-64 / Apple Silicon)
+
+| Pattern | Time(us) | ns/pixel | fullCalc率 |
+|---------|----------|----------|------------|
+| opaque | 242 | 3.69 | 0% |
+| transparent | 298 | 4.55 | 0% |
+| semi | 533 | 8.13 | 66.7% |
+| mixed | 561 | 8.56 | 33.3% |
+
+> 65536ピクセル、1000回反復
+
+### M5Stack Core2 (ESP32)
+
+| Pattern | Time(us) | ns/pixel | fullCalc率 |
+|---------|----------|----------|------------|
+| opaque | 480 | 117.19 | 0% |
+| transparent | 617 | 150.63 | 0% |
+| semi | 1265 | 308.84 | 66.7% |
+| mixed | 1128 | 275.39 | 33.3% |
+
+> 4096ピクセル、1000回反復
+
+### Dstパターン別考察
+
+1. **PC vs ESP32 の傾向差**
+   - PC: mixed (8.56ns) > semi (8.13ns) → mixedが遅い
+   - ESP32: mixed (275ns) < semi (309ns) → mixedが速い
+
+2. **分析**
+   - PCでは分岐予測ミスのペナルティが大きく、mixedパターンで性能低下
+   - ESP32ではfullCalc（除算4回）のコストが支配的で、fullCalc率が低いmixedが有利
+
+3. **最適化への示唆**
+   - ESP32では除算コスト削減が効果的
+   - PCでは分岐予測の改善（4ピクセル単位処理等）が有効な可能性
 
 ---
 
@@ -107,21 +194,38 @@
 
 ## ベンチマーク実行方法
 
-### PC
+### PC (Native)
 
 ```bash
-cd fleximg/test
-make blend_bench
-./blend_bench
+cd fleximg
+pio run -e bench_native
+.pio/build/bench_native/program
 ```
 
 ### M5Stack
 
 ```bash
-# プロジェクトルートから実行
+cd fleximg
 pio run -e bench_m5stack_core2 -t upload
-# シリアルで 'c' コマンドを送信
+# シリアルモニタでコマンド送信
 ```
+
+### コマンド一覧
+
+| コマンド | 説明 |
+|----------|------|
+| `c [fmt]` | 変換ベンチマーク (toStraight/fromStraight/toPremul/fromPremul) |
+| `b [fmt]` | BlendUnderベンチマーク (Direct vs Indirect) |
+| `s [fmt]` | Pathway比較 (Premul vs Straight) [FLEXIMG_ENABLE_PREMUL時のみ] |
+| `u [pat]` | blendUnderStraight Dstパターン別ベンチマーク |
+| `d` | アルファ分布分析 |
+| `a` | 全ベンチマーク実行 |
+| `l` | フォーマット一覧 |
+| `h` | ヘルプ |
+
+**フォーマット指定**: `all | rgb332 | rgb565le | rgb565be | rgb888 | bgr888 | rgba8 | rgba16p`
+
+**Dstパターン指定**: `all | trans | opaque | semi | mixed`
 
 ---
 
@@ -132,4 +236,4 @@ pio run -e bench_m5stack_core2 -t upload
 
 ---
 
-*測定日: 2026-01-22*
+*測定日: 2026-01-27*

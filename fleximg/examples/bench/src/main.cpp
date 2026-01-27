@@ -12,11 +12,14 @@
  *   c [fmt]  : Conversion benchmark (toStraight/fromStraight/toPremul/fromPremul)
  *   b [fmt]  : BlendUnder benchmark (direct vs indirect path)
  *   s [fmt]  : Pathway comparison (Premul vs Straight) [FLEXIMG_ENABLE_PREMUL]
+ *   u [pat]  : blendUnderStraight benchmark with dst pattern variations
+ *   d        : Analyze alpha distribution of test data
  *   a        : All benchmarks
  *   l        : List available formats
  *   h        : Help
  *
  *   [fmt] = all | rgb332 | rgb565le | rgb565be | rgb888 | bgr888 | rgba8 | rgba16p
+ *   [pat] = all | trans | opaque | semi | mixed
  */
 
 // =============================================================================
@@ -184,6 +187,54 @@ static bool allocateBuffers() {
     return true;
 }
 
+// =============================================================================
+// Alpha Distribution Analysis
+// =============================================================================
+
+struct AlphaDistribution {
+    int transparent;   // alpha == 0
+    int opaque;        // alpha == 255
+    int semiLow;       // alpha 1-127
+    int semiHigh;      // alpha 128-254
+    int total;
+
+    void reset() {
+        transparent = opaque = semiLow = semiHigh = 0;
+        total = 0;
+    }
+
+    void count(uint8_t alpha) {
+        total++;
+        if (alpha == 0) transparent++;
+        else if (alpha == 255) opaque++;
+        else if (alpha < 128) semiLow++;
+        else semiHigh++;
+    }
+
+    void print(const char* label) {
+        if (total == 0) return;
+        benchPrintf("  %-12s: trans=%5.1f%% opaque=%5.1f%% semi=%5.1f%% (low=%5.1f%% high=%5.1f%%)\n",
+            label,
+            static_cast<double>(100.0f * transparent / total),
+            static_cast<double>(100.0f * opaque / total),
+            static_cast<double>(100.0f * (semiLow + semiHigh) / total),
+            static_cast<double>(100.0f * semiLow / total),
+            static_cast<double>(100.0f * semiHigh / total));
+    }
+};
+
+// Analyze alpha distribution of a buffer
+static void analyzeAlphaDistribution(const uint8_t* buf, int pixelCount, AlphaDistribution& dist) {
+    dist.reset();
+    for (int i = 0; i < pixelCount; i++) {
+        dist.count(buf[i * 4 + 3]);
+    }
+}
+
+// =============================================================================
+// Test Data Initialization
+// =============================================================================
+
 // Initialize test data with varied patterns
 static void initTestData() {
     for (int i = 0; i < BENCH_PIXELS; i++) {
@@ -215,6 +266,64 @@ static void initTestData() {
     }
 }
 
+// =============================================================================
+// Dst Pattern Types for blendUnderStraight
+// =============================================================================
+
+enum class DstPattern {
+    Transparent,   // All pixels alpha = 0 (best case: copy)
+    Opaque,        // All pixels alpha = 255 (best case: skip)
+    SemiTransparent, // All pixels alpha = 128 (worst case: full calc)
+    Mixed,         // Same 96-cycle pattern as src
+    COUNT
+};
+
+static const char* dstPatternNames[] = {
+    "transparent",
+    "opaque",
+    "semi",
+    "mixed"
+};
+
+static const char* dstPatternShortNames[] = {
+    "trans",
+    "opaque",
+    "semi",
+    "mixed"
+};
+
+// Initialize RGBA8 canvas with specified pattern
+static void initCanvasRGBA8WithPattern(DstPattern pattern) {
+    for (int i = 0; i < BENCH_PIXELS; i++) {
+        uint8_t alpha;
+        switch (pattern) {
+            case DstPattern::Transparent:
+                alpha = 0;
+                break;
+            case DstPattern::Opaque:
+                alpha = 255;
+                break;
+            case DstPattern::SemiTransparent:
+                alpha = 128;
+                break;
+            case DstPattern::Mixed:
+            default: {
+                // Same 96-cycle pattern as src
+                int phase = i % 96;
+                if (phase < 32) alpha = 0;
+                else if (phase < 48) alpha = static_cast<uint8_t>(16 + (phase - 32) * 15);
+                else if (phase < 80) alpha = 255;
+                else alpha = static_cast<uint8_t>(16 + (95 - phase) * 15);
+                break;
+            }
+        }
+        bufRGBA8_2[i * 4 + 0] = 0;
+        bufRGBA8_2[i * 4 + 1] = 255;   // Green
+        bufRGBA8_2[i * 4 + 2] = 0;
+        bufRGBA8_2[i * 4 + 3] = alpha;
+    }
+}
+
 #ifdef FLEXIMG_ENABLE_PREMUL
 // Initialize RGBA16 canvas with semi-transparent green
 static void initCanvasRGBA16() {
@@ -229,12 +338,7 @@ static void initCanvasRGBA16() {
 
 // Initialize RGBA8 canvas with semi-transparent green (Straight alpha)
 static void initCanvasRGBA8() {
-    for (int i = 0; i < BENCH_PIXELS; i++) {
-        bufRGBA8_2[i * 4 + 0] = 0;
-        bufRGBA8_2[i * 4 + 1] = 255;   // Green
-        bufRGBA8_2[i * 4 + 2] = 0;
-        bufRGBA8_2[i * 4 + 3] = 128;   // ~50% alpha
-    }
+    initCanvasRGBA8WithPattern(DstPattern::SemiTransparent);
 }
 #endif // FLEXIMG_ENABLE_PREMUL
 
@@ -377,12 +481,13 @@ static void runConvertBenchmark(const char* fmtName) {
     benchPrintln();
 }
 
-#ifdef FLEXIMG_ENABLE_PREMUL
 // =============================================================================
-// BlendUnder Benchmark (Premul mode only)
+// BlendUnder Benchmark (Direct vs Indirect)
 // =============================================================================
 
-static void benchBlendFormat(int idx) {
+#ifdef FLEXIMG_ENABLE_PREMUL
+// Premul mode: compare direct blendUnderPremul vs indirect (toPremul + blend)
+static void benchBlendFormatPremul(int idx) {
     const auto& fmt = formats[idx];
 
     // Skip RGBA16_Premul (it's the destination format)
@@ -418,10 +523,56 @@ static void benchBlendFormat(int idx) {
     float ratio = (directUs > 0) ? static_cast<float>(indirectUs) / static_cast<float>(directUs) : 0;
     benchPrintf("  %5.2fx\n", ratio);
 }
+#endif // FLEXIMG_ENABLE_PREMUL
+
+// Straight mode: compare direct blendUnderStraight vs indirect (toStraight + blend)
+static void benchBlendFormatStraight(int idx) {
+    const auto& fmt = formats[idx];
+
+    // Indirect path requires toStraight
+    if (!fmt.format->toStraight) {
+        benchPrintf("%-16s   (no toStraight)\n", fmt.name);
+        return;
+    }
+
+    bool hasDirect = (fmt.format->blendUnderStraight != nullptr);
+
+    benchPrintf("%-16s", fmt.name);
+
+    // Direct path (if available)
+    uint32_t directUs = 0;
+    if (hasDirect) {
+        directUs = runBenchmark([&]() {
+            initCanvasRGBA8WithPattern(DstPattern::SemiTransparent);
+            fmt.format->blendUnderStraight(bufRGBA8_2, fmt.srcBuffer, BENCH_PIXELS, nullptr);
+        });
+        benchPrintf(" %6u", directUs);
+    } else {
+        benchPrint("      -");
+    }
+
+    // Indirect path (toStraight + RGBA8_Straight blend)
+    uint32_t indirectUs = runBenchmark([&]() {
+        initCanvasRGBA8WithPattern(DstPattern::SemiTransparent);
+        fmt.format->toStraight(bufRGBA8, fmt.srcBuffer, BENCH_PIXELS, nullptr);
+        BuiltinFormats::RGBA8_Straight.blendUnderStraight(
+            bufRGBA8_2, bufRGBA8, BENCH_PIXELS, nullptr);
+    });
+    benchPrintf(" %6u", indirectUs);
+
+    // Ratio (only if direct path exists)
+    if (hasDirect && directUs > 0) {
+        double ratio = static_cast<double>(indirectUs) / static_cast<double>(directUs);
+        benchPrintf("  %5.2fx\n", ratio);
+    } else {
+        benchPrintln("      -");
+    }
+}
 
 static void runBlendBenchmark(const char* fmtName) {
+#ifdef FLEXIMG_ENABLE_PREMUL
     benchPrintln();
-    benchPrintln("=== BlendUnder Benchmark (Direct vs Indirect) ===");
+    benchPrintln("=== BlendUnder Benchmark [Premul] (Direct vs Indirect) ===");
     benchPrintf("Pixels: %d, Iterations: %d\n", BENCH_PIXELS, ITERATIONS);
     benchPrintln();
     benchPrintln("Format           Direct Indir  Ratio");
@@ -429,12 +580,34 @@ static void runBlendBenchmark(const char* fmtName) {
 
     if (strcmp(fmtName, "all") == 0) {
         for (int i = 0; i < NUM_FORMATS; i++) {
-            benchBlendFormat(i);
+            benchBlendFormatPremul(i);
         }
     } else {
         int idx = findFormat(fmtName);
         if (idx >= 0) {
-            benchBlendFormat(idx);
+            benchBlendFormatPremul(idx);
+        } else {
+            benchPrintf("Unknown format: %s\n", fmtName);
+        }
+    }
+    benchPrintln("(Ratio > 1 means Direct is faster)");
+#endif // FLEXIMG_ENABLE_PREMUL
+
+    benchPrintln();
+    benchPrintln("=== BlendUnder Benchmark [Straight] (Direct vs Indirect) ===");
+    benchPrintf("Pixels: %d, Iterations: %d\n", BENCH_PIXELS, ITERATIONS);
+    benchPrintln();
+    benchPrintln("Format           Direct Indir  Ratio");
+    benchPrintln("---------------- ------ ------ ------");
+
+    if (strcmp(fmtName, "all") == 0) {
+        for (int i = 0; i < NUM_FORMATS; i++) {
+            benchBlendFormatStraight(i);
+        }
+    } else {
+        int idx = findFormat(fmtName);
+        if (idx >= 0) {
+            benchBlendFormatStraight(idx);
         } else {
             benchPrintf("Unknown format: %s\n", fmtName);
         }
@@ -442,7 +615,6 @@ static void runBlendBenchmark(const char* fmtName) {
     benchPrintln("(Ratio > 1 means Direct is faster)");
     benchPrintln();
 }
-#endif // FLEXIMG_ENABLE_PREMUL
 
 #ifdef FLEXIMG_ENABLE_PREMUL
 // =============================================================================
@@ -564,6 +736,169 @@ static void runPathwayBenchmark(const char* fmtName) {
 #endif // FLEXIMG_ENABLE_PREMUL
 
 // =============================================================================
+// blendUnderStraight Benchmark with Dst Pattern Variations
+// =============================================================================
+
+// Count expected processing paths based on src and dst alpha
+struct PathCounts {
+    int dstSkip;     // dstA == 255 (skip entirely)
+    int srcSkip;     // srcA == 0 (skip)
+    int copy;        // dstA == 0 (simple copy)
+    int fullCalc;    // all other cases (full under-blend calculation)
+    int total;
+
+    void reset() {
+        dstSkip = srcSkip = copy = fullCalc = 0;
+        total = 0;
+    }
+
+    void analyze(const uint8_t* src, const uint8_t* dst, int pixelCount) {
+        reset();
+        for (int i = 0; i < pixelCount; i++) {
+            total++;
+            uint8_t dstA = dst[i * 4 + 3];
+            uint8_t srcA = src[i * 4 + 3];
+
+            if (dstA == 255) {
+                dstSkip++;
+            } else if (srcA == 0) {
+                srcSkip++;
+            } else if (dstA == 0) {
+                copy++;
+            } else {
+                fullCalc++;
+            }
+        }
+    }
+
+    void print() {
+        if (total == 0) return;
+        benchPrintf("    Paths: dstSkip=%5.1f%% srcSkip=%5.1f%% copy=%5.1f%% fullCalc=%5.1f%%\n",
+            static_cast<double>(100.0f * dstSkip / total),
+            static_cast<double>(100.0f * srcSkip / total),
+            static_cast<double>(100.0f * copy / total),
+            static_cast<double>(100.0f * fullCalc / total));
+    }
+};
+
+static void runBlendUnderStraightBenchmark(DstPattern pattern) {
+    const char* patternName = dstPatternNames[static_cast<int>(pattern)];
+
+    // Initialize dst canvas with pattern
+    initCanvasRGBA8WithPattern(pattern);
+
+    // Analyze path distribution
+    PathCounts paths;
+    paths.analyze(bufRGBA8, bufRGBA8_2, BENCH_PIXELS);
+
+    benchPrintf("  Pattern: %-12s", patternName);
+
+    // Run benchmark
+    uint32_t us = runBenchmark([&]() {
+        // Restore dst pattern before each blend
+        initCanvasRGBA8WithPattern(pattern);
+        BuiltinFormats::RGBA8_Straight.blendUnderStraight(
+            bufRGBA8_2, bufRGBA8, BENCH_PIXELS, nullptr);
+    });
+
+    // Calculate ns per pixel
+    double nsPerPixel = (static_cast<double>(us) * 1000.0) / BENCH_PIXELS;
+
+    benchPrintf(" %6u us  %6.2f ns/px\n", us, nsPerPixel);
+    paths.print();
+}
+
+static void runBlendUnderStraightBenchmarks(const char* patternArg) {
+    benchPrintln();
+    benchPrintln("=== blendUnderStraight Benchmark (Dst Pattern Variations) ===");
+    benchPrintf("Pixels: %d, Iterations: %d\n", BENCH_PIXELS, ITERATIONS);
+    benchPrintln();
+
+    // Show src alpha distribution
+    AlphaDistribution srcDist;
+    analyzeAlphaDistribution(bufRGBA8, BENCH_PIXELS, srcDist);
+    benchPrintln("Source buffer alpha distribution:");
+    srcDist.print("src");
+    benchPrintln();
+
+    benchPrintln("Results:");
+
+    if (strcmp(patternArg, "all") == 0) {
+        for (int i = 0; i < static_cast<int>(DstPattern::COUNT); i++) {
+            runBlendUnderStraightBenchmark(static_cast<DstPattern>(i));
+        }
+    } else {
+        // Find matching pattern
+        bool found = false;
+        for (int i = 0; i < static_cast<int>(DstPattern::COUNT); i++) {
+            if (strcmp(patternArg, dstPatternShortNames[i]) == 0 ||
+                strcmp(patternArg, dstPatternNames[i]) == 0) {
+                runBlendUnderStraightBenchmark(static_cast<DstPattern>(i));
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            benchPrintf("Unknown pattern: %s\n", patternArg);
+            benchPrintln("Available patterns: all | trans | opaque | semi | mixed");
+        }
+    }
+
+    benchPrintln();
+}
+
+// =============================================================================
+// Alpha Distribution Analysis Command
+// =============================================================================
+
+static void runAlphaDistributionAnalysis() {
+    benchPrintln();
+    benchPrintln("=== Alpha Distribution Analysis ===");
+    benchPrintf("Pixels: %d\n", BENCH_PIXELS);
+    benchPrintln();
+
+    // Source buffer analysis
+    AlphaDistribution srcDist;
+    analyzeAlphaDistribution(bufRGBA8, BENCH_PIXELS, srcDist);
+    benchPrintln("Source buffer (bufRGBA8):");
+    srcDist.print("src");
+    benchPrintln();
+
+    // Dst pattern analysis
+    benchPrintln("Destination patterns:");
+    for (int i = 0; i < static_cast<int>(DstPattern::COUNT); i++) {
+        DstPattern pat = static_cast<DstPattern>(i);
+        initCanvasRGBA8WithPattern(pat);
+        AlphaDistribution dstDist;
+        analyzeAlphaDistribution(bufRGBA8_2, BENCH_PIXELS, dstDist);
+        dstDist.print(dstPatternNames[i]);
+    }
+    benchPrintln();
+
+    // Expected processing path analysis for each dst pattern
+    benchPrintln("Expected processing paths (src x dst combinations):");
+    benchPrintln("  dstSkip:  dst is opaque, no blending needed");
+    benchPrintln("  srcSkip:  src is transparent, no change to dst");
+    benchPrintln("  copy:     dst is transparent, simple copy from src");
+    benchPrintln("  fullCalc: semi-transparent, requires full calculation");
+    benchPrintln();
+
+    for (int i = 0; i < static_cast<int>(DstPattern::COUNT); i++) {
+        DstPattern pat = static_cast<DstPattern>(i);
+        initCanvasRGBA8WithPattern(pat);
+        PathCounts paths;
+        paths.analyze(bufRGBA8, bufRGBA8_2, BENCH_PIXELS);
+        benchPrintf("  %-12s: dstSkip=%5.1f%% srcSkip=%5.1f%% copy=%5.1f%% fullCalc=%5.1f%%\n",
+            dstPatternNames[i],
+            static_cast<double>(100.0f * paths.dstSkip / paths.total),
+            static_cast<double>(100.0f * paths.srcSkip / paths.total),
+            static_cast<double>(100.0f * paths.copy / paths.total),
+            static_cast<double>(100.0f * paths.fullCalc / paths.total));
+    }
+    benchPrintln();
+}
+
+// =============================================================================
 // Command Interface
 // =============================================================================
 
@@ -575,6 +910,8 @@ static void printHelp() {
     benchPrintln("  c [fmt]  : Conversion benchmark");
     benchPrintln("  b [fmt]  : BlendUnder benchmark (Direct vs Indirect)");
     benchPrintln("  s [fmt]  : Pathway comparison (Premul vs Straight)");
+    benchPrintln("  u [pat]  : blendUnderStraight with dst pattern variations");
+    benchPrintln("  d        : Analyze alpha distribution of test data");
     benchPrintln("  a        : All benchmarks");
     benchPrintln("  l        : List formats");
     benchPrintln("  h        : This help");
@@ -587,11 +924,17 @@ static void printHelp() {
     }
     benchPrintln();
     benchPrintln();
+    benchPrintln("Dst Patterns (for 'u' command):");
+    benchPrintln("  all | trans | opaque | semi | mixed");
+    benchPrintln();
     benchPrintln("Examples:");
     benchPrintln("  c all     - All conversion benchmarks");
     benchPrintln("  c rgb332  - RGB332 conversion only");
     benchPrintln("  b rgba8   - RGBA8 blend benchmark");
     benchPrintln("  s rgb565le - RGB565_LE pathway comparison");
+    benchPrintln("  u all     - blendUnderStraight with all dst patterns");
+    benchPrintln("  u trans   - blendUnderStraight with transparent dst");
+    benchPrintln("  d         - Show alpha distribution analysis");
     benchPrintln();
 }
 
@@ -622,23 +965,32 @@ static void processCommand(const char* cmd) {
         case 'C':
             runConvertBenchmark(arg);
             break;
-#ifdef FLEXIMG_ENABLE_PREMUL
         case 'b':
         case 'B':
             runBlendBenchmark(arg);
             break;
+#ifdef FLEXIMG_ENABLE_PREMUL
         case 's':
         case 'S':
             runPathwayBenchmark(arg);
             break;
 #endif
+        case 'u':
+        case 'U':
+            runBlendUnderStraightBenchmarks(arg);
+            break;
+        case 'd':
+        case 'D':
+            runAlphaDistributionAnalysis();
+            break;
         case 'a':
         case 'A':
             runConvertBenchmark("all");
-#ifdef FLEXIMG_ENABLE_PREMUL
             runBlendBenchmark("all");
+#ifdef FLEXIMG_ENABLE_PREMUL
             runPathwayBenchmark("all");
 #endif
+            runBlendUnderStraightBenchmarks("all");
             break;
         case 'l':
         case 'L':
