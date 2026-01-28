@@ -314,6 +314,16 @@ public:
                                                PixelFormatIDs::RGBA8_Straight);
     }
 
+    // 画像にパレットを関連付け
+    void setImagePalette(int imageId, int paletteImageId) {
+        paletteAssoc_[imageId] = paletteImageId;
+    }
+
+    // 画像のパレット関連付けを解除
+    void clearImagePalette(int imageId) {
+        paletteAssoc_.erase(imageId);
+    }
+
     // 画像データを取得
     val getImage(int id) {
         const std::vector<uint8_t>& data = imageStore_.get(id);
@@ -798,6 +808,9 @@ private:
     std::map<std::string, SinkOutput> sinkOutputs_;
     std::map<std::string, PixelFormatID> sinkFormats_;
 
+    // パレット関連付け（imageId → paletteImageId）
+    std::map<int, int> paletteAssoc_;
+
     // パイプライン用PoolAllocator（動作検証用）
     static constexpr size_t POOL_BLOCK_SIZE = 1024;
     static constexpr size_t POOL_BLOCK_COUNT = 32;
@@ -954,7 +967,23 @@ private:
                 if (viewIt == imageViews_.end()) return nullptr;
 
                 auto src = std::make_unique<SourceNode>();
-                src->setSource(viewIt->second);
+                // パレット関連付けがあれば PaletteData を構築して渡す
+                {
+                    auto assocIt = paletteAssoc_.find(gnode.imageId);
+                    if (assocIt != paletteAssoc_.end()) {
+                        auto palVpIt = imageViews_.find(assocIt->second);
+                        if (palVpIt != imageViews_.end()) {
+                            const auto& palView = palVpIt->second;
+                            PaletteData pal(palView.data, palView.formatID,
+                                            static_cast<uint16_t>(palView.width));
+                            src->setSource(viewIt->second, pal);
+                        } else {
+                            src->setSource(viewIt->second);
+                        }
+                    } else {
+                        src->setSource(viewIt->second);
+                    }
+                }
                 src->setPivot(float_to_fixed(static_cast<float>(gnode.pivotX)),
                               float_to_fixed(static_cast<float>(gnode.pivotY)));
                 // 配置位置は affineMatrix.tx/ty で管理（setPosition廃止）
@@ -1307,6 +1336,8 @@ EMSCRIPTEN_BINDINGS(image_transform) {
         .function("storeImage", &NodeGraphEvaluatorWrapper::storeImage)
         .function("storeImageWithFormat", &NodeGraphEvaluatorWrapper::storeImageWithFormat)
         .function("allocateImage", &NodeGraphEvaluatorWrapper::allocateImage)
+        .function("setImagePalette", &NodeGraphEvaluatorWrapper::setImagePalette)
+        .function("clearImagePalette", &NodeGraphEvaluatorWrapper::clearImagePalette)
         .function("getImage", &NodeGraphEvaluatorWrapper::getImage)
         .function("setNodes", &NodeGraphEvaluatorWrapper::setNodes)
         .function("setConnections", &NodeGraphEvaluatorWrapper::setConnections)

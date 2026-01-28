@@ -376,7 +376,8 @@ RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
 
         if (isFirstContent) {
             // 初回: 変換コピーのみ（余白ゼロクリア不要、cropViewで切り捨て）
-            FLEXIMG_NAMESPACE::convertFormat(srcRow, srcFmt, dstRow, canvasFormat, copyWidth);
+            FLEXIMG_NAMESPACE::convertFormat(srcRow, srcFmt, dstRow, canvasFormat, copyWidth,
+                                             &inputResult.buffer.auxInfo());
             validStartX = dstStartX;
             validEndX = curEndX;
             isFirstContent = false;
@@ -399,7 +400,8 @@ RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
                     std::memset(canvasRow + static_cast<size_t>(validEndX) * bytesPerPixel, 0,
                                 static_cast<size_t>(dstStartX - validEndX) * bytesPerPixel);
                 }
-                FLEXIMG_NAMESPACE::convertFormat(srcRow, srcFmt, dstRow, canvasFormat, copyWidth);
+                FLEXIMG_NAMESPACE::convertFormat(srcRow, srcFmt, dstRow, canvasFormat, copyWidth,
+                                                 &inputResult.buffer.auxInfo());
             } else {
                 // 重複あり: 3分割処理
                 // 左側非重複 [dstStartX, overlapStart)
@@ -408,7 +410,8 @@ RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
                     FLEXIMG_NAMESPACE::convertFormat(
                         srcBytes, srcFmt,
                         canvasRow + static_cast<size_t>(dstStartX) * bytesPerPixel,
-                        canvasFormat, leftWidth);
+                        canvasFormat, leftWidth,
+                        &inputResult.buffer.auxInfo());
                 }
 
                 // 重複領域 [overlapStart, overlapEnd)
@@ -433,7 +436,8 @@ RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
                     FLEXIMG_NAMESPACE::convertFormat(
                         srcBytes + static_cast<size_t>(rightSrcOffset) * srcBpp, srcFmt,
                         canvasRow + static_cast<size_t>(overlapEnd) * bytesPerPixel,
-                        canvasFormat, rightWidth);
+                        canvasFormat, rightWidth,
+                        &inputResult.buffer.auxInfo());
                 }
             }
 

@@ -66,11 +66,71 @@ const PIXEL_FORMATS = [
     { formatName: 'RGB332',                displayName: 'RGB332',     bpp: 1, description: '8-bit color' },
     { formatName: 'Alpha8',                displayName: 'Alpha8',     bpp: 1, description: 'Alpha only (for matte)' },
     { formatName: 'Grayscale8',            displayName: 'Gray8',      bpp: 1, description: 'Grayscale' },
-    { formatName: 'Index8',                displayName: 'Index8',     bpp: 1, description: 'Palette (256色)', sourceDisabled: true },
+    { formatName: 'Index8',                displayName: 'Index8',     bpp: 1, description: 'Palette (256色)', sinkDisabled: true },
 ];
 
 // デフォルトピクセルフォーマット
 const DEFAULT_PIXEL_FORMAT = 'RGBA8_Straight';
+
+// ========================================
+// パレットライブラリ
+// ========================================
+let paletteLibrary = [];
+let nextPaletteId = 1;
+
+// プリセットパレット定義
+const PRESET_PALETTES = [
+    {
+        name: 'Grayscale 256',
+        description: '256階調グレースケール',
+        generate: () => {
+            const palette = new Uint8Array(256 * 4);
+            for (let i = 0; i < 256; i++) {
+                palette[i * 4 + 0] = i;
+                palette[i * 4 + 1] = i;
+                palette[i * 4 + 2] = i;
+                palette[i * 4 + 3] = 255;
+            }
+            return { data: palette, count: 256 };
+        }
+    },
+    {
+        name: 'Web Safe 216',
+        description: '216色 Web Safe パレット',
+        generate: () => {
+            const palette = new Uint8Array(256 * 4);
+            let idx = 0;
+            for (let r = 0; r < 6; r++)
+              for (let g = 0; g < 6; g++)
+                for (let b = 0; b < 6; b++) {
+                    palette[idx * 4 + 0] = r * 51;
+                    palette[idx * 4 + 1] = g * 51;
+                    palette[idx * 4 + 2] = b * 51;
+                    palette[idx * 4 + 3] = 255;
+                    idx++;
+                }
+            return { data: palette, count: 216 };
+        }
+    },
+    {
+        name: '8-color',
+        description: '基本8色',
+        generate: () => {
+            const colors = [
+                [0,0,0], [255,0,0], [0,255,0], [0,0,255],
+                [255,255,0], [255,0,255], [0,255,255], [255,255,255]
+            ];
+            const palette = new Uint8Array(256 * 4);
+            for (let i = 0; i < 8; i++) {
+                palette[i * 4 + 0] = colors[i][0];
+                palette[i * 4 + 1] = colors[i][1];
+                palette[i * 4 + 2] = colors[i][2];
+                palette[i * 4 + 3] = 255;
+            }
+            return { data: palette, count: 8 };
+        }
+    }
+];
 
 // ヘルパー関数
 const NodeTypeHelper = {
@@ -945,6 +1005,9 @@ function setupEventListeners() {
 
     // ノード追加ドロップダウンメニューを初期化
     initNodeAddDropdown();
+
+    // パレットプリセット選択のセットアップ
+    setupPalettePresetSelect();
 }
 
 // カテゴリ表示名のマッピング
@@ -5313,7 +5376,6 @@ function buildImageDetailContent(node) {
                         option.value = fmt.formatName;
                         option.textContent = `${fmt.displayName} (${fmt.bpp}B)`;
                         option.title = fmt.description;
-                        if (fmt.sourceDisabled) option.disabled = true;
                         if (currentFormat === fmt.formatName) option.selected = true;
                         formatSelect.appendChild(option);
                     });
@@ -5325,6 +5387,54 @@ function buildImageDetailContent(node) {
 
                     formatSection.appendChild(formatSelect);
                     tabContainer.appendChild(formatSection);
+
+                    // Index8選択時: パレット選択UIを表示
+                    const paletteSection = document.createElement('div');
+                    paletteSection.className = 'node-detail-section';
+                    paletteSection.style.display = (currentFormat === 'Index8') ? '' : 'none';
+                    paletteSection.id = 'palette-section-' + node.id;
+
+                    const palLabel = document.createElement('div');
+                    palLabel.className = 'node-detail-label';
+                    palLabel.textContent = 'パレット';
+                    paletteSection.appendChild(palLabel);
+
+                    const palSelect = document.createElement('select');
+                    palSelect.className = 'node-detail-select';
+                    palSelect.style.cssText = 'width: 100%; padding: 4px; margin-top: 4px;';
+
+                    const noneOption = document.createElement('option');
+                    noneOption.value = '';
+                    noneOption.textContent = '(なし)';
+                    palSelect.appendChild(noneOption);
+
+                    paletteLibrary.forEach(pal => {
+                        const option = document.createElement('option');
+                        option.value = pal.id;
+                        option.textContent = `${pal.name} (${pal.colorCount}色)`;
+                        if (node.paletteId === pal.id) option.selected = true;
+                        palSelect.appendChild(option);
+                    });
+
+                    palSelect.addEventListener('change', () => {
+                        onPaletteChange(node, palSelect.value || null);
+                    });
+
+                    paletteSection.appendChild(palSelect);
+
+                    if (paletteLibrary.length === 0) {
+                        const hint = document.createElement('div');
+                        hint.style.cssText = 'font-size: 11px; color: #888; margin-top: 4px;';
+                        hint.textContent = 'パレットライブラリからプリセットを追加してください';
+                        paletteSection.appendChild(hint);
+                    }
+
+                    tabContainer.appendChild(paletteSection);
+
+                    // フォーマット変更時にパレットセクションの表示切替
+                    formatSelect.addEventListener('change', () => {
+                        paletteSection.style.display = (formatSelect.value === 'Index8') ? '' : 'none';
+                    });
 
                     // バイリニア補間チェックボックス
                     const interpolationSection = document.createElement('div');
@@ -5385,7 +5495,48 @@ function onPixelFormatChange(node, formatId) {
         );
     }
 
+    // Index8でなくなった場合、パレット関連付けを解除
+    if (formatId !== 'Index8') {
+        if (node.paletteId) {
+            node.paletteId = null;
+            if (content && graphEvaluator) {
+                graphEvaluator.clearImagePalette(content.cppImageId);
+            }
+        }
+    } else {
+        // Index8 に変更された場合、既存パレット関連付けがあれば再適用
+        if (node.paletteId && content && graphEvaluator) {
+            const pal = paletteLibrary.find(p => p.id === node.paletteId);
+            if (pal) {
+                graphEvaluator.setImagePalette(content.cppImageId, pal.cppImageId);
+            }
+        }
+    }
+
     throttledUpdatePreview();
+    scheduleAutoSave();
+}
+
+// パレット変更時の処理
+function onPaletteChange(node, paletteId) {
+    if (node.type !== 'image') return;
+
+    node.paletteId = paletteId;
+
+    const content = contentLibrary.find(c => c.id === node.contentId);
+    if (!content || !graphEvaluator) return;
+
+    if (paletteId) {
+        const pal = paletteLibrary.find(p => p.id === paletteId);
+        if (pal) {
+            graphEvaluator.setImagePalette(content.cppImageId, pal.cppImageId);
+        }
+    } else {
+        graphEvaluator.clearImagePalette(content.cppImageId);
+    }
+
+    throttledUpdatePreview();
+    scheduleAutoSave();
 }
 
 // フィルタノードの詳細コンテンツ
@@ -5836,6 +5987,7 @@ function buildSinkDetailContent(node) {
                         option.value = fmt.formatName;
                         option.textContent = `${fmt.displayName} (${fmt.bpp}B)`;
                         option.title = fmt.description;
+                        if (fmt.sinkDisabled) option.disabled = true;
                         if (currentFormat === fmt.formatName) option.selected = true;
                         formatSelect.appendChild(option);
                     });
@@ -6129,9 +6281,38 @@ function getAppState() {
             distributorId: nextDistributorId,
             independentFilterId: nextIndependentFilterId,
             imageNodeId: nextImageNodeId,
-            ninePatchNodeId: nextNinePatchNodeId
-        }
+            ninePatchNodeId: nextNinePatchNodeId,
+            paletteId: nextPaletteId
+        },
+        // パレットライブラリ
+        paletteLibrary: paletteLibrary.map(pal => ({
+            id: pal.id,
+            name: pal.name,
+            colorCount: pal.colorCount,
+            cppImageId: pal.cppImageId,
+            // RGBA8データをBase64保存
+            rgba8DataBase64: uint8ArrayToBase64(pal.rgba8Data.slice(0, pal.colorCount * 4))
+        }))
     };
+}
+
+// Uint8Array → Base64
+function uint8ArrayToBase64(uint8Array) {
+    let binary = '';
+    for (let i = 0; i < uint8Array.length; i++) {
+        binary += String.fromCharCode(uint8Array[i]);
+    }
+    return btoa(binary);
+}
+
+// Base64 → Uint8Array
+function base64ToUint8Array(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
 }
 
 // ImageDataまたは{data, width, height}形式のオブジェクトをDataURLに変換
@@ -6404,6 +6585,36 @@ async function restoreAppState(state) {
         updateCanvasDisplayScale();
     }
 
+    // パレットライブラリを復元
+    if (state.paletteLibrary && state.paletteLibrary.length > 0) {
+        paletteLibrary = [];
+        state.paletteLibrary.forEach(palState => {
+            const rawData = base64ToUint8Array(palState.rgba8DataBase64);
+            // 256色分のバッファに展開（元データが短い場合もある）
+            const rgba8Data = new Uint8Array(256 * 4);
+            rgba8Data.set(rawData);
+
+            const cppImageId = palState.cppImageId;
+            // C++側にRGBA8画像として格納
+            if (graphEvaluator) {
+                graphEvaluator.storeImageWithFormat(
+                    cppImageId, rgba8Data, palState.colorCount, 1, 'RGBA8_Straight');
+            }
+
+            paletteLibrary.push({
+                id: palState.id,
+                name: palState.name,
+                colorCount: palState.colorCount,
+                rgba8Data: rgba8Data,
+                cppImageId: cppImageId
+            });
+        });
+        renderPaletteLibrary();
+    }
+    if (state.nextIds?.paletteId) {
+        nextPaletteId = state.nextIds.paletteId;
+    }
+
     // 画像ノードのピクセルフォーマットを適用
     // (画像はデフォルトのRGBA8で登録済みなので、異なるフォーマットの場合は再登録)
     globalNodes.forEach(node => {
@@ -6422,6 +6633,17 @@ async function restoreAppState(state) {
         // Sinkノードの出力フォーマットを適用
         if (node.type === 'sink' && node.outputFormat && node.outputFormat !== DEFAULT_PIXEL_FORMAT) {
             graphEvaluator.setSinkFormat(node.id, node.outputFormat);
+        }
+    });
+
+    // パレット関連付けを復元（画像フォーマット適用後）
+    globalNodes.forEach(node => {
+        if (node.type === 'image' && node.paletteId && node.pixelFormat === 'Index8') {
+            const content = contentLibrary.find(c => c.id === node.contentId);
+            const pal = paletteLibrary.find(p => p.id === node.paletteId);
+            if (content && pal && graphEvaluator) {
+                graphEvaluator.setImagePalette(content.cppImageId, pal.cppImageId);
+            }
         }
     });
 
@@ -6457,4 +6679,137 @@ function clearStateFromURL() {
     const url = new URL(window.location.href);
     url.searchParams.delete('state');
     window.history.replaceState({}, '', url.toString());
+}
+
+// ========================================
+// パレットライブラリ管理
+// ========================================
+
+// パレットをプリセットから追加
+function addPaletteFromPreset(presetIndex) {
+    const preset = PRESET_PALETTES[presetIndex];
+    if (!preset) return;
+
+    const { data, count } = preset.generate();
+    const cppImageId = nextCppImageId++;
+    const palId = 'pal-' + (nextPaletteId++);
+
+    // C++側にRGBA8画像として格納（width=色数, height=1）
+    if (graphEvaluator) {
+        graphEvaluator.storeImageWithFormat(cppImageId, data, count, 1, 'RGBA8_Straight');
+    }
+
+    paletteLibrary.push({
+        id: palId,
+        name: preset.name,
+        colorCount: count,
+        rgba8Data: data,
+        cppImageId: cppImageId
+    });
+
+    renderPaletteLibrary();
+    scheduleAutoSave();
+}
+
+// パレットを削除
+function deletePalette(paletteId) {
+    const pal = paletteLibrary.find(p => p.id === paletteId);
+    if (!pal) return;
+
+    // このパレットを使用中のノードからパレット関連付けを解除
+    globalNodes.forEach(node => {
+        if (node.type === 'image' && node.paletteId === paletteId) {
+            node.paletteId = null;
+            const content = contentLibrary.find(c => c.id === node.contentId);
+            if (content && graphEvaluator) {
+                graphEvaluator.clearImagePalette(content.cppImageId);
+            }
+        }
+    });
+
+    // ライブラリから削除
+    paletteLibrary = paletteLibrary.filter(p => p.id !== paletteId);
+
+    renderPaletteLibrary();
+    throttledUpdatePreview();
+    scheduleAutoSave();
+}
+
+// パレットカラーバーの Data URL を生成
+function createPaletteColorBarDataURL(rgba8Data, colorCount) {
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = colorCount;
+    tempCanvas.height = 1;
+    const tempCtx = tempCanvas.getContext('2d');
+    const imgData = new ImageData(
+        new Uint8ClampedArray(rgba8Data.buffer, rgba8Data.byteOffset, colorCount * 4),
+        colorCount, 1
+    );
+    tempCtx.putImageData(imgData, 0, 0);
+    return tempCanvas.toDataURL('image/png');
+}
+
+// パレットライブラリUIを描画
+function renderPaletteLibrary() {
+    const container = document.getElementById('sidebar-palette-library');
+    if (!container) return;
+    container.innerHTML = '';
+
+    paletteLibrary.forEach(pal => {
+        const item = document.createElement('div');
+        item.className = 'palette-item';
+
+        // ヘッダー行
+        const header = document.createElement('div');
+        header.className = 'palette-item-header';
+
+        const name = document.createElement('span');
+        name.className = 'palette-item-name';
+        name.textContent = pal.name;
+
+        const count = document.createElement('span');
+        count.className = 'palette-item-count';
+        count.textContent = `${pal.colorCount}色`;
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'palette-item-delete';
+        deleteBtn.textContent = '×';
+        deleteBtn.addEventListener('click', () => deletePalette(pal.id));
+
+        header.appendChild(name);
+        header.appendChild(count);
+        header.appendChild(deleteBtn);
+        item.appendChild(header);
+
+        // カラーバー
+        const bar = document.createElement('div');
+        bar.className = 'palette-color-bar';
+        const img = document.createElement('img');
+        img.src = createPaletteColorBarDataURL(pal.rgba8Data, pal.colorCount);
+        img.alt = pal.name;
+        bar.appendChild(img);
+        item.appendChild(bar);
+
+        container.appendChild(item);
+    });
+}
+
+// パレットプリセットドロップダウンをセットアップ
+function setupPalettePresetSelect() {
+    const select = document.getElementById('palette-preset-select');
+    if (!select) return;
+
+    // プリセットオプションを追加
+    PRESET_PALETTES.forEach((preset, index) => {
+        const option = document.createElement('option');
+        option.value = String(index);
+        option.textContent = `${preset.name} - ${preset.description}`;
+        select.appendChild(option);
+    });
+
+    select.addEventListener('change', () => {
+        if (select.value === '') return;
+        addPaletteFromPreset(parseInt(select.value));
+        select.value = '';  // 選択をリセット
+    });
 }
