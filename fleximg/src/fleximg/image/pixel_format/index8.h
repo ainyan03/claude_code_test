@@ -63,6 +63,64 @@ static void index8_expandIndex(void* dst, const void* src,
     }
 }
 
+// ========================================================================
+// Index8: Index8 → RGBA8_Straight 変換（パレットなし時のフォールバック）
+// ========================================================================
+//
+// パレットが利用できない場合、インデックス値をグレースケールとして展開。
+// convertFormat内では expandIndex+パレット のパスが先に評価されるため、
+// パレットが設定されている場合はこの関数は呼ばれない。
+//
+
+static void index8_toStraight(void* dst, const void* src,
+                               int pixelCount, const PixelAuxInfo*) {
+    FLEXIMG_FMT_METRICS(Index8, ToStraight, pixelCount);
+    const uint8_t* s = static_cast<const uint8_t*>(src);
+    uint8_t* d = static_cast<uint8_t*>(dst);
+    for (int i = 0; i < pixelCount; ++i) {
+        uint8_t v = s[i];
+        d[i*4 + 0] = v;    // R
+        d[i*4 + 1] = v;    // G
+        d[i*4 + 2] = v;    // B
+        d[i*4 + 3] = 255;  // A
+    }
+}
+
+// ========================================================================
+// Index8: RGBA8_Straight → Index8 変換（BT.601 輝度抽出）
+// ========================================================================
+//
+// RGBカラーからインデックス値への変換。
+// パレットへの最近傍色マッチングではなく、BT.601輝度計算を使用。
+// Grayscale8のfromStraightと同一の計算式: index = (77*R + 150*G + 29*B + 128) >> 8
+//
+
+static void index8_fromStraight(void* dst, const void* src,
+                                 int pixelCount, const PixelAuxInfo*) {
+    FLEXIMG_FMT_METRICS(Index8, FromStraight, pixelCount);
+    const uint8_t* s = static_cast<const uint8_t*>(src);
+    uint8_t* d = static_cast<uint8_t*>(dst);
+
+    // 端数処理（1〜3ピクセル）
+    int remainder = pixelCount & 3;
+    while (remainder--) {
+        d[0] = static_cast<uint8_t>((77 * s[0] + 150 * s[1] + 29 * s[2] + 128) >> 8);
+        s += 4;
+        d += 1;
+    }
+
+    // 4ピクセル単位でループ
+    pixelCount >>= 2;
+    while (pixelCount--) {
+        d[0] = static_cast<uint8_t>((77 * s[0] + 150 * s[1] + 29 * s[2] + 128) >> 8);
+        d[1] = static_cast<uint8_t>((77 * s[4] + 150 * s[5] + 29 * s[6] + 128) >> 8);
+        d[2] = static_cast<uint8_t>((77 * s[8] + 150 * s[9] + 29 * s[10] + 128) >> 8);
+        d[3] = static_cast<uint8_t>((77 * s[12] + 150 * s[13] + 29 * s[14] + 128) >> 8);
+        s += 16;
+        d += 4;
+    }
+}
+
 // ------------------------------------------------------------------------
 // フォーマット定義
 // ------------------------------------------------------------------------
@@ -82,8 +140,8 @@ const PixelFormatDescriptor Index8 = {
     256,     // maxPaletteSize
     BitOrder::MSBFirst,
     ByteOrder::Native,
-    nullptr,  // toStraight (インデックスフォーマットはexpandIndex経由)
-    nullptr,  // fromStraight (逆変換は未実装)
+    index8_toStraight,     // toStraight (パレットなし時のグレースケールフォールバック)
+    index8_fromStraight,   // fromStraight (BT.601 輝度抽出)
     index8_expandIndex,  // expandIndex
     nullptr,  // blendUnderStraight
     nullptr,  // siblingEndian
