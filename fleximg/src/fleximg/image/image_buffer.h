@@ -234,7 +234,8 @@ public:
     //       新バッファのアロケータを安全に指定できる
     ImageBuffer toFormat(PixelFormatID target,
                          FormatConversion mode = FormatConversion::CopyIfNeeded,
-                         core::memory::IAllocator* alloc = nullptr) && {
+                         core::memory::IAllocator* alloc = nullptr,
+                         const FormatConverter* converter = nullptr) && {
         // 新バッファ用アロケータを決定
         core::memory::IAllocator* newAlloc = alloc ? alloc : allocator_;
 
@@ -260,16 +261,22 @@ public:
         ImageBuffer converted(view_.width, view_.height, target,
                               InitPolicy::Uninitialized, newAlloc);
         if (isValid() && converted.isValid()) {
-            const PixelAuxInfo* auxPtr = auxInfo_.palette ? &auxInfo_ : nullptr;
             // 変換パスを事前解決し、行単位で変換（ストライドを正しく処理）
-            auto converter = resolveConverter(view_.formatID, target, auxPtr, newAlloc);
+            // 外部からコンバータが渡されていればそれを使用、なければ自前で解決
+            FormatConverter resolved;
             if (converter) {
+                resolved = *converter;
+            } else {
+                const PixelAuxInfo* auxPtr = auxInfo_.palette ? &auxInfo_ : nullptr;
+                resolved = resolveConverter(view_.formatID, target, auxPtr, newAlloc);
+            }
+            if (resolved) {
                 for (int y = 0; y < view_.height; ++y) {
                     const uint8_t* srcRow = static_cast<const uint8_t*>(view_.data)
                                             + y * view_.stride;
                     uint8_t* dstRow = static_cast<uint8_t*>(converted.view_.data)
                                       + y * converted.view_.stride;
-                    converter(dstRow, srcRow, view_.width);
+                    resolved(dstRow, srcRow, view_.width);
                 }
             }
         }

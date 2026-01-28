@@ -484,8 +484,11 @@ protected:
     bool checkPrepareStatus(bool& shouldContinue);
 
     // フォーマット変換ヘルパー（メトリクス記録付き）
+    // converter: 事前解決済みのFormatConverterを渡すことで、prepare段階で解決済みの
+    //            コンバータを再利用でき、processループ内の負荷を軽減できる
     ImageBuffer convertFormat(ImageBuffer&& buffer, PixelFormatID target,
-                              FormatConversion mode = FormatConversion::CopyIfNeeded);
+                              FormatConversion mode = FormatConversion::CopyIfNeeded,
+                              const FormatConverter* converter = nullptr);
 
     // 派生クラス用：ポート初期化
     void initPorts(int inputCount, int outputCount);
@@ -539,7 +542,8 @@ bool Node::checkPrepareStatus(bool& shouldContinue) {
 // 参照モードから所有モードに変わった場合、ノード別統計に記録
 // allocator_を使用してバッファを確保する
 ImageBuffer Node::convertFormat(ImageBuffer&& buffer, PixelFormatID target,
-                                FormatConversion mode) {
+                                FormatConversion mode,
+                                const FormatConverter* converter) {
     bool wasOwning = buffer.ownsMemory();
 
     // 参照モードの場合、ノードのallocator_を新バッファ用に渡す
@@ -548,7 +552,7 @@ ImageBuffer Node::convertFormat(ImageBuffer&& buffer, PixelFormatID target,
     //     toFormat()のallocパラメータで安全に渡す
     core::memory::IAllocator* newAlloc = wasOwning ? nullptr : allocator_;
 
-    ImageBuffer result = std::move(buffer).toFormat(target, mode, newAlloc);
+    ImageBuffer result = std::move(buffer).toFormat(target, mode, newAlloc, converter);
 
     // 参照→所有モードへの変換時にメトリクス記録
     if (!wasOwning && result.ownsMemory()) {

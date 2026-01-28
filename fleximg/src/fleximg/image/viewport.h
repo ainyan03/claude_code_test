@@ -167,23 +167,28 @@ void copy(ViewPort& dst, int dstX, int dstY,
     height = std::min(height, std::min(src.height - srcY, dst.height - dstY));
     if (width <= 0 || height <= 0) return;
 
-    // 同一フォーマットならmemcpy
-    if (src.formatID == dst.formatID) {
-        size_t bpp = static_cast<size_t>(dst.bytesPerPixel());
+    // view_ops::copy は同一フォーマット間の矩形コピー専用。
+    // 異フォーマット間変換は resolveConverter / convertFormat を直接使用すること。
+    assert(src.formatID == dst.formatID
+           && "view_ops::copy requires matching formats; use convertFormat for conversion");
+
+    size_t bpp = static_cast<size_t>(dst.bytesPerPixel());
+    for (int y = 0; y < height; ++y) {
+        const uint8_t* srcRow = static_cast<const uint8_t*>(src.pixelAt(srcX, srcY + y));
+        uint8_t* dstRow = static_cast<uint8_t*>(dst.pixelAt(dstX, dstY + y));
+        std::memcpy(dstRow, srcRow, static_cast<size_t>(width) * bpp);
+    }
+
+#if 0 // 異フォーマット間コピー: 撤去予定（全呼び出し箇所が同一フォーマットであることを確認済み）
+    if (src.formatID != dst.formatID) {
         for (int y = 0; y < height; ++y) {
-            const uint8_t* srcRow = static_cast<const uint8_t*>(src.pixelAt(srcX, srcY + y));
-            uint8_t* dstRow = static_cast<uint8_t*>(dst.pixelAt(dstX, dstY + y));
-            std::memcpy(dstRow, srcRow, static_cast<size_t>(width) * bpp);
+            const void* srcRow = src.pixelAt(srcX, srcY + y);
+            void* dstRow = dst.pixelAt(dstX, dstY + y);
+            convertFormat(srcRow, src.formatID, dstRow, dst.formatID, width);
         }
         return;
     }
-
-    // 異なるフォーマット間のコピー
-    for (int y = 0; y < height; ++y) {
-        const void* srcRow = src.pixelAt(srcX, srcY + y);
-        void* dstRow = dst.pixelAt(dstX, dstY + y);
-        convertFormat(srcRow, src.formatID, dstRow, dst.formatID, width);
-    }
+#endif
 }
 
 void clear(ViewPort& dst, int x, int y, int width, int height) {
