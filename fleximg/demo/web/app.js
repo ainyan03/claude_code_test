@@ -1224,6 +1224,53 @@ function addImageToLibrary(imageData) {
     renderContentLibrary();
 }
 
+// ネイティブフォーマット画像をライブラリに追加（Index8等）
+// nativeData: Uint8Array（ネイティブフォーマットのバイト列）
+// formatName: 'Index8' 等
+// paletteId: パレットID（Index8の場合は必須）
+function addNativeImageToLibrary(name, nativeData, width, height, formatName, paletteId = null) {
+    // コンテンツを作成（imageDataは後で設定）
+    const content = addImageContent(name, width, height, null, false);
+    content.nativeFormat = formatName;
+    content.paletteId = paletteId;
+
+    // C++側にネイティブデータとして登録
+    graphEvaluator.storeNativeImage(content.cppImageId, nativeData, width, height, formatName);
+
+    // パレット関連付け
+    if (paletteId) {
+        const pal = paletteLibrary.find(p => p.id === paletteId);
+        if (pal) {
+            graphEvaluator.setImagePalette(content.cppImageId, pal.cppImageId);
+        }
+    }
+
+    // 表示用プレビューを取得
+    updateContentPreview(content);
+
+    // UIを更新
+    renderContentLibrary();
+
+    return content;
+}
+
+// コンテンツの表示用プレビューを更新（ネイティブフォーマット→RGBA8変換）
+function updateContentPreview(content) {
+    if (!content.nativeFormat || content.nativeFormat === 'RGBA8_Straight') {
+        return;  // RGBA8ならプレビュー更新不要
+    }
+
+    // C++からRGBA8プレビューを取得
+    const rgba8Data = graphEvaluator.getImageAsRGBA8(content.cppImageId);
+    if (rgba8Data) {
+        content.imageData = {
+            data: new Uint8ClampedArray(rgba8Data),
+            width: content.width,
+            height: content.height
+        };
+    }
+}
+
 // ========================================
 // コンテンツライブラリ管理
 // ========================================
@@ -1237,6 +1284,8 @@ function addImageContent(name, width, height, imageData, isNinePatch = false) {
         width: width,
         height: height,
         imageData: imageData,
+        nativeFormat: null,            // ネイティブフォーマット（null = RGBA8）
+        paletteId: null,               // パレットID（Index8用）
         cppImageId: nextCppImageId++,  // C++側に渡す数値ID
         isNinePatch: isNinePatch       // 9patchフラグ
     };
