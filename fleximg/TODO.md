@@ -9,7 +9,7 @@
 | 画像デコーダーノード | JPEG/PNG等をRendererNode派生としてタイル処理 | [IDEA_IMAGE_DECODER_NODE.md](docs/ideas/IDEA_IMAGE_DECODER_NODE.md) |
 | 上流ノードタイプマスク | ビットマスクで上流構成を伝播し最適化判断に活用 | [IDEA_UPSTREAM_NODE_TYPE_MASK.md](docs/ideas/IDEA_UPSTREAM_NODE_TYPE_MASK.md) |
 | フォーマット交渉 | ノード間で最適なピクセルフォーマットを自動決定 | [IDEA_FORMAT_NEGOTIATION.md](docs/ideas/IDEA_FORMAT_NEGOTIATION.md) |
-| インデックスカラー | パレットインデックスフォーマット | [IDEA_INDEXED_COLOR_FORMATS.md](docs/ideas/IDEA_INDEXED_COLOR_FORMATS.md) |
+| ~~インデックスカラー~~ | ~~パレットインデックスフォーマット~~ | ~~[IDEA_INDEXED_COLOR_FORMATS.md](docs/ideas/IDEA_INDEXED_COLOR_FORMATS.md)~~ → 実装済み (v2.56.0) |
 | Pipe埋め込み設計 | パイプライン接続構造の再設計 | [IDEA_PIPE_EMBEDDED_DESIGN.md](docs/ideas/IDEA_PIPE_EMBEDDED_DESIGN.md) |
 | パイプラインV2 | パイプライン設計の刷新 | [IDEA_PIPELINE_V2.md](docs/ideas/IDEA_PIPELINE_V2.md) |
 | スキャンラインDMA最適化 | DMA転送を活用した最適化 | [IDEA_SCANLINE_DMA_OPTIMIZATION.md](docs/ideas/IDEA_SCANLINE_DMA_OPTIMIZATION.md) |
@@ -27,6 +27,7 @@
 | 固定小数点型基盤 | int_fixed8/int_fixed16、Point構造体、座標計算 | v2.5.0 |
 | マイグレーションAPI削除 | Point2f, setOriginf() 等の削除 | v2.18.0 |
 | doctestテスト環境 | 91テストケース | v2.20.0 |
+| Grayscale8 / Index8 フォーマット | グレースケールとパレットインデックスフォーマット、ImageBufferパレットサポート | v2.56.0 |
 | AffineNodeシンプル化 | DEPRECATEDコード削除、行列保持・伝播のみに | - |
 | NinePatchオーバーラップ対応 | パッチ区間のオーバーラップ設定でアフィン変換時の隙間を防止 | - |
 
