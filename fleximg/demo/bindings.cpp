@@ -314,6 +314,72 @@ public:
                                                PixelFormatIDs::RGBA8_Straight);
     }
 
+    // ネイティブフォーマットの画像を直接登録（変換なし）
+    // Index8なら1bpp、RGB565なら2bppのデータをそのまま保存
+    void storeNativeImage(int id, const val& imageData, int width, int height,
+                          const std::string& formatName) {
+        PixelFormatID format = getFormatByName(formatName.c_str());
+        if (!format) format = PixelFormatIDs::RGBA8_Straight;
+
+        // データをそのままコピー（変換なし）
+        unsigned int length = imageData["length"].as<unsigned int>();
+        std::vector<uint8_t> data(length);
+        for (unsigned int i = 0; i < length; i++) {
+            data[i] = imageData[i].as<uint8_t>();
+        }
+
+        imageViews_[id] = imageStore_.store(id, data.data(), width, height, format);
+    }
+
+    // 画像をRGBA8に変換して取得（表示用プレビュー）
+    // Index8の場合はパレット関連付けを参照してパレット展開
+    val getImageAsRGBA8(int id) {
+        auto viewIt = imageViews_.find(id);
+        if (viewIt == imageViews_.end()) return val::null();
+
+        const auto& view = viewIt->second;
+        int pixelCount = view.width * view.height;
+
+        // 出力バッファ
+        std::vector<uint8_t> rgba8(static_cast<size_t>(pixelCount) * 4);
+
+        if (view.formatID == PixelFormatIDs::RGBA8_Straight) {
+            // 変換不要
+            std::memcpy(rgba8.data(), view.data,
+                        static_cast<size_t>(pixelCount) * 4);
+        } else {
+            // パレット情報を取得（Index8等の場合）
+            PixelAuxInfo aux;
+            auto assocIt = paletteAssoc_.find(id);
+            if (assocIt != paletteAssoc_.end()) {
+                auto palIt = imageViews_.find(assocIt->second);
+                if (palIt != imageViews_.end()) {
+                    aux.palette = palIt->second.data;
+                    aux.paletteFormat = palIt->second.formatID;
+                    aux.paletteColorCount = static_cast<uint16_t>(palIt->second.width);
+                }
+            }
+
+            // FormatConverterで変換
+            auto converter = resolveConverter(view.formatID,
+                                              PixelFormatIDs::RGBA8_Straight,
+                                              &aux, nullptr);
+            if (converter) {
+                converter(rgba8.data(), view.data, pixelCount);
+            } else {
+                // 変換できない場合はゼロ埋め
+                std::memset(rgba8.data(), 0, rgba8.size());
+            }
+        }
+
+        // JavaScriptに返す
+        val result = val::array();
+        for (size_t i = 0; i < rgba8.size(); i++) {
+            result.call<void>("push", rgba8[i]);
+        }
+        return result;
+    }
+
     // 画像にパレットを関連付け
     void setImagePalette(int imageId, int paletteImageId) {
         paletteAssoc_[imageId] = paletteImageId;
@@ -1335,10 +1401,12 @@ EMSCRIPTEN_BINDINGS(image_transform) {
         .function("setDebugDataRange", &NodeGraphEvaluatorWrapper::setDebugDataRange)
         .function("storeImage", &NodeGraphEvaluatorWrapper::storeImage)
         .function("storeImageWithFormat", &NodeGraphEvaluatorWrapper::storeImageWithFormat)
+        .function("storeNativeImage", &NodeGraphEvaluatorWrapper::storeNativeImage)
         .function("allocateImage", &NodeGraphEvaluatorWrapper::allocateImage)
         .function("setImagePalette", &NodeGraphEvaluatorWrapper::setImagePalette)
         .function("clearImagePalette", &NodeGraphEvaluatorWrapper::clearImagePalette)
         .function("getImage", &NodeGraphEvaluatorWrapper::getImage)
+        .function("getImageAsRGBA8", &NodeGraphEvaluatorWrapper::getImageAsRGBA8)
         .function("setNodes", &NodeGraphEvaluatorWrapper::setNodes)
         .function("setConnections", &NodeGraphEvaluatorWrapper::setConnections)
         .function("evaluateGraph", &NodeGraphEvaluatorWrapper::evaluateGraph)
