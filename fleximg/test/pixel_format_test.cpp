@@ -421,10 +421,10 @@ TEST_CASE("Index8 pixel format properties") {
         CHECK(fmt->maxPaletteSize == 256);
     }
 
-    SUBCASE("expandIndex is set, toStraight/fromStraight are null") {
+    SUBCASE("expandIndex, toStraight, and fromStraight are set") {
         CHECK(fmt->expandIndex != nullptr);
-        CHECK(fmt->toStraight == nullptr);
-        CHECK(fmt->fromStraight == nullptr);
+        CHECK(fmt->toStraight != nullptr);   // grayscale fallback
+        CHECK(fmt->fromStraight != nullptr);
     }
 
     SUBCASE("channel type") {
@@ -540,75 +540,105 @@ TEST_CASE("Index8 conversion without palette (fallback)") {
 // ImageBuffer Palette Tests
 // =============================================================================
 
-TEST_CASE("ImageBuffer palette support") {
-    SUBCASE("default palette is null") {
-        ImageBuffer buf(4, 4, PixelFormatIDs::RGBA8_Straight);
-        CHECK(buf.palette() == nullptr);
-        CHECK(buf.paletteFormat() == nullptr);
-        CHECK(buf.paletteColorCount() == 0);
+TEST_CASE("PaletteData") {
+    SUBCASE("default construction") {
+        PaletteData pd;
+        CHECK(pd.data == nullptr);
+        CHECK(pd.format == nullptr);
+        CHECK(pd.colorCount == 0);
+        CHECK(static_cast<bool>(pd) == false);
     }
 
-    SUBCASE("setPalette and accessors") {
+    SUBCASE("parameterized construction") {
+        uint8_t data[4] = {1, 2, 3, 4};
+        PaletteData pd(data, PixelFormatIDs::RGBA8_Straight, 1);
+        CHECK(pd.data == data);
+        CHECK(pd.format == PixelFormatIDs::RGBA8_Straight);
+        CHECK(pd.colorCount == 1);
+        CHECK(static_cast<bool>(pd) == true);
+    }
+}
+
+TEST_CASE("ImageBuffer palette support") {
+    SUBCASE("default auxInfo has null palette") {
+        ImageBuffer buf(4, 4, PixelFormatIDs::RGBA8_Straight);
+        CHECK(buf.auxInfo().palette == nullptr);
+        CHECK(buf.auxInfo().paletteFormat == nullptr);
+        CHECK(buf.auxInfo().paletteColorCount == 0);
+    }
+
+    SUBCASE("setPalette with individual args") {
         uint8_t palette[8] = {1, 2, 3, 4, 5, 6, 7, 8};
         ImageBuffer buf(4, 4, PixelFormatIDs::Index8);
         buf.setPalette(palette, PixelFormatIDs::RGBA8_Straight, 2);
 
-        CHECK(buf.palette() == palette);
-        CHECK(buf.paletteFormat() == PixelFormatIDs::RGBA8_Straight);
-        CHECK(buf.paletteColorCount() == 2);
+        CHECK(buf.auxInfo().palette == palette);
+        CHECK(buf.auxInfo().paletteFormat == PixelFormatIDs::RGBA8_Straight);
+        CHECK(buf.auxInfo().paletteColorCount == 2);
     }
 
-    SUBCASE("copy constructor propagates palette") {
+    SUBCASE("setPalette with PaletteData") {
+        uint8_t palette[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+        PaletteData pd(palette, PixelFormatIDs::RGBA8_Straight, 2);
+        ImageBuffer buf(4, 4, PixelFormatIDs::Index8);
+        buf.setPalette(pd);
+
+        CHECK(buf.auxInfo().palette == palette);
+        CHECK(buf.auxInfo().paletteFormat == PixelFormatIDs::RGBA8_Straight);
+        CHECK(buf.auxInfo().paletteColorCount == 2);
+    }
+
+    SUBCASE("copy constructor propagates auxInfo") {
         uint8_t palette[4] = {10, 20, 30, 40};
         ImageBuffer original(4, 4, PixelFormatIDs::Index8);
         original.setPalette(palette, PixelFormatIDs::RGBA8_Straight, 1);
 
         ImageBuffer copy(original);
-        CHECK(copy.palette() == palette);
-        CHECK(copy.paletteFormat() == PixelFormatIDs::RGBA8_Straight);
-        CHECK(copy.paletteColorCount() == 1);
+        CHECK(copy.auxInfo().palette == palette);
+        CHECK(copy.auxInfo().paletteFormat == PixelFormatIDs::RGBA8_Straight);
+        CHECK(copy.auxInfo().paletteColorCount == 1);
     }
 
-    SUBCASE("move constructor propagates and resets palette") {
+    SUBCASE("move constructor propagates and resets auxInfo") {
         uint8_t palette[4] = {10, 20, 30, 40};
         ImageBuffer original(4, 4, PixelFormatIDs::Index8);
         original.setPalette(palette, PixelFormatIDs::RGBA8_Straight, 1);
 
         ImageBuffer moved(std::move(original));
-        CHECK(moved.palette() == palette);
-        CHECK(moved.paletteFormat() == PixelFormatIDs::RGBA8_Straight);
-        CHECK(moved.paletteColorCount() == 1);
+        CHECK(moved.auxInfo().palette == palette);
+        CHECK(moved.auxInfo().paletteFormat == PixelFormatIDs::RGBA8_Straight);
+        CHECK(moved.auxInfo().paletteColorCount == 1);
 
         // Original should be reset
-        CHECK(original.palette() == nullptr);
-        CHECK(original.paletteFormat() == nullptr);
-        CHECK(original.paletteColorCount() == 0);
+        CHECK(original.auxInfo().palette == nullptr);
+        CHECK(original.auxInfo().paletteFormat == nullptr);
+        CHECK(original.auxInfo().paletteColorCount == 0);
     }
 
-    SUBCASE("copy assignment propagates palette") {
+    SUBCASE("copy assignment propagates auxInfo") {
         uint8_t palette[4] = {10, 20, 30, 40};
         ImageBuffer original(4, 4, PixelFormatIDs::Index8);
         original.setPalette(palette, PixelFormatIDs::RGBA8_Straight, 1);
 
         ImageBuffer copy(2, 2);
         copy = original;
-        CHECK(copy.palette() == palette);
-        CHECK(copy.paletteFormat() == PixelFormatIDs::RGBA8_Straight);
-        CHECK(copy.paletteColorCount() == 1);
+        CHECK(copy.auxInfo().palette == palette);
+        CHECK(copy.auxInfo().paletteFormat == PixelFormatIDs::RGBA8_Straight);
+        CHECK(copy.auxInfo().paletteColorCount == 1);
     }
 
-    SUBCASE("move assignment propagates and resets palette") {
+    SUBCASE("move assignment propagates and resets auxInfo") {
         uint8_t palette[4] = {10, 20, 30, 40};
         ImageBuffer original(4, 4, PixelFormatIDs::Index8);
         original.setPalette(palette, PixelFormatIDs::RGBA8_Straight, 1);
 
         ImageBuffer moved(2, 2);
         moved = std::move(original);
-        CHECK(moved.palette() == palette);
-        CHECK(moved.paletteFormat() == PixelFormatIDs::RGBA8_Straight);
-        CHECK(moved.paletteColorCount() == 1);
+        CHECK(moved.auxInfo().palette == palette);
+        CHECK(moved.auxInfo().paletteFormat == PixelFormatIDs::RGBA8_Straight);
+        CHECK(moved.auxInfo().paletteColorCount == 1);
 
-        CHECK(original.palette() == nullptr);
+        CHECK(original.auxInfo().palette == nullptr);
     }
 }
 
@@ -645,4 +675,308 @@ TEST_CASE("ImageBuffer toFormat with palette") {
     CHECK(pixels[5] == 0);
     CHECK(pixels[6] == 255);
     CHECK(pixels[7] == 255);
+}
+
+// =============================================================================
+// Index8 fromStraight Tests (BT.601 luminance)
+// =============================================================================
+
+TEST_CASE("Index8 fromStraight (BT.601 luminance)") {
+    SUBCASE("basic luminance values") {
+        // Same as Grayscale8 fromStraight
+        // White: (77*255 + 150*255 + 29*255 + 128) >> 8 = 255
+        // Black: (77*0 + 150*0 + 29*0 + 128) >> 8 = 0
+        // Red:   (77*255 + 150*0 + 29*0 + 128) >> 8 = 76 (note: (19635+128)/256 = 77.2 → 77)
+        uint8_t src[16] = {
+            255, 255, 255, 255,  // White
+            0, 0, 0, 255,        // Black
+            255, 0, 0, 255,      // Red
+            0, 255, 0, 255       // Green
+        };
+        uint8_t dst[4] = {0};
+
+        convertFormat(src, PixelFormatIDs::RGBA8_Straight,
+                      dst, PixelFormatIDs::Index8, 4);
+
+        CHECK(dst[0] == 255);   // White
+        CHECK(dst[1] == 0);     // Black
+        CHECK(dst[2] == 77);    // Red luminance
+        CHECK(dst[3] == 149);   // Green luminance
+    }
+
+    SUBCASE("matches Grayscale8 fromStraight") {
+        // Index8 and Grayscale8 should produce identical results
+        uint8_t src[8] = {
+            100, 150, 200, 255,
+            50, 75, 25, 128
+        };
+        uint8_t dstIndex[2] = {0};
+        uint8_t dstGray[2] = {0};
+
+        convertFormat(src, PixelFormatIDs::RGBA8_Straight,
+                      dstIndex, PixelFormatIDs::Index8, 2);
+        convertFormat(src, PixelFormatIDs::RGBA8_Straight,
+                      dstGray, PixelFormatIDs::Grayscale8, 2);
+
+        CHECK(dstIndex[0] == dstGray[0]);
+        CHECK(dstIndex[1] == dstGray[1]);
+    }
+}
+
+// =============================================================================
+// Index8 toStraight Tests (grayscale fallback without palette)
+// =============================================================================
+
+TEST_CASE("Index8 toStraight (grayscale fallback)") {
+    SUBCASE("index values expand to grayscale RGBA") {
+        // Index8 → RGBA8 without palette should treat indices as grayscale
+        uint8_t src[4] = {0, 128, 255, 64};
+        uint8_t dst[16] = {0};
+
+        convertFormat(src, PixelFormatIDs::Index8,
+                      dst, PixelFormatIDs::RGBA8_Straight, 4);
+
+        // Pixel 0: index 0 → (0, 0, 0, 255)
+        CHECK(dst[0] == 0);
+        CHECK(dst[1] == 0);
+        CHECK(dst[2] == 0);
+        CHECK(dst[3] == 255);
+
+        // Pixel 1: index 128 → (128, 128, 128, 255)
+        CHECK(dst[4] == 128);
+        CHECK(dst[5] == 128);
+        CHECK(dst[6] == 128);
+        CHECK(dst[7] == 255);
+
+        // Pixel 2: index 255 → (255, 255, 255, 255)
+        CHECK(dst[8] == 255);
+        CHECK(dst[9] == 255);
+        CHECK(dst[10] == 255);
+        CHECK(dst[11] == 255);
+
+        // Pixel 3: index 64 → (64, 64, 64, 255)
+        CHECK(dst[12] == 64);
+        CHECK(dst[13] == 64);
+        CHECK(dst[14] == 64);
+        CHECK(dst[15] == 255);
+    }
+
+    SUBCASE("roundtrip: RGBA8 → Index8 → RGBA8 without palette produces grayscale") {
+        // Pure gray input: should roundtrip exactly
+        uint8_t rgba[8] = {
+            100, 100, 100, 255,    // gray 100
+            200, 200, 200, 255     // gray 200
+        };
+        uint8_t index[2] = {0};
+        uint8_t result[8] = {0};
+
+        // RGBA8 → Index8 (BT.601: for pure gray, luminance == gray value)
+        convertFormat(rgba, PixelFormatIDs::RGBA8_Straight,
+                      index, PixelFormatIDs::Index8, 2);
+
+        // Index8 → RGBA8 (without palette: grayscale fallback)
+        convertFormat(index, PixelFormatIDs::Index8,
+                      result, PixelFormatIDs::RGBA8_Straight, 2);
+
+        // Pure gray should roundtrip exactly
+        CHECK(result[0] == 100);
+        CHECK(result[1] == 100);
+        CHECK(result[2] == 100);
+        CHECK(result[3] == 255);
+        CHECK(result[4] == 200);
+        CHECK(result[5] == 200);
+        CHECK(result[6] == 200);
+        CHECK(result[7] == 255);
+    }
+}
+
+// =============================================================================
+// Index8 convertFormat with palette Tests
+// =============================================================================
+
+TEST_CASE("Index8 convertFormat with palette") {
+    SUBCASE("RGBA8 palette direct expand") {
+        // Set up a 4-color RGBA8 palette
+        uint8_t palette[16] = {
+            255,   0,   0, 255,   // [0] Red
+              0, 255,   0, 255,   // [1] Green
+              0,   0, 255, 255,   // [2] Blue
+            255, 255,   0, 255    // [3] Yellow
+        };
+
+        // Index8 source data
+        uint8_t src[4] = {0, 1, 2, 3};  // Red, Green, Blue, Yellow
+
+        // Set up auxInfo with palette
+        PixelAuxInfo srcAux;
+        srcAux.palette = palette;
+        srcAux.paletteFormat = PixelFormatIDs::RGBA8_Straight;
+        srcAux.paletteColorCount = 4;
+
+        // Convert Index8 → RGBA8 with palette
+        uint8_t dst[16] = {0};
+        convertFormat(src, PixelFormatIDs::Index8,
+                      dst, PixelFormatIDs::RGBA8_Straight, 4,
+                      &srcAux);
+
+        // Pixel 0: Red
+        CHECK(dst[0] == 255);
+        CHECK(dst[1] == 0);
+        CHECK(dst[2] == 0);
+        CHECK(dst[3] == 255);
+
+        // Pixel 1: Green
+        CHECK(dst[4] == 0);
+        CHECK(dst[5] == 255);
+        CHECK(dst[6] == 0);
+        CHECK(dst[7] == 255);
+
+        // Pixel 2: Blue
+        CHECK(dst[8] == 0);
+        CHECK(dst[9] == 0);
+        CHECK(dst[10] == 255);
+        CHECK(dst[11] == 255);
+
+        // Pixel 3: Yellow
+        CHECK(dst[12] == 255);
+        CHECK(dst[13] == 255);
+        CHECK(dst[14] == 0);
+        CHECK(dst[15] == 255);
+    }
+
+    SUBCASE("palette with index clamping") {
+        // 2-color palette, but index values go beyond
+        uint8_t palette[8] = {
+            10, 20, 30, 255,   // [0]
+            40, 50, 60, 255    // [1]
+        };
+
+        uint8_t src[3] = {0, 1, 5};  // index 5 exceeds palette size
+
+        PixelAuxInfo srcAux;
+        srcAux.palette = palette;
+        srcAux.paletteFormat = PixelFormatIDs::RGBA8_Straight;
+        srcAux.paletteColorCount = 2;
+
+        uint8_t dst[12] = {0};
+        convertFormat(src, PixelFormatIDs::Index8,
+                      dst, PixelFormatIDs::RGBA8_Straight, 3,
+                      &srcAux);
+
+        // Index 0 → palette[0]
+        CHECK(dst[0] == 10);
+        CHECK(dst[1] == 20);
+        CHECK(dst[2] == 30);
+        CHECK(dst[3] == 255);
+
+        // Index 1 → palette[1]
+        CHECK(dst[4] == 40);
+        CHECK(dst[5] == 50);
+        CHECK(dst[6] == 60);
+        CHECK(dst[7] == 255);
+
+        // Index 5 → clamped to palette[1] (maxIdx = 1)
+        CHECK(dst[8] == 40);
+        CHECK(dst[9] == 50);
+        CHECK(dst[10] == 60);
+        CHECK(dst[11] == 255);
+    }
+
+    SUBCASE("pipeline simulation: RGBA8 → Index8 → RGBA8 with grayscale palette") {
+        // Simulate the exact WebUI pipeline:
+        // 1. Convert RGBA8 image → Index8 (BT.601 luminance)
+        // 2. Create Grayscale256 palette
+        // 3. Convert Index8 → RGBA8 with palette
+
+        // Step 1: RGBA8 source (4 pixels)
+        uint8_t rgba_src[16] = {
+            255, 255, 255, 255,  // White → luminance 255
+              0,   0,   0, 255,  // Black → luminance 0
+            255,   0,   0, 255,  // Red → luminance ~77
+              0, 255,   0, 255   // Green → luminance ~150
+        };
+
+        // Convert to Index8
+        uint8_t index_data[4] = {0};
+        convertFormat(rgba_src, PixelFormatIDs::RGBA8_Straight,
+                      index_data, PixelFormatIDs::Index8, 4);
+
+        // Verify luminance values
+        CHECK(index_data[0] == 255);  // White
+        CHECK(index_data[1] == 0);    // Black
+
+        // Step 2: Create Grayscale256 palette (same as WebUI preset)
+        uint8_t palette[256 * 4];
+        for (int i = 0; i < 256; i++) {
+            palette[i * 4 + 0] = static_cast<uint8_t>(i);  // R
+            palette[i * 4 + 1] = static_cast<uint8_t>(i);  // G
+            palette[i * 4 + 2] = static_cast<uint8_t>(i);  // B
+            palette[i * 4 + 3] = 255;                       // A
+        }
+
+        // Step 3: Convert Index8 → RGBA8 with palette
+        PixelAuxInfo srcAux;
+        srcAux.palette = palette;
+        srcAux.paletteFormat = PixelFormatIDs::RGBA8_Straight;
+        srcAux.paletteColorCount = 256;
+
+        uint8_t result[16] = {0};
+        convertFormat(index_data, PixelFormatIDs::Index8,
+                      result, PixelFormatIDs::RGBA8_Straight, 4,
+                      &srcAux);
+
+        // White → index 255 → palette[255] = (255, 255, 255, 255)
+        CHECK(result[0] == 255);
+        CHECK(result[1] == 255);
+        CHECK(result[2] == 255);
+        CHECK(result[3] == 255);
+
+        // Black → index 0 → palette[0] = (0, 0, 0, 255)
+        CHECK(result[4] == 0);
+        CHECK(result[5] == 0);
+        CHECK(result[6] == 0);
+        CHECK(result[7] == 255);
+
+        // Red → index ~77 → palette[77] = (77, 77, 77, 255)
+        CHECK(result[8] == index_data[2]);
+        CHECK(result[9] == index_data[2]);
+        CHECK(result[10] == index_data[2]);
+        CHECK(result[11] == 255);
+
+        // Green → index ~150 → palette[150] = (150, 150, 150, 255)
+        CHECK(result[12] == index_data[3]);
+        CHECK(result[13] == index_data[3]);
+        CHECK(result[14] == index_data[3]);
+        CHECK(result[15] == 255);
+    }
+
+    SUBCASE("without palette falls back to grayscale (not stale buffer)") {
+        // This test verifies that convertFormat doesn't use stale buffer data
+        // when converting Index8 → RGBA8 without palette.
+        // Previously, toStraight was nullptr causing conversionBuffer to retain
+        // old data from a prior convertFormat call.
+
+        // First call: fill conversionBuffer with distinctive data
+        uint8_t dummy_src[4] = {0xDE, 0xAD, 0xBE, 0xEF};
+        uint8_t dummy_dst[1] = {0};
+        convertFormat(dummy_src, PixelFormatIDs::RGBA8_Straight,
+                      dummy_dst, PixelFormatIDs::Index8, 1);
+
+        // Second call: Index8 → RGBA8 without palette
+        uint8_t src[2] = {42, 200};
+        uint8_t dst[8] = {0};
+        convertFormat(src, PixelFormatIDs::Index8,
+                      dst, PixelFormatIDs::RGBA8_Straight, 2);
+
+        // Should NOT contain stale data (0xDE, 0xAD, 0xBE, 0xEF)
+        // Should be grayscale: index → (index, index, index, 255)
+        CHECK(dst[0] == 42);
+        CHECK(dst[1] == 42);
+        CHECK(dst[2] == 42);
+        CHECK(dst[3] == 255);
+        CHECK(dst[4] == 200);
+        CHECK(dst[5] == 200);
+        CHECK(dst[6] == 200);
+        CHECK(dst[7] == 255);
+    }
 }

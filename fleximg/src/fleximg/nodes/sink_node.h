@@ -212,7 +212,17 @@ void SinkNode::onPushProcess(RenderResponse&& input,
         return;
     }
 
-    ViewPort inputView = input.view();
+    // ターゲットフォーマットに変換（フォーマットが異なる場合のみ）
+    // ImageBuffer::toFormat を使うことで、Index8のパレット展開等が正しく処理される
+    ImageBuffer convertedBuffer;
+    ViewPort inputView;
+
+    if (input.buffer.formatID() != target_.formatID) {
+        convertedBuffer = std::move(input.buffer).toFormat(target_.formatID);
+        inputView = convertedBuffer.view();
+    } else {
+        inputView = input.view();
+    }
 
     // 配置計算（固定小数点演算）
     // 変換式: src = buf - tx - pivot → buf = src + tx + pivot

@@ -37,6 +37,7 @@
 |------|------|------|
 | VerticalBlurNodeキャッシュ幅最適化 | 上流AABBに基づくキャッシュ幅の最適化 | 座標オフセット管理の見直しが必要 |
 | フィルタパラメータ固定小数点化 | brightness/alphaのパラメータ | 組み込み移植時 |
+| SinkNode toFormat 直接書き込み最適化 | 既存の target ViewPort に直接変換結果を書き込む拡張 | 現状は一時 ImageBuffer 経由で memcpy が発生 |
 
 ## 既知の問題
 

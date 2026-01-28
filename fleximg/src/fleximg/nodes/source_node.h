@@ -51,7 +51,11 @@ public:
     }
 
     // ソース設定
-    void setSource(const ViewPort& vp) { source_ = vp; }
+    void setSource(const ViewPort& vp) { source_ = vp; palette_ = PaletteData(); }
+    void setSource(const ViewPort& vp, const PaletteData& palette) {
+        source_ = vp;
+        palette_ = palette;
+    }
 
     // 基準点設定（pivot: 画像内のアンカーポイント）
     void setPivot(int_fixed x, int_fixed y) { pivotX_ = x; pivotY_ = y; }
@@ -100,6 +104,7 @@ public:
 
 private:
     ViewPort source_;
+    PaletteData palette_;   // パレット情報（インデックスフォーマット用、非所有）
     int_fixed pivotX_ = 0;  // 画像内の基準点X（pivot: 回転・配置の中心、固定小数点 Q16.16）
     int_fixed pivotY_ = 0;  // 画像内の基準点Y（pivot: 回転・配置の中心、固定小数点 Q16.16）
     // 注: 配置位置は localMatrix_.tx/ty で管理（AffineCapability から継承）
@@ -370,6 +375,10 @@ RenderResponse SourceNode::onPullProcess(const RenderRequest& request) {
     ImageBuffer result(view_ops::subView(source_, srcX, srcY,
                                          static_cast<int_fast16_t>(validW),
                                          static_cast<int_fast16_t>(validH)));
+    // パレット情報を出力ImageBufferに設定
+    if (palette_) {
+        result.setPalette(palette_);
+    }
 
     // origin = リクエストグリッドに整列（アフィンパスと同形式）
     Point adjustedOrigin = {
@@ -522,6 +531,11 @@ RenderResponse SourceNode::pullProcessWithAffine(const RenderRequest& request) {
         // 最近傍補間（BPP分岐は関数内部で実施）
         view_ops::copyRowDDA(dstRow, source_, validWidth,
             srcX_fixed, srcY_fixed, invA, invC);
+    }
+
+    // パレット情報を出力ImageBufferに設定
+    if (palette_) {
+        output.setPalette(palette_);
     }
 
     // originを有効範囲に合わせて調整

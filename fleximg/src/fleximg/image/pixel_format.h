@@ -49,6 +49,26 @@ using ConvertParams = PixelAuxInfo;
 using BlendParams = PixelAuxInfo;
 
 // ========================================================================
+// パレットデータ参照（軽量構造体）
+// ========================================================================
+//
+// パレット情報の外部受け渡し用。ViewPortと同様の軽量参照型（非所有）。
+// SourceNode::setSource() 等の外部APIで使用。
+//
+
+struct PaletteData {
+    const void* data = nullptr;        // パレットデータ（非所有）
+    PixelFormatID format = nullptr;    // 各エントリのフォーマット
+    uint16_t colorCount = 0;           // エントリ数
+
+    constexpr PaletteData() = default;
+    constexpr PaletteData(const void* d, PixelFormatID f, uint16_t c)
+        : data(d), format(f), colorCount(c) {}
+
+    explicit operator bool() const { return data != nullptr; }
+};
+
+// ========================================================================
 // エンディアン情報
 // ========================================================================
 
