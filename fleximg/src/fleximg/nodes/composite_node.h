@@ -107,6 +107,7 @@ private:
         Point origin = {INT32_MIN, INT32_MIN};  // キャッシュキー（無効値で初期化）
         int16_t startX = 0;
         int16_t endX = 0;
+        int16_t validUpstreamCount = 0;  // 有効な上流数もキャッシュ
     };
     mutable DataRangeCache rangeCache_;
 
@@ -284,10 +285,11 @@ DataRange CompositeNode::calcUpstreamRangeUnion(const RenderRequest& request) co
 DataRange CompositeNode::getDataRange(const RenderRequest& request) const {
     DataRange range = calcUpstreamRangeUnion(request);
 
-    // キャッシュに保存
+    // キャッシュに保存（validUpstreamCount_ は calcUpstreamRangeUnion で設定済み）
     rangeCache_.origin = request.origin;
     rangeCache_.startX = range.startX;
     rangeCache_.endX = range.endX;
+    rangeCache_.validUpstreamCount = static_cast<int16_t>(validUpstreamCount_);
 
     return range.hasData() ? range : DataRange{0, 0};
 }
@@ -301,21 +303,31 @@ RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
 
     // キャンバス範囲を取得（キャッシュがあれば再利用）
     int16_t canvasStartX, canvasEndX;
+    int16_t cachedValidCount;
     if (rangeCache_.origin.x == request.origin.x &&
         rangeCache_.origin.y == request.origin.y) {
         // キャッシュヒット: getDataRange()の計算結果を再利用
         canvasStartX = rangeCache_.startX;
         canvasEndX = rangeCache_.endX;
+        cachedValidCount = rangeCache_.validUpstreamCount;
     } else {
         // キャッシュミス: 和集合を計算
         DataRange range = calcUpstreamRangeUnion(request);
         canvasStartX = range.startX;
         canvasEndX = range.endX;
+        cachedValidCount = static_cast<int16_t>(validUpstreamCount_);
     }
 
     // 有効なデータがない場合は空を返す（originは維持）
     if (canvasStartX >= canvasEndX) {
         return RenderResponse(ImageBuffer(), request.origin);
+    }
+
+    // 有効な上流が1件のみの場合、そのまま返す（最適化）
+    // キャンバス作成・フォーマット変換・コピー処理をスキップ
+    if (cachedValidCount == 1 && upstreamCache_) {
+        Node* upstream = upstreamCache_[0].node;
+        return upstream->pullProcess(request);
     }
 
     int16_t canvasWidth = canvasEndX - canvasStartX;
