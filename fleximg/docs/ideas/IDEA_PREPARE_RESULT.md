@@ -458,3 +458,96 @@ PrepareResponseにフォーマット情報を含めることで、IDEA_FORMAT_NE
 - **精度**: 複数アフィンは末端で一度だけ計算 → 誤差累積なし
 - **対称性**: push/pull両方向で同じパターン → 理解しやすい設計
 - **メンバ統合**: `prepareResponse_.status`/`prepareResponse_`はpush/pull共通（ノードはどちらか一方でのみ使用されるため）
+
+---
+
+## Phase 6: prepare の2フェーズ化（検討中）
+
+### 背景
+
+現状の prepare フローには以下の問題がある:
+
+1. **pushPrepare が情報を持たない**: 「準備して」と要求しながら、準備に必要な情報（フォーマット等）を渡していない
+2. **フォーマット確定通知がない**: pullPrepare で上流の出力フォーマットが確定しても、それを下流に通知する仕組みがない
+3. **preferredFormat の意味が曖昧**: pushResponse では「受け取りたい」、pullResponse では「出す」と、同じフィールドで意味が異なる
+
+### 現状のフロー
+
+```
+Step 1: pushPrepare (Renderer → 下流)
+        準備要求、フォーマット情報なし
+
+Step 2: pushResponse (下流 → Renderer)
+        「このフォーマットで受け取りたい」= 下流の希望
+
+Step 3: pullPrepare (Renderer → 上流)
+        下流の希望を伝播
+
+Step 4: pullResponse (上流 → Renderer)
+        「このフォーマットで出す」= 上流の確定
+
+Step 5: ??? (Renderer → 下流)
+        上流フォーマット情報の下流への通知 = 未実装
+```
+
+### 提案: prepare を Phase1/Phase2 に分離
+
+```cpp
+// Phase1: 情報収集
+PrepareResponse pushPreparePhase1(const PrepareRequest& req);  // 既存 pushPrepare をリネーム
+PrepareResponse pullPreparePhase1(const PrepareRequest& req);  // 既存 pullPrepare をリネーム
+
+// Phase2: 確定通知
+PrepareResponse pushPreparePhase2(const PrepareRequest& req);  // 新設
+PrepareResponse pullPreparePhase2(const PrepareRequest& req);  // 新設（必要に応じて）
+```
+
+### 新しい execPrepare フロー
+
+```cpp
+PrepareStatus RendererNode::execPrepare() {
+    // === Phase1: 情報収集 ===
+    auto pushResult = downstream->pushPreparePhase1(req);  // 下流の希望収集
+    auto pullResult = upstream->pullPreparePhase1(req);    // 上流の出力確定
+
+    // === 解決 ===
+    auto resolvedFormat = negotiate(pullResult, pushResult);
+
+    // === Phase2: 確定通知 ===
+    downstream->pushPreparePhase2(resolvedFormat);  // 「これが来るよ」
+    // upstream->pullPreparePhase2(...);  // 必要に応じて
+}
+```
+
+### 命名の整理
+
+| フィールド | 意味 | 使用箇所 |
+|-----------|------|---------|
+| `acceptFormat` | 「このフォーマットで受け取りたい」 | pushPreparePhase1 の応答 |
+| `sourceFormat` | 「このフォーマットで出す」 | pullPreparePhase1 の応答 |
+| `inputFormat` | 「入力はこのフォーマットになる」 | pushPreparePhase2 の要求 |
+
+### 未解決の課題: 動的フォーマット問題
+
+CompositeNode で複数 Source がある場合、タイル位置によって最適な変換パスが変わる:
+
+```
+┌─────────────┬─────────────┐
+│  SourceA    │  SourceB    │
+│  (RGB565)   │  (RGB332)   │
+└─────────────┴─────────────┘
+```
+
+**問題**: prepare 時点で単一のフォーマットに固定できない
+
+**対応案:**
+1. **全パス事前解決**: 可能性のある全フォーマットの FormatConverter を prepare で解決
+2. **動的解決 + キャッシュ**: process 時に必要に応じて解決、キャッシュで再利用
+
+詳細は IDEA_FORMAT_NEGOTIATION.md を参照。
+
+### ステータス
+
+- [ ] Phase1/Phase2 の API 設計確定
+- [ ] 動的フォーマット問題の対応方針決定
+- [ ] 既存ノードの改修計画策定

@@ -11,135 +11,156 @@
 1. **冗長な変換**: A→B→C で、Aが出力をRGB565に変換 → Bが内部処理でRGBA16に変換 → Cが最終出力でRGB565に変換
 2. **情報損失**: 高精度フォーマットから低精度に変換後、再度高精度が必要になるケース
 
-## 提案
+## 現状の実装状況（2026-01）
 
-### 下流からの要求収集
+### FormatConverter（実装済み）
+
+フォーマット変換の事前解決は `FormatConverter` として実装完了:
+
+```cpp
+// pixel_format.h
+struct FormatConverter {
+    using ConvertFunc = void(*)(void* dst, const void* src, int pixelCount, const void* ctx);
+    ConvertFunc func = nullptr;
+    Context ctx;  // パレット、変換関数ポインタ等を保持
+
+    void operator()(void* dst, const void* src, int pixelCount) const;
+};
+
+// 変換パスを事前解決
+FormatConverter resolveConverter(PixelFormatID src, PixelFormatID dst,
+                                  const PixelAuxInfo* aux, IAllocator* alloc);
+```
+
+**解決される変換パス:**
+- 同一フォーマット → memcpy
+- エンディアン兄弟 → swapEndian
+- インデックスカラー → パレット展開（直接 or Straight経由）
+- 一般 → toStraight/fromStraight の2段階
+
+### toFormat/convertFormat への外部注入（実装済み）
+
+prepare 段階で解決した FormatConverter を process で再利用可能:
+
+```cpp
+// image_buffer.h
+ImageBuffer toFormat(PixelFormatID target,
+                     FormatConversion mode = FormatConversion::CopyIfNeeded,
+                     core::memory::IAllocator* alloc = nullptr,
+                     const FormatConverter* converter = nullptr) &&;
+
+// node.h
+ImageBuffer convertFormat(ImageBuffer&& buffer, PixelFormatID target,
+                          FormatConversion mode = FormatConversion::CopyIfNeeded,
+                          const FormatConverter* converter = nullptr);
+```
+
+**使用例:**
+```cpp
+// prepare
+converter_ = resolveConverter(srcFormat, dstFormat, auxPtr, allocator());
+
+// process
+auto result = convertFormat(std::move(input), dstFormat,
+                            FormatConversion::CopyIfNeeded, &converter_);
+```
+
+## 未解決の課題
+
+### 動的フォーマット問題
+
+CompositeNode 経由で複数の Source がある場合、タイル位置によって最適な変換パスが変わる:
+
+```
+┌─────────────┬─────────────┐
+│  SourceA    │  SourceB    │
+│  (RGB565)   │  (RGB332)   │
+├─────────────┼─────────────┤
+│  SourceC    │  SourceA+B  │
+│  (RGBA8)    │  (混在)     │
+└─────────────┴─────────────┘
+```
+
+**問題**: prepare 時点で単一のフォーマットに固定できない
+
+**対応案:**
+
+#### 案1: 全パス事前解決
+```cpp
+// prepare: 使用される可能性のある全フォーマットを収集
+std::unordered_map<PixelFormatID, FormatConverter> converters_;
+for (auto fmt : possibleInputFormats) {
+    converters_[fmt] = resolveConverter(fmt, targetFormat, ...);
+}
+
+// process: ルックアップのみ
+auto& converter = converters_[input.formatID];
+```
+
+#### 案2: 動的解決 + キャッシュ
+```cpp
+// process: 初回のみ解決、以降はキャッシュ
+auto it = converterCache_.find(input.formatID);
+if (it == converterCache_.end()) {
+    it = converterCache_.emplace(input.formatID,
+        resolveConverter(input.formatID, targetFormat, ...)).first;
+}
+it->second(dst, src, width);
+```
+
+**検討ポイント:**
+- 案1: オーバーヘッドは prepare に集中、process はシンプル
+- 案2: 柔軟だが process 内に分岐が残る
+- フォーマットの種類は限られている（数十程度）ので、案1 のコストは許容範囲か
+
+### prepare の2フェーズ化
+
+フォーマット情報の流れを整理するため、prepare を2段階に分ける案:
+
+```
+Phase1: 情報収集
+  pushPreparePhase1 → 下流の capabilities・希望フォーマット・AABB を収集
+  pullPreparePhase1 → 上流の capabilities・出力フォーマット・AABB を収集
+
+Phase2: 確定通知
+  pushPreparePhase2 → 確定情報（入力フォーマット等）を下流に通知
+  pullPreparePhase2 → 確定情報（出力要求等）を上流に通知（必要に応じて）
+```
+
+**現状の問題:**
+- pushPrepare は「準備して」と言いながら、準備に必要な情報を持っていない
+- フォーマット情報が双方向に流れるが、確定通知の仕組みがない
+
+詳細は IDEA_PREPARE_RESULT.md の「Phase 6」セクションを参照。
+
+## 将来の拡張案
+
+### possibleOutputFormats の収集
+
+PrepareResponse に「出力しうるフォーマット群」を追加:
+
+```cpp
+struct PrepareResponse {
+    // ... 既存フィールド ...
+    std::vector<PixelFormatID> possibleOutputFormats;  // 出力可能なフォーマット群
+};
+```
+
+Phase1 で収集し、RendererNode が全組み合わせの FormatConverter を事前解決。
+
+### FormatPreference（将来）
+
+より詳細な交渉のための構造体:
 
 ```cpp
 struct FormatPreference {
-    PixelFormatID preferred;           // 最も望ましいフォーマット
-    std::vector<PixelFormatID> acceptable;  // 許容可能なフォーマット
-    bool canConvert;                   // 自前で変換可能か
-};
-
-// Nodeインターフェース
-virtual FormatPreference queryFormatPreference() const;
-```
-
-### 適用シナリオ
-
-#### 1. Renderer下流（DistributorNode → 複数Sink）
-
-```
-DistributorNode
-    │
-    ├→ SinkNode1 (preferred: RGB565)
-    ├→ SinkNode2 (preferred: RGBA8888)
-    └→ SinkNode3 (preferred: RGB565)
-```
-
-DistributorNodeが下流を問い合わせ:
-- 2/3がRGB565を要求 → RGB565で出力し、Sink2だけが変換
-
-#### 2. Renderer上流（SourceNode → フィルタ → Renderer）
-
-```
-SourceNode (RGB565)
-    │
-    ▼
-BrightnessNode (requires: RGBA16)
-    │
-    ▼
-GrayscaleNode (requires: RGBA8 or RGBA16)
-    │
-    ▼
-RendererNode
-```
-
-上流に向かって要求を伝播:
-- GrayscaleNode → BrightnessNode: 「RGBA16でOK」
-- BrightnessNode → SourceNode: 「RGBA16で出力希望」
-- SourceNode: RGB565 → RGBA16 変換して出力
-
-### 実装案
-
-#### Phase 0: 変換プラン基盤（ConvertPlan）
-
-フォーマット交渉の前提として、フォーマットペア間の変換方法を事前に解決するAPI:
-
-```cpp
-struct ConvertPlan {
-    enum class Type {
-        Identity,       // 同一フォーマット（memcpy）
-        Direct,         // 直接変換（1関数）
-        TwoStage,       // 2段階変換（Straight経由、中間バッファ必要）
-        Unsupported     // 変換不可
-    };
-    Type type;
-    ConvertFunc stage1;      // Direct: 変換関数, TwoStage: toStraight
-    ConvertFunc stage2;      // TwoStage: fromStraight, それ以外: nullptr
-    uint8_t bytesPerPixel;   // Identity: コピーサイズ, TwoStage: 中間バッファサイズ
-};
-
-// フォーマットペアから変換プランを取得
-ConvertPlan getConvertPlan(PixelFormatID srcFormat, PixelFormatID dstFormat);
-```
-
-**利点:**
-- prepare時に変換方法を解決 → process時の分岐削減
-- 変換不可能なペアをprepare時点で検出
-- 2段階変換が必要な場合、中間バッファサイズを事前計算
-
-**使用イメージ:**
-```cpp
-// prepare時
-convertPlan_ = getConvertPlan(upstream_->outputFormat(), workingFormat_);
-
-// process時（分岐最小化）
-switch (convertPlan_.type) {
-    case ConvertPlan::Type::Identity:
-        std::memcpy(dst, src, pixelCount * convertPlan_.bytesPerPixel);
-        break;
-    case ConvertPlan::Type::Direct:
-        convertPlan_.stage1(dst, src, pixelCount, params);
-        break;
-    case ConvertPlan::Type::TwoStage:
-        convertPlan_.stage1(buffer_, src, pixelCount, params);
-        convertPlan_.stage2(dst, buffer_, pixelCount, params);
-        break;
-}
-```
-
-#### Phase 1: 静的宣言
-
-各ノードが静的に「入力希望」「出力可能」フォーマットを宣言:
-
-```cpp
-class BrightnessNode : public FilterNodeBase {
-    static constexpr PixelFormatID preferredInput = RGBA8_Straight;
-    static constexpr PixelFormatID preferredOutput = RGBA8_Straight;
+    PixelFormatID preferred;                    // 最も望ましいフォーマット
+    std::vector<PixelFormatID> acceptable;      // 許容可能なフォーマット
+    bool canConvert;                            // 自前で変換可能か
 };
 ```
 
-#### Phase 2: 動的交渉
+## 関連ドキュメント
 
-パイプライン構築時に双方向で交渉:
-
-```cpp
-// 1. 下流から上流へ要求を収集
-void Node::collectUpstreamRequirements();
-
-// 2. 上流から下流へ決定を通知
-void Node::propagateDecision(PixelFormatID decided);
-```
-
-## 考慮事項
-
-- **パフォーマンス**: 交渉オーバーヘッド vs 変換コスト
-- **複雑性**: 循環参照や競合する要求の解決
-- **メモリ**: 中間バッファのフォーマット選択がピークメモリに影響
-
-## 関連
-
-- DistributorNode（複数Sink対応）で最初の適用ケース
-- 将来的にはSourceNode〜Renderer間にも適用可能
+- IDEA_PREPARE_RESULT.md - prepare の統一改修計画
+- CHANGELOG.md v2.57.0 - FormatConverter 実装の詳細
