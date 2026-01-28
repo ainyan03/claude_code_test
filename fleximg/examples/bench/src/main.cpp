@@ -212,13 +212,14 @@ struct AlphaDistribution {
 
     void print(const char* label) {
         if (total == 0) return;
+        double t = static_cast<double>(total);
         benchPrintf("  %-12s: trans=%5.1f%% opaque=%5.1f%% semi=%5.1f%% (low=%5.1f%% high=%5.1f%%)\n",
             label,
-            static_cast<double>(100.0f * transparent / total),
-            static_cast<double>(100.0f * opaque / total),
-            static_cast<double>(100.0f * (semiLow + semiHigh) / total),
-            static_cast<double>(100.0f * semiLow / total),
-            static_cast<double>(100.0f * semiHigh / total));
+            100.0 * static_cast<double>(transparent) / t,
+            100.0 * static_cast<double>(opaque) / t,
+            100.0 * static_cast<double>(semiLow + semiHigh) / t,
+            100.0 * static_cast<double>(semiLow) / t,
+            100.0 * static_cast<double>(semiHigh) / t);
     }
 };
 
