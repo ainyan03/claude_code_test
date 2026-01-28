@@ -1,5 +1,5 @@
-#ifndef FLEXIMG_PIXEL_FORMAT_ALPHA8_H
-#define FLEXIMG_PIXEL_FORMAT_ALPHA8_H
+#ifndef FLEXIMG_PIXEL_FORMAT_GRAYSCALE8_H
+#define FLEXIMG_PIXEL_FORMAT_GRAYSCALE8_H
 
 // pixel_format.h からインクルードされることを前提
 // （PixelFormatDescriptor等は既に定義済み）
@@ -11,11 +11,11 @@ namespace FLEXIMG_NAMESPACE {
 // ========================================================================
 
 namespace BuiltinFormats {
-    extern const PixelFormatDescriptor Alpha8;
+    extern const PixelFormatDescriptor Grayscale8;
 }
 
 namespace PixelFormatIDs {
-    inline const PixelFormatID Alpha8 = &BuiltinFormats::Alpha8;
+    inline const PixelFormatID Grayscale8 = &BuiltinFormats::Grayscale8;
 }
 
 } // namespace FLEXIMG_NAMESPACE
@@ -30,30 +30,35 @@ namespace PixelFormatIDs {
 namespace FLEXIMG_NAMESPACE {
 
 // ========================================================================
-// Alpha8: 単一アルファチャンネル ↔ RGBA8_Straight 変換
+// Grayscale8: 単一輝度チャンネル ↔ RGBA8_Straight 変換
 // ========================================================================
 
-// Alpha8 → RGBA8_Straight（可視化のため全チャンネルにアルファ値を展開）
-static void alpha8_toStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
-    FLEXIMG_FMT_METRICS(Alpha8, ToStraight, pixelCount);
+// Grayscale8 → RGBA8_Straight（L → R=G=B=L, A=255）
+static void grayscale8_toStraight(void* dst, const void* src, int pixelCount, const PixelAuxInfo*) {
+    FLEXIMG_FMT_METRICS(Grayscale8, ToStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
     uint8_t* d = static_cast<uint8_t*>(dst);
     for (int i = 0; i < pixelCount; ++i) {
-        uint8_t alpha = s[i];
-        d[i*4 + 0] = alpha;  // R
-        d[i*4 + 1] = alpha;  // G
-        d[i*4 + 2] = alpha;  // B
-        d[i*4 + 3] = alpha;  // A
+        uint8_t lum = s[i];
+        d[i*4 + 0] = lum;   // R
+        d[i*4 + 1] = lum;   // G
+        d[i*4 + 2] = lum;   // B
+        d[i*4 + 3] = 255;   // A
     }
 }
 
-// RGBA8_Straight → Alpha8（Aチャンネルのみ抽出）
-static void alpha8_fromStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
-    FLEXIMG_FMT_METRICS(Alpha8, FromStraight, pixelCount);
+// RGBA8_Straight → Grayscale8（BT.601 輝度計算）
+static void grayscale8_fromStraight(void* dst, const void* src, int pixelCount, const PixelAuxInfo*) {
+    FLEXIMG_FMT_METRICS(Grayscale8, FromStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
     uint8_t* d = static_cast<uint8_t*>(dst);
     for (int i = 0; i < pixelCount; ++i) {
-        d[i] = s[i*4 + 3];  // Aチャンネル抽出
+        // BT.601: Y = 0.299*R + 0.587*G + 0.114*B
+        // 整数近似: (77*R + 150*G + 29*B + 128) >> 8
+        uint_fast16_t r = s[i*4 + 0];
+        uint_fast16_t g = s[i*4 + 1];
+        uint_fast16_t b = s[i*4 + 2];
+        d[i] = static_cast<uint8_t>((77 * r + 150 * g + 29 * b + 128) >> 8);
     }
 }
 
@@ -63,21 +68,21 @@ static void alpha8_fromStraight(void* dst, const void* src, int pixelCount, cons
 
 namespace BuiltinFormats {
 
-const PixelFormatDescriptor Alpha8 = {
-    "Alpha8",
+const PixelFormatDescriptor Grayscale8 = {
+    "Grayscale8",
     8,   // bitsPerPixel
     1,   // pixelsPerUnit
     1,   // bytesPerUnit
     1,   // channelCount
-    { ChannelDescriptor(ChannelType::Alpha, 8, 0),
-      ChannelDescriptor(), ChannelDescriptor(), ChannelDescriptor() },  // Alpha only
-    true,   // hasAlpha
+    { ChannelDescriptor(ChannelType::Luminance, 8, 0),
+      ChannelDescriptor(), ChannelDescriptor(), ChannelDescriptor() },  // Luminance only
+    false,  // hasAlpha
     false,  // isIndexed
     0,      // maxPaletteSize
     BitOrder::MSBFirst,
     ByteOrder::Native,
-    alpha8_toStraight,
-    alpha8_fromStraight,
+    grayscale8_toStraight,
+    grayscale8_fromStraight,
     nullptr,  // expandIndex
     nullptr,  // blendUnderStraight
     nullptr,  // siblingEndian
@@ -90,4 +95,4 @@ const PixelFormatDescriptor Alpha8 = {
 
 #endif // FLEXIMG_IMPLEMENTATION
 
-#endif // FLEXIMG_PIXEL_FORMAT_ALPHA8_H
+#endif // FLEXIMG_PIXEL_FORMAT_GRAYSCALE8_H

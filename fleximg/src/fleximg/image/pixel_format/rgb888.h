@@ -191,8 +191,7 @@ const PixelFormatDescriptor RGB888 = {
     ByteOrder::Native,
     rgb888_toStraight,
     rgb888_fromStraight,
-    nullptr,  // toStraightIndexed
-    nullptr,  // fromStraightIndexed
+    nullptr,  // expandIndex
     nullptr,  // blendUnderStraight
     &BGR888,  // siblingEndian
     swap24    // swapEndian
@@ -215,8 +214,7 @@ const PixelFormatDescriptor BGR888 = {
     ByteOrder::Native,
     bgr888_toStraight,
     bgr888_fromStraight,
-    nullptr,  // toStraightIndexed
-    nullptr,  // fromStraightIndexed
+    nullptr,  // expandIndex
     nullptr,  // blendUnderStraight
     &RGB888,  // siblingEndian
     swap24    // swapEndian

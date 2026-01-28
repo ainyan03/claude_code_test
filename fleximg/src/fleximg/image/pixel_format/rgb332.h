@@ -151,8 +151,7 @@ const PixelFormatDescriptor RGB332 = {
     ByteOrder::Native,
     rgb332_toStraight,
     rgb332_fromStraight,
-    nullptr,  // toStraightIndexed
-    nullptr,  // fromStraightIndexed
+    nullptr,  // expandIndex
     nullptr,  // blendUnderStraight
     nullptr,  // siblingEndian
     nullptr   // swapEndian

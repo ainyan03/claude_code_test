@@ -724,7 +724,7 @@ public:
         // フォーマット名配列
         static const char* formatNames[] = {
             "RGBA8_Straight", "RGB565_LE", "RGB565_BE",
-            "RGB332", "RGB888", "BGR888", "Alpha8"
+            "RGB332", "RGB888", "BGR888", "Alpha8", "Grayscale8", "Index8"
         };
         static const char* opNames[] = {
             "toStraight", "fromStraight", "blendUnder"

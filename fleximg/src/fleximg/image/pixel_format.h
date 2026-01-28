@@ -19,28 +19,34 @@ struct PixelFormatDescriptor;
 using PixelFormatID = const PixelFormatDescriptor*;
 
 // ========================================================================
-// 変換パラメータ
+// 変換パラメータ / 補助情報
 // ========================================================================
 
-struct ConvertParams {
+struct PixelAuxInfo {
     uint32_t colorKey = 0;          // 透過カラー（4 bytes）
     uint8_t alphaMultiplier = 255;  // アルファ係数（1 byte）
     bool useColorKey = false;       // カラーキー有効フラグ（1 byte）
 
+    // パレット情報（インデックスフォーマット用）
+    const void* palette = nullptr;           // パレットデータポインタ（非所有）
+    PixelFormatID paletteFormat = nullptr;   // パレットエントリのフォーマット
+    uint16_t paletteColorCount = 0;          // パレットエントリ数
+
     // デフォルトコンストラクタ
-    constexpr ConvertParams() = default;
+    constexpr PixelAuxInfo() = default;
 
     // アルファ係数指定
-    constexpr explicit ConvertParams(uint8_t alpha)
+    constexpr explicit PixelAuxInfo(uint8_t alpha)
         : alphaMultiplier(alpha) {}
 
     // カラーキー指定
-    constexpr ConvertParams(uint32_t key, bool use)
+    constexpr PixelAuxInfo(uint32_t key, bool use)
         : colorKey(key), useColorKey(use) {}
 };
 
-// 後方互換性のためBlendParamsをエイリアスとして残す
-using BlendParams = ConvertParams;
+// 後方互換性のためエイリアスを残す
+using ConvertParams = PixelAuxInfo;
+using BlendParams = PixelAuxInfo;
 
 // ========================================================================
 // エンディアン情報
@@ -128,24 +134,22 @@ struct PixelFormatDescriptor {
     // ========================================================================
     // 変換関数の型定義
     // ========================================================================
-    // 統一シグネチャ: void(*)(void* dst, const void* src, int pixelCount, const ConvertParams* params)
+    // 統一シグネチャ: void(*)(void* dst, const void* src, int pixelCount, const PixelAuxInfo* aux)
 
     // Straight形式（RGBA8_Straight）との相互変換
-    using ConvertFunc = void(*)(void* dst, const void* src, int pixelCount, const ConvertParams* params);
+    using ConvertFunc = void(*)(void* dst, const void* src, int pixelCount, const PixelAuxInfo* aux);
     using ToStraightFunc = ConvertFunc;
     using FromStraightFunc = ConvertFunc;
-
-    // インデックスカラー用（パレット引数が必要なため別シグネチャ）
-    using ToStraightIndexedFunc = void(*)(void* dst, const void* src, int pixelCount, const uint16_t* palette);
-    using FromStraightIndexedFunc = void(*)(void* dst, const void* src, int pixelCount, const uint16_t* palette);
 
     // 変換関数ポインタ（ダイレクトカラー用）
     ToStraightFunc toStraight;
     FromStraightFunc fromStraight;
 
-    // 変換関数ポインタ（インデックスカラー用）
-    ToStraightIndexedFunc toStraightIndexed;
-    FromStraightIndexedFunc fromStraightIndexed;
+    // インデックス展開関数（インデックス値 → パレットフォーマットのピクセルデータ）
+    // aux->palette, aux->paletteFormat を参照してインデックスをパレットエントリに展開
+    // 出力はパレットフォーマット（RGBA8とは限らない）
+    using ExpandIndexFunc = ConvertFunc;
+    ExpandIndexFunc expandIndex;   // 非インデックスフォーマットでは nullptr
 
     // BlendUnderStraightFunc: srcフォーマットからStraight形式(RGBA8)のdstへunder合成
     //   - dst が不透明なら何もしない（スキップ）
@@ -208,6 +212,8 @@ struct PixelFormatDescriptor {
 #include "pixel_format/rgb565.h"
 #include "pixel_format/rgb332.h"
 #include "pixel_format/rgb888.h"
+#include "pixel_format/grayscale8.h"
+#include "pixel_format/index8.h"
 
 namespace FLEXIMG_NAMESPACE {
 
@@ -232,6 +238,8 @@ inline const PixelFormatID builtinFormats[] = {
     PixelFormatIDs::RGB888,
     PixelFormatIDs::BGR888,
     PixelFormatIDs::Alpha8,
+    PixelFormatIDs::Grayscale8,
+    PixelFormatIDs::Index8,
 };
 
 inline constexpr size_t builtinFormatsCount = sizeof(builtinFormats) / sizeof(builtinFormats[0]);
@@ -259,13 +267,13 @@ inline const char* getFormatName(PixelFormatID formatID) {
 // 2つのフォーマット間で変換
 // - 同一フォーマット: 単純コピー
 // - エンディアン違いの兄弟: swapEndian
+// - インデックスフォーマット: expandIndex → パレットフォーマット経由
 // - それ以外はStraight形式（RGBA8_Straight）経由で変換
 inline void convertFormat(const void* src, PixelFormatID srcFormat,
                           void* dst, PixelFormatID dstFormat,
                           int pixelCount,
-                          const ConvertParams* params = nullptr,
-                          const uint16_t* srcPalette = nullptr,
-                          const uint16_t* dstPalette = nullptr) {
+                          const PixelAuxInfo* srcAux = nullptr,
+                          const PixelAuxInfo* dstAux = nullptr) {
     // 同じフォーマットの場合はコピー
     if (srcFormat == dstFormat) {
         if (srcFormat) {
@@ -279,27 +287,60 @@ inline void convertFormat(const void* src, PixelFormatID srcFormat,
 
     // エンディアン違いの兄弟フォーマット → swapEndian
     if (srcFormat->siblingEndian == dstFormat && srcFormat->swapEndian) {
-        srcFormat->swapEndian(dst, src, pixelCount, params);
+        srcFormat->swapEndian(dst, src, pixelCount, srcAux);
         return;
     }
 
-    // Straight形式（RGBA8_Straight）経由で変換
+    // インデックスフォーマットの場合
+    if (srcFormat->expandIndex && srcAux && srcAux->palette) {
+        PixelFormatID palFmt = srcAux->paletteFormat;
+
+        if (palFmt == dstFormat) {
+            // 直接展開（1段階）: Index → パレットフォーマット == 出力フォーマット
+            srcFormat->expandIndex(dst, src, pixelCount, srcAux);
+            return;
+        }
+
+        // 2段階: Index → パレットフォーマット → 出力フォーマット
+        auto palBpp = getBytesPerPixel(palFmt);
+        thread_local std::vector<uint8_t> expandBuffer;
+        expandBuffer.resize(static_cast<size_t>(pixelCount) * static_cast<size_t>(palBpp));
+        srcFormat->expandIndex(expandBuffer.data(), src, pixelCount, srcAux);
+
+        if (palFmt == PixelFormatIDs::RGBA8_Straight) {
+            // パレットがRGBA8 → 直接 fromStraight
+            if (dstFormat->fromStraight) {
+                dstFormat->fromStraight(dst, expandBuffer.data(), pixelCount, dstAux);
+            }
+        } else {
+            // パレットフォーマット → RGBA8 → dst
+            thread_local std::vector<uint8_t> conversionBuffer;
+            conversionBuffer.resize(static_cast<size_t>(pixelCount) * 4);
+            if (palFmt->toStraight) {
+                palFmt->toStraight(conversionBuffer.data(), expandBuffer.data(), pixelCount, nullptr);
+            }
+            if (dstFormat == PixelFormatIDs::RGBA8_Straight) {
+                std::memcpy(dst, conversionBuffer.data(), static_cast<size_t>(pixelCount) * 4);
+            } else if (dstFormat->fromStraight) {
+                dstFormat->fromStraight(dst, conversionBuffer.data(), pixelCount, dstAux);
+            }
+        }
+        return;
+    }
+
+    // 非インデックス: Straight形式（RGBA8_Straight）経由で変換
     // 一時バッファを確保（スレッドローカル）
     thread_local std::vector<uint8_t> conversionBuffer;
     conversionBuffer.resize(static_cast<size_t>(pixelCount) * 4);
 
     // src → RGBA8_Straight
-    if (srcFormat->isIndexed && srcFormat->toStraightIndexed && srcPalette) {
-        srcFormat->toStraightIndexed(conversionBuffer.data(), src, pixelCount, srcPalette);
-    } else if (!srcFormat->isIndexed && srcFormat->toStraight) {
-        srcFormat->toStraight(conversionBuffer.data(), src, pixelCount, params);
+    if (srcFormat->toStraight) {
+        srcFormat->toStraight(conversionBuffer.data(), src, pixelCount, srcAux);
     }
 
     // RGBA8_Straight → dst
-    if (dstFormat->isIndexed && dstFormat->fromStraightIndexed && dstPalette) {
-        dstFormat->fromStraightIndexed(dst, conversionBuffer.data(), pixelCount, dstPalette);
-    } else if (!dstFormat->isIndexed && dstFormat->fromStraight) {
-        dstFormat->fromStraight(dst, conversionBuffer.data(), pixelCount, params);
+    if (dstFormat->fromStraight) {
+        dstFormat->fromStraight(dst, conversionBuffer.data(), pixelCount, dstAux);
     }
 }
 
