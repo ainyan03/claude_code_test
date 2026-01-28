@@ -38,6 +38,7 @@
     #include <chrono>
     #include <cstring>
     #include <cstdarg>
+    #include <cstdint>
 #endif
 
 // fleximg (stb-style: define FLEXIMG_IMPLEMENTATION before including headers)
@@ -191,11 +192,11 @@ static bool allocateBuffers() {
 // =============================================================================
 
 struct AlphaDistribution {
-    int transparent;   // alpha == 0
-    int opaque;        // alpha == 255
-    int semiLow;       // alpha 1-127
-    int semiHigh;      // alpha 128-254
-    int total;
+    int_fast32_t transparent;   // alpha == 0
+    int_fast32_t opaque;        // alpha == 255
+    int_fast32_t semiLow;       // alpha 1-127
+    int_fast32_t semiHigh;      // alpha 128-254
+    int_fast32_t total;
 
     void reset() {
         transparent = opaque = semiLow = semiHigh = 0;
@@ -212,20 +213,21 @@ struct AlphaDistribution {
 
     void print(const char* label) {
         if (total == 0) return;
+        float t = static_cast<float>(total);
         benchPrintf("  %-12s: trans=%5.1f%% opaque=%5.1f%% semi=%5.1f%% (low=%5.1f%% high=%5.1f%%)\n",
             label,
-            static_cast<double>(100.0f * transparent / total),
-            static_cast<double>(100.0f * opaque / total),
-            static_cast<double>(100.0f * (semiLow + semiHigh) / total),
-            static_cast<double>(100.0f * semiLow / total),
-            static_cast<double>(100.0f * semiHigh / total));
+            static_cast<double>(100.0f * static_cast<float>(transparent) / t),
+            static_cast<double>(100.0f * static_cast<float>(opaque) / t),
+            static_cast<double>(100.0f * static_cast<float>(semiLow + semiHigh) / t),
+            static_cast<double>(100.0f * static_cast<float>(semiLow) / t),
+            static_cast<double>(100.0f * static_cast<float>(semiHigh) / t));
     }
 };
 
 // Analyze alpha distribution of a buffer
-static void analyzeAlphaDistribution(const uint8_t* buf, int pixelCount, AlphaDistribution& dist) {
+static void analyzeAlphaDistribution(const uint8_t* buf, int_fast32_t pixelCount, AlphaDistribution& dist) {
     dist.reset();
-    for (int i = 0; i < pixelCount; i++) {
+    for (int_fast32_t i = 0; i < pixelCount; i++) {
         dist.count(buf[i * 4 + 3]);
     }
 }
