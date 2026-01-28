@@ -65,6 +65,8 @@ const PIXEL_FORMATS = [
     { formatName: 'RGB565_BE',             displayName: 'RGB565_BE',  bpp: 2, description: 'Big Endian' },
     { formatName: 'RGB332',                displayName: 'RGB332',     bpp: 1, description: '8-bit color' },
     { formatName: 'Alpha8',                displayName: 'Alpha8',     bpp: 1, description: 'Alpha only (for matte)' },
+    { formatName: 'Grayscale8',            displayName: 'Gray8',      bpp: 1, description: 'Grayscale' },
+    { formatName: 'Index8',                displayName: 'Index8',     bpp: 1, description: 'Palette (256色)', sourceDisabled: true },
 ];
 
 // デフォルトピクセルフォーマット
@@ -5311,6 +5313,7 @@ function buildImageDetailContent(node) {
                         option.value = fmt.formatName;
                         option.textContent = `${fmt.displayName} (${fmt.bpp}B)`;
                         option.title = fmt.description;
+                        if (fmt.sourceDisabled) option.disabled = true;
                         if (currentFormat === fmt.formatName) option.selected = true;
                         formatSelect.appendChild(option);
                     });

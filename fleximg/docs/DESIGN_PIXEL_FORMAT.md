@@ -29,28 +29,35 @@ CompositeNodeは **under合成** を使用します。背景（dst）側がStrai
 
 ```cpp
 // 統一シグネチャ（全変換関数共通）
-using ConvertFunc = void(*)(void* dst, const void* src, int pixelCount, const ConvertParams* params);
+using ConvertFunc = void(*)(void* dst, const void* src, int pixelCount, const PixelAuxInfo* aux);
 
 // PixelFormatDescriptorのメンバ
 ConvertFunc toStraight;        // このフォーマット → RGBA8_Straight
 ConvertFunc fromStraight;      // RGBA8_Straight → このフォーマット
+ConvertFunc expandIndex;       // インデックス展開（インデックスフォーマット用、非インデックスはnullptr）
 ConvertFunc blendUnderStraight;// under合成（src → Straight dst）
 ConvertFunc swapEndian;        // エンディアン兄弟との変換
 
 const PixelFormatDescriptor* siblingEndian;  // エンディアン違いの兄弟フォーマット
 ```
 
-### ConvertParams構造体
+### PixelAuxInfo構造体（旧ConvertParams）
 
 ```cpp
-struct ConvertParams {
+struct PixelAuxInfo {
     uint32_t colorKey = 0;          // 透過カラー（4 bytes）
     uint8_t alphaMultiplier = 255;  // アルファ係数（1 byte）
     bool useColorKey = false;       // カラーキー有効フラグ（1 byte）
+
+    // パレット情報（インデックスフォーマット用）
+    const void* palette = nullptr;           // パレットデータポインタ（非所有）
+    PixelFormatID paletteFormat = nullptr;   // パレットエントリのフォーマット
+    uint16_t paletteColorCount = 0;          // パレットエントリ数
 };
 
-// 後方互換性のためBlendParamsをエイリアスとして残す
-using BlendParams = ConvertParams;
+// 後方互換エイリアス
+using ConvertParams = PixelAuxInfo;
+using BlendParams = PixelAuxInfo;
 ```
 
 ### 対応フォーマット
@@ -64,6 +71,8 @@ using BlendParams = ConvertParams;
 | RGB888 | rgb888_blendUnderStraight | 不透明として処理（α=255） |
 | BGR888 | bgr888_blendUnderStraight | 不透明として処理（α=255） |
 | Alpha8 | alpha8_blendUnderStraight | グレースケール×α |
+| Grayscale8 | — | BT.601輝度、toStraight/fromStraight対応 |
+| Index8 | — | expandIndex経由でパレット展開 |
 
 ### 使用例（CompositeNode）
 
@@ -124,7 +133,9 @@ blendUnderStraight関数にはSWAR（SIMD Within A Register）最適化が適用
 | ├── `alpha8.h` | Alpha8 |
 | ├── `rgb565.h` | RGB565_LE/BE + ルックアップテーブル |
 | ├── `rgb332.h` | RGB332 + ルックアップテーブル |
-| └── `rgb888.h` | RGB888/BGR888 |
+| ├── `rgb888.h` | RGB888/BGR888 |
+| ├── `grayscale8.h` | Grayscale8（BT.601輝度） |
+| └── `index8.h` | Index8（パレットインデックス、expandIndex） |
 | `src/fleximg/operations/canvas_utils.h` | キャンバス作成・合成（RGBA8_Straight固定） |
 
 ## PixelFormatID
@@ -152,7 +163,7 @@ constexpr PixelFormatDescriptor MyCustomFormat = {
     // ... 他のフィールド
     myToStraightFunc,           // toStraight
     myFromStraightFunc,         // fromStraight
-    nullptr, nullptr,           // toStraightIndexed, fromStraightIndexed
+    nullptr,                    // expandIndex（インデックスフォーマットの場合のみ）
     myBlendUnderStraightFunc,   // blendUnderStraight（オプション）
     nullptr, nullptr            // siblingEndian, swapEndian
 };
@@ -160,6 +171,44 @@ constexpr PixelFormatDescriptor MyCustomFormat = {
 // 使用
 PixelFormatID myFormat = &MyCustomFormat;
 ```
+
+---
+
+## インデックスフォーマットの変換フロー
+
+### expandIndex
+
+インデックスフォーマット（Index8）は `toStraight` / `fromStraight` の代わりに `expandIndex` 関数を持ちます。
+`expandIndex` はインデックス値をパレットフォーマットのピクセルデータに展開します。
+
+```
+Index8 → expandIndex → パレットフォーマットのピクセルデータ
+```
+
+### convertFormat でのインデックス変換
+
+`convertFormat` はインデックスフォーマットを自動判定し、以下のフローで変換します:
+
+```
+【1段階変換】パレットフォーマット == 出力フォーマットの場合:
+  Index → expandIndex → dst（直接展開）
+
+【2段階変換】パレットフォーマット != 出力フォーマットの場合:
+  Index → expandIndex → パレットフォーマット → [toStraight →] [fromStraight →] dst
+```
+
+### ImageBuffer のパレット管理
+
+```cpp
+// パレット付きIndex8画像の作成
+ImageBuffer buf(width, height, PixelFormatIDs::Index8);
+buf.setPalette(paletteData, PixelFormatIDs::RGBA8_Straight, 256);
+
+// toFormat() でパレット情報が自動的に convertFormat に渡される
+ImageBuffer rgba = std::move(buf).toFormat(PixelFormatIDs::RGBA8_Straight);
+```
+
+パレットデータは非所有ポインタとして保持されます。コピー/ムーブ時にポインタが伝播されますが、パレットデータの寿命管理は呼び出し側の責任です。
 
 ---
 

@@ -285,8 +285,7 @@ const PixelFormatDescriptor RGB565_LE = {
     ByteOrder::LittleEndian,
     rgb565le_toStraight,
     rgb565le_fromStraight,
-    nullptr,  // toStraightIndexed
-    nullptr,  // fromStraightIndexed
+    nullptr,  // expandIndex
     nullptr,  // blendUnderStraight
     &RGB565_BE,  // siblingEndian
     swap16       // swapEndian
@@ -309,8 +308,7 @@ const PixelFormatDescriptor RGB565_BE = {
     ByteOrder::BigEndian,
     rgb565be_toStraight,
     rgb565be_fromStraight,
-    nullptr,  // toStraightIndexed
-    nullptr,  // fromStraightIndexed
+    nullptr,  // expandIndex
     nullptr,  // blendUnderStraight
     &RGB565_LE,  // siblingEndian
     swap16       // swapEndian

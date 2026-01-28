@@ -183,8 +183,7 @@ const PixelFormatDescriptor RGBA8_Straight = {
     ByteOrder::Native,
     rgba8Straight_toStraight,
     rgba8Straight_fromStraight,
-    nullptr,  // toStraightIndexed
-    nullptr,  // fromStraightIndexed
+    nullptr,  // expandIndex
     rgba8Straight_blendUnderStraight,  // blendUnderStraight
     nullptr,  // siblingEndian
     nullptr   // swapEndian

@@ -99,7 +99,10 @@ public:
                 other.view_.width, other.view_.height)
         , capacity_(0)
         , allocator_(other.allocator_ ? other.allocator_ : &core::memory::DefaultAllocator::instance())
-        , initPolicy_(InitPolicy::Uninitialized) {
+        , initPolicy_(InitPolicy::Uninitialized)
+        , palette_(other.palette_)
+        , paletteFormat_(other.paletteFormat_)
+        , paletteColorCount_(other.paletteColorCount_) {
         if (other.isValid()) {
             allocate();
             copyFrom(other);
@@ -116,6 +119,9 @@ public:
             view_.height = other.view_.height;
             allocator_ = other.allocator_ ? other.allocator_ : &core::memory::DefaultAllocator::instance();
             initPolicy_ = InitPolicy::Uninitialized;
+            palette_ = other.palette_;
+            paletteFormat_ = other.paletteFormat_;
+            paletteColorCount_ = other.paletteColorCount_;
             if (other.isValid()) {
                 allocate();
                 copyFrom(other);
@@ -127,11 +133,16 @@ public:
     // ムーブコンストラクタ
     ImageBuffer(ImageBuffer&& other) noexcept
         : view_(other.view_), capacity_(other.capacity_),
-          allocator_(other.allocator_), initPolicy_(other.initPolicy_) {
+          allocator_(other.allocator_), initPolicy_(other.initPolicy_),
+          palette_(other.palette_), paletteFormat_(other.paletteFormat_),
+          paletteColorCount_(other.paletteColorCount_) {
         other.view_.data = nullptr;
         other.view_.width = other.view_.height = 0;
         other.view_.stride = 0;
         other.capacity_ = 0;
+        other.palette_ = nullptr;
+        other.paletteFormat_ = nullptr;
+        other.paletteColorCount_ = 0;
     }
 
     // ムーブ代入
@@ -142,11 +153,17 @@ public:
             capacity_ = other.capacity_;
             allocator_ = other.allocator_;
             initPolicy_ = other.initPolicy_;
+            palette_ = other.palette_;
+            paletteFormat_ = other.paletteFormat_;
+            paletteColorCount_ = other.paletteColorCount_;
 
             other.view_.data = nullptr;
             other.view_.width = other.view_.height = 0;
             other.view_.stride = 0;
             other.capacity_ = 0;
+            other.palette_ = nullptr;
+            other.paletteFormat_ = nullptr;
+            other.paletteColorCount_ = 0;
         }
         return *this;
     }
@@ -254,23 +271,49 @@ public:
         ImageBuffer converted(view_.width, view_.height, target,
                               InitPolicy::Uninitialized, newAlloc);
         if (isValid() && converted.isValid()) {
+            // パレット情報を srcAux に設定
+            PixelAuxInfo srcAux;
+            const PixelAuxInfo* auxPtr = nullptr;
+            if (palette_) {
+                srcAux.palette = palette_;
+                srcAux.paletteFormat = paletteFormat_;
+                srcAux.paletteColorCount = paletteColorCount_;
+                auxPtr = &srcAux;
+            }
             // 行単位で変換（サブビューのストライドを正しく処理）
             for (int y = 0; y < view_.height; ++y) {
                 const uint8_t* srcRow = static_cast<const uint8_t*>(view_.data)
                                         + y * view_.stride;
                 uint8_t* dstRow = static_cast<uint8_t*>(converted.view_.data)
                                   + y * converted.view_.stride;
-                convertFormat(srcRow, view_.formatID, dstRow, target, view_.width);
+                convertFormat(srcRow, view_.formatID, dstRow, target, view_.width, auxPtr);
             }
         }
         return converted;
     }
+
+    // ========================================
+    // パレット情報（インデックスフォーマット用）
+    // ========================================
+
+    void setPalette(const void* data, PixelFormatID fmt, uint16_t count) {
+        palette_ = data;
+        paletteFormat_ = fmt;
+        paletteColorCount_ = count;
+    }
+    const void* palette() const { return palette_; }
+    PixelFormatID paletteFormat() const { return paletteFormat_; }
+    uint16_t paletteColorCount() const { return paletteColorCount_; }
 
 private:
     ViewPort view_;           // コンポジション: 画像データへのビュー
     size_t capacity_;
     core::memory::IAllocator* allocator_;
     InitPolicy initPolicy_;
+    // パレット情報（非所有ポインタ）
+    const void* palette_ = nullptr;
+    PixelFormatID paletteFormat_ = nullptr;
+    uint16_t paletteColorCount_ = 0;
 
     void allocate() {
         auto bpp = getBytesPerPixel(view_.formatID);

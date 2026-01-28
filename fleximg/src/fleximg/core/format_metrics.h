@@ -43,7 +43,9 @@ namespace FormatIdx {
     constexpr int RGB888 = 4;
     constexpr int BGR888 = 5;
     constexpr int Alpha8 = 6;
-    constexpr int Count = 7;
+    constexpr int Grayscale8 = 7;
+    constexpr int Index8 = 8;
+    constexpr int Count = 9;
 }
 
 // ========================================================================

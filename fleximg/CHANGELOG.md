@@ -1,5 +1,47 @@
 # Changelog
 
+## [2.56.0] - 2026-01-28
+
+### 機能追加
+
+- **Grayscale8 ピクセルフォーマット追加**: 8bit グレースケール（輝度チャンネル）
+  - BT.601 輝度計算: `(77*R + 150*G + 29*B + 128) >> 8`
+  - RGBA8_Straight との双方向変換対応
+  - ラウンドトリップ（Gray→RGBA→Gray）で値が保存される
+- **Index8 ピクセルフォーマット追加**: 8bit パレットインデックス（256色）
+  - `expandIndex` 関数でパレットエントリに展開（パレットフォーマット非依存）
+  - RGBA8パレット→RGBA8、RGBA8パレット→RGB565 等の変換に対応
+  - 範囲外インデックスはパレット末尾にクランプ
+- **ImageBuffer パレットサポート**: インデックスフォーマット用のパレット情報管理
+  - `setPalette()` / `palette()` / `paletteFormat()` / `paletteColorCount()` アクセサ
+  - コピー/ムーブコンストラクタ・代入でのパレット伝播
+  - `toFormat()` でパレット情報を `convertFormat` に自動的に渡す
+
+### リファクタリング
+
+- **ConvertParams → PixelAuxInfo リネーム**: 変換パラメータ構造体にパレット情報を追加
+  - `palette`（パレットデータポインタ）、`paletteFormat`（パレットエントリのフォーマット）、`paletteColorCount`（エントリ数）
+  - `ConvertParams` / `BlendParams` はエイリアスとして後方互換維持
+- **PixelFormatDescriptor 変更**: インデックスカラー対応
+  - `toStraightIndexed` / `fromStraightIndexed` を削除
+  - `expandIndex` フィールドを追加（インデックス→パレットフォーマット展開）
+- **convertFormat シグネチャ変更**: `(srcAux, dstAux)` 方式に統一
+  - インデックスフォーマットの自動展開パス追加（1段階/2段階変換）
+  - 旧引数（`srcPalette`, `dstPalette`）を廃止
+
+### WebUI
+
+- PIXEL_FORMATS に Grayscale8（Gray8）と Index8 を追加
+- Index8 はソースノードのフォーマット選択で無効化（`sourceDisabled`）
+
+### テスト
+
+- Grayscale8: プロパティ、変換、BT.601輝度計算、ラウンドトリップ（7テスト追加）
+- Index8: プロパティ、RGBA8パレット展開、2段階変換、範囲外クランプ（7テスト追加）
+- ImageBuffer: パレットアクセサ、コピー/ムーブ伝播、toFormat変換（7テスト追加）
+
+---
+
 ## [2.55.0] - 2026-01-27
 
 ### パフォーマンス改善

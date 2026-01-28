@@ -313,6 +313,12 @@ struct RenderResponse {
 | フォーマット | 用途 | 備考 |
 |-------------|------|------|
 | RGBA8_Straight | 入出力、合成、フィルタ処理 | **デフォルト** |
+| RGB565_LE/BE | 組み込みディスプレイ向け | 16bit RGB |
+| RGB888/BGR888 | メモリ順序違いの24bit RGB | |
+| RGB332 | 極小メモリ環境向け | 8bit RGB |
+| Alpha8 | マット合成のマスクチャンネル | |
+| Grayscale8 | グレースケール画像 | BT.601輝度 |
+| Index8 | パレットインデックス（256色） | `expandIndex` 経由で変換 |
 
 ## 操作モジュール
 
@@ -469,7 +475,9 @@ src/fleximg/
 │   │   ├── alpha8.h          # Alpha8
 │   │   ├── rgb565.h          # RGB565_LE/BE + ルックアップテーブル + swap16
 │   │   ├── rgb332.h          # RGB332 + ルックアップテーブル
-│   │   └── rgb888.h          # RGB888/BGR888 + swap24
+│   │   ├── rgb888.h          # RGB888/BGR888 + swap24
+│   │   ├── grayscale8.h      # Grayscale8（BT.601輝度）
+│   │   └── index8.h          # Index8（パレットインデックス）
 │   ├── viewport.h            # ViewPort
 │   ├── image_buffer.h        # ImageBuffer
 │   └── render_types.h        # RenderRequest, RenderResponse
