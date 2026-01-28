@@ -30,6 +30,8 @@
 | Grayscale8 / Index8 フォーマット | グレースケールとパレットインデックスフォーマット、ImageBufferパレットサポート | v2.56.0 |
 | AffineNodeシンプル化 | DEPRECATEDコード削除、行列保持・伝播のみに | - |
 | NinePatchオーバーラップ対応 | パッチ区間のオーバーラップ設定でアフィン変換時の隙間を防止 | - |
+| FormatConverter 変換パス事前解決 | resolveConverter で最適な変換関数を事前解決し分岐排除、thread_local 排除 | v2.57.0 |
+| SinkNode toFormat 直接書き込み最適化 | FormatConverter による直接変換書き込み（中間バッファ排除） | v2.57.0 |
 
 ## 実装予定
 
@@ -37,7 +39,6 @@
 |------|------|------|
 | VerticalBlurNodeキャッシュ幅最適化 | 上流AABBに基づくキャッシュ幅の最適化 | 座標オフセット管理の見直しが必要 |
 | フィルタパラメータ固定小数点化 | brightness/alphaのパラメータ | 組み込み移植時 |
-| SinkNode toFormat 直接書き込み最適化 | 既存の target ViewPort に直接変換結果を書き込む拡張 | 現状は一時 ImageBuffer 経由で memcpy が発生 |
 
 ## 既知の問題
 

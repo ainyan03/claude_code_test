@@ -1,5 +1,30 @@
 # Changelog
 
+## [2.57.0] - 2026-01-28
+
+### パフォーマンス改善
+
+- **FormatConverter: 変換パスの事前解決**: `convertFormat` の行単位呼び出しで毎回発生する条件分岐を排除
+  - `resolveConverter()` で最適な変換関数を事前解決し、`FormatConverter` 構造体に格納
+  - 6種の解決済み変換関数: memcpy / 1段階変換 / Index直接展開 / Index+fromStraight / Index+2段階 / 一般2段階
+  - SinkNode: `toFormat` + `view_ops::copy` → `resolveConverter` + 行単位直接書き込み（中間バッファ排除）
+  - CompositeNode: 4箇所の `convertFormat` を入力ごとの `resolveConverter` + `converter()` に統一
+  - ImageBuffer::toFormat: ループ前に1回解決し全行で再利用
+
+### リファクタリング
+
+- **thread_local 排除**: `convertFormat()` 内の `thread_local std::vector<uint8_t>` を `IAllocator` ベースの一時バッファに置換
+  - WASM（シングルスレッド）での無意味なオーバーヘッドを解消
+  - 組み込み環境（M5Stack）での互換性向上
+  - `<vector>` インクルードが不要になり削除
+- **convertFormat 内部実装の簡素化**: 70行の条件分岐を `resolveConverter` + `converter()` の2行に
+
+### テスト
+
+- FormatConverter: resolveConverter の11テスト追加（null/同一/エンディアン/RGBA8直接/一般/Index8/全ペア/bool/大量ピクセル/カスタムアロケータ）
+
+---
+
 ## [2.56.0] - 2026-01-28
 
 ### 機能追加
