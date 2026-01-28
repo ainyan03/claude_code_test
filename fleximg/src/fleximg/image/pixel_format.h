@@ -281,6 +281,69 @@ inline const char* getFormatName(PixelFormatID formatID) {
 }
 
 // ========================================================================
+// FormatConverter: 変換パスの事前解決
+// ========================================================================
+//
+// convertFormat の行単位呼び出しで毎回発生する条件分岐を排除するため、
+// Prepare 時に最適な変換関数を解決する仕組み。
+//
+// 使用例:
+//   auto converter = resolveConverter(srcFormat, dstFormat, &srcAux, allocator);
+//   if (converter) {
+//       converter(dstRow, srcRow, width);  // 分岐なし
+//   }
+//
+
+// IAllocator の前方宣言（ポインタのみ使用）
+namespace core { namespace memory { class IAllocator; } }
+
+struct FormatConverter {
+    // 解決済み変換関数（分岐なし）
+    using ConvertFunc = void(*)(void* dst, const void* src,
+                                int pixelCount, const void* ctx);
+    ConvertFunc func = nullptr;
+
+    // 解決済みコンテキスト（Prepare 時に確定）
+    struct Context {
+        // フォーマット情報（memcpy パス用）
+        uint8_t pixelsPerUnit = 1;
+        uint8_t bytesPerUnit = 4;
+
+        // パレット情報（Index 展開用）
+        const void* palette = nullptr;
+        PixelFormatID paletteFormat = nullptr;
+        uint16_t paletteColorCount = 0;
+
+        // 解決済み関数ポインタ
+        PixelFormatDescriptor::ExpandIndexFunc expandIndex = nullptr;
+        PixelFormatDescriptor::ToStraightFunc toStraight = nullptr;
+        PixelFormatDescriptor::FromStraightFunc fromStraight = nullptr;
+
+        // 中間バッファ情報（合計バイト数/ピクセル、0 なら中間バッファ不要）
+        int_fast8_t intermediateBpp = 0;
+
+        // アロケータ（中間バッファ確保用）
+        core::memory::IAllocator* allocator = nullptr;
+    } ctx;
+
+    // 行変換実行（分岐なし）
+    void operator()(void* dst, const void* src, int pixelCount) const {
+        func(dst, src, pixelCount, &ctx);
+    }
+
+    explicit operator bool() const { return func != nullptr; }
+};
+
+// 変換パス解決関数
+// srcFormat/dstFormat 間の最適な変換関数を事前解決し、FormatConverter を返す。
+// allocator が nullptr の場合は DefaultAllocator を使用。
+FormatConverter resolveConverter(
+    PixelFormatID srcFormat,
+    PixelFormatID dstFormat,
+    const PixelAuxInfo* srcAux = nullptr,
+    core::memory::IAllocator* allocator = nullptr);
+
+// ========================================================================
 // フォーマット変換
 // ========================================================================
 
@@ -366,5 +429,7 @@ inline void convertFormat(const void* src, PixelFormatID srcFormat,
 
 } // namespace FLEXIMG_NAMESPACE
 
+// FormatConverter 実装（FLEXIMG_IMPLEMENTATION ガード内）
+#include "pixel_format/format_converter.h"
 
 #endif // FLEXIMG_PIXEL_FORMAT_H
