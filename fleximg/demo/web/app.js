@@ -1224,6 +1224,53 @@ function addImageToLibrary(imageData) {
     renderContentLibrary();
 }
 
+// ネイティブフォーマット画像をライブラリに追加（Index8等）
+// nativeData: Uint8Array（ネイティブフォーマットのバイト列）
+// formatName: 'Index8' 等
+// paletteId: パレットID（Index8の場合は必須）
+function addNativeImageToLibrary(name, nativeData, width, height, formatName, paletteId = null) {
+    // コンテンツを作成（imageDataは後で設定）
+    const content = addImageContent(name, width, height, null, false);
+    content.nativeFormat = formatName;
+    content.paletteId = paletteId;
+
+    // C++側にネイティブデータとして登録
+    graphEvaluator.storeNativeImage(content.cppImageId, nativeData, width, height, formatName);
+
+    // パレット関連付け
+    if (paletteId) {
+        const pal = paletteLibrary.find(p => p.id === paletteId);
+        if (pal) {
+            graphEvaluator.setImagePalette(content.cppImageId, pal.cppImageId);
+        }
+    }
+
+    // 表示用プレビューを取得
+    updateContentPreview(content);
+
+    // UIを更新
+    renderContentLibrary();
+
+    return content;
+}
+
+// コンテンツの表示用プレビューを更新（ネイティブフォーマット→RGBA8変換）
+function updateContentPreview(content) {
+    if (!content.nativeFormat || content.nativeFormat === 'RGBA8_Straight') {
+        return;  // RGBA8ならプレビュー更新不要
+    }
+
+    // C++からRGBA8プレビューを取得
+    const rgba8Data = graphEvaluator.getImageAsRGBA8(content.cppImageId);
+    if (rgba8Data) {
+        content.imageData = {
+            data: new Uint8ClampedArray(rgba8Data),
+            width: content.width,
+            height: content.height
+        };
+    }
+}
+
 // ========================================
 // コンテンツライブラリ管理
 // ========================================
@@ -1237,6 +1284,8 @@ function addImageContent(name, width, height, imageData, isNinePatch = false) {
         width: width,
         height: height,
         imageData: imageData,
+        nativeFormat: null,            // ネイティブフォーマット（null = RGBA8）
+        paletteId: null,               // パレットID（Index8用）
         cppImageId: nextCppImageId++,  // C++側に渡す数値ID
         isNinePatch: isNinePatch       // 9patchフラグ
     };
@@ -2472,69 +2521,75 @@ function generateTestPatterns() {
         });
     }
 
-    // パターン6: 星型マスク（128x128、マット合成用）
-    // 背景透明、中央に不透明の星、輪郭部が半透明
+    // パターン6: 星型マスク（128x128、Index8として直接生成）
+    // 輝度グラデーションでインデックス値を直接計算
+    // ※ Star画像はIndex8ネイティブ形式で登録するため、patternsには追加しない
+    // ※ 後で addNativeImageToLibrary で登録する
+    let starIndexData = null;
+    const starSize = 128;
     {
-        const size = 128;
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = size;
-        tempCanvas.height = size;
-        const tempCtx = tempCanvas.getContext('2d');
-
-        // 背景を透明にクリア
-        tempCtx.clearRect(0, 0, size, size);
+        const size = starSize;
+        const indexData = new Uint8Array(size * size);
 
         const cx = size / 2;
         const cy = size / 2;
         const outerRadius = size * 0.45;  // 外側の頂点
         const innerRadius = size * 0.18;  // 内側の頂点
         const points = 5;
+        const blurRadius = 8;  // ぼかし半径
 
-        // 星型のパスを作成
-        function createStarPath(ctx, x, y, outerR, innerR, numPoints) {
-            ctx.beginPath();
-            for (let i = 0; i < numPoints * 2; i++) {
-                const radius = i % 2 === 0 ? outerR : innerR;
-                const angle = (Math.PI / numPoints) * i - Math.PI / 2;
-                const px = x + radius * Math.cos(angle);
-                const py = y + radius * Math.sin(angle);
-                if (i === 0) {
-                    ctx.moveTo(px, py);
-                } else {
-                    ctx.lineTo(px, py);
-                }
+        // 星型の境界距離を計算する関数
+        function getStarRadius(angle, outerR, innerR, numPoints) {
+            // 角度を正規化（0〜2π）
+            const a = ((angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+            // 星の頂点間の角度
+            const segmentAngle = Math.PI / numPoints;
+            // 現在の角度がどのセグメントにあるか
+            const segment = Math.floor(a / segmentAngle);
+            // セグメント内の相対角度（0〜1）
+            const t = (a - segment * segmentAngle) / segmentAngle;
+
+            // 偶数セグメントは外→内、奇数セグメントは内→外
+            if (segment % 2 === 0) {
+                return outerR * (1 - t) + innerR * t;
+            } else {
+                return innerR * (1 - t) + outerR * t;
             }
-            ctx.closePath();
         }
 
-        // 外側のぼかし効果（半透明の大きな星）
-        tempCtx.save();
-        tempCtx.shadowColor = 'rgba(255, 255, 255, 0.8)';
-        tempCtx.shadowBlur = 8;
-        tempCtx.shadowOffsetX = 0;
-        tempCtx.shadowOffsetY = 0;
-        createStarPath(tempCtx, cx, cy, outerRadius, innerRadius, points);
-        tempCtx.fillStyle = 'rgba(255, 255, 255, 1.0)';
-        tempCtx.fill();
-        tempCtx.restore();
+        for (let y = 0; y < size; y++) {
+            for (let x = 0; x < size; x++) {
+                const dx = x - cx;
+                const dy = y - cy;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                const angle = Math.atan2(dy, dx) + Math.PI / 2;  // 上向きを0度に
 
-        // 内側の不透明な星（グラデーション付き）
-        const gradient = tempCtx.createRadialGradient(cx, cy, 0, cx, cy, outerRadius);
-        gradient.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
-        gradient.addColorStop(0.7, 'rgba(255, 255, 255, 1.0)');
-        gradient.addColorStop(1, 'rgba(255, 255, 255, 0.8)');
+                // 星の境界距離
+                const starRadius = getStarRadius(angle, outerRadius, innerRadius, points);
 
-        createStarPath(tempCtx, cx, cy, outerRadius * 0.92, innerRadius * 0.92, points);
-        tempCtx.fillStyle = gradient;
-        tempCtx.fill();
+                // 距離に基づいてインデックス値を計算（0-255）
+                let index;
+                if (dist > starRadius + blurRadius) {
+                    // 完全に外側: 背景（インデックス0）
+                    index = 0;
+                } else if (dist < starRadius * 0.92) {
+                    // 星の内部: 最大値（インデックス255）
+                    index = 255;
+                } else if (dist < starRadius) {
+                    // 内側グラデーション（92%〜100%）
+                    const t = (dist - starRadius * 0.92) / (starRadius * 0.08);
+                    index = Math.floor(255 - t * 51);  // 255 → 204
+                } else {
+                    // 外側ぼかし（100%〜100%+blurRadius）
+                    const t = (dist - starRadius) / blurRadius;
+                    index = Math.floor(204 * (1 - t));  // 204 → 0
+                }
 
-        const starImageData = tempCtx.getImageData(0, 0, size, size);
-        patterns.push({
-            name: 'Star',
-            data: new Uint8ClampedArray(starImageData.data),
-            width: size,
-            height: size
-        });
+                indexData[y * size + x] = Math.max(0, Math.min(255, index));
+            }
+        }
+
+        starIndexData = indexData;
     }
 
     // パターン7: 9patch テスト画像（八角形 + タイルパターン背景）
@@ -2812,7 +2867,41 @@ function generateTestPatterns() {
         addImageToLibrary(pattern);
     });
 
-    console.log(`Generated ${patterns.length} test patterns`);
+    // Star画像用にGrayscale256パレットを登録（まだパレットがない場合）
+    let grayscalePaletteId = null;
+    if (paletteLibrary.length === 0) {
+        const preset = PRESET_PALETTES[0];  // Grayscale 256
+        if (preset) {
+            const { data, count } = preset.generate();
+            const cppImageId = nextCppImageId++;
+            const palId = 'pal-' + (nextPaletteId++);
+
+            // C++側にRGBA8画像として格納
+            if (graphEvaluator) {
+                graphEvaluator.storeImageWithFormat(cppImageId, data, count, 1, 'RGBA8_Straight');
+            }
+
+            paletteLibrary.push({
+                id: palId,
+                name: preset.name,
+                colorCount: count,
+                rgba8Data: data,
+                cppImageId: cppImageId
+            });
+
+            grayscalePaletteId = palId;
+        }
+    } else {
+        // 既存のパレットから最初のものを使用
+        grayscalePaletteId = paletteLibrary[0].id;
+    }
+
+    // Star画像をIndex8として登録
+    if (starIndexData && grayscalePaletteId) {
+        addNativeImageToLibrary('Star', starIndexData, starSize, starSize, 'Index8', grayscalePaletteId);
+    }
+
+    console.log(`Generated ${patterns.length + 1} test patterns (including Star as Index8)`);
 }
 
 // コンテンツライブラリUIを描画
