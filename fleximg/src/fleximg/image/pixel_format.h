@@ -4,7 +4,6 @@
 #include <cstdint>
 #include <cstddef>
 #include <cstring>
-#include <vector>
 #include "../core/common.h"
 
 namespace FLEXIMG_NAMESPACE {
@@ -349,81 +348,21 @@ FormatConverter resolveConverter(
 
 // 2つのフォーマット間で変換
 // - 同一フォーマット: 単純コピー
-// - エンディアン違いの兄弟: swapEndian
+// - エンディアン兄弟: swapEndian
 // - インデックスフォーマット: expandIndex → パレットフォーマット経由
 // - それ以外はStraight形式（RGBA8_Straight）経由で変換
+//
+// 内部で resolveConverter を使用して最適な変換パスを解決する。
+// 中間バッファが必要な場合は DefaultAllocator 経由で一時確保される。
 inline void convertFormat(const void* src, PixelFormatID srcFormat,
                           void* dst, PixelFormatID dstFormat,
                           int pixelCount,
                           const PixelAuxInfo* srcAux = nullptr,
                           const PixelAuxInfo* dstAux = nullptr) {
-    // 同じフォーマットの場合はコピー
-    if (srcFormat == dstFormat) {
-        if (srcFormat) {
-            size_t units = static_cast<size_t>((pixelCount + srcFormat->pixelsPerUnit - 1) / srcFormat->pixelsPerUnit);
-            std::memcpy(dst, src, units * srcFormat->bytesPerUnit);
-        }
-        return;
-    }
-
-    if (!srcFormat || !dstFormat) return;
-
-    // エンディアン違いの兄弟フォーマット → swapEndian
-    if (srcFormat->siblingEndian == dstFormat && srcFormat->swapEndian) {
-        srcFormat->swapEndian(dst, src, pixelCount, srcAux);
-        return;
-    }
-
-    // インデックスフォーマットの場合
-    if (srcFormat->expandIndex && srcAux && srcAux->palette) {
-        PixelFormatID palFmt = srcAux->paletteFormat;
-
-        if (palFmt == dstFormat) {
-            // 直接展開（1段階）: Index → パレットフォーマット == 出力フォーマット
-            srcFormat->expandIndex(dst, src, pixelCount, srcAux);
-            return;
-        }
-
-        // 2段階: Index → パレットフォーマット → 出力フォーマット
-        auto palBpp = getBytesPerPixel(palFmt);
-        thread_local std::vector<uint8_t> expandBuffer;
-        expandBuffer.resize(static_cast<size_t>(pixelCount) * static_cast<size_t>(palBpp));
-        srcFormat->expandIndex(expandBuffer.data(), src, pixelCount, srcAux);
-
-        if (palFmt == PixelFormatIDs::RGBA8_Straight) {
-            // パレットがRGBA8 → 直接 fromStraight
-            if (dstFormat->fromStraight) {
-                dstFormat->fromStraight(dst, expandBuffer.data(), pixelCount, dstAux);
-            }
-        } else {
-            // パレットフォーマット → RGBA8 → dst
-            thread_local std::vector<uint8_t> conversionBuffer;
-            conversionBuffer.resize(static_cast<size_t>(pixelCount) * 4);
-            if (palFmt->toStraight) {
-                palFmt->toStraight(conversionBuffer.data(), expandBuffer.data(), pixelCount, nullptr);
-            }
-            if (dstFormat == PixelFormatIDs::RGBA8_Straight) {
-                std::memcpy(dst, conversionBuffer.data(), static_cast<size_t>(pixelCount) * 4);
-            } else if (dstFormat->fromStraight) {
-                dstFormat->fromStraight(dst, conversionBuffer.data(), pixelCount, dstAux);
-            }
-        }
-        return;
-    }
-
-    // 非インデックス: Straight形式（RGBA8_Straight）経由で変換
-    // 一時バッファを確保（スレッドローカル）
-    thread_local std::vector<uint8_t> conversionBuffer;
-    conversionBuffer.resize(static_cast<size_t>(pixelCount) * 4);
-
-    // src → RGBA8_Straight
-    if (srcFormat->toStraight) {
-        srcFormat->toStraight(conversionBuffer.data(), src, pixelCount, srcAux);
-    }
-
-    // RGBA8_Straight → dst
-    if (dstFormat->fromStraight) {
-        dstFormat->fromStraight(dst, conversionBuffer.data(), pixelCount, dstAux);
+    (void)dstAux;  // 現在の全呼び出し箇所で未使用
+    auto converter = resolveConverter(srcFormat, dstFormat, srcAux);
+    if (converter) {
+        converter(dst, src, pixelCount);
     }
 }
 
