@@ -212,21 +212,10 @@ void SinkNode::onPushProcess(RenderResponse&& input,
         return;
     }
 
-    // ターゲットフォーマットに変換（フォーマットが異なる場合のみ）
-    // ImageBuffer::toFormat を使うことで、Index8のパレット展開等が正しく処理される
-    ImageBuffer convertedBuffer;
-    ViewPort inputView;
-
-    if (input.buffer.formatID() != target_.formatID) {
-        convertedBuffer = std::move(input.buffer).toFormat(target_.formatID);
-        inputView = convertedBuffer.view();
-    } else {
-        inputView = input.view();
-    }
-
     // 配置計算（固定小数点演算）
     // 変換式: src = buf - tx - pivot → buf = src + tx + pivot
     // 全て int_fixed (Q16.16) で演算し、最終的にピクセル座標へ変換
+    ViewPort inputView = input.view();
     int_fixed txFixed = float_to_fixed(localMatrix_.tx);
     int_fixed tyFixed = float_to_fixed(localMatrix_.ty);
     int dstX = from_fixed(input.origin.x + txFixed + pivotX_);
@@ -240,9 +229,20 @@ void SinkNode::onPushProcess(RenderResponse&& input,
     int_fast32_t copyW = std::min<int_fast32_t>(inputView.width - srcX, target_.width - dstX);
     int_fast32_t copyH = std::min<int_fast32_t>(inputView.height - srcY, target_.height - dstY);
 
-    if (copyW > 0 && copyH > 0) {
-        view_ops::copy(target_, dstX, dstY, inputView, srcX, srcY,
-                      static_cast<int>(copyW), static_cast<int>(copyH));
+    if (copyW <= 0 || copyH <= 0) return;
+
+    // FormatConverter でターゲットに直接変換書き込み
+    // （同一フォーマットは memcpy、異なる場合は解決済み変換関数で処理）
+    auto converter = resolveConverter(
+        inputView.formatID, target_.formatID,
+        &input.buffer.auxInfo(), allocator());
+
+    if (converter) {
+        for (int_fast32_t y = 0; y < copyH; ++y) {
+            const void* srcRow = inputView.pixelAt(srcX, srcY + static_cast<int>(y));
+            void* dstRow = target_.pixelAt(dstX, dstY + static_cast<int>(y));
+            converter(dstRow, srcRow, static_cast<int>(copyW));
+        }
     }
 }
 

@@ -3,6 +3,7 @@
 
 #include "doctest.h"
 #include <string>
+#include <vector>
 
 #define FLEXIMG_NAMESPACE fleximg
 #include "fleximg/image/image_buffer.h"
@@ -979,4 +980,389 @@ TEST_CASE("Index8 convertFormat with palette") {
         CHECK(dst[6] == 200);
         CHECK(dst[7] == 255);
     }
+}
+
+// =============================================================================
+// FormatConverter / resolveConverter Tests
+// =============================================================================
+
+TEST_CASE("resolveConverter: null format handling") {
+    auto conv = resolveConverter(nullptr, PixelFormatIDs::RGBA8_Straight);
+    CHECK_FALSE(conv);
+
+    conv = resolveConverter(PixelFormatIDs::RGBA8_Straight, nullptr);
+    CHECK_FALSE(conv);
+
+    conv = resolveConverter(nullptr, nullptr);
+    CHECK_FALSE(conv);
+}
+
+TEST_CASE("resolveConverter: same format (memcpy path)") {
+    const PixelFormatID formats[] = {
+        PixelFormatIDs::RGBA8_Straight,
+        PixelFormatIDs::RGB565_LE,
+        PixelFormatIDs::RGB565_BE,
+        PixelFormatIDs::RGB332,
+        PixelFormatIDs::RGB888,
+        PixelFormatIDs::Alpha8,
+        PixelFormatIDs::Grayscale8,
+        PixelFormatIDs::Index8,
+    };
+
+    for (auto fmt : formats) {
+        CAPTURE(fmt->name);
+        auto conv = resolveConverter(fmt, fmt);
+        REQUIRE(conv);
+
+        // 変換結果が memcpy と一致すること
+        uint8_t src[16] = {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0,
+                           0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88};
+        uint8_t dst[16] = {0};
+        int bpp = (fmt->bitsPerPixel + 7) / 8;
+        int count = 16 / bpp;
+        if (count > 0) {
+            conv(dst, src, count);
+            CHECK(std::memcmp(dst, src,
+                static_cast<size_t>(count) * static_cast<size_t>(bpp)) == 0);
+        }
+    }
+}
+
+TEST_CASE("resolveConverter: endian sibling (swapEndian path)") {
+    auto conv = resolveConverter(PixelFormatIDs::RGB565_LE,
+                                 PixelFormatIDs::RGB565_BE);
+    REQUIRE(conv);
+
+    // RGB565_LE → RGB565_BE: バイトスワップ
+    uint8_t src[4] = {0x1F, 0xF8, 0xE0, 0x07};  // 2 pixels
+    uint8_t dst[4] = {0};
+    conv(dst, src, 2);
+
+    CHECK(dst[0] == 0xF8);
+    CHECK(dst[1] == 0x1F);
+    CHECK(dst[2] == 0x07);
+    CHECK(dst[3] == 0xE0);
+
+    // 逆方向も確認
+    auto conv2 = resolveConverter(PixelFormatIDs::RGB565_BE,
+                                  PixelFormatIDs::RGB565_LE);
+    REQUIRE(conv2);
+
+    uint8_t dst2[4] = {0};
+    conv2(dst2, dst, 2);
+    CHECK(std::memcmp(dst2, src, 4) == 0);
+}
+
+TEST_CASE("resolveConverter: src==RGBA8 (direct fromStraight)") {
+    SUBCASE("RGBA8 → RGB565_LE") {
+        auto conv = resolveConverter(PixelFormatIDs::RGBA8_Straight,
+                                     PixelFormatIDs::RGB565_LE);
+        REQUIRE(conv);
+
+        // 赤 (255,0,0,255) → RGB565_LE
+        uint8_t src[4] = {255, 0, 0, 255};
+        uint8_t dst[2] = {0};
+        conv(dst, src, 1);
+
+        // convertFormat と一致確認
+        uint8_t ref[2] = {0};
+        convertFormat(src, PixelFormatIDs::RGBA8_Straight,
+                      ref, PixelFormatIDs::RGB565_LE, 1);
+        CHECK(dst[0] == ref[0]);
+        CHECK(dst[1] == ref[1]);
+    }
+
+    SUBCASE("RGBA8 → Grayscale8") {
+        auto conv = resolveConverter(PixelFormatIDs::RGBA8_Straight,
+                                     PixelFormatIDs::Grayscale8);
+        REQUIRE(conv);
+
+        uint8_t src[4] = {100, 150, 200, 255};
+        uint8_t dst[1] = {0};
+        conv(dst, src, 1);
+
+        uint8_t ref[1] = {0};
+        convertFormat(src, PixelFormatIDs::RGBA8_Straight,
+                      ref, PixelFormatIDs::Grayscale8, 1);
+        CHECK(dst[0] == ref[0]);
+    }
+}
+
+TEST_CASE("resolveConverter: dst==RGBA8 (direct toStraight)") {
+    SUBCASE("RGB565_LE → RGBA8") {
+        auto conv = resolveConverter(PixelFormatIDs::RGB565_LE,
+                                     PixelFormatIDs::RGBA8_Straight);
+        REQUIRE(conv);
+
+        // 赤 RGB565_LE
+        uint8_t src[2] = {0x00, 0xF8};  // R=31, G=0, B=0
+        uint8_t dst[4] = {0};
+        conv(dst, src, 1);
+
+        uint8_t ref[4] = {0};
+        convertFormat(src, PixelFormatIDs::RGB565_LE,
+                      ref, PixelFormatIDs::RGBA8_Straight, 1);
+        CHECK(std::memcmp(dst, ref, 4) == 0);
+    }
+
+    SUBCASE("Grayscale8 → RGBA8") {
+        auto conv = resolveConverter(PixelFormatIDs::Grayscale8,
+                                     PixelFormatIDs::RGBA8_Straight);
+        REQUIRE(conv);
+
+        uint8_t src[1] = {128};
+        uint8_t dst[4] = {0};
+        conv(dst, src, 1);
+
+        CHECK(dst[0] == 128);
+        CHECK(dst[1] == 128);
+        CHECK(dst[2] == 128);
+        CHECK(dst[3] == 255);
+    }
+}
+
+TEST_CASE("resolveConverter: general 2-stage (toStraight + fromStraight)") {
+    SUBCASE("RGB565_LE → RGB332") {
+        auto conv = resolveConverter(PixelFormatIDs::RGB565_LE,
+                                     PixelFormatIDs::RGB332);
+        REQUIRE(conv);
+
+        // 複数ピクセルで convertFormat と比較
+        uint8_t src[8];  // 4 pixels RGB565_LE
+        for (int i = 0; i < 8; i++) src[i] = static_cast<uint8_t>(i * 31);
+
+        uint8_t dst[4] = {0};
+        uint8_t ref[4] = {0};
+        conv(dst, src, 4);
+        convertFormat(src, PixelFormatIDs::RGB565_LE,
+                      ref, PixelFormatIDs::RGB332, 4);
+        CHECK(std::memcmp(dst, ref, 4) == 0);
+    }
+
+    SUBCASE("Grayscale8 → RGB565_LE") {
+        auto conv = resolveConverter(PixelFormatIDs::Grayscale8,
+                                     PixelFormatIDs::RGB565_LE);
+        REQUIRE(conv);
+
+        uint8_t src[3] = {0, 128, 255};
+        uint8_t dst[6] = {0};
+        uint8_t ref[6] = {0};
+        conv(dst, src, 3);
+        convertFormat(src, PixelFormatIDs::Grayscale8,
+                      ref, PixelFormatIDs::RGB565_LE, 3);
+        CHECK(std::memcmp(dst, ref, 6) == 0);
+    }
+
+    SUBCASE("RGB888 → Alpha8") {
+        auto conv = resolveConverter(PixelFormatIDs::RGB888,
+                                     PixelFormatIDs::Alpha8);
+        REQUIRE(conv);
+
+        uint8_t src[6] = {100, 150, 200, 50, 75, 100};
+        uint8_t dst[2] = {0};
+        uint8_t ref[2] = {0};
+        conv(dst, src, 2);
+        convertFormat(src, PixelFormatIDs::RGB888,
+                      ref, PixelFormatIDs::Alpha8, 2);
+        CHECK(std::memcmp(dst, ref, 2) == 0);
+    }
+}
+
+TEST_CASE("resolveConverter: Index8 with palette") {
+    // RGBA8 パレット: 赤, 緑, 青, 白
+    uint8_t palette[16] = {
+        255, 0,   0,   255,  // [0] 赤
+        0,   255, 0,   255,  // [1] 緑
+        0,   0,   255, 255,  // [2] 青
+        255, 255, 255, 255,  // [3] 白
+    };
+    PixelAuxInfo aux;
+    aux.palette = palette;
+    aux.paletteFormat = PixelFormatIDs::RGBA8_Straight;
+    aux.paletteColorCount = 4;
+
+    SUBCASE("palFmt == dstFmt (direct expand)") {
+        auto conv = resolveConverter(PixelFormatIDs::Index8,
+                                     PixelFormatIDs::RGBA8_Straight,
+                                     &aux);
+        REQUIRE(conv);
+
+        uint8_t src[3] = {0, 2, 3};
+        uint8_t dst[12] = {0};
+        conv(dst, src, 3);
+
+        // [0] = 赤
+        CHECK(dst[0] == 255); CHECK(dst[1] == 0);
+        CHECK(dst[2] == 0);   CHECK(dst[3] == 255);
+        // [2] = 青
+        CHECK(dst[4] == 0);   CHECK(dst[5] == 0);
+        CHECK(dst[6] == 255); CHECK(dst[7] == 255);
+        // [3] = 白
+        CHECK(dst[8] == 255);  CHECK(dst[9] == 255);
+        CHECK(dst[10] == 255); CHECK(dst[11] == 255);
+    }
+
+    SUBCASE("palFmt == RGBA8, dst != RGBA8 (expandIndex + fromStraight)") {
+        auto conv = resolveConverter(PixelFormatIDs::Index8,
+                                     PixelFormatIDs::RGB565_LE,
+                                     &aux);
+        REQUIRE(conv);
+
+        uint8_t src[4] = {0, 1, 2, 3};
+        uint8_t dst[8] = {0};
+        uint8_t ref[8] = {0};
+        conv(dst, src, 4);
+        convertFormat(src, PixelFormatIDs::Index8,
+                      ref, PixelFormatIDs::RGB565_LE, 4, &aux);
+        CHECK(std::memcmp(dst, ref, 8) == 0);
+    }
+
+    SUBCASE("palFmt != RGBA8 (expandIndex + toStraight + fromStraight)") {
+        // RGB565 パレット
+        uint8_t rgb565_palette[8] = {
+            0x00, 0xF8,  // [0] 赤 (RGB565_LE)
+            0xE0, 0x07,  // [1] 緑
+            0x1F, 0x00,  // [2] 青
+            0xFF, 0xFF,  // [3] 白
+        };
+        PixelAuxInfo rgb565_aux;
+        rgb565_aux.palette = rgb565_palette;
+        rgb565_aux.paletteFormat = PixelFormatIDs::RGB565_LE;
+        rgb565_aux.paletteColorCount = 4;
+
+        auto conv = resolveConverter(PixelFormatIDs::Index8,
+                                     PixelFormatIDs::RGB332,
+                                     &rgb565_aux);
+        REQUIRE(conv);
+
+        uint8_t src[4] = {0, 1, 2, 3};
+        uint8_t dst[4] = {0};
+        uint8_t ref[4] = {0};
+        conv(dst, src, 4);
+        convertFormat(src, PixelFormatIDs::Index8,
+                      ref, PixelFormatIDs::RGB332, 4, &rgb565_aux);
+        CHECK(std::memcmp(dst, ref, 4) == 0);
+    }
+
+    SUBCASE("Index8 without palette (toStraight fallback)") {
+        auto conv = resolveConverter(PixelFormatIDs::Index8,
+                                     PixelFormatIDs::RGBA8_Straight);
+        REQUIRE(conv);
+
+        uint8_t src[2] = {42, 200};
+        uint8_t dst[8] = {0};
+        conv(dst, src, 2);
+
+        // グレースケールフォールバック
+        CHECK(dst[0] == 42);  CHECK(dst[1] == 42);
+        CHECK(dst[2] == 42);  CHECK(dst[3] == 255);
+        CHECK(dst[4] == 200); CHECK(dst[5] == 200);
+        CHECK(dst[6] == 200); CHECK(dst[7] == 255);
+    }
+}
+
+TEST_CASE("resolveConverter: all format pairs match convertFormat") {
+    // 全フォーマット組み合わせで resolveConverter と convertFormat の出力を比較
+    const struct {
+        PixelFormatID id;
+        const char* name;
+    } formats[] = {
+        {PixelFormatIDs::RGBA8_Straight, "RGBA8"},
+        {PixelFormatIDs::RGB565_LE, "RGB565_LE"},
+        {PixelFormatIDs::RGB565_BE, "RGB565_BE"},
+        {PixelFormatIDs::RGB332, "RGB332"},
+        {PixelFormatIDs::RGB888, "RGB888"},
+        {PixelFormatIDs::BGR888, "BGR888"},
+        {PixelFormatIDs::Alpha8, "Alpha8"},
+        {PixelFormatIDs::Grayscale8, "Grayscale8"},
+    };
+
+    // テスト用 RGBA8 ソースデータ（4ピクセル）
+    const uint8_t rgba_src[16] = {
+        255, 0,   0,   255,  // 赤
+        0,   255, 0,   200,  // 緑（半透明）
+        0,   0,   255, 128,  // 青（半透明）
+        128, 128, 128, 255,  // グレー
+    };
+
+    for (auto& srcFmt : formats) {
+        // srcデータを作成（RGBA8からsrcFormatに変換）
+        uint8_t src_buf[16] = {0};
+        convertFormat(rgba_src, PixelFormatIDs::RGBA8_Straight,
+                      src_buf, srcFmt.id, 4);
+
+        for (auto& dstFmt : formats) {
+            CAPTURE(srcFmt.name);
+            CAPTURE(dstFmt.name);
+
+            auto conv = resolveConverter(srcFmt.id, dstFmt.id);
+            REQUIRE(conv);
+
+            int dstBpp = (dstFmt.id->bitsPerPixel + 7) / 8;
+            uint8_t dst_conv[16] = {0};
+            uint8_t dst_ref[16] = {0};
+
+            conv(dst_conv, src_buf, 4);
+            convertFormat(src_buf, srcFmt.id,
+                          dst_ref, dstFmt.id, 4);
+
+            CHECK(std::memcmp(dst_conv, dst_ref,
+                static_cast<size_t>(4) * static_cast<size_t>(dstBpp)) == 0);
+        }
+    }
+}
+
+TEST_CASE("resolveConverter: operator bool") {
+    SUBCASE("valid converter is truthy") {
+        auto conv = resolveConverter(PixelFormatIDs::RGBA8_Straight,
+                                     PixelFormatIDs::RGB565_LE);
+        CHECK(static_cast<bool>(conv));
+        CHECK(conv.func != nullptr);
+    }
+
+    SUBCASE("invalid converter is falsy") {
+        FormatConverter empty;
+        CHECK_FALSE(static_cast<bool>(empty));
+        CHECK(empty.func == nullptr);
+    }
+}
+
+TEST_CASE("resolveConverter: large pixel count") {
+    auto conv = resolveConverter(PixelFormatIDs::RGB565_LE,
+                                 PixelFormatIDs::RGBA8_Straight);
+    REQUIRE(conv);
+
+    const int count = 320;
+    std::vector<uint8_t> src(static_cast<size_t>(count) * 2);
+    for (size_t i = 0; i < src.size(); i++) {
+        src[i] = static_cast<uint8_t>(i & 0xFF);
+    }
+
+    std::vector<uint8_t> dst_conv(static_cast<size_t>(count) * 4, 0);
+    std::vector<uint8_t> dst_ref(static_cast<size_t>(count) * 4, 0);
+
+    conv(dst_conv.data(), src.data(), count);
+    convertFormat(src.data(), PixelFormatIDs::RGB565_LE,
+                  dst_ref.data(), PixelFormatIDs::RGBA8_Straight, count);
+
+    CHECK(dst_conv == dst_ref);
+}
+
+TEST_CASE("resolveConverter: custom allocator") {
+    // カスタムアロケータを渡しても正しく動作すること
+    core::memory::DefaultAllocator alloc;
+
+    auto conv = resolveConverter(PixelFormatIDs::RGB565_LE,
+                                 PixelFormatIDs::RGB332,
+                                 nullptr, &alloc);
+    REQUIRE(conv);
+    CHECK(conv.ctx.allocator == &alloc);
+
+    uint8_t src[4] = {0x00, 0xF8, 0xFF, 0xFF};
+    uint8_t dst[2] = {0};
+    uint8_t ref[2] = {0};
+    conv(dst, src, 2);
+    convertFormat(src, PixelFormatIDs::RGB565_LE,
+                  ref, PixelFormatIDs::RGB332, 2);
+    CHECK(std::memcmp(dst, ref, 2) == 0);
 }

@@ -4,7 +4,6 @@
 #include <cstdint>
 #include <cstddef>
 #include <cstring>
-#include <vector>
 #include "../core/common.h"
 
 namespace FLEXIMG_NAMESPACE {
@@ -281,90 +280,95 @@ inline const char* getFormatName(PixelFormatID formatID) {
 }
 
 // ========================================================================
+// FormatConverter: 変換パスの事前解決
+// ========================================================================
+//
+// convertFormat の行単位呼び出しで毎回発生する条件分岐を排除するため、
+// Prepare 時に最適な変換関数を解決する仕組み。
+//
+// 使用例:
+//   auto converter = resolveConverter(srcFormat, dstFormat, &srcAux, allocator);
+//   if (converter) {
+//       converter(dstRow, srcRow, width);  // 分岐なし
+//   }
+//
+
+// IAllocator の前方宣言（ポインタのみ使用）
+namespace core { namespace memory { class IAllocator; } }
+
+struct FormatConverter {
+    // 解決済み変換関数（分岐なし）
+    using ConvertFunc = void(*)(void* dst, const void* src,
+                                int pixelCount, const void* ctx);
+    ConvertFunc func = nullptr;
+
+    // 解決済みコンテキスト（Prepare 時に確定）
+    struct Context {
+        // フォーマット情報（memcpy パス用）
+        uint8_t pixelsPerUnit = 1;
+        uint8_t bytesPerUnit = 4;
+
+        // パレット情報（Index 展開用）
+        const void* palette = nullptr;
+        PixelFormatID paletteFormat = nullptr;
+        uint16_t paletteColorCount = 0;
+
+        // 解決済み関数ポインタ
+        PixelFormatDescriptor::ExpandIndexFunc expandIndex = nullptr;
+        PixelFormatDescriptor::ToStraightFunc toStraight = nullptr;
+        PixelFormatDescriptor::FromStraightFunc fromStraight = nullptr;
+
+        // 中間バッファ情報（合計バイト数/ピクセル、0 なら中間バッファ不要）
+        int_fast8_t intermediateBpp = 0;
+
+        // アロケータ（中間バッファ確保用）
+        core::memory::IAllocator* allocator = nullptr;
+    } ctx;
+
+    // 行変換実行（分岐なし）
+    void operator()(void* dst, const void* src, int pixelCount) const {
+        func(dst, src, pixelCount, &ctx);
+    }
+
+    explicit operator bool() const { return func != nullptr; }
+};
+
+// 変換パス解決関数
+// srcFormat/dstFormat 間の最適な変換関数を事前解決し、FormatConverter を返す。
+// allocator が nullptr の場合は DefaultAllocator を使用。
+FormatConverter resolveConverter(
+    PixelFormatID srcFormat,
+    PixelFormatID dstFormat,
+    const PixelAuxInfo* srcAux = nullptr,
+    core::memory::IAllocator* allocator = nullptr);
+
+// ========================================================================
 // フォーマット変換
 // ========================================================================
 
 // 2つのフォーマット間で変換
 // - 同一フォーマット: 単純コピー
-// - エンディアン違いの兄弟: swapEndian
+// - エンディアン兄弟: swapEndian
 // - インデックスフォーマット: expandIndex → パレットフォーマット経由
 // - それ以外はStraight形式（RGBA8_Straight）経由で変換
+//
+// 内部で resolveConverter を使用して最適な変換パスを解決する。
+// 中間バッファが必要な場合は DefaultAllocator 経由で一時確保される。
 inline void convertFormat(const void* src, PixelFormatID srcFormat,
                           void* dst, PixelFormatID dstFormat,
                           int pixelCount,
                           const PixelAuxInfo* srcAux = nullptr,
                           const PixelAuxInfo* dstAux = nullptr) {
-    // 同じフォーマットの場合はコピー
-    if (srcFormat == dstFormat) {
-        if (srcFormat) {
-            size_t units = static_cast<size_t>((pixelCount + srcFormat->pixelsPerUnit - 1) / srcFormat->pixelsPerUnit);
-            std::memcpy(dst, src, units * srcFormat->bytesPerUnit);
-        }
-        return;
-    }
-
-    if (!srcFormat || !dstFormat) return;
-
-    // エンディアン違いの兄弟フォーマット → swapEndian
-    if (srcFormat->siblingEndian == dstFormat && srcFormat->swapEndian) {
-        srcFormat->swapEndian(dst, src, pixelCount, srcAux);
-        return;
-    }
-
-    // インデックスフォーマットの場合
-    if (srcFormat->expandIndex && srcAux && srcAux->palette) {
-        PixelFormatID palFmt = srcAux->paletteFormat;
-
-        if (palFmt == dstFormat) {
-            // 直接展開（1段階）: Index → パレットフォーマット == 出力フォーマット
-            srcFormat->expandIndex(dst, src, pixelCount, srcAux);
-            return;
-        }
-
-        // 2段階: Index → パレットフォーマット → 出力フォーマット
-        auto palBpp = getBytesPerPixel(palFmt);
-        thread_local std::vector<uint8_t> expandBuffer;
-        expandBuffer.resize(static_cast<size_t>(pixelCount) * static_cast<size_t>(palBpp));
-        srcFormat->expandIndex(expandBuffer.data(), src, pixelCount, srcAux);
-
-        if (palFmt == PixelFormatIDs::RGBA8_Straight) {
-            // パレットがRGBA8 → 直接 fromStraight
-            if (dstFormat->fromStraight) {
-                dstFormat->fromStraight(dst, expandBuffer.data(), pixelCount, dstAux);
-            }
-        } else {
-            // パレットフォーマット → RGBA8 → dst
-            thread_local std::vector<uint8_t> conversionBuffer;
-            conversionBuffer.resize(static_cast<size_t>(pixelCount) * 4);
-            if (palFmt->toStraight) {
-                palFmt->toStraight(conversionBuffer.data(), expandBuffer.data(), pixelCount, nullptr);
-            }
-            if (dstFormat == PixelFormatIDs::RGBA8_Straight) {
-                std::memcpy(dst, conversionBuffer.data(), static_cast<size_t>(pixelCount) * 4);
-            } else if (dstFormat->fromStraight) {
-                dstFormat->fromStraight(dst, conversionBuffer.data(), pixelCount, dstAux);
-            }
-        }
-        return;
-    }
-
-    // 非インデックス: Straight形式（RGBA8_Straight）経由で変換
-    // 一時バッファを確保（スレッドローカル）
-    thread_local std::vector<uint8_t> conversionBuffer;
-    conversionBuffer.resize(static_cast<size_t>(pixelCount) * 4);
-
-    // src → RGBA8_Straight
-    if (srcFormat->toStraight) {
-        srcFormat->toStraight(conversionBuffer.data(), src, pixelCount, srcAux);
-    }
-
-    // RGBA8_Straight → dst
-    if (dstFormat->fromStraight) {
-        dstFormat->fromStraight(dst, conversionBuffer.data(), pixelCount, dstAux);
+    (void)dstAux;  // 現在の全呼び出し箇所で未使用
+    auto converter = resolveConverter(srcFormat, dstFormat, srcAux);
+    if (converter) {
+        converter(dst, src, pixelCount);
     }
 }
 
 } // namespace FLEXIMG_NAMESPACE
 
+// FormatConverter 実装（FLEXIMG_IMPLEMENTATION ガード内）
+#include "pixel_format/format_converter.h"
 
 #endif // FLEXIMG_PIXEL_FORMAT_H

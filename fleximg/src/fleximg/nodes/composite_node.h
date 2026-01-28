@@ -43,7 +43,7 @@ namespace FLEXIMG_NAMESPACE {
 class CompositeNode : public Node, public AffineCapability {
 public:
     explicit CompositeNode(int_fast16_t inputCount = 2) {
-        initPorts(inputCount, 1);  // 入力N、出力1
+        initPorts(static_cast<int>(inputCount), 1);  // 入力N、出力1
     }
 
     // ========================================
@@ -56,7 +56,7 @@ public:
         inputs_.resize(static_cast<size_t>(count));
         for (int_fast16_t i = 0; i < count; ++i) {
             if (inputs_[static_cast<size_t>(i)].owner == nullptr) {
-                inputs_[static_cast<size_t>(i)] = Port(this, i);
+                inputs_[static_cast<size_t>(i)] = Port(this, static_cast<int>(i));
             }
         }
     }
@@ -371,18 +371,24 @@ RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
         uint8_t* dstRow = canvasRow + static_cast<size_t>(dstStartX) * bytesPerPixel;
         PixelFormatID srcFmt = inputResult.view().formatID;
 
+        // 入力ごとに変換パスを解決（分岐なしの変換関数を取得）
+        auto converter = resolveConverter(
+            srcFmt, canvasFormat,
+            &inputResult.buffer.auxInfo(), allocator());
+
         // 今回の描画範囲
         int curEndX = dstStartX + copyWidth;
 
         if (isFirstContent) {
             // 初回: 変換コピーのみ（余白ゼロクリア不要、cropViewで切り捨て）
-            FLEXIMG_NAMESPACE::convertFormat(srcRow, srcFmt, dstRow, canvasFormat, copyWidth,
-                                             &inputResult.buffer.auxInfo());
+            if (converter) {
+                converter(dstRow, srcRow, copyWidth);
+            }
             validStartX = dstStartX;
             validEndX = curEndX;
             isFirstContent = false;
         } else {
-            // 2回目以降: 非重複領域はconvertFormat、重複領域のみblend
+            // 2回目以降: 非重複領域はconvert、重複領域のみblend
             const auto* srcBytes = static_cast<const uint8_t*>(srcRow);
             size_t srcBpp = static_cast<size_t>(getBytesPerPixel(srcFmt));
 
@@ -390,7 +396,7 @@ RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
             int overlapEnd   = std::min(curEndX, validEndX);
 
             if (overlapStart >= overlapEnd) {
-                // 完全非重複: ギャップ領域をゼロクリアしてconvertFormat
+                // 完全非重複: ギャップ領域をゼロクリアしてconvert
                 if (curEndX <= validStartX) {
                     // 新規が左側: ギャップ [curEndX, validStartX)
                     std::memset(canvasRow + static_cast<size_t>(curEndX) * bytesPerPixel, 0,
@@ -400,18 +406,16 @@ RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
                     std::memset(canvasRow + static_cast<size_t>(validEndX) * bytesPerPixel, 0,
                                 static_cast<size_t>(dstStartX - validEndX) * bytesPerPixel);
                 }
-                FLEXIMG_NAMESPACE::convertFormat(srcRow, srcFmt, dstRow, canvasFormat, copyWidth,
-                                                 &inputResult.buffer.auxInfo());
+                if (converter) {
+                    converter(dstRow, srcRow, copyWidth);
+                }
             } else {
                 // 重複あり: 3分割処理
                 // 左側非重複 [dstStartX, overlapStart)
                 int leftWidth = overlapStart - dstStartX;
-                if (leftWidth > 0) {
-                    FLEXIMG_NAMESPACE::convertFormat(
-                        srcBytes, srcFmt,
-                        canvasRow + static_cast<size_t>(dstStartX) * bytesPerPixel,
-                        canvasFormat, leftWidth,
-                        &inputResult.buffer.auxInfo());
+                if (leftWidth > 0 && converter) {
+                    converter(canvasRow + static_cast<size_t>(dstStartX) * bytesPerPixel,
+                              srcBytes, leftWidth);
                 }
 
                 // 重複領域 [overlapStart, overlapEnd)
@@ -431,13 +435,11 @@ RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
 
                 // 右側非重複 [overlapEnd, curEndX)
                 int rightWidth = curEndX - overlapEnd;
-                if (rightWidth > 0) {
+                if (rightWidth > 0 && converter) {
                     int rightSrcOffset = overlapEnd - dstStartX;
-                    FLEXIMG_NAMESPACE::convertFormat(
-                        srcBytes + static_cast<size_t>(rightSrcOffset) * srcBpp, srcFmt,
-                        canvasRow + static_cast<size_t>(overlapEnd) * bytesPerPixel,
-                        canvasFormat, rightWidth,
-                        &inputResult.buffer.auxInfo());
+                    converter(canvasRow + static_cast<size_t>(overlapEnd) * bytesPerPixel,
+                              srcBytes + static_cast<size_t>(rightSrcOffset) * srcBpp,
+                              rightWidth);
                 }
             }
 

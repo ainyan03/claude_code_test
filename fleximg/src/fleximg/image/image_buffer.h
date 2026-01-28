@@ -261,13 +261,16 @@ public:
                               InitPolicy::Uninitialized, newAlloc);
         if (isValid() && converted.isValid()) {
             const PixelAuxInfo* auxPtr = auxInfo_.palette ? &auxInfo_ : nullptr;
-            // 行単位で変換（サブビューのストライドを正しく処理）
-            for (int y = 0; y < view_.height; ++y) {
-                const uint8_t* srcRow = static_cast<const uint8_t*>(view_.data)
-                                        + y * view_.stride;
-                uint8_t* dstRow = static_cast<uint8_t*>(converted.view_.data)
-                                  + y * converted.view_.stride;
-                convertFormat(srcRow, view_.formatID, dstRow, target, view_.width, auxPtr);
+            // 変換パスを事前解決し、行単位で変換（ストライドを正しく処理）
+            auto converter = resolveConverter(view_.formatID, target, auxPtr, newAlloc);
+            if (converter) {
+                for (int y = 0; y < view_.height; ++y) {
+                    const uint8_t* srcRow = static_cast<const uint8_t*>(view_.data)
+                                            + y * view_.stride;
+                    uint8_t* dstRow = static_cast<uint8_t*>(converted.view_.data)
+                                      + y * converted.view_.stride;
+                    converter(dstRow, srcRow, view_.width);
+                }
             }
         }
         return converted;
