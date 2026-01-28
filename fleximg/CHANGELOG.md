@@ -29,15 +29,28 @@
   - インデックスフォーマットの自動展開パス追加（1段階/2段階変換）
   - 旧引数（`srcPalette`, `dstPalette`）を廃止
 
+### バグ修正
+
+- **Index8 toStraight 追加**: パレットなし時にグレースケールフォールバック（`idx → R=G=B=idx, A=255`）を提供
+  - 修正前: `toStraight` が nullptr で `convertFormat` の conversionBuffer が更新されず、先頭行が全行に繰り返し表示されていた
+  - パレット設定時は `expandIndex` パスが先に評価されるため影響なし
+- **SinkNode 非アフィンパスのフォーマット変換**: Source→Renderer→Sink 直結時にパレット情報が喪失する問題を修正
+  - `ImageBuffer::toFormat` を使用し、アフィンパスと同様にパレット展開を含むフォーマット変換を実施
+
 ### WebUI
 
 - PIXEL_FORMATS に Grayscale8（Gray8）と Index8 を追加
-- Index8 はソースノードのフォーマット選択で無効化（`sourceDisabled`）
+- Index8 はソースノードでのみ選択可能（Sinkのフォーマット選択では `sinkDisabled`）
+- パレットライブラリ: プリセットパレット（Grayscale256, WebSafe216, 8色）の追加・管理
+- ソースノード詳細パネルにパレット選択UI
+- パレット状態の保存・復元（Base64シリアライゼーション）
 
 ### テスト
 
 - Grayscale8: プロパティ、変換、BT.601輝度計算、ラウンドトリップ（7テスト追加）
 - Index8: プロパティ、RGBA8パレット展開、2段階変換、範囲外クランプ（7テスト追加）
+- Index8 toStraight: グレースケール展開、ラウンドトリップ、stale buffer 再現（2テスト追加）
+- Index8 convertFormat with palette: 直接展開、クランプ、パイプラインシミュレーション（4テスト追加）
 - ImageBuffer: パレットアクセサ、コピー/ムーブ伝播、toFormat変換（7テスト追加）
 
 ---
