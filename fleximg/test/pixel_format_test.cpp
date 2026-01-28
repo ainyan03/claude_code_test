@@ -3,6 +3,7 @@
 
 #include "doctest.h"
 #include <string>
+#include <vector>
 
 #define FLEXIMG_NAMESPACE fleximg
 #include "fleximg/image/image_buffer.h"
