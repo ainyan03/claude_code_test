@@ -1233,6 +1233,8 @@ function addNativeImageToLibrary(name, nativeData, width, height, formatName, pa
     const content = addImageContent(name, width, height, null, false);
     content.nativeFormat = formatName;
     content.paletteId = paletteId;
+    // 元のネイティブデータを保持（フォーマット変換用）
+    content.nativeData = new Uint8Array(nativeData);
 
     // C++側にネイティブデータとして登録
     graphEvaluator.storeNativeImage(content.cppImageId, nativeData, width, height, formatName);
@@ -5566,6 +5568,12 @@ function buildImageDetailContent(node) {
     });
 }
 
+// 1Byte/Pixelフォーマットかどうかを判定
+function is1BytePerPixelFormat(formatName) {
+    return formatName === 'Index8' || formatName === 'Alpha8' ||
+           formatName === 'Grayscale8' || formatName === 'RGB332';
+}
+
 // ピクセルフォーマット変更時の処理
 function onPixelFormatChange(node, formatId) {
     if (node.type !== 'image') return;
@@ -5574,7 +5582,23 @@ function onPixelFormatChange(node, formatId) {
 
     // 画像を再登録（バインディング層で変換）
     const content = contentLibrary.find(c => c.id === node.contentId);
-    if (content && content.imageData) {
+    if (!content) return;
+
+    // nativeDataがあり、1Byte/Pixel同士の変換なら元データを再利用
+    if (content.nativeData && is1BytePerPixelFormat(formatId)) {
+        // 元のバイト列をそのまま新しいフォーマットとして再登録
+        graphEvaluator.storeNativeImage(
+            content.cppImageId,
+            content.nativeData,
+            content.width,
+            content.height,
+            formatId
+        );
+        content.nativeFormat = formatId;
+        // プレビューを更新
+        updateContentPreview(content);
+    } else if (content.imageData) {
+        // RGBA8からの変換
         graphEvaluator.storeImageWithFormat(
             content.cppImageId,
             content.imageData.data,
@@ -5586,9 +5610,11 @@ function onPixelFormatChange(node, formatId) {
 
     // Index8でなくなった場合、パレット関連付けを解除
     if (formatId !== 'Index8') {
-        if (node.paletteId) {
+        // nodeとcontent両方のpaletteIdをクリア
+        if (node.paletteId || content.paletteId) {
             node.paletteId = null;
-            if (content && graphEvaluator) {
+            content.paletteId = null;
+            if (graphEvaluator) {
                 graphEvaluator.clearImagePalette(content.cppImageId);
             }
         }
@@ -6354,6 +6380,12 @@ function getAppState() {
             height: content.height,
             cppImageId: content.cppImageId,
             isNinePatch: content.isNinePatch || false,  // 9patchフラグを保存
+            nativeFormat: content.nativeFormat || null,  // ネイティブフォーマット
+            paletteId: content.paletteId || null,        // パレットID
+            // nativeDataをBase64でエンコード（存在する場合）
+            nativeDataBase64: content.nativeData
+                ? btoa(String.fromCharCode.apply(null, content.nativeData))
+                : null,
             // 画像コンテンツのみimageDataを保存（出力バッファは再生成）
             dataURL: content.type === 'image' && content.imageData
                 ? imageDataToDataURL(content.imageData)
@@ -6597,35 +6629,69 @@ async function restoreAppState(state) {
             height: contentState.height,
             cppImageId: contentState.cppImageId,
             isNinePatch: contentState.isNinePatch || false,  // 9patchフラグを復元
+            nativeFormat: contentState.nativeFormat || null,
+            paletteId: contentState.paletteId || null,
+            nativeData: null,
             imageData: null
         };
 
+        // nativeDataをBase64からデコード（存在する場合）
+        if (contentState.nativeDataBase64) {
+            const binaryStr = atob(contentState.nativeDataBase64);
+            content.nativeData = new Uint8Array(binaryStr.length);
+            for (let i = 0; i < binaryStr.length; i++) {
+                content.nativeData[i] = binaryStr.charCodeAt(i);
+            }
+        }
+
         // 画像コンテンツのみ画像データを復元
         if (contentState.type === 'image') {
-            let dataURL = contentState.dataURL;
-
-            // 画像データがない場合、LocalStorageから同じIDのコンテンツを探す
-            if (!dataURL) {
-                const localContent = localContents.find(lc => lc.id === contentState.id);
-                if (localContent && localContent.dataURL) {
-                    dataURL = localContent.dataURL;
-                    console.log(`Image content ${contentState.id} (${contentState.name}) loaded from LocalStorage`);
-                }
-            }
-
-            if (dataURL) {
-                content.imageData = await dataURLToImageData(dataURL, contentState.width, contentState.height);
-                // C++側に画像を登録（cppImageIdを使用）
-                graphEvaluator.storeImage(
+            // nativeDataがあり、ネイティブフォーマットが設定されている場合
+            if (content.nativeData && content.nativeFormat) {
+                // ネイティブデータとして登録
+                graphEvaluator.storeNativeImage(
                     content.cppImageId,
-                    content.imageData.data,
+                    content.nativeData,
                     content.width,
-                    content.height
+                    content.height,
+                    content.nativeFormat
                 );
+                // パレット関連付け
+                if (content.paletteId) {
+                    const pal = paletteLibrary.find(p => p.id === content.paletteId);
+                    if (pal) {
+                        graphEvaluator.setImagePalette(content.cppImageId, pal.cppImageId);
+                    }
+                }
+                // プレビュー用にRGBA8取得
+                updateContentPreview(content);
             } else {
-                // 画像データが見つからない場合は警告
-                missingImages.push(contentState.name);
-                console.warn(`Image content ${contentState.id} (${contentState.name}) not found in LocalStorage`);
+                // 通常の画像データ復元
+                let dataURL = contentState.dataURL;
+
+                // 画像データがない場合、LocalStorageから同じIDのコンテンツを探す
+                if (!dataURL) {
+                    const localContent = localContents.find(lc => lc.id === contentState.id);
+                    if (localContent && localContent.dataURL) {
+                        dataURL = localContent.dataURL;
+                        console.log(`Image content ${contentState.id} (${contentState.name}) loaded from LocalStorage`);
+                    }
+                }
+
+                if (dataURL) {
+                    content.imageData = await dataURLToImageData(dataURL, contentState.width, contentState.height);
+                    // C++側に画像を登録（cppImageIdを使用）
+                    graphEvaluator.storeImage(
+                        content.cppImageId,
+                        content.imageData.data,
+                        content.width,
+                        content.height
+                    );
+                } else {
+                    // 画像データが見つからない場合は警告
+                    missingImages.push(contentState.name);
+                    console.warn(`Image content ${contentState.id} (${contentState.name}) not found in LocalStorage`);
+                }
             }
         }
         // 出力バッファはimageDataはnull（レンダリング時に生成）
