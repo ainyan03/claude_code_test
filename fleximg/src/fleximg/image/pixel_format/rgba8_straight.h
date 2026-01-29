@@ -253,17 +253,24 @@ handle_dstA_255:
         s += 4;
 
         // 4ピクセル単位でスキップ
-        while (pixelCount >= 4) {
-            uint_fast8_t a0 = d[3];
-            uint_fast8_t a1 = d[7];
-            uint_fast8_t a2 = d[11];
-            uint_fast8_t a3 = d[15];
-            if ((a0 & a1 & a2 & a3) != 255) break;
-            d += 16;
-            s += 16;
-            pixelCount -= 4;
+        auto plimit = pixelCount >> 2;
+        if (plimit) {
+            auto d_start = d;
+            do {
+                uint_fast8_t a0 = d[3];
+                uint_fast8_t a1 = d[7];
+                uint_fast8_t a2 = d[11];
+                uint_fast8_t a3 = d[15];
+                if ((a0 & a1 & a2 & a3) != 255) break;
+                d += 16;
+            } while (--plimit);
+            if (d != d_start) {
+                auto pindex = (d - d_start) >> 2;
+                pixelCount -= pindex;
+                if (pixelCount <= 0) return;
+                s += pindex * 4;
+            }
         }
-        if (pixelCount <= 0) return;
 
         dstA = d[3];
         goto check_dstA;
@@ -281,21 +288,28 @@ handle_dstA_0:
         s += 4;
 
         // 4ピクセル単位でコピー
-        while (pixelCount >= 4) {
-            uint_fast8_t a0 = d[3];
-            uint_fast8_t a1 = d[7];
-            uint_fast8_t a2 = d[11];
-            uint_fast8_t a3 = d[15];
-            if ((a0 | a1 | a2 | a3) != 0) break;
-            *reinterpret_cast<uint32_t*>(d + 0) = *reinterpret_cast<const uint32_t*>(s + 0);
-            *reinterpret_cast<uint32_t*>(d + 4) = *reinterpret_cast<const uint32_t*>(s + 4);
-            *reinterpret_cast<uint32_t*>(d + 8) = *reinterpret_cast<const uint32_t*>(s + 8);
-            *reinterpret_cast<uint32_t*>(d + 12) = *reinterpret_cast<const uint32_t*>(s + 12);
-            d += 16;
-            s += 16;
-            pixelCount -= 4;
+        auto plimit = pixelCount >> 2;
+        if (plimit) {
+            auto s_start = s;
+            do {
+                uint_fast8_t a0 = d[3];
+                uint_fast8_t a1 = d[7];
+                uint_fast8_t a2 = d[11];
+                uint_fast8_t a3 = d[15];
+                if ((a0 | a1 | a2 | a3) != 0) break;
+                reinterpret_cast<uint32_t*>(d)[0] = reinterpret_cast<const uint32_t*>(s)[0];
+                reinterpret_cast<uint32_t*>(d)[1] = reinterpret_cast<const uint32_t*>(s)[1];
+                reinterpret_cast<uint32_t*>(d)[2] = reinterpret_cast<const uint32_t*>(s)[2];
+                reinterpret_cast<uint32_t*>(d)[3] = reinterpret_cast<const uint32_t*>(s)[3];
+                d += 16;
+                s += 16;
+            } while (--plimit);
+            if (s != s_start) {
+                auto pindex = (s - s_start);
+                pixelCount -= pindex >> 2;
+                if (pixelCount <= 0) return;
+            }
         }
-        if (pixelCount <= 0) return;
 
         dstA = d[3];
         goto check_dstA;
