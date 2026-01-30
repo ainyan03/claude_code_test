@@ -356,7 +356,7 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
                                           PixelFormatIDs::Alpha8, FormatConversion::PreferReference);
     }
 
-    // 全面0判定（行スキャン）
+    // 全面0判定（行スキャン）+ 有効範囲へのcrop
     ViewPort maskView = maskResult.view();
     const uint8_t* maskData = static_cast<const uint8_t*>(maskView.data);
     int maskLeftSkip = 0, maskRightSkip = 0;
@@ -372,6 +372,16 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
         return RenderResponse(ImageBuffer(), request.origin);
     }
 
+    // マスクを有効範囲にcrop（左右の0領域をスキップ）
+    if (maskLeftSkip > 0 || maskRightSkip > 0) {
+        maskResult.buffer.cropView(
+            static_cast<int_fast16_t>(maskLeftSkip), 0,
+            static_cast<int_fast16_t>(maskEffectiveWidth),
+            static_cast<int_fast16_t>(maskView.height));
+        maskResult.origin.x += to_fixed(maskLeftSkip);
+        maskView = maskResult.view();  // cropされたビューを再取得
+    }
+
     // ========================================================================
     // Step 2: bg取得・出力領域計算
     // ========================================================================
@@ -381,7 +391,7 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
         bgResult = bgNode->pullProcess(request);
     }
 
-    // 出力領域計算（mask ∪ bg）
+    // 出力領域計算（cropされたmask ∪ bg）
     int_fixed unionMinX = maskResult.origin.x;
     int_fixed unionMinY = maskResult.origin.y;
     int_fixed unionMaxX = unionMinX + to_fixed(maskView.width);
