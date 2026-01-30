@@ -89,8 +89,10 @@ blend:
     //   color = (d * dstW + s * srcW) >> 8        // シフトで除算を代替
     //
     // 精度: 最大誤差±1（90%以上が完全一致）
+    //
+    // do-whileで末尾デクリメント: breakした時点でpixelCountはまだ減っていない
     // ========================================================================
-    while (--pixelCount >= 0) {
+    do {
         dstA = d[3];
         srcA = s[3];
         if (dstA == 255) break;
@@ -126,7 +128,7 @@ blend:
 
         d += 4;
         s += 4;
-    }
+    } while (--pixelCount > 0);
     if (pixelCount <= 0) return;
     if (srcA == 0) goto handle_srcA_0;
     if (dstA == 0) goto handle_dstA_0;
