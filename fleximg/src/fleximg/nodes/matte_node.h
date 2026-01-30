@@ -610,11 +610,15 @@ static inline void processRowNoFg(
 blend:
     // ブレンドループ: do-whileで末尾デクリメント
     // breakした時点でpixelCountはまだ減っていない
+    --m;
+    d -= 4;
     do {
+        ++m;
         alpha = *m;
-        uint32_t d32 = *reinterpret_cast<uint32_t*>(d);
+        d += 4;
         if (alpha == 0) break;
         if (alpha == 255) break;
+        uint32_t d32 = *reinterpret_cast<uint32_t*>(d);
         // bgフェードのみ（fgなし）: out = bg * (1-alpha)
         // 256スケール正規化: inv_a_256 = 256 - (alpha + (alpha >> 7))
         // 精度: 91.6%が完全一致、最大誤差±1
@@ -626,8 +630,6 @@ blend:
         *reinterpret_cast<uint32_t*>(d) = d32_odd;
         d[0] = static_cast<uint8_t>(d32_even >> 8);
         d[2] = static_cast<uint8_t>(d32_even >> 24);
-        ++m;
-        d += 4;
     } while (--pixelCount > 0);
     if (pixelCount <= 0) return;
     if (alpha == 0) goto handle_alpha_0;
@@ -642,21 +644,21 @@ handle_alpha_255:
     // 4px単位で透明書き込み
     {
         auto plimit = pixelCount >> 2;
-        if (plimit && alpha == 255) {
+        if (plimit && alpha == 255 && (reinterpret_cast<uintptr_t>(m) & 3) == 0) {
+            uint32_t m32 = reinterpret_cast<const uint32_t*>(m)[0];
             auto m_start = m;
             do {
-                uint_fast8_t a1 = m[1], a2 = m[2], a3 = m[3];
-                if ((alpha & a1 & a2 & a3) != 255) break;
-                reinterpret_cast<uint32_t*>(d)[0] = 0;
-                reinterpret_cast<uint32_t*>(d)[1] = 0;
-                reinterpret_cast<uint32_t*>(d)[2] = 0;
-                reinterpret_cast<uint32_t*>(d)[3] = 0;
-                m += 4; d += 16;
-                alpha = *m;
+                if (m32 != 0xFFFFFFFFu) break;
+                m32 = reinterpret_cast<const uint32_t*>(m)[1];
+                m += 4;
             } while (--plimit);
             if (m != m_start) {
-                pixelCount -= static_cast<int_fast16_t>(m - m_start);
+                auto len = static_cast<int>(m - m_start);
+                std::memset(d, 0, static_cast<size_t>(len) * 4);
+                pixelCount -= static_cast<int_fast16_t>(len);
                 if (pixelCount <= 0) return;
+                alpha = static_cast<uint_fast8_t>(m32);
+                d += len * 4;
             }
         }
     }
@@ -671,18 +673,19 @@ handle_alpha_0:
     // 4px単位スキップ
     {
         auto plimit = pixelCount >> 2;
-        if (plimit && alpha == 0) {
+        if (plimit && alpha == 0 && (reinterpret_cast<uintptr_t>(m) & 3) == 0) {
+            uint32_t m32 = reinterpret_cast<const uint32_t*>(m)[0];
             auto m_start = m;
             do {
-                uint_fast8_t a1 = m[1], a2 = m[2], a3 = m[3];
-                if ((alpha | a1 | a2 | a3) != 0) break;
+                if (m32 != 0) break;
+                m32 = reinterpret_cast<const uint32_t*>(m)[1];
                 m += 4;
-                alpha = *m;
             } while (--plimit);
             if (m != m_start) {
                 int skipped = static_cast<int>(m - m_start);
                 pixelCount -= static_cast<int_fast16_t>(skipped);
                 if (pixelCount <= 0) return;
+                alpha = static_cast<uint_fast8_t>(m32);
                 d += skipped * 4;
             }
         }
@@ -714,12 +717,18 @@ static inline void processRowWithFg(
 blend:
     // ブレンドループ: do-whileで末尾デクリメント
     // breakした時点でpixelCountはまだ減っていない
+    --m;
+    d -= 4;
+    s -= 4;
     do {
+        ++m;
         alpha = *m;
-        uint32_t d32 = *reinterpret_cast<uint32_t*>(d);
-        uint32_t s32 = *reinterpret_cast<const uint32_t*>(s);
+        d += 4;
+        s += 4;
         if (alpha == 0) break;
         if (alpha == 255) break;
+        uint32_t d32 = *reinterpret_cast<uint32_t*>(d);
+        uint32_t s32 = *reinterpret_cast<const uint32_t*>(s);
         // fg/bg両方のブレンド: out = bg*(1-alpha) + fg*alpha
         // 256スケール正規化: alpha_256 = alpha + (alpha >> 7)
         // 精度: 91.6%が完全一致、最大誤差±1
@@ -734,9 +743,6 @@ blend:
         *reinterpret_cast<uint32_t*>(d) = d32_odd;
         d[0] = static_cast<uint8_t>(d32_even >> 8);
         d[2] = static_cast<uint8_t>(d32_even >> 24);
-        ++m;
-        d += 4;
-        s += 4;
     } while (--pixelCount > 0);
     if (pixelCount <= 0) return;
     if (alpha == 0) goto handle_alpha_0;
@@ -751,21 +757,22 @@ handle_alpha_255:
     // 4px単位コピー
     {
         auto plimit = pixelCount >> 2;
-        if (plimit && alpha == 255) {
+        if (plimit && alpha == 255 && (reinterpret_cast<uintptr_t>(m) & 3) == 0) {
+            uint32_t m32 = reinterpret_cast<const uint32_t*>(m)[0];
             auto m_start = m;
             do {
-                uint_fast8_t a1 = m[1], a2 = m[2], a3 = m[3];
-                if ((alpha & a1 & a2 & a3) != 255) break;
-                reinterpret_cast<uint32_t*>(d)[0] = reinterpret_cast<const uint32_t*>(s)[0];
-                reinterpret_cast<uint32_t*>(d)[1] = reinterpret_cast<const uint32_t*>(s)[1];
-                reinterpret_cast<uint32_t*>(d)[2] = reinterpret_cast<const uint32_t*>(s)[2];
-                reinterpret_cast<uint32_t*>(d)[3] = reinterpret_cast<const uint32_t*>(s)[3];
-                m += 4; d += 16; s += 16;
-                alpha = *m;
+                if (m32 != 0xFFFFFFFFu) break;
+                m32 = reinterpret_cast<const uint32_t*>(m)[1];
+                m += 4;
             } while (--plimit);
             if (m != m_start) {
-                pixelCount -= static_cast<int_fast16_t>(m - m_start);
+                auto len = static_cast<int>(m - m_start);
+                memcpy(d, s, static_cast<size_t>(len) * 4);
+                pixelCount -= static_cast<int_fast16_t>(len);
                 if (pixelCount <= 0) return;
+                alpha = static_cast<uint_fast8_t>(m32);
+                d += len * 4;
+                s += len * 4;
             }
         }
     }
@@ -780,18 +787,19 @@ handle_alpha_0:
     // 4px単位スキップ
     {
         auto plimit = pixelCount >> 2;
-        if (plimit && alpha == 0) {
+        if (plimit && alpha == 0 && (reinterpret_cast<uintptr_t>(m) & 3) == 0) {
+            uint32_t m32 = reinterpret_cast<const uint32_t*>(m)[0];
             auto m_start = m;
             do {
-                uint_fast8_t a1 = m[1], a2 = m[2], a3 = m[3];
-                if ((alpha | a1 | a2 | a3) != 0) break;
+                if (m32 != 0) break;
+                m32 = reinterpret_cast<const uint32_t*>(m)[1];
                 m += 4;
-                alpha = *m;
             } while (--plimit);
             if (m != m_start) {
                 int skipped = static_cast<int>(m - m_start);
                 pixelCount -= static_cast<int_fast16_t>(skipped);
                 if (pixelCount <= 0) return;
+                alpha = static_cast<uint_fast8_t>(m32);
                 d += skipped * 4;
                 s += skipped * 4;
             }
