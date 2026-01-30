@@ -71,36 +71,62 @@ protected:
     RenderResponse onPullProcess(const RenderRequest& request) override;
 
 private:
-    // 255での除算を高速化（誤差なし）
-    // (x * 257 + 256) >> 16 は x / 255 と等価（0-65025の範囲で）
-    static inline uint8_t div255(uint32_t x) {
-        return static_cast<uint8_t>((x * 257 + 256) >> 16);
-    }
+    // ========================================
+    // ヘルパー構造体・関数
+    // ========================================
 
-    // マット合成の実処理（最適化版）
-    void applyMatteComposite(ImageBuffer& output, const RenderRequest& request,
-                             const RenderResponse& fg, const RenderResponse& bg,
-                             const RenderResponse& mask);
+    // 入力画像のビュー情報（座標変換済み）
+    struct InputView {
+        const uint8_t* ptr = nullptr;
+        int width = 0, height = 0, stride = 0;
+        int offsetX = 0, offsetY = 0;
 
-    // 行の一部領域をコピー（alpha=0またはalpha=255用）
-    void copyRowRegion(uint8_t* outRow,
-                       const uint8_t* srcRowBase, int srcOffsetX, int srcWidth,
-                       int xStart, int xEnd);
+        bool valid() const { return ptr != nullptr; }
 
-    // 最適化版ブレンド処理（範囲事前計算で境界チェックを削減）
-    void blendPixelsOptimized(uint8_t* outRow, int xStart, int xEnd, uint8_t alpha,
-                              const uint8_t* fgRowBase, int fgOffsetX, int fgWidth,
-                              const uint8_t* bgRowBase, int bgOffsetX, int bgWidth);
+        // 指定Y座標の行ポインタ（範囲外ならnullptr）
+        const uint8_t* rowAt(int y) const {
+            int srcY = y - offsetY;
+            if (static_cast<unsigned>(srcY) >= static_cast<unsigned>(height)) return nullptr;
+            return ptr + srcY * stride;
+        }
 
-    // 画像を出力バッファにコピー（高速パス用、スキャンライン = height==1 前提）
-    void copyImageToOutput(uint8_t* outPtr, int outWidth,
-                           const uint8_t* srcPtr, int srcStride, int srcWidth, int srcHeight,
-                           int offsetX, int offsetY);
+        // RenderResponseから構築
+        static InputView from(const RenderResponse& resp, int_fixed outOriginX, int_fixed outOriginY) {
+            InputView v;
+            if (!resp.isValid()) return v;
+            ViewPort vp = resp.view();
+            v.ptr = static_cast<const uint8_t*>(vp.data);
+            v.width = vp.width;
+            v.height = vp.height;
+            v.stride = vp.stride;
+            v.offsetX = from_fixed(resp.origin.x - outOriginX);
+            v.offsetY = from_fixed(resp.origin.y - outOriginY);
+            return v;
+        }
+    };
 
-    // Union領域にクリッピングした結果を作成（マスクなし時の高速パス）
-    RenderResponse createClippedResult(const RenderResponse& src,
-                                     int_fixed unionOriginX, int_fixed unionOriginY,
-                                     int unionWidth, int unionHeight);
+    // マスクの左右0スキップ範囲をスキャン（4バイト単位、アライメント対応）
+    // 戻り値: 有効範囲の幅（0なら全面0）
+    static int scanMaskZeroRanges(const uint8_t* maskData, int maskWidth,
+                                  int& outLeftSkip, int& outRightSkip);
+
+    // ========================================
+    // 合成処理
+    // ========================================
+
+    // マット合成の実処理（スキャンライン単位、height==1前提）
+    void applyMatteComposite(ImageBuffer& output, int outWidth,
+                             const InputView& fg, const InputView& bg, const InputView& mask);
+
+    // 行の一部領域をコピー（RGBA8、alpha=0/255用）
+    static void copyRowRegion(uint8_t* outRow,
+                              const uint8_t* srcRowBase, int srcOffsetX, int srcWidth,
+                              int xStart, int xEnd);
+
+    // ブレンド処理（中間alpha値用）
+    static void blendPixels(uint8_t* outRow, int xStart, int xEnd, uint8_t alpha,
+                            const uint8_t* fgRowBase, int fgOffsetX, int fgWidth,
+                            const uint8_t* bgRowBase, int bgOffsetX, int bgWidth);
 };
 
 } // namespace FLEXIMG_NAMESPACE
@@ -191,16 +217,11 @@ void MatteNode::onPullFinalize() {
 }
 
 RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
-    // 注意: FLEXIMG_METRICS_SCOPEは上流呼び出し後に配置
-    // （上流の処理時間を含めないため）
-
-    Node* fgNode = upstreamNode(0);    // 前景 (foreground)
-    Node* bgNode = upstreamNode(1);    // 背景 (background)
+    Node* fgNode = upstreamNode(0);    // 前景
+    Node* bgNode = upstreamNode(1);    // 背景
     Node* maskNode = upstreamNode(2);  // マスク
 
-    // ========================================
-    // Step 1: マスクを最初に評価（request範囲で要求）
-    // ========================================
+    // Step 1: マスク取得
     RenderResponse maskResult;
     if (maskNode) {
         maskResult = maskNode->pullProcess(request);
@@ -210,49 +231,26 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
         }
     }
 
-    // マスクが空の場合: 背景をそのまま返す（早期リターン）
+    // マスクなし → 背景をそのまま返す
     if (!maskResult.isValid()) {
-        if (bgNode) {
-            return bgNode->pullProcess(request);
-        }
-        // 空の結果でもoriginは維持
-        return RenderResponse(ImageBuffer(), request.origin);
+        return bgNode ? bgNode->pullProcess(request)
+                      : RenderResponse(ImageBuffer(), request.origin);
     }
 
-    // ========================================
-    // マスクの有効範囲をスキャン（スキャンライン = 高さ1前提）
-    // ========================================
+    // Step 2: マスクの有効範囲をスキャン
     ViewPort maskView = maskResult.view();
     const uint8_t* maskData = static_cast<const uint8_t*>(maskView.data);
-    const int maskWidth = maskView.width;
+    int maskLeftSkip = 0, maskRightSkip = 0;
+    int maskEffectiveWidth = scanMaskZeroRanges(maskData, maskView.width,
+                                                 maskLeftSkip, maskRightSkip);
 
-    // 左端から0が連続する範囲
-    int maskLeftSkip = 0;
-    while (maskLeftSkip < maskWidth && maskData[maskLeftSkip] == 0) {
-        maskLeftSkip++;
+    // 全面0 → 背景をそのまま返す
+    if (maskEffectiveWidth == 0) {
+        return bgNode ? bgNode->pullProcess(request)
+                      : RenderResponse(ImageBuffer(), request.origin);
     }
 
-    // 全て0なら早期リターン（背景のみ）
-    if (maskLeftSkip >= maskWidth) {
-        if (bgNode) {
-            return bgNode->pullProcess(request);
-        }
-        return RenderResponse(ImageBuffer(), request.origin);
-    }
-
-    // 右端から0が連続する範囲
-    int maskRightSkip = 0;
-    while (maskRightSkip < maskWidth - maskLeftSkip &&
-           maskData[maskWidth - 1 - maskRightSkip] == 0) {
-        maskRightSkip++;
-    }
-
-    // 有効範囲
-    const int maskEffectiveWidth = maskWidth - maskLeftSkip - maskRightSkip;
-
-    // ========================================
-    // Step 2: 背景を評価（request範囲で要求）
-    // ========================================
+    // Step 3: 背景取得
     RenderResponse bgResult;
     if (bgNode) {
         bgResult = bgNode->pullProcess(request);
@@ -262,58 +260,30 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
         }
     }
 
-    // ========================================
-    // Step 3: 出力領域を計算（背景 ∪ マスク）
-    // ========================================
-    int_fixed unionMinX, unionMinY, unionMaxX, unionMaxY;
-    bool hasUnion = false;
+    // Step 4: 出力領域計算（マスク ∪ 背景）
+    int_fixed unionMinX = maskResult.origin.x;
+    int_fixed unionMinY = maskResult.origin.y;
+    int_fixed unionMaxX = unionMinX + to_fixed(maskView.width);
+    int_fixed unionMaxY = unionMinY + to_fixed(maskView.height);
 
-    auto updateUnion = [&](const RenderResponse& result) {
-        if (!result.isValid()) return;
-        ViewPort v = result.view();
-        // 新座標系: originはバッファ左上のワールド座標
-        int_fixed minX = result.origin.x;
-        int_fixed minY = result.origin.y;
-        int_fixed maxX = result.origin.x + to_fixed(v.width);
-        int_fixed maxY = result.origin.y + to_fixed(v.height);
-
-        if (!hasUnion) {
-            unionMinX = minX;
-            unionMinY = minY;
-            unionMaxX = maxX;
-            unionMaxY = maxY;
-            hasUnion = true;
-        } else {
-            if (minX < unionMinX) unionMinX = minX;
-            if (minY < unionMinY) unionMinY = minY;
-            if (maxX > unionMaxX) unionMaxX = maxX;
-            if (maxY > unionMaxY) unionMaxY = maxY;
-        }
-    };
-
-    updateUnion(maskResult);  // マスク範囲
-    updateUnion(bgResult);    // 背景範囲
-
-    // Union領域がない場合（両方空）
-    if (!hasUnion) {
-        // 空の結果でもoriginは維持
-        return RenderResponse(ImageBuffer(), request.origin);
+    if (bgResult.isValid()) {
+        ViewPort bgView = bgResult.view();
+        int_fixed bgMinX = bgResult.origin.x;
+        int_fixed bgMinY = bgResult.origin.y;
+        int_fixed bgMaxX = bgMinX + to_fixed(bgView.width);
+        int_fixed bgMaxY = bgMinY + to_fixed(bgView.height);
+        if (bgMinX < unionMinX) unionMinX = bgMinX;
+        if (bgMinY < unionMinY) unionMinY = bgMinY;
+        if (bgMaxX > unionMaxX) unionMaxX = bgMaxX;
+        if (bgMaxY > unionMaxY) unionMaxY = bgMaxY;
     }
 
     int unionWidth = from_fixed(unionMaxX - unionMinX);
     int unionHeight = from_fixed(unionMaxY - unionMinY);
-    // 新座標系: originはバッファ左上のワールド座標
-    int_fixed unionOriginX = unionMinX;
-    int_fixed unionOriginY = unionMinY;
 
-    // ========================================
-    // Step 4: 前景を評価（マスク有効範囲で要求）← 最適化ポイント
-    // ========================================
+    // Step 5: 前景取得（マスク有効範囲のみ）
     RenderResponse fgResult;
     if (fgNode) {
-        // マスクの有効範囲でのみ前景を要求
-        // 新座標系: originはバッファ左上のワールド座標なので、
-        // 左端がleftSkip分右にずれる → origin.xをleftSkip分増やす
         RenderRequest fgRequest;
         fgRequest.width = static_cast<int16_t>(maskEffectiveWidth);
         fgRequest.height = maskView.height;
@@ -327,10 +297,7 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
         }
     }
 
-    // ========================================
-    // Step 5: 出力バッファを確保しマット合成
-    // ========================================
-    // ここからMatteNode自身の処理を計測（上流呼び出しは計測対象外）
+    // Step 6: 合成
     FLEXIMG_METRICS_SCOPE(NodeType::Matte);
 
     ImageBuffer outputBuf(unionWidth, unionHeight, PixelFormatIDs::RGBA8_Straight,
@@ -341,166 +308,172 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
         outputBuf.totalBytes(), outputBuf.width(), outputBuf.height());
 #endif
 
-    RenderRequest unionRequest;
-    unionRequest.width = static_cast<int16_t>(unionWidth);
-    unionRequest.height = static_cast<int16_t>(unionHeight);
-    unionRequest.origin = Point{unionOriginX, unionOriginY};
+    // InputViewを構築
+    InputView fgView = InputView::from(fgResult, unionMinX, unionMinY);
+    InputView bgView = InputView::from(bgResult, unionMinX, unionMinY);
+    InputView maskInputView = InputView::from(maskResult, unionMinX, unionMinY);
 
-    applyMatteComposite(outputBuf, unionRequest,
-                       fgResult, bgResult, maskResult);
+    applyMatteComposite(outputBuf, unionWidth, fgView, bgView, maskInputView);
 
-    return RenderResponse(std::move(outputBuf), Point{unionOriginX, unionOriginY});
+    return RenderResponse(std::move(outputBuf), Point{unionMinX, unionMinY});
 }
 
 // ============================================================================
-// MatteNode - private ヘルパーメソッド実装
+// MatteNode - ヘルパー関数実装
 // ============================================================================
 
-void MatteNode::applyMatteComposite(ImageBuffer& output, const RenderRequest& request,
-                                    const RenderResponse& fg, const RenderResponse& bg,
-                                    const RenderResponse& mask) {
-    ViewPort outView = output.view();
-    uint8_t* outPtr = static_cast<uint8_t*>(outView.data);
-    const int outStride = outView.stride;
-    const int outWidth = request.width;
-    const int outHeight = request.height;
-
-    // ========================================
-    // 最適化1: 座標オフセットの事前計算
-    // ========================================
-    // 入力座標 = 出力ピクセル - from_fixed(outOrigin) + from_fixed(inputOrigin)
-    // オフセット = from_fixed(inputOrigin - outOrigin)
-    const int_fixed outOriginX = request.origin.x;
-    const int_fixed outOriginY = request.origin.y;
-
-    // 各入力のビュー情報
-    const uint8_t* fgPtr = nullptr;
-    const uint8_t* bgPtr = nullptr;
-    const uint8_t* maskPtr = nullptr;
-    int fgWidth = 0, fgHeight = 0, fgStride = 0;
-    int bgWidth = 0, bgHeight = 0, bgStride = 0;
-    int maskWidth = 0, maskHeight = 0, maskStride = 0;
-    int fgOffsetX = 0, fgOffsetY = 0;
-    int bgOffsetX = 0, bgOffsetY = 0;
-    int maskOffsetX = 0, maskOffsetY = 0;
-
-    if (fg.isValid()) {
-        ViewPort v = fg.view();
-        fgPtr = static_cast<const uint8_t*>(v.data);
-        fgWidth = v.width;
-        fgHeight = v.height;
-        fgStride = v.stride;
-        fgOffsetX = from_fixed(fg.origin.x - outOriginX);
-        fgOffsetY = from_fixed(fg.origin.y - outOriginY);
-    }
-    if (bg.isValid()) {
-        ViewPort v = bg.view();
-        bgPtr = static_cast<const uint8_t*>(v.data);
-        bgWidth = v.width;
-        bgHeight = v.height;
-        bgStride = v.stride;
-        bgOffsetX = from_fixed(bg.origin.x - outOriginX);
-        bgOffsetY = from_fixed(bg.origin.y - outOriginY);
-    }
-    if (mask.isValid()) {
-        ViewPort v = mask.view();
-        maskPtr = static_cast<const uint8_t*>(v.data);
-        maskWidth = v.width;
-        maskHeight = v.height;
-        maskStride = v.stride;
-        maskOffsetX = from_fixed(mask.origin.x - outOriginX);
-        maskOffsetY = from_fixed(mask.origin.y - outOriginY);
-    }
-
-    // ========================================
-    // 最適化2: 特殊ケースの高速パス
-    // ========================================
-
-    // ケース: マスクがない → 全面背景（alpha=0）
-    if (!maskPtr) {
-        if (!bgPtr) {
-            // 背景もない → 全面透明黒
-            std::memset(outPtr, 0, static_cast<size_t>(outHeight) * static_cast<size_t>(outStride));
-            return;
+int MatteNode::scanMaskZeroRanges(const uint8_t* maskData, int maskWidth,
+                                  int& outLeftSkip, int& outRightSkip) {
+    // 左端からの0スキップ（4バイト単位、アライメント対応）
+    int leftSkip = 0;
+    {
+        // Phase 1: アライメントまで1バイトずつ
+        uintptr_t addr = reinterpret_cast<uintptr_t>(maskData);
+        int misalign = static_cast<int>(addr & 3);
+        if (misalign != 0) {
+            int alignBytes = 4 - misalign;
+            while (alignBytes > 0 && leftSkip < maskWidth && maskData[leftSkip] == 0) {
+                ++leftSkip;
+                --alignBytes;
+            }
+            if (leftSkip < maskWidth && maskData[leftSkip] != 0) {
+                outLeftSkip = leftSkip;
+                outRightSkip = 0;
+                // 右スキップも計算して返す
+                goto scan_right;
+            }
         }
-        // 背景のみコピー
-        copyImageToOutput(outPtr, outWidth,
-                          bgPtr, bgStride, bgWidth, bgHeight,
-                          bgOffsetX, bgOffsetY);
-        return;
+
+        // Phase 2: 4バイト単位
+        {
+            auto plimit = (maskWidth - leftSkip) >> 2;
+            if (plimit) {
+                const uint32_t* p32 = reinterpret_cast<const uint32_t*>(maskData + leftSkip);
+                while (plimit > 0 && *p32 == 0) {
+                    ++p32;
+                    leftSkip += 4;
+                    --plimit;
+                }
+            }
+        }
+
+        // Phase 3: 残りを1バイトずつ
+        while (leftSkip < maskWidth && maskData[leftSkip] == 0) {
+            ++leftSkip;
+        }
     }
 
-    // ========================================
-    // 最適化3: ランレングス処理（スキャンライン = height==1 前提）
-    // ========================================
-    // マスク値の連続領域を検出し、0/255の連続はmemcpyで高速処理
+    // 全面0なら終了
+    if (leftSkip >= maskWidth) {
+        outLeftSkip = maskWidth;
+        outRightSkip = 0;
+        return 0;
+    }
 
-    // height==1前提: ループ不要、y=0固定
-    (void)outHeight;  // 未使用警告抑制
+scan_right:
+    outLeftSkip = leftSkip;
 
-    uint8_t* outRow = outPtr;
+    // 右端からの0スキップ（4バイト単位、アライメント対応）
+    int rightSkip = 0;
+    {
+        const int limit = maskWidth - leftSkip;
 
-    // 行ポインタ（Y範囲外ならnullptr）
-    const uint8_t* fgRowBase = (static_cast<unsigned>(fgOffsetY) < static_cast<unsigned>(fgHeight))
-                               ? fgPtr + fgOffsetY * fgStride : nullptr;
-    const uint8_t* bgRowBase = (static_cast<unsigned>(bgOffsetY) < static_cast<unsigned>(bgHeight))
-                               ? bgPtr + bgOffsetY * bgStride : nullptr;
-    const uint8_t* maskRowBase = (static_cast<unsigned>(maskOffsetY) < static_cast<unsigned>(maskHeight))
-                                 ? maskPtr + maskOffsetY * maskStride : nullptr;
+        // Phase 1: アライメントまで1バイトずつ
+        uintptr_t endAddr = reinterpret_cast<uintptr_t>(maskData + maskWidth);
+        int misalign = static_cast<int>(endAddr & 3);
+        if (misalign != 0) {
+            while (misalign > 0 && rightSkip < limit && maskData[maskWidth - 1 - rightSkip] == 0) {
+                ++rightSkip;
+                --misalign;
+            }
+            if (rightSkip < limit && maskData[maskWidth - 1 - rightSkip] != 0) {
+                outRightSkip = rightSkip;
+                return maskWidth - leftSkip - rightSkip;
+            }
+        }
 
-    // マスク行が無効な場合は全面alpha=0（背景のみ）
+        // Phase 2: 4バイト単位
+        {
+            auto plimit = (limit - rightSkip) >> 2;
+            if (plimit) {
+                const uint32_t* p32 = reinterpret_cast<const uint32_t*>(maskData + maskWidth - rightSkip) - 1;
+                while (plimit > 0 && *p32 == 0) {
+                    --p32;
+                    rightSkip += 4;
+                    --plimit;
+                }
+            }
+        }
+
+        // Phase 3: 残りを1バイトずつ
+        while (rightSkip < limit && maskData[maskWidth - 1 - rightSkip] == 0) {
+            ++rightSkip;
+        }
+    }
+
+    outRightSkip = rightSkip;
+    return maskWidth - leftSkip - rightSkip;
+}
+
+// ============================================================================
+// MatteNode - 合成処理実装
+// ============================================================================
+
+void MatteNode::applyMatteComposite(ImageBuffer& output, int outWidth,
+                                    const InputView& fg, const InputView& bg, const InputView& mask) {
+    ViewPort outView = output.view();
+    uint8_t* outRow = static_cast<uint8_t*>(outView.data);
+
+    // マスクがない場合 → 全面背景
+    const uint8_t* maskRowBase = mask.rowAt(0);
     if (!maskRowBase) {
-        copyRowRegion(outRow, bgRowBase, bgOffsetX, bgWidth, 0, outWidth);
+        const uint8_t* bgRowBase = bg.rowAt(0);
+        copyRowRegion(outRow, bgRowBase, bg.offsetX, bg.width, 0, outWidth);
         return;
     }
+
+    // 各入力の行ポインタ
+    const uint8_t* fgRowBase = fg.rowAt(0);
+    const uint8_t* bgRowBase = bg.rowAt(0);
 
     // マスクの有効X範囲（出力座標系）
-    // 新座標系: maskOffsetX = マスク左上 - 出力左上（出力座標系でのマスク左端位置）
-    const int maskXStart = std::max(0, maskOffsetX);
-    const int maskXEnd = std::min(outWidth, maskWidth + maskOffsetX);
+    const int maskXStart = std::max(0, mask.offsetX);
+    const int maskXEnd = std::min(outWidth, mask.width + mask.offsetX);
 
-    // マスク範囲外の左側（alpha=0）→背景のみ
+    // マスク範囲外の左側 → 背景のみ
     if (maskXStart > 0) {
-        copyRowRegion(outRow, bgRowBase, bgOffsetX, bgWidth, 0, maskXStart);
+        copyRowRegion(outRow, bgRowBase, bg.offsetX, bg.width, 0, maskXStart);
     }
 
-    // オフセット適用済みポインタ（ループ内でのオフセット計算を削減）
-    // 新座標系: 出力のmaskXStartに対応するマスクのインデックス = maskXStart - maskOffsetX
-    const uint8_t* maskP = maskRowBase + (maskXStart - maskOffsetX);
-    const uint8_t* const maskPEnd = maskRowBase + (maskXEnd - maskOffsetX);
-
+    // マスクポインタ設定
+    const uint8_t* maskP = maskRowBase + (maskXStart - mask.offsetX);
+    const uint8_t* const maskPEnd = maskRowBase + (maskXEnd - mask.offsetX);
     int x = maskXStart;
 
-    // ランレングス処理ループ
+    // ランレングス処理
     while (maskP < maskPEnd) {
         const uint8_t runAlpha = *maskP;
         const int runStart = x;
 
-        // 同じalpha値が続く限り進む
-        do {
-            ++maskP;
-            ++x;
-        } while (maskP < maskPEnd && *maskP == runAlpha);
+        // 同じalpha値の連続を検出
+        do { ++maskP; ++x; } while (maskP < maskPEnd && *maskP == runAlpha);
 
         const int runEnd = x;
 
         if (runAlpha == 0) {
-            // 背景のみコピー
-            copyRowRegion(outRow, bgRowBase, bgOffsetX, bgWidth, runStart, runEnd);
+            copyRowRegion(outRow, bgRowBase, bg.offsetX, bg.width, runStart, runEnd);
         } else if (runAlpha == 255) {
-            // 前景のみコピー
-            copyRowRegion(outRow, fgRowBase, fgOffsetX, fgWidth, runStart, runEnd);
+            copyRowRegion(outRow, fgRowBase, fg.offsetX, fg.width, runStart, runEnd);
         } else {
-            // 中間値: ブレンド処理
-            blendPixelsOptimized(outRow, runStart, runEnd, runAlpha,
-                                 fgRowBase, fgOffsetX, fgWidth,
-                                 bgRowBase, bgOffsetX, bgWidth);
+            blendPixels(outRow, runStart, runEnd, runAlpha,
+                        fgRowBase, fg.offsetX, fg.width,
+                        bgRowBase, bg.offsetX, bg.width);
         }
     }
 
-    // マスク範囲外の右側（alpha=0）→背景のみ
+    // マスク範囲外の右側 → 背景のみ
     if (maskXEnd < outWidth) {
-        copyRowRegion(outRow, bgRowBase, bgOffsetX, bgWidth, maskXEnd, outWidth);
+        copyRowRegion(outRow, bgRowBase, bg.offsetX, bg.width, maskXEnd, outWidth);
     }
 }
 
@@ -537,7 +510,7 @@ void MatteNode::copyRowRegion(uint8_t* outRow,
     }
 }
 
-void MatteNode::blendPixelsOptimized(uint8_t* outRow, int xStart, int xEnd, uint8_t alpha,
+void MatteNode::blendPixels(uint8_t* outRow, int xStart, int xEnd, uint8_t alpha,
                                      const uint8_t* fgRowBase, int fgOffsetX, int fgWidth,
                                      const uint8_t* bgRowBase, int bgOffsetX, int bgWidth) {
     const uint32_t a = alpha;
@@ -569,83 +542,15 @@ void MatteNode::blendPixelsOptimized(uint8_t* outRow, int xStart, int xEnd, uint
             bgR = bgP[0] * inv_a; bgG = bgP[1] * inv_a; bgB = bgP[2] * inv_a; bgA = bgP[3] * inv_a;
         }
 
-        outP[0] = div255(fgR + bgR);
-        outP[1] = div255(fgG + bgG);
-        outP[2] = div255(fgB + bgB);
-        outP[3] = div255(fgA + bgA);
+        outP[0] = static_cast<uint8_t>((fgR + bgR) / 255);
+        outP[1] = static_cast<uint8_t>((fgG + bgG) / 255);
+        outP[2] = static_cast<uint8_t>((fgB + bgB) / 255);
+        outP[3] = static_cast<uint8_t>((fgA + bgA) / 255);
 
         outP += 4;
         if (fgP) fgP += 4;
         if (bgP) bgP += 4;
     }
-}
-
-void MatteNode::copyImageToOutput(uint8_t* outPtr, int outWidth,
-                                  const uint8_t* srcPtr, int srcStride, int srcWidth, int srcHeight,
-                                  int offsetX, int offsetY) {
-    uint8_t* outRow = outPtr;
-    const int srcY = offsetY;  // y=0 + offsetY
-
-    if (srcY < 0 || srcY >= srcHeight) {
-        // 範囲外 → 透明黒
-        std::memset(outRow, 0, static_cast<size_t>(outWidth) * 4);
-        return;
-    }
-
-    const uint8_t* srcRow = srcPtr + srcY * srcStride;
-
-    // X範囲を計算
-    // 新座標系: offsetX = ソース左上 - 出力左上（出力座標系でのソース左端位置）
-    const int xStart = std::max(0, offsetX);
-    const int xEnd = std::min(outWidth, srcWidth + offsetX);
-
-    // 左側の透明部分
-    if (xStart > 0) {
-        std::memset(outRow, 0, static_cast<size_t>(xStart) * 4);
-    }
-
-    // 有効部分をコピー
-    if (xEnd > xStart) {
-        std::memcpy(outRow + xStart * 4,
-                    srcRow + (xStart - offsetX) * 4,
-                    static_cast<size_t>(xEnd - xStart) * 4);
-    }
-
-    // 右側の透明部分
-    if (xEnd < outWidth) {
-        std::memset(outRow + xEnd * 4, 0, static_cast<size_t>(outWidth - xEnd) * 4);
-    }
-}
-
-RenderResponse MatteNode::createClippedResult(const RenderResponse& src,
-                                            int_fixed unionOriginX, int_fixed unionOriginY,
-                                            int unionWidth, int unionHeight) {
-    ImageBuffer outputBuf(unionWidth, unionHeight, PixelFormatIDs::RGBA8_Straight,
-                          InitPolicy::Uninitialized, allocator_);
-
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-    PerfMetrics::instance().nodes[NodeType::Matte].recordAlloc(
-        outputBuf.totalBytes(), outputBuf.width(), outputBuf.height());
-#endif
-
-    ViewPort srcView = src.view();
-    const uint8_t* srcPtr = static_cast<const uint8_t*>(srcView.data);
-    const int srcStride = srcView.stride;
-    const int srcWidth = srcView.width;
-    const int srcHeight = srcView.height;
-
-    ViewPort outView = outputBuf.view();
-    uint8_t* outPtr = static_cast<uint8_t*>(outView.data);
-
-    // オフセット計算
-    const int offsetX = from_fixed(src.origin.x - unionOriginX);
-    const int offsetY = from_fixed(src.origin.y - unionOriginY);
-
-    copyImageToOutput(outPtr, unionWidth,
-                      srcPtr, srcStride, srcWidth, srcHeight,
-                      offsetX, offsetY);
-
-    return RenderResponse(std::move(outputBuf), Point{unionOriginX, unionOriginY});
 }
 
 } // namespace FLEXIMG_NAMESPACE
