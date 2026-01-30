@@ -1063,85 +1063,29 @@ static void initBackgroundBuffer() {
 }
 
 // =============================================================================
-// Matte Composite Benchmark (applyMatteComposite equivalent)
+// Matte Composite Benchmark (applyMatteOverlay equivalent)
 // =============================================================================
 
-// Copy row region (RGBA8, for alpha=0 or alpha=255)
-static void matteCompositeCopyRow(uint8_t* outRow,
-                                  const uint8_t* srcRow, int srcWidth,
-                                  int xStart, int xEnd) {
-    if (!srcRow) {
-        std::memset(outRow + xStart * 4, 0, static_cast<size_t>(xEnd - xStart) * 4);
-        return;
-    }
-    // Assume srcRow covers the full width (no offset handling for simplicity)
-    if (xEnd > srcWidth) xEnd = srcWidth;
-    if (xStart < xEnd) {
-        std::memcpy(outRow + xStart * 4, srcRow + xStart * 4,
-                    static_cast<size_t>(xEnd - xStart) * 4);
-    }
-}
-
-// Blend pixels (for intermediate alpha values)
-static void matteCompositeBlendRow(uint8_t* outRow, int xStart, int xEnd, uint8_t alpha,
-                                   const uint8_t* fgRow, const uint8_t* bgRow, int width) {
-    const uint32_t a = alpha;
-    const uint32_t inv_a = 255 - alpha;
-
-    uint8_t* outP = outRow + xStart * 4;
-    const uint8_t* fgP = fgRow + xStart * 4;
-    const uint8_t* bgP = bgRow + xStart * 4;
-
-    int endX = (xEnd > width) ? width : xEnd;
-    for (int x = xStart; x < endX; ++x) {
-        outP[0] = static_cast<uint8_t>((fgP[0] * a + bgP[0] * inv_a) / 255);
-        outP[1] = static_cast<uint8_t>((fgP[1] * a + bgP[1] * inv_a) / 255);
-        outP[2] = static_cast<uint8_t>((fgP[2] * a + bgP[2] * inv_a) / 255);
-        outP[3] = static_cast<uint8_t>((fgP[3] * a + bgP[3] * inv_a) / 255);
-        outP += 4;
-        fgP += 4;
-        bgP += 4;
-    }
-}
-
-// Apply matte composite for one row (equivalent to MatteNode::applyMatteComposite)
-static void matteCompositeRow(uint8_t* outRow, int width,
-                              const uint8_t* fgRow, const uint8_t* bgRow,
-                              const uint8_t* maskRow) {
-    // Run-length processing
-    const uint8_t* maskP = maskRow;
-    const uint8_t* const maskPEnd = maskRow + width;
-    int x = 0;
-
-    while (maskP < maskPEnd) {
-        const uint8_t runAlpha = *maskP;
-        const int runStart = x;
-
-        // Detect consecutive same alpha values
-        do { ++maskP; ++x; } while (maskP < maskPEnd && *maskP == runAlpha);
-
-        const int runEnd = x;
-
-        if (runAlpha == 0) {
-            matteCompositeCopyRow(outRow, bgRow, width, runStart, runEnd);
-        } else if (runAlpha == 255) {
-            matteCompositeCopyRow(outRow, fgRow, width, runStart, runEnd);
-        } else {
-            matteCompositeBlendRow(outRow, runStart, runEnd, runAlpha, fgRow, bgRow, width);
-        }
-    }
-}
-
-// Apply matte composite for 2D image
+// Apply matte composite for 2D image (overlay approach)
+// Step 1: Copy bg to output
+// Step 2: Apply fg/mask overlay using core MatteNode implementation
 static void matteComposite2D(uint8_t* outBuf, int width, int height, int outStride,
                              const uint8_t* fgBuf, int fgStride,
                              const uint8_t* bgBuf, int bgStride,
                              const uint8_t* maskBuf, int maskStride) {
+    const size_t rowBytes = static_cast<size_t>(width) * 4;
+
     for (int y = 0; y < height; ++y) {
-        matteCompositeRow(outBuf + y * outStride, width,
-                          fgBuf + y * fgStride,
-                          bgBuf + y * bgStride,
-                          maskBuf + y * maskStride);
+        uint8_t* outRow = outBuf + y * outStride;
+        const uint8_t* bgRow = bgBuf + y * bgStride;
+        const uint8_t* fgRow = fgBuf + y * fgStride;
+        const uint8_t* maskRow = maskBuf + y * maskStride;
+
+        // Step 1: Copy bg to output
+        std::memcpy(outRow, bgRow, rowBytes);
+
+        // Step 2: Apply fg/mask overlay (using core implementation)
+        MatteNode::benchProcessRowWithFg(outRow, maskRow, fgRow, width);
     }
 }
 
