@@ -13,6 +13,8 @@
  *   b [fmt]  : BlendUnder benchmark (direct vs indirect path)
  *   u [pat]  : blendUnderStraight benchmark with dst pattern variations
  *   t [grp] [bpp] : copyRowDDA benchmark (DDA scanline transform)
+ *   m [pat]  : Matte composite benchmark (direct, no pipeline)
+ *   p [pat]  : Matte pipeline benchmark (full node pipeline)
  *   d        : Analyze alpha distribution of test data
  *   a        : All benchmarks
  *   l        : List available formats
@@ -47,6 +49,11 @@
 #include "fleximg/core/common.h"
 #include "fleximg/image/pixel_format.h"
 #include "fleximg/image/viewport.h"
+#include "fleximg/image/image_buffer.h"
+#include "fleximg/nodes/source_node.h"
+#include "fleximg/nodes/matte_node.h"
+#include "fleximg/nodes/renderer_node.h"
+#include "fleximg/nodes/sink_node.h"
 
 using namespace fleximg;
 
@@ -137,13 +144,25 @@ static void benchDelay(int) { /* no-op on PC */ }
 
 #ifdef BENCH_M5STACK
     static constexpr int BENCH_PIXELS = 4096;
+    static constexpr int BENCH_WIDTH = 64;    // 64x64 = 4096
+    static constexpr int BENCH_HEIGHT = 64;
     static constexpr int ITERATIONS = 1000;
     static constexpr int WARMUP = 10;
+    // Matte pipeline scaled output (2x scale)
+    static constexpr int MATTE_RENDER_WIDTH = 128;
+    static constexpr int MATTE_RENDER_HEIGHT = 128;
+    static constexpr int MATTE_ITERATIONS = 100;
 #else
     // PC is much faster, use larger pixel count for accurate measurement
     static constexpr int BENCH_PIXELS = 65536;
+    static constexpr int BENCH_WIDTH = 256;   // 256x256 = 65536
+    static constexpr int BENCH_HEIGHT = 256;
     static constexpr int ITERATIONS = 1000;
     static constexpr int WARMUP = 10;
+    // Matte pipeline scaled output (2x scale)
+    static constexpr int MATTE_RENDER_WIDTH = 512;
+    static constexpr int MATTE_RENDER_HEIGHT = 512;
+    static constexpr int MATTE_ITERATIONS = 100;
 #endif
 
 // =============================================================================
@@ -161,11 +180,18 @@ static uint8_t* bufRGB332 = nullptr;     // RGB332 buffer
 // PC: Use standard malloc
 #ifdef BENCH_M5STACK
     #define BENCH_MALLOC(size) heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
+    #define BENCH_FREE(ptr) free(ptr)
 #else
     #define BENCH_MALLOC(size) malloc(size)
+    #define BENCH_FREE(ptr) free(ptr)
 #endif
 
 static bool allocateBuffers() {
+    // Skip if already allocated
+    if (bufRGBA8 && bufRGBA8_2 && bufRGB888 && bufRGB565 && bufRGB332) {
+        return true;
+    }
+
     bufRGBA8 = static_cast<uint8_t*>(BENCH_MALLOC(BENCH_PIXELS * 4));
     bufRGBA8_2 = static_cast<uint8_t*>(BENCH_MALLOC(BENCH_PIXELS * 4));
     bufRGB888 = static_cast<uint8_t*>(BENCH_MALLOC(BENCH_PIXELS * 3));
@@ -896,6 +922,406 @@ static void runDDABenchmark(const char* args) {
 }
 
 // =============================================================================
+// Matte Mask Skip Benchmark
+// =============================================================================
+
+// Mask patterns for matte skip benchmark
+enum class MaskPattern {
+    AllZero,        // All 0 (early return, background only)
+    All255,         // All 255 (foreground only)
+    LeftZero,       // Left half 0, right half 255 (skip optimization)
+    RightZero,      // Left half 255, right half 0
+    Gradient,       // 0 to 255 gradient (worst case: many runs)
+    Random,         // Random values (realistic case)
+    COUNT
+};
+
+static const char* maskPatternNames[] = {
+    "all_zero",
+    "all_255",
+    "left_zero",
+    "right_zero",
+    "gradient",
+    "random"
+};
+
+static const char* maskPatternShortNames[] = {
+    "zero",
+    "255",
+    "left",
+    "right",
+    "grad",
+    "rand"
+};
+
+// Mask buffer for matte benchmark
+static uint8_t* bufMask = nullptr;
+
+static bool allocateMaskBuffer() {
+    if (bufMask) return true;
+    bufMask = static_cast<uint8_t*>(BENCH_MALLOC(BENCH_PIXELS));
+    if (!bufMask) {
+        benchPrintln("ERROR: Mask buffer allocation failed!");
+        return false;
+    }
+    return true;
+}
+
+// Initialize mask with specified pattern (1D - single row)
+static void initMaskWithPattern1D(uint8_t* dst, MaskPattern pattern, int width) {
+    switch (pattern) {
+        case MaskPattern::AllZero:
+            std::memset(dst, 0, static_cast<size_t>(width));
+            break;
+        case MaskPattern::All255:
+            std::memset(dst, 255, static_cast<size_t>(width));
+            break;
+        case MaskPattern::LeftZero:
+            std::memset(dst, 0, static_cast<size_t>(width / 2));
+            std::memset(dst + width / 2, 255, static_cast<size_t>(width - width / 2));
+            break;
+        case MaskPattern::RightZero:
+            std::memset(dst, 255, static_cast<size_t>(width / 2));
+            std::memset(dst + width / 2, 0, static_cast<size_t>(width - width / 2));
+            break;
+        case MaskPattern::Gradient:
+            for (int i = 0; i < width; i++) {
+                dst[i] = static_cast<uint8_t>((i * 255) / (width - 1));
+            }
+            break;
+        case MaskPattern::Random:
+        default:
+            // Pseudo-random pattern using simple LCG
+            {
+                uint32_t seed = 12345;
+                for (int i = 0; i < width; i++) {
+                    seed = seed * 1103515245 + 12345;
+                    dst[i] = static_cast<uint8_t>((seed >> 16) & 0xFF);
+                }
+            }
+            break;
+    }
+}
+
+// Initialize mask with specified pattern (for matte mask skip benchmark - 1D)
+static void initMaskWithPattern(MaskPattern pattern, int width) {
+    initMaskWithPattern1D(bufMask, pattern, width);
+}
+
+// Initialize 2D mask buffer with specified pattern (for pipeline benchmark)
+static void initMask2DWithPattern(MaskPattern pattern, int width, int height) {
+    for (int y = 0; y < height; y++) {
+        initMaskWithPattern1D(bufMask + y * width, pattern, width);
+    }
+}
+
+// =============================================================================
+// Matte Benchmark Common
+// =============================================================================
+
+// Output buffer for matte benchmarks
+static uint8_t* bufOutput = nullptr;
+static size_t bufOutputSize = 0;
+
+static bool allocateOutputBuffer(size_t requiredSize) {
+    if (bufOutput && bufOutputSize >= requiredSize) return true;
+    // Free existing if too small
+    if (bufOutput) {
+        BENCH_FREE(bufOutput);
+        bufOutput = nullptr;
+        bufOutputSize = 0;
+    }
+    bufOutput = static_cast<uint8_t*>(BENCH_MALLOC(requiredSize));
+    if (!bufOutput) {
+        benchPrintln("ERROR: Output buffer allocation failed!");
+        return false;
+    }
+    bufOutputSize = requiredSize;
+    return true;
+}
+
+// Initialize foreground buffer with a pattern
+static void initForegroundBuffer() {
+    // Red-ish pattern with varying alpha
+    for (int i = 0; i < BENCH_PIXELS; i++) {
+        bufRGBA8[i * 4 + 0] = 255;  // R
+        bufRGBA8[i * 4 + 1] = static_cast<uint8_t>((i * 3) & 0xFF);  // G
+        bufRGBA8[i * 4 + 2] = 50;   // B
+        bufRGBA8[i * 4 + 3] = 255;  // A (opaque)
+    }
+}
+
+// Initialize background buffer with a pattern
+static void initBackgroundBuffer() {
+    // Blue-ish pattern with varying alpha
+    for (int i = 0; i < BENCH_PIXELS; i++) {
+        bufRGBA8_2[i * 4 + 0] = 50;   // R
+        bufRGBA8_2[i * 4 + 1] = static_cast<uint8_t>((i * 5) & 0xFF);  // G
+        bufRGBA8_2[i * 4 + 2] = 255;  // B
+        bufRGBA8_2[i * 4 + 3] = 255;  // A (opaque)
+    }
+}
+
+// =============================================================================
+// Matte Composite Benchmark (applyMatteComposite equivalent)
+// =============================================================================
+
+// Copy row region (RGBA8, for alpha=0 or alpha=255)
+static void matteCompositeCopyRow(uint8_t* outRow,
+                                  const uint8_t* srcRow, int srcWidth,
+                                  int xStart, int xEnd) {
+    if (!srcRow) {
+        std::memset(outRow + xStart * 4, 0, static_cast<size_t>(xEnd - xStart) * 4);
+        return;
+    }
+    // Assume srcRow covers the full width (no offset handling for simplicity)
+    if (xEnd > srcWidth) xEnd = srcWidth;
+    if (xStart < xEnd) {
+        std::memcpy(outRow + xStart * 4, srcRow + xStart * 4,
+                    static_cast<size_t>(xEnd - xStart) * 4);
+    }
+}
+
+// Blend pixels (for intermediate alpha values)
+static void matteCompositeBlendRow(uint8_t* outRow, int xStart, int xEnd, uint8_t alpha,
+                                   const uint8_t* fgRow, const uint8_t* bgRow, int width) {
+    const uint32_t a = alpha;
+    const uint32_t inv_a = 255 - alpha;
+
+    uint8_t* outP = outRow + xStart * 4;
+    const uint8_t* fgP = fgRow + xStart * 4;
+    const uint8_t* bgP = bgRow + xStart * 4;
+
+    int endX = (xEnd > width) ? width : xEnd;
+    for (int x = xStart; x < endX; ++x) {
+        outP[0] = static_cast<uint8_t>((fgP[0] * a + bgP[0] * inv_a) / 255);
+        outP[1] = static_cast<uint8_t>((fgP[1] * a + bgP[1] * inv_a) / 255);
+        outP[2] = static_cast<uint8_t>((fgP[2] * a + bgP[2] * inv_a) / 255);
+        outP[3] = static_cast<uint8_t>((fgP[3] * a + bgP[3] * inv_a) / 255);
+        outP += 4;
+        fgP += 4;
+        bgP += 4;
+    }
+}
+
+// Apply matte composite for one row (equivalent to MatteNode::applyMatteComposite)
+static void matteCompositeRow(uint8_t* outRow, int width,
+                              const uint8_t* fgRow, const uint8_t* bgRow,
+                              const uint8_t* maskRow) {
+    // Run-length processing
+    const uint8_t* maskP = maskRow;
+    const uint8_t* const maskPEnd = maskRow + width;
+    int x = 0;
+
+    while (maskP < maskPEnd) {
+        const uint8_t runAlpha = *maskP;
+        const int runStart = x;
+
+        // Detect consecutive same alpha values
+        do { ++maskP; ++x; } while (maskP < maskPEnd && *maskP == runAlpha);
+
+        const int runEnd = x;
+
+        if (runAlpha == 0) {
+            matteCompositeCopyRow(outRow, bgRow, width, runStart, runEnd);
+        } else if (runAlpha == 255) {
+            matteCompositeCopyRow(outRow, fgRow, width, runStart, runEnd);
+        } else {
+            matteCompositeBlendRow(outRow, runStart, runEnd, runAlpha, fgRow, bgRow, width);
+        }
+    }
+}
+
+// Apply matte composite for 2D image
+static void matteComposite2D(uint8_t* outBuf, int width, int height, int outStride,
+                             const uint8_t* fgBuf, int fgStride,
+                             const uint8_t* bgBuf, int bgStride,
+                             const uint8_t* maskBuf, int maskStride) {
+    for (int y = 0; y < height; ++y) {
+        matteCompositeRow(outBuf + y * outStride, width,
+                          fgBuf + y * fgStride,
+                          bgBuf + y * bgStride,
+                          maskBuf + y * maskStride);
+    }
+}
+
+static void runMatteCompositeBenchmark(MaskPattern pattern) {
+    const char* patternName = maskPatternNames[static_cast<int>(pattern)];
+
+    // Initialize buffers
+    initForegroundBuffer();
+    initBackgroundBuffer();
+    initMask2DWithPattern(pattern, BENCH_WIDTH, BENCH_HEIGHT);
+
+    // Benchmark
+    uint32_t us = runBenchmark([&]() {
+        matteComposite2D(bufOutput, BENCH_WIDTH, BENCH_HEIGHT, BENCH_WIDTH * 4,
+                         bufRGBA8, BENCH_WIDTH * 4,
+                         bufRGBA8_2, BENCH_WIDTH * 4,
+                         bufMask, BENCH_WIDTH);
+    });
+
+    // Calculate throughput
+    int pixelsPerIteration = BENCH_WIDTH * BENCH_HEIGHT;
+    float nsPerPx = static_cast<float>(us) * 1000.0f / static_cast<float>(pixelsPerIteration);
+    float mpps = static_cast<float>(pixelsPerIteration) / static_cast<float>(us);
+
+    benchPrintf("  %-12s %6u us  %5.1f ns/px  %5.2f Mpix/s\n",
+                patternName, us, static_cast<double>(nsPerPx), static_cast<double>(mpps));
+}
+
+static void runMatteCompositeBenchmarks(const char* patternArg) {
+    if (!allocateBuffers()) return;
+    if (!allocateMaskBuffer()) return;
+    // Use BENCH_WIDTH x BENCH_HEIGHT for composite benchmark (smaller than pipeline)
+    size_t outputSize = static_cast<size_t>(BENCH_WIDTH) * BENCH_HEIGHT * 4;
+    if (!allocateOutputBuffer(outputSize)) return;
+
+    benchPrintln();
+    benchPrintln("=== Matte Composite Benchmark ===");
+    benchPrintf("Image: %dx%d, Iterations: %d\n", BENCH_WIDTH, BENCH_HEIGHT, ITERATIONS);
+    benchPrintln();
+    benchPrintln("Direct applyMatteComposite (no pipeline overhead)");
+    benchPrintln();
+
+    if (strcmp(patternArg, "all") == 0) {
+        for (int i = 0; i < static_cast<int>(MaskPattern::COUNT); i++) {
+            runMatteCompositeBenchmark(static_cast<MaskPattern>(i));
+        }
+    } else {
+        bool found = false;
+        for (int i = 0; i < static_cast<int>(MaskPattern::COUNT); i++) {
+            if (strcmp(patternArg, maskPatternShortNames[i]) == 0 ||
+                strcmp(patternArg, maskPatternNames[i]) == 0) {
+                runMatteCompositeBenchmark(static_cast<MaskPattern>(i));
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            benchPrintf("Unknown pattern: %s\n", patternArg);
+            benchPrintln("Available: all | zero | 255 | left | right | grad | rand");
+        }
+    }
+
+    benchPrintln();
+}
+
+// =============================================================================
+// Matte Pipeline Benchmark
+// =============================================================================
+
+static void runMattePipelineBenchmark(MaskPattern pattern) {
+    const char* patternName = maskPatternNames[static_cast<int>(pattern)];
+
+    // Initialize buffers
+    initForegroundBuffer();
+    initBackgroundBuffer();
+    initMask2DWithPattern(pattern, BENCH_WIDTH, BENCH_HEIGHT);
+
+    // Create ViewPorts for source images (data, format, stride, width, height)
+    ViewPort fgView(bufRGBA8, PixelFormatIDs::RGBA8_Straight,
+                    BENCH_WIDTH * 4, BENCH_WIDTH, BENCH_HEIGHT);
+    ViewPort bgView(bufRGBA8_2, PixelFormatIDs::RGBA8_Straight,
+                    BENCH_WIDTH * 4, BENCH_WIDTH, BENCH_HEIGHT);
+    ViewPort maskView(bufMask, PixelFormatIDs::Alpha8,
+                      BENCH_WIDTH, BENCH_WIDTH, BENCH_HEIGHT);
+    // Output viewport uses scaled dimensions
+    ViewPort outView(bufOutput, PixelFormatIDs::RGBA8_Straight,
+                     MATTE_RENDER_WIDTH * 4, MATTE_RENDER_WIDTH, MATTE_RENDER_HEIGHT);
+
+    // Calculate scale factor
+    float scaleX = static_cast<float>(MATTE_RENDER_WIDTH) / BENCH_WIDTH;
+    float scaleY = static_cast<float>(MATTE_RENDER_HEIGHT) / BENCH_HEIGHT;
+
+    // Build pipeline with scaled sources
+    SourceNode fgSrc(fgView, float_to_fixed(BENCH_WIDTH / 2.0f),
+                     float_to_fixed(BENCH_HEIGHT / 2.0f));
+    fgSrc.setScale(scaleX, scaleY);
+
+    SourceNode bgSrc(bgView, float_to_fixed(BENCH_WIDTH / 2.0f),
+                     float_to_fixed(BENCH_HEIGHT / 2.0f));
+    bgSrc.setScale(scaleX, scaleY);
+
+    SourceNode maskSrc(maskView, float_to_fixed(BENCH_WIDTH / 2.0f),
+                       float_to_fixed(BENCH_HEIGHT / 2.0f));
+    maskSrc.setScale(scaleX, scaleY);
+
+    MatteNode matte;
+    RendererNode renderer;
+    SinkNode sink(outView, float_to_fixed(MATTE_RENDER_WIDTH / 2.0f),
+                  float_to_fixed(MATTE_RENDER_HEIGHT / 2.0f));
+
+    // Connect pipeline
+    fgSrc >> matte;
+    bgSrc.connectTo(matte, 1);
+    maskSrc.connectTo(matte, 2);
+    matte >> renderer >> sink;
+
+    renderer.setVirtualScreen(MATTE_RENDER_WIDTH, MATTE_RENDER_HEIGHT);
+
+    // Warm up
+    renderer.exec();
+
+    // Benchmark with reduced iterations for scaled output
+    uint32_t start = benchMicros();
+    for (int i = 0; i < MATTE_ITERATIONS; i++) {
+        renderer.exec();
+    }
+    uint32_t us = (benchMicros() - start) / MATTE_ITERATIONS;
+
+    // Calculate throughput (us is per-iteration average)
+    int pixelsPerIteration = MATTE_RENDER_WIDTH * MATTE_RENDER_HEIGHT;
+    float nsPerPx = static_cast<float>(us) * 1000.0f / static_cast<float>(pixelsPerIteration);
+    float mpps = static_cast<float>(pixelsPerIteration) / static_cast<float>(us);  // Mpix/sec
+
+    benchPrintf("  %-12s %6u us  %5.1f ns/px  %5.2f Mpix/s\n",
+                patternName, us, static_cast<double>(nsPerPx), static_cast<double>(mpps));
+}
+
+static void runMattePipelineBenchmarks(const char* patternArg) {
+    if (!allocateBuffers()) return;
+    if (!allocateMaskBuffer()) return;
+    // Use MATTE_RENDER_WIDTH x MATTE_RENDER_HEIGHT for scaled pipeline output
+    size_t outputSize = static_cast<size_t>(MATTE_RENDER_WIDTH) * MATTE_RENDER_HEIGHT * 4;
+    if (!allocateOutputBuffer(outputSize)) return;
+
+    benchPrintln();
+    benchPrintln("=== Matte Pipeline Benchmark ===");
+    benchPrintf("Source: %dx%d, Output: %dx%d (%.1fx scale)\n",
+                BENCH_WIDTH, BENCH_HEIGHT, MATTE_RENDER_WIDTH, MATTE_RENDER_HEIGHT,
+                static_cast<double>(MATTE_RENDER_WIDTH) / BENCH_WIDTH);
+    benchPrintf("Iterations: %d\n", MATTE_ITERATIONS);
+    benchPrintln();
+    benchPrintln("Pipeline: SourceNode(fg) + SourceNode(bg) + SourceNode(mask)");
+    benchPrintln("          -> MatteNode -> RendererNode -> SinkNode");
+    benchPrintln();
+
+    if (strcmp(patternArg, "all") == 0) {
+        for (int i = 0; i < static_cast<int>(MaskPattern::COUNT); i++) {
+            runMattePipelineBenchmark(static_cast<MaskPattern>(i));
+        }
+    } else {
+        // Find matching pattern
+        bool found = false;
+        for (int i = 0; i < static_cast<int>(MaskPattern::COUNT); i++) {
+            if (strcmp(patternArg, maskPatternShortNames[i]) == 0 ||
+                strcmp(patternArg, maskPatternNames[i]) == 0) {
+                runMattePipelineBenchmark(static_cast<MaskPattern>(i));
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            benchPrintf("Unknown pattern: %s\n", patternArg);
+            benchPrintln("Available: all | zero | 255 | left | right | grad | rand");
+        }
+    }
+
+    benchPrintln();
+}
+
+// =============================================================================
 // Command Interface
 // =============================================================================
 
@@ -908,6 +1334,8 @@ static void printHelp() {
     benchPrintln("  b [fmt]  : BlendUnder benchmark (Direct vs Indirect)");
     benchPrintln("  u [pat]  : blendUnderStraight with dst pattern variations");
     benchPrintln("  t [grp] [bpp] : copyRowDDA benchmark (DDA scanline transform)");
+    benchPrintln("  m [pat]  : Matte composite benchmark (direct, no pipeline)");
+    benchPrintln("  p [pat]  : Matte pipeline benchmark (full node pipeline)");
     benchPrintln("  d        : Analyze alpha distribution of test data");
     benchPrintln("  a        : All benchmarks");
     benchPrintln("  l        : List formats");
@@ -928,6 +1356,9 @@ static void printHelp() {
     benchPrintln("  [grp] = all | h (horizontal) | v (vertical) | d (diagonal)");
     benchPrintln("  [bpp] = all | 4 | 3 | 2 | 1");
     benchPrintln();
+    benchPrintln("Mask Patterns (for 'm'/'p' commands):");
+    benchPrintln("  all | zero | 255 | left | right | grad | rand");
+    benchPrintln();
     benchPrintln("Examples:");
     benchPrintln("  c all     - All conversion benchmarks");
     benchPrintln("  c rgb332  - RGB332 conversion only");
@@ -938,6 +1369,10 @@ static void printHelp() {
     benchPrintln("  t h       - copyRowDDA horizontal, all BPPs");
     benchPrintln("  t all 4   - copyRowDDA all directions, BPP4 only");
     benchPrintln("  t h 2     - copyRowDDA horizontal, BPP2 only");
+    benchPrintln("  m all     - Matte composite with all patterns");
+    benchPrintln("  m grad    - Matte composite with gradient pattern");
+    benchPrintln("  p all     - Matte pipeline with all mask patterns");
+    benchPrintln("  p grad    - Matte pipeline with gradient mask");
     benchPrintln("  d         - Show alpha distribution analysis");
     benchPrintln();
 }
@@ -981,6 +1416,14 @@ static void processCommand(const char* cmd) {
         case 'T':
             runDDABenchmark(arg);
             break;
+        case 'm':
+        case 'M':
+            runMatteCompositeBenchmarks(arg);
+            break;
+        case 'p':
+        case 'P':
+            runMattePipelineBenchmarks(arg);
+            break;
         case 'd':
         case 'D':
             runAlphaDistributionAnalysis();
@@ -991,6 +1434,8 @@ static void processCommand(const char* cmd) {
             runBlendBenchmark("all");
             runBlendUnderStraightBenchmarks("all");
             runDDABenchmark("all");
+            runMatteCompositeBenchmarks("all");
+            runMattePipelineBenchmarks("all");
             break;
         case 'l':
         case 'L':
