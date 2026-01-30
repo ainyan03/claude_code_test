@@ -53,6 +53,19 @@ public:
 
     const char* name() const override { return "MatteNode"; }
 
+    // getDataRange: 上流データ範囲の和集合を返す
+    DataRange getDataRange(const RenderRequest& request) const override;
+
+    // ========================================
+    // ベンチマーク用公開API
+    // ========================================
+
+    // fgあり領域の行処理（ベンチマーク用ラッパー）
+    static void benchProcessRowWithFg(uint8_t* d, const uint8_t* m, const uint8_t* s, int pixelCount);
+
+    // fgなし領域の行処理（ベンチマーク用ラッパー）
+    static void benchProcessRowNoFg(uint8_t* d, const uint8_t* m, int pixelCount);
+
 protected:
     int nodeTypeForMetrics() const override { return NodeType::Matte; }
 
@@ -114,19 +127,38 @@ private:
     // 合成処理
     // ========================================
 
-    // マット合成の実処理（スキャンライン単位、height==1前提）
-    void applyMatteComposite(ImageBuffer& output, int outWidth,
-                             const InputView& fg, const InputView& bg, const InputView& mask);
+    // マット合成の実処理（出力には既にbgがコピー済み前提）
+    // alpha=0: 何もしない（出力に既にbgがある）
+    // alpha=255: fgをコピー
+    // 中間alpha: out = out*(1-a) + fg*a
+    void applyMatteOverlay(ImageBuffer& output, int outWidth,
+                           const InputView& fg, const InputView& mask);
 
-    // 行の一部領域をコピー（RGBA8、alpha=0/255用）
+    // 行の一部領域をコピー（RGBA8、alpha=255用）
     static void copyRowRegion(uint8_t* outRow,
                               const uint8_t* srcRowBase, int srcOffsetX, int srcWidth,
                               int xStart, int xEnd);
 
-    // ブレンド処理（中間alpha値用）
-    static void blendPixels(uint8_t* outRow, int xStart, int xEnd, uint8_t alpha,
-                            const uint8_t* fgRowBase, int fgOffsetX, int fgWidth,
-                            const uint8_t* bgRowBase, int bgOffsetX, int bgWidth);
+    // オーバーレイブレンド処理（中間alpha値用）
+    // out = out*(1-alpha) + fg*alpha
+    static void blendOverlay(uint8_t* outRow, int xStart, int xEnd, uint8_t alpha,
+                             const uint8_t* fgRowBase, int fgOffsetX, int fgWidth);
+
+    // ========================================
+    // キャッシュ（getDataRange→onPullProcess間で再利用）
+    // ========================================
+    struct RangeCache {
+        Point origin{};          // キャッシュ時のリクエストorigin
+        DataRange fgRange{};     // fg のデータ範囲
+        DataRange bgRange{};     // bg のデータ範囲
+        DataRange maskRange{};   // mask のデータ範囲
+        DataRange unionRange{};  // 全体の和集合
+        bool valid = false;      // キャッシュ有効フラグ
+    };
+    mutable RangeCache rangeCache_;
+
+    // 上流データ範囲を計算（キャッシュに保存）
+    DataRange calcUpstreamRanges(const RenderRequest& request) const;
 };
 
 } // namespace FLEXIMG_NAMESPACE
@@ -216,62 +248,159 @@ void MatteNode::onPullFinalize() {
     }
 }
 
+// ============================================================================
+// MatteNode - getDataRange実装
+// ============================================================================
+
+DataRange MatteNode::calcUpstreamRanges(const RenderRequest& request) const {
+    Node* fgNode = upstreamNode(0);
+    Node* bgNode = upstreamNode(1);
+    Node* maskNode = upstreamNode(2);
+
+    // 各上流のデータ範囲を取得
+    rangeCache_.fgRange = fgNode ? fgNode->getDataRange(request) : DataRange{};
+    rangeCache_.bgRange = bgNode ? bgNode->getDataRange(request) : DataRange{};
+    rangeCache_.maskRange = maskNode ? maskNode->getDataRange(request) : DataRange{};
+
+    // 有効範囲を計算: bg ∪ (mask ∩ fg)
+    // - bgは常に有効（マスク範囲外やalpha=0でbgが見える）
+    // - fgはマスク範囲との交差部分のみ有効
+    // - マスクのみ（fg/bgなし）は透明なので除外
+    int16_t startX = request.width;
+    int16_t endX = 0;
+
+    // bg範囲は常に有効
+    if (rangeCache_.bgRange.hasData()) {
+        startX = rangeCache_.bgRange.startX;
+        endX = rangeCache_.bgRange.endX;
+    }
+
+    // (mask ∩ fg)範囲を追加
+    if (rangeCache_.maskRange.hasData() && rangeCache_.fgRange.hasData()) {
+        int16_t intersectStart = std::max(rangeCache_.maskRange.startX, rangeCache_.fgRange.startX);
+        int16_t intersectEnd = std::min(rangeCache_.maskRange.endX, rangeCache_.fgRange.endX);
+        if (intersectStart < intersectEnd) {
+            if (intersectStart < startX) startX = intersectStart;
+            if (intersectEnd > endX) endX = intersectEnd;
+        }
+    }
+
+    rangeCache_.unionRange = (startX < endX) ? DataRange{startX, endX} : DataRange{};
+    rangeCache_.origin = request.origin;
+    rangeCache_.valid = true;
+
+    return rangeCache_.unionRange;
+}
+
+DataRange MatteNode::getDataRange(const RenderRequest& request) const {
+    // キャッシュが有効でoriginが一致すれば再利用
+    if (rangeCache_.valid &&
+        rangeCache_.origin.x == request.origin.x &&
+        rangeCache_.origin.y == request.origin.y) {
+        return rangeCache_.unionRange;
+    }
+    return calcUpstreamRanges(request);
+}
+
+// ============================================================================
+// MatteNode - onPullProcess実装（最適化版）
+// ============================================================================
+//
+// 処理フロー:
+// 1. mask有効範囲の確定（早期リターン）
+//    - maskデータなし / 取得失敗 / 全面0 → bg直接返却（変換なし）
+// 2. bg取得・出力領域計算
+// 3. bg戦略決定・出力バッファ作成
+// 4. fg取得（mask有効範囲のみ）
+// 5. 合成
+//
+
 RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
     Node* fgNode = upstreamNode(0);    // 前景
     Node* bgNode = upstreamNode(1);    // 背景
     Node* maskNode = upstreamNode(2);  // マスク
 
-    // Step 1: マスク取得
-    RenderResponse maskResult;
-    if (maskNode) {
-        maskResult = maskNode->pullProcess(request);
-        if (maskResult.isValid()) {
-            maskResult.buffer = convertFormat(std::move(maskResult.buffer),
-                                              PixelFormatIDs::Alpha8);
+    // ========================================================================
+    // Step 1: mask取得・全面0判定
+    // ========================================================================
+
+    // キャッシュ確認・更新
+    if (!rangeCache_.valid ||
+        rangeCache_.origin.x != request.origin.x ||
+        rangeCache_.origin.y != request.origin.y) {
+        calcUpstreamRanges(request);
+    }
+
+    // maskデータなし → bg直接返却
+    if (!rangeCache_.maskRange.hasData()) {
+        rangeCache_.valid = false;
+        if (bgNode) {
+            return bgNode->pullProcess(request);
         }
+        return RenderResponse(ImageBuffer(), request.origin);
     }
 
-    // マスクなし → 背景をそのまま返す
+    // mask取得
+    if (!maskNode) {
+        rangeCache_.valid = false;
+        if (bgNode) {
+            return bgNode->pullProcess(request);
+        }
+        return RenderResponse(ImageBuffer(), request.origin);
+    }
+
+    RenderResponse maskResult = maskNode->pullProcess(request);
     if (!maskResult.isValid()) {
-        return bgNode ? bgNode->pullProcess(request)
-                      : RenderResponse(ImageBuffer(), request.origin);
+        rangeCache_.valid = false;
+        if (bgNode) {
+            return bgNode->pullProcess(request);
+        }
+        return RenderResponse(ImageBuffer(), request.origin);
     }
 
-    // Step 2: マスクの有効範囲をスキャン
+    // Alpha8に変換
+    if (maskResult.buffer.formatID() != PixelFormatIDs::Alpha8) {
+        maskResult.buffer = convertFormat(std::move(maskResult.buffer),
+                                          PixelFormatIDs::Alpha8, FormatConversion::PreferReference);
+    }
+
+    // 全面0判定（行スキャン）
     ViewPort maskView = maskResult.view();
     const uint8_t* maskData = static_cast<const uint8_t*>(maskView.data);
     int maskLeftSkip = 0, maskRightSkip = 0;
     int maskEffectiveWidth = scanMaskZeroRanges(maskData, maskView.width,
                                                  maskLeftSkip, maskRightSkip);
 
-    // 全面0 → 背景をそのまま返す
+    // 全面0 → bg直接返却
     if (maskEffectiveWidth == 0) {
-        return bgNode ? bgNode->pullProcess(request)
-                      : RenderResponse(ImageBuffer(), request.origin);
-    }
-
-    // Step 3: 背景取得
-    RenderResponse bgResult;
-    if (bgNode) {
-        bgResult = bgNode->pullProcess(request);
-        if (bgResult.isValid()) {
-            bgResult.buffer = convertFormat(std::move(bgResult.buffer),
-                                            PixelFormatIDs::RGBA8_Straight);
+        rangeCache_.valid = false;
+        if (bgNode) {
+            return bgNode->pullProcess(request);
         }
+        return RenderResponse(ImageBuffer(), request.origin);
     }
 
-    // Step 4: 出力領域計算（マスク ∪ 背景）
+    // ========================================================================
+    // Step 2: bg取得・出力領域計算
+    // ========================================================================
+
+    RenderResponse bgResult;
+    if (rangeCache_.bgRange.hasData() && bgNode) {
+        bgResult = bgNode->pullProcess(request);
+    }
+
+    // 出力領域計算（mask ∪ bg）
     int_fixed unionMinX = maskResult.origin.x;
     int_fixed unionMinY = maskResult.origin.y;
     int_fixed unionMaxX = unionMinX + to_fixed(maskView.width);
     int_fixed unionMaxY = unionMinY + to_fixed(maskView.height);
 
     if (bgResult.isValid()) {
-        ViewPort bgView = bgResult.view();
+        ViewPort bgViewPort = bgResult.view();
         int_fixed bgMinX = bgResult.origin.x;
         int_fixed bgMinY = bgResult.origin.y;
-        int_fixed bgMaxX = bgMinX + to_fixed(bgView.width);
-        int_fixed bgMaxY = bgMinY + to_fixed(bgView.height);
+        int_fixed bgMaxX = bgMinX + to_fixed(bgViewPort.width);
+        int_fixed bgMaxY = bgMinY + to_fixed(bgViewPort.height);
         if (bgMinX < unionMinX) unionMinX = bgMinX;
         if (bgMinY < unionMinY) unionMinY = bgMinY;
         if (bgMaxX > unionMaxX) unionMaxX = bgMaxX;
@@ -281,39 +410,81 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
     int unionWidth = from_fixed(unionMaxX - unionMinX);
     int unionHeight = from_fixed(unionMaxY - unionMinY);
 
-    // Step 5: 前景取得（マスク有効範囲のみ）
-    RenderResponse fgResult;
-    if (fgNode) {
-        RenderRequest fgRequest;
-        fgRequest.width = static_cast<int16_t>(maskEffectiveWidth);
-        fgRequest.height = maskView.height;
-        fgRequest.origin.x = maskResult.origin.x + to_fixed(maskLeftSkip);
-        fgRequest.origin.y = maskResult.origin.y;
+    // ========================================================================
+    // Step 3: 出力バッファ作成（ゼロクリア）+ bgコピー
+    // ========================================================================
 
-        fgResult = fgNode->pullProcess(fgRequest);
-        if (fgResult.isValid()) {
-            fgResult.buffer = convertFormat(std::move(fgResult.buffer),
-                                            PixelFormatIDs::RGBA8_Straight);
-        }
-    }
-
-    // Step 6: 合成
     FLEXIMG_METRICS_SCOPE(NodeType::Matte);
 
     ImageBuffer outputBuf(unionWidth, unionHeight, PixelFormatIDs::RGBA8_Straight,
-                          InitPolicy::Uninitialized, allocator_);
-
+                          InitPolicy::Zero, allocator_);
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
     PerfMetrics::instance().nodes[NodeType::Matte].recordAlloc(
         outputBuf.totalBytes(), outputBuf.width(), outputBuf.height());
 #endif
 
-    // InputViewを構築
+    // bgがあればコピー
+    if (bgResult.isValid()) {
+        int bgOffsetX = from_fixed(bgResult.origin.x - unionMinX);
+        int bgOffsetY = from_fixed(bgResult.origin.y - unionMinY);
+
+        auto converter = resolveConverter(bgResult.buffer.formatID(),
+                                          PixelFormatIDs::RGBA8_Straight,
+                                          &bgResult.buffer.auxInfo(), allocator_);
+        if (converter) {
+            ViewPort bgViewPort = bgResult.view();
+            ViewPort outView = outputBuf.view();
+            int srcBpp = bgViewPort.bytesPerPixel();
+
+            // bgの有効範囲を計算（出力座標系）
+            int copyStartX = std::max(0, bgOffsetX);
+            int copyEndX = std::min(unionWidth, bgOffsetX + bgViewPort.width);
+            int copyStartY = std::max(0, bgOffsetY);
+            int copyEndY = std::min(unionHeight, bgOffsetY + bgViewPort.height);
+            int copyWidth = copyEndX - copyStartX;
+
+            if (copyWidth > 0) {
+                int srcStartX = copyStartX - bgOffsetX;
+                for (int y = copyStartY; y < copyEndY; ++y) {
+                    int srcY = y - bgOffsetY;
+                    const uint8_t* srcRow = static_cast<const uint8_t*>(bgViewPort.data)
+                                          + srcY * bgViewPort.stride
+                                          + srcStartX * srcBpp;
+                    uint8_t* dstRow = static_cast<uint8_t*>(outView.data)
+                                    + y * outView.stride
+                                    + copyStartX * 4;
+                    converter(dstRow, srcRow, copyWidth);
+                }
+            }
+        }
+    }
+
+    // ========================================================================
+    // Step 4: fg取得
+    // ========================================================================
+
+    RenderResponse fgResult;
+    if (fgNode && rangeCache_.fgRange.hasData()) {
+        fgResult = fgNode->pullProcess(request);
+        if (fgResult.isValid()) {
+            if (fgResult.buffer.formatID() != PixelFormatIDs::RGBA8_Straight) {
+                fgResult.buffer = convertFormat(std::move(fgResult.buffer),
+                                                PixelFormatIDs::RGBA8_Straight, FormatConversion::PreferReference);
+            }
+        }
+    }
+
+    // ========================================================================
+    // Step 5: 合成
+    // ========================================================================
+
     InputView fgView = InputView::from(fgResult, unionMinX, unionMinY);
-    InputView bgView = InputView::from(bgResult, unionMinX, unionMinY);
     InputView maskInputView = InputView::from(maskResult, unionMinX, unionMinY);
 
-    applyMatteComposite(outputBuf, unionWidth, fgView, bgView, maskInputView);
+    applyMatteOverlay(outputBuf, unionWidth, fgView, maskInputView);
+
+    // キャッシュ無効化
+    rangeCache_.valid = false;
 
     return RenderResponse(std::move(outputBuf), Point{unionMinX, unionMinY});
 }
@@ -419,61 +590,273 @@ scan_right:
 // MatteNode - 合成処理実装
 // ============================================================================
 
-void MatteNode::applyMatteComposite(ImageBuffer& output, int outWidth,
-                                    const InputView& fg, const InputView& bg, const InputView& mask) {
-    ViewPort outView = output.view();
-    uint8_t* outRow = static_cast<uint8_t*>(outView.data);
+// ----------------------------------------------------------------------------
+// processRowNoFg: fgなし領域の行処理
+// - alpha=0: スキップ（出力には既にbgがある）
+// - alpha=255: 透明(0,0,0,0)に書き込み（fgがないため）
+// - 中間alpha: bgをフェード（out = out * (1-alpha)）
+// ----------------------------------------------------------------------------
+static inline void processRowNoFg(
+    uint8_t* __restrict__ d,
+    const uint8_t* __restrict__ m,
+    int_fast16_t pixelCount)
+{
+    if (pixelCount <= 0) return;
 
-    // マスクがない場合 → 全面背景
-    const uint8_t* maskRowBase = mask.rowAt(0);
-    if (!maskRowBase) {
-        const uint8_t* bgRowBase = bg.rowAt(0);
-        copyRowRegion(outRow, bgRowBase, bg.offsetX, bg.width, 0, outWidth);
-        return;
+    uint_fast8_t alpha = *m;
+
+    if (alpha == 0) goto handle_alpha_0;
+    if (alpha == 255) goto handle_alpha_255;
+
+blend:
+    while (--pixelCount >= 0) {
+        alpha = *m;  // 読むだけ、進めない
+        uint32_t d32 = *reinterpret_cast<uint32_t*>(d);
+        if (alpha == 0) break;
+        if (alpha == 255) break;
+        // bgフェードのみ（fgなし）: out = bg * (1-alpha)（SIMD風最適化）
+        uint_fast16_t inv_a = 255 - alpha;
+        uint32_t d32_even = d32 & 0x00FF00FF;
+        uint32_t d32_odd = (d32 >> 8) & 0x00FF00FF;
+        d32_even *= inv_a;
+        d32_odd *= inv_a;
+        d[0] = static_cast<uint8_t>((d32_even & 0x0000FFFF) / 255);
+        d[1] = static_cast<uint8_t>((d32_odd & 0x0000FFFF) / 255);
+        d[2] = static_cast<uint8_t>((d32_even >> 16) / 255);
+        d[3] = static_cast<uint8_t>((d32_odd >> 16) / 255);
+        ++m;  // 処理後に進める
+        d += 4;
     }
+    if (pixelCount <= 0) return;
+    if (alpha == 0) goto handle_alpha_0;
 
-    // 各入力の行ポインタ
-    const uint8_t* fgRowBase = fg.rowAt(0);
-    const uint8_t* bgRowBase = bg.rowAt(0);
+handle_alpha_255:
+    // alpha=255でfgなし → 透明(0,0,0,0)に書き込み
+    *reinterpret_cast<uint32_t*>(d) = 0;
+    if (--pixelCount <= 0) return;
+    ++m;
+    alpha = *m;
+    d += 4;
+    // 4px単位で透明書き込み
+    {
+        auto plimit = pixelCount >> 2;
+        if (plimit && alpha == 255) {
+            auto m_start = m;
+            do {
+                uint_fast8_t a1 = m[1], a2 = m[2], a3 = m[3];
+                if ((alpha & a1 & a2 & a3) != 255) break;
+                reinterpret_cast<uint32_t*>(d)[0] = 0;
+                reinterpret_cast<uint32_t*>(d)[1] = 0;
+                reinterpret_cast<uint32_t*>(d)[2] = 0;
+                reinterpret_cast<uint32_t*>(d)[3] = 0;
+                m += 4; d += 16;
+                alpha = *m;
+            } while (--plimit);
+            if (m != m_start) {
+                pixelCount -= static_cast<int_fast16_t>(m - m_start);
+                if (pixelCount <= 0) return;
+            }
+        }
+    }
+    if (alpha == 255) goto handle_alpha_255;
+    if (alpha != 0) goto blend;
+
+handle_alpha_0:
+    if (--pixelCount <= 0) return;
+    ++m;
+    alpha = *m;
+    d += 4;
+    // 4px単位スキップ
+    {
+        auto plimit = pixelCount >> 2;
+        if (plimit && alpha == 0) {
+            auto m_start = m;
+            do {
+                uint_fast8_t a1 = m[1], a2 = m[2], a3 = m[3];
+                if ((alpha | a1 | a2 | a3) != 0) break;
+                m += 4;
+                alpha = *m;
+            } while (--plimit);
+            if (m != m_start) {
+                int skipped = static_cast<int>(m - m_start);
+                pixelCount -= static_cast<int_fast16_t>(skipped);
+                if (pixelCount <= 0) return;
+                d += skipped * 4;
+            }
+        }
+    }
+    if (alpha == 0) goto handle_alpha_0;
+    if (alpha == 255) goto handle_alpha_255;
+    goto blend;
+}
+
+// ----------------------------------------------------------------------------
+// processRowWithFg: fg領域の行処理
+// - alpha=0: スキップ（出力には既にbgがある）
+// - alpha=255: fgをコピー
+// - 中間alpha: フルブレンド（out = out*(1-alpha) + fg*alpha）
+// ----------------------------------------------------------------------------
+static inline void processRowWithFg(
+    uint8_t* __restrict__ d,
+    const uint8_t* __restrict__ m,
+    const uint8_t* __restrict__ s,
+    int_fast16_t pixelCount)
+{
+    if (pixelCount <= 0) return;
+
+    uint_fast8_t alpha = *m;
+
+    if (alpha == 0) goto handle_alpha_0;
+    if (alpha == 255) goto handle_alpha_255;
+
+blend:
+    while (--pixelCount >= 0) {
+        alpha = *m;  // 読むだけ、進めない
+        uint32_t d32 = *reinterpret_cast<uint32_t*>(d);
+        uint32_t s32 = *reinterpret_cast<const uint32_t*>(s);
+        if (alpha == 0) break;
+        if (alpha == 255) break;
+        // fg/bg両方のブレンド（SIMD風最適化: 偶数/奇数バイトを一括処理）
+        uint_fast16_t inv_a = 255 - alpha;
+        uint32_t d32_even = d32 & 0x00FF00FF;
+        uint32_t d32_odd = (d32 >> 8) & 0x00FF00FF;
+        uint32_t s32_even = s32 & 0x00FF00FF;
+        uint32_t s32_odd = (s32 >> 8) & 0x00FF00FF;
+        d32_even = d32_even * inv_a + s32_even * alpha;
+        d32_odd = d32_odd * inv_a + s32_odd * alpha;
+        d[0] = static_cast<uint8_t>((d32_even & 0x0000FFFF) / 255);
+        d[1] = static_cast<uint8_t>((d32_odd & 0x0000FFFF) / 255);
+        d[2] = static_cast<uint8_t>((d32_even >> 16) / 255);
+        d[3] = static_cast<uint8_t>((d32_odd >> 16) / 255);
+        ++m;  // 処理後に進める
+        d += 4;
+        s += 4;
+    }
+    if (pixelCount <= 0) return;
+    if (alpha == 0) goto handle_alpha_0;
+
+handle_alpha_255:
+    // fgをコピー
+    *reinterpret_cast<uint32_t*>(d) = *reinterpret_cast<const uint32_t*>(s);
+    if (--pixelCount <= 0) return;
+    ++m;
+    alpha = *m;
+    d += 4; s += 4;
+    // 4px単位コピー
+    {
+        auto plimit = pixelCount >> 2;
+        if (plimit && alpha == 255) {
+            auto m_start = m;
+            do {
+                uint_fast8_t a1 = m[1], a2 = m[2], a3 = m[3];
+                if ((alpha & a1 & a2 & a3) != 255) break;
+                reinterpret_cast<uint32_t*>(d)[0] = reinterpret_cast<const uint32_t*>(s)[0];
+                reinterpret_cast<uint32_t*>(d)[1] = reinterpret_cast<const uint32_t*>(s)[1];
+                reinterpret_cast<uint32_t*>(d)[2] = reinterpret_cast<const uint32_t*>(s)[2];
+                reinterpret_cast<uint32_t*>(d)[3] = reinterpret_cast<const uint32_t*>(s)[3];
+                m += 4; d += 16; s += 16;
+                alpha = *m;
+            } while (--plimit);
+            if (m != m_start) {
+                pixelCount -= static_cast<int_fast16_t>(m - m_start);
+                if (pixelCount <= 0) return;
+            }
+        }
+    }
+    if (alpha == 255) goto handle_alpha_255;
+    if (alpha != 0) goto blend;
+
+handle_alpha_0:
+    if (--pixelCount <= 0) return;
+    ++m;
+    alpha = *m;
+    d += 4; s += 4;
+    // 4px単位スキップ
+    {
+        auto plimit = pixelCount >> 2;
+        if (plimit && alpha == 0) {
+            auto m_start = m;
+            do {
+                uint_fast8_t a1 = m[1], a2 = m[2], a3 = m[3];
+                if ((alpha | a1 | a2 | a3) != 0) break;
+                m += 4;
+                // d += 16; s += 16; pixelCount -= 4;
+                alpha = *m;
+            } while (--plimit);
+            if (m != m_start) {
+                int skipped = static_cast<int>(m - m_start);
+                pixelCount -= static_cast<int_fast16_t>(skipped);
+                if (pixelCount <= 0) return;
+                d += skipped * 4;
+                s += skipped * 4;
+            }
+        }
+    }
+    if (alpha == 0) goto handle_alpha_0;
+    if (alpha == 255) goto handle_alpha_255;
+    goto blend;
+}
+
+// ----------------------------------------------------------------------------
+
+void MatteNode::applyMatteOverlay(ImageBuffer& output, int outWidth,
+                                  const InputView& fg, const InputView& mask) {
+    ViewPort outView = output.view();
+    uint8_t* __restrict__ outData = static_cast<uint8_t*>(outView.data);
+    const int outHeight = outView.height;
+    const int outStride = outView.stride;
 
     // マスクの有効X範囲（出力座標系）
     const int maskXStart = std::max(0, mask.offsetX);
     const int maskXEnd = std::min(outWidth, mask.width + mask.offsetX);
+    if (maskXStart >= maskXEnd) return;
 
-    // マスク範囲外の左側 → 背景のみ
-    if (maskXStart > 0) {
-        copyRowRegion(outRow, bgRowBase, bg.offsetX, bg.width, 0, maskXStart);
-    }
+    const int maskSrcOffsetX = maskXStart - mask.offsetX;
 
-    // マスクポインタ設定
-    const uint8_t* maskP = maskRowBase + (maskXStart - mask.offsetX);
-    const uint8_t* const maskPEnd = maskRowBase + (maskXEnd - mask.offsetX);
-    int x = maskXStart;
+    // 前景の有効X範囲（事前計算）
+    const int fgXStart = fg.valid() ? std::max(maskXStart, fg.offsetX) : maskXEnd;
+    const int fgXEnd = fg.valid() ? std::min(maskXEnd, fg.width + fg.offsetX) : maskXStart;
+    const int fgSrcOffsetX = fgXStart - fg.offsetX;
 
-    // ランレングス処理
-    while (maskP < maskPEnd) {
-        const uint8_t runAlpha = *maskP;
-        const int runStart = x;
+    // 3領域の幅を事前計算
+    const int leftWidth = fgXStart - maskXStart;   // 左領域（fgなし）
+    const int midWidth = fgXEnd - fgXStart;        // 中央領域（fg/bg両方）
+    const int rightWidth = maskXEnd - fgXEnd;      // 右領域（fgなし）
 
-        // 同じalpha値の連続を検出
-        do { ++maskP; ++x; } while (maskP < maskPEnd && *maskP == runAlpha);
+    // 行ごとに処理
+    for (int y = 0; y < outHeight; ++y) {
+        // マスクがない行 → スキップ
+        const uint8_t* maskRowBase = mask.rowAt(y);
+        if (!maskRowBase) continue;
 
-        const int runEnd = x;
+        // ベースポインタ
+        const uint8_t* __restrict__ mBase = maskRowBase + maskSrcOffsetX;
+        uint8_t* __restrict__ dBase = outData + y * outStride + maskXStart * 4;
 
-        if (runAlpha == 0) {
-            copyRowRegion(outRow, bgRowBase, bg.offsetX, bg.width, runStart, runEnd);
-        } else if (runAlpha == 255) {
-            copyRowRegion(outRow, fgRowBase, fg.offsetX, fg.width, runStart, runEnd);
-        } else {
-            blendPixels(outRow, runStart, runEnd, runAlpha,
-                        fgRowBase, fg.offsetX, fg.width,
-                        bgRowBase, bg.offsetX, bg.width);
+        // 左領域: fgなし
+        if (leftWidth > 0) {
+            processRowNoFg(dBase, mBase, leftWidth);
         }
-    }
 
-    // マスク範囲外の右側 → 背景のみ
-    if (maskXEnd < outWidth) {
-        copyRowRegion(outRow, bgRowBase, bg.offsetX, bg.width, maskXEnd, outWidth);
+        // 中央領域: fg/bg両方
+        if (midWidth > 0) {
+            const uint8_t* fgRowBase = fg.rowAt(y);
+            if (fgRowBase) {
+                processRowWithFg(
+                    dBase + leftWidth * 4,
+                    mBase + leftWidth,
+                    fgRowBase + fgSrcOffsetX * 4,
+                    midWidth);
+            }
+        }
+
+        // 右領域: fgなし
+        if (rightWidth > 0) {
+            processRowNoFg(
+                dBase + (leftWidth + midWidth) * 4,
+                mBase + leftWidth + midWidth,
+                rightWidth);
+        }
     }
 }
 
@@ -510,47 +893,57 @@ void MatteNode::copyRowRegion(uint8_t* outRow,
     }
 }
 
-void MatteNode::blendPixels(uint8_t* outRow, int xStart, int xEnd, uint8_t alpha,
-                                     const uint8_t* fgRowBase, int fgOffsetX, int fgWidth,
-                                     const uint8_t* bgRowBase, int bgOffsetX, int bgWidth) {
+void MatteNode::blendOverlay(uint8_t* outRow, int xStart, int xEnd, uint8_t alpha,
+                             const uint8_t* fgRowBase, int fgOffsetX, int fgWidth) {
     const uint32_t a = alpha;
     const uint32_t inv_a = 255 - alpha;
 
-    // 前景・背景の有効X範囲を事前計算
-    // 新座標系: offsetX = ソース左上 - 出力左上（出力座標系でのソース左端位置）
+    // 前景の有効X範囲を事前計算
     const int fgXStart = fgRowBase ? std::max(xStart, fgOffsetX) : xEnd;
     const int fgXEnd = fgRowBase ? std::min(xEnd, fgWidth + fgOffsetX) : xStart;
-    const int bgXStart = bgRowBase ? std::max(xStart, bgOffsetX) : xEnd;
-    const int bgXEnd = bgRowBase ? std::min(xEnd, bgWidth + bgOffsetX) : xStart;
 
     // オフセット適用済みポインタ
     uint8_t* outP = outRow + xStart * 4;
     const uint8_t* fgP = fgRowBase ? fgRowBase + (xStart - fgOffsetX) * 4 : nullptr;
-    const uint8_t* bgP = bgRowBase ? bgRowBase + (xStart - bgOffsetX) * 4 : nullptr;
 
     for (int x = xStart; x < xEnd; ++x) {
-        uint32_t fgR = 0, fgG = 0, fgB = 0, fgA = 0;
-        uint32_t bgR = 0, bgG = 0, bgB = 0, bgA = 0;
+        // 出力（既にbgがコピー済み）から読み取り
+        uint32_t outR = outP[0] * inv_a;
+        uint32_t outG = outP[1] * inv_a;
+        uint32_t outB = outP[2] * inv_a;
+        uint32_t outA = outP[3] * inv_a;
 
         // 前景（範囲内のみ）
         if (x >= fgXStart && x < fgXEnd) {
-            fgR = fgP[0] * a; fgG = fgP[1] * a; fgB = fgP[2] * a; fgA = fgP[3] * a;
+            outR += fgP[0] * a;
+            outG += fgP[1] * a;
+            outB += fgP[2] * a;
+            outA += fgP[3] * a;
         }
 
-        // 背景（範囲内のみ）
-        if (x >= bgXStart && x < bgXEnd) {
-            bgR = bgP[0] * inv_a; bgG = bgP[1] * inv_a; bgB = bgP[2] * inv_a; bgA = bgP[3] * inv_a;
-        }
-
-        outP[0] = static_cast<uint8_t>((fgR + bgR) / 255);
-        outP[1] = static_cast<uint8_t>((fgG + bgG) / 255);
-        outP[2] = static_cast<uint8_t>((fgB + bgB) / 255);
-        outP[3] = static_cast<uint8_t>((fgA + bgA) / 255);
-
+        outR /= 255;
+        outG /= 255;
+        outB /= 255;
+        outA /= 255;
+        outP[0] = static_cast<uint8_t>(outR);
+        outP[1] = static_cast<uint8_t>(outG);
+        outP[2] = static_cast<uint8_t>(outB);
+        outP[3] = static_cast<uint8_t>(outA);
         outP += 4;
         if (fgP) fgP += 4;
-        if (bgP) bgP += 4;
     }
+}
+
+// ============================================================================
+// MatteNode - ベンチマーク用ラッパー関数
+// ============================================================================
+
+void MatteNode::benchProcessRowWithFg(uint8_t* d, const uint8_t* m, const uint8_t* s, int pixelCount) {
+    processRowWithFg(d, m, s, static_cast<int_fast16_t>(pixelCount));
+}
+
+void MatteNode::benchProcessRowNoFg(uint8_t* d, const uint8_t* m, int pixelCount) {
+    processRowNoFg(d, m, static_cast<int_fast16_t>(pixelCount));
 }
 
 } // namespace FLEXIMG_NAMESPACE
