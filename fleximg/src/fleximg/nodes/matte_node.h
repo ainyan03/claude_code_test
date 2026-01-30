@@ -615,12 +615,12 @@ blend:
     // breakした時点でpixelCountはまだ減っていない
     do {
         alpha = *m;
+        uint32_t d32 = *reinterpret_cast<uint32_t*>(d);
         if (alpha == 0) break;
         if (alpha == 255) break;
         // bgフェードのみ（fgなし）: out = bg * (1-alpha)
         // 256スケール正規化: inv_a_256 = 256 - (alpha + (alpha >> 7))
         // 精度: 91.6%が完全一致、最大誤差±1
-        uint32_t d32 = *reinterpret_cast<uint32_t*>(d);
         uint_fast16_t inv_a_256 = 256 - alpha - (alpha >> 7);
         uint32_t d32_even = d32 & 0x00FF00FF;
         uint32_t d32_odd = (d32 >> 8) & 0x00FF00FF;
@@ -719,13 +719,13 @@ blend:
     // breakした時点でpixelCountはまだ減っていない
     do {
         alpha = *m;
+        uint32_t d32 = *reinterpret_cast<uint32_t*>(d);
+        uint32_t s32 = *reinterpret_cast<const uint32_t*>(s);
         if (alpha == 0) break;
         if (alpha == 255) break;
         // fg/bg両方のブレンド: out = bg*(1-alpha) + fg*alpha
         // 256スケール正規化: alpha_256 = alpha + (alpha >> 7)
         // 精度: 91.6%が完全一致、最大誤差±1
-        uint32_t d32 = *reinterpret_cast<uint32_t*>(d);
-        uint32_t s32 = *reinterpret_cast<const uint32_t*>(s);
         uint_fast16_t alpha_256 = alpha + (alpha >> 7);
         uint_fast16_t inv_a_256 = 256 - alpha_256;
         uint32_t d32_even = d32 & 0x00FF00FF;
