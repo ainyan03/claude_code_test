@@ -76,7 +76,7 @@ static void benchPrintf(const char* fmt, ...) {
 
 static uint32_t benchMicros() { return micros(); }
 
-static bool benchAvailable() { return BENCH_SERIAL.available() > 0; }
+[[maybe_unused]] static bool benchAvailable() { return BENCH_SERIAL.available() > 0; }
 
 static int benchRead(char* buf, int maxLen) {
     int len = 0;
@@ -92,7 +92,7 @@ static int benchRead(char* buf, int maxLen) {
     return len;
 }
 
-static void benchDelay(int ms) { delay(ms); }
+[[maybe_unused]] static void benchDelay(int ms) { delay(ms); }
 
 #else  // Native PC
 
@@ -1004,7 +1004,7 @@ static void initMaskWithPattern1D(uint8_t* dst, MaskPattern pattern, int width) 
 }
 
 // Initialize mask with specified pattern (for matte mask skip benchmark - 1D)
-static void initMaskWithPattern(MaskPattern pattern, int width) {
+[[maybe_unused]] static void initMaskWithPattern(MaskPattern pattern, int width) {
     initMaskWithPattern1D(bufMask, pattern, width);
 }
 

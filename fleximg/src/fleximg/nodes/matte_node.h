@@ -848,7 +848,7 @@ void MatteNode::applyMatteOverlay(ImageBuffer& output, int outWidth,
 
         // 左領域: fgなし
         if (leftWidth > 0) {
-            processRowNoFg(dBase, mBase, leftWidth);
+            processRowNoFg(dBase, mBase, static_cast<int_fast16_t>(leftWidth));
         }
 
         // 中央領域: fg/bg両方
@@ -859,7 +859,7 @@ void MatteNode::applyMatteOverlay(ImageBuffer& output, int outWidth,
                     dBase + leftWidth * 4,
                     mBase + leftWidth,
                     fgRowBase + fgSrcOffsetX * 4,
-                    midWidth);
+                    static_cast<int_fast16_t>(midWidth));
             }
         }
 
@@ -868,7 +868,7 @@ void MatteNode::applyMatteOverlay(ImageBuffer& output, int outWidth,
             processRowNoFg(
                 dBase + (leftWidth + midWidth) * 4,
                 mBase + leftWidth + midWidth,
-                rightWidth);
+                static_cast<int_fast16_t>(rightWidth));
         }
     }
 }
