@@ -356,7 +356,7 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
                                           PixelFormatIDs::Alpha8, FormatConversion::PreferReference);
     }
 
-    // 全面0判定（行スキャン）
+    // 全面0判定（行スキャン）+ 有効範囲へのcrop
     ViewPort maskView = maskResult.view();
     const uint8_t* maskData = static_cast<const uint8_t*>(maskView.data);
     int maskLeftSkip = 0, maskRightSkip = 0;
@@ -372,6 +372,16 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
         return RenderResponse(ImageBuffer(), request.origin);
     }
 
+    // マスクを有効範囲にcrop（左右の0領域をスキップ）
+    if (maskLeftSkip > 0 || maskRightSkip > 0) {
+        maskResult.buffer.cropView(
+            static_cast<int_fast16_t>(maskLeftSkip), 0,
+            static_cast<int_fast16_t>(maskEffectiveWidth),
+            static_cast<int_fast16_t>(maskView.height));
+        maskResult.origin.x += to_fixed(maskLeftSkip);
+        maskView = maskResult.view();  // cropされたビューを再取得
+    }
+
     // ========================================================================
     // Step 2: bg取得・出力領域計算
     // ========================================================================
@@ -381,7 +391,7 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
         bgResult = bgNode->pullProcess(request);
     }
 
-    // 出力領域計算（mask ∪ bg）
+    // 出力領域計算（cropされたmask ∪ bg）
     int_fixed unionMinX = maskResult.origin.x;
     int_fixed unionMinY = maskResult.origin.y;
     int_fixed unionMaxX = unionMinX + to_fixed(maskView.width);
@@ -601,14 +611,16 @@ static inline void processRowNoFg(
     if (alpha == 255) goto handle_alpha_255;
 
 blend:
-    while (--pixelCount >= 0) {
-        alpha = *m;  // 読むだけ、進めない
-        uint32_t d32 = *reinterpret_cast<uint32_t*>(d);
+    // ブレンドループ: do-whileで末尾デクリメント
+    // breakした時点でpixelCountはまだ減っていない
+    do {
+        alpha = *m;
         if (alpha == 0) break;
         if (alpha == 255) break;
         // bgフェードのみ（fgなし）: out = bg * (1-alpha)
         // 256スケール正規化: inv_a_256 = 256 - (alpha + (alpha >> 7))
         // 精度: 91.6%が完全一致、最大誤差±1
+        uint32_t d32 = *reinterpret_cast<uint32_t*>(d);
         uint_fast16_t inv_a_256 = 256 - alpha - (alpha >> 7);
         uint32_t d32_even = d32 & 0x00FF00FF;
         uint32_t d32_odd = (d32 >> 8) & 0x00FF00FF;
@@ -617,9 +629,9 @@ blend:
         *reinterpret_cast<uint32_t*>(d) = d32_odd;
         d[0] = static_cast<uint8_t>(d32_even >> 8);
         d[2] = static_cast<uint8_t>(d32_even >> 24);
-        ++m;  // 処理後に進める
+        ++m;
         d += 4;
-    }
+    } while (--pixelCount > 0);
     if (pixelCount <= 0) return;
     if (alpha == 0) goto handle_alpha_0;
 
@@ -703,15 +715,17 @@ static inline void processRowWithFg(
     if (alpha == 255) goto handle_alpha_255;
 
 blend:
-    while (--pixelCount >= 0) {
-        alpha = *m;  // 読むだけ、進めない
-        uint32_t d32 = *reinterpret_cast<uint32_t*>(d);
-        uint32_t s32 = *reinterpret_cast<const uint32_t*>(s);
+    // ブレンドループ: do-whileで末尾デクリメント
+    // breakした時点でpixelCountはまだ減っていない
+    do {
+        alpha = *m;
         if (alpha == 0) break;
         if (alpha == 255) break;
         // fg/bg両方のブレンド: out = bg*(1-alpha) + fg*alpha
         // 256スケール正規化: alpha_256 = alpha + (alpha >> 7)
         // 精度: 91.6%が完全一致、最大誤差±1
+        uint32_t d32 = *reinterpret_cast<uint32_t*>(d);
+        uint32_t s32 = *reinterpret_cast<const uint32_t*>(s);
         uint_fast16_t alpha_256 = alpha + (alpha >> 7);
         uint_fast16_t inv_a_256 = 256 - alpha_256;
         uint32_t d32_even = d32 & 0x00FF00FF;
@@ -723,10 +737,10 @@ blend:
         *reinterpret_cast<uint32_t*>(d) = d32_odd;
         d[0] = static_cast<uint8_t>(d32_even >> 8);
         d[2] = static_cast<uint8_t>(d32_even >> 24);
-        ++m;  // 処理後に進める
+        ++m;
         d += 4;
         s += 4;
-    }
+    } while (--pixelCount > 0);
     if (pixelCount <= 0) return;
     if (alpha == 0) goto handle_alpha_0;
 
@@ -775,7 +789,6 @@ handle_alpha_0:
                 uint_fast8_t a1 = m[1], a2 = m[2], a3 = m[3];
                 if ((alpha | a1 | a2 | a3) != 0) break;
                 m += 4;
-                // d += 16; s += 16; pixelCount -= 4;
                 alpha = *m;
             } while (--plimit);
             if (m != m_start) {
