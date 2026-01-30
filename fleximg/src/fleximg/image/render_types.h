@@ -4,6 +4,7 @@
 #include <utility>
 #include <cstdint>
 #include <cmath>
+#include <algorithm>
 #include "../core/common.h"
 #include "../core/perf_metrics.h"
 #include "../core/memory/allocator.h"
@@ -219,11 +220,21 @@ struct PrepareResponse {
 // 末端ノード（SinkNode/SourceNode）がPrepareResult生成時に使用。
 //
 
-// 入力矩形にアフィン変換を適用し、出力AABBを計算
-// inputWidth/Height: 入力矩形サイズ
-// inputOrigin: 入力矩形の基準点（pivot、バッファ座標、固定小数点）
-// matrix: 適用するアフィン変換（tx/ty が position を含む）
-// 戻り値: 変換後のAABB（width, height, origin はバッファ左上のワールド座標）
+// 入力矩形にアフィン変換を適用し、出力AABB（軸並行バウンディングボックス）を計算
+//
+// パラメータ:
+//   inputWidth/Height: 入力矩形サイズ
+//   inputOrigin: 入力矩形の基準点（pivot、バッファ座標、固定小数点）
+//   matrix: 適用するアフィン変換（tx/ty が position を含む）
+//
+// 出力:
+//   outWidth/Height: 変換後のAABBサイズ（ceilで切り上げ）
+//   outOrigin: AABBの左上座標（ワールド座標、固定小数点）
+//
+// 最適化:
+//   - 共通乗算の事前計算（a*left, a*right, c*left, c*right）で乗算4回削減
+//   - tx/ty の加算を最後に1回だけ行う（8回→2回）
+//   - std::min/max の initializer_list 版で簡潔に記述
 inline void calcAffineAABB(
     int inputWidth, int inputHeight,
     Point inputOrigin,
@@ -231,37 +242,38 @@ inline void calcAffineAABB(
     int16_t& outWidth, int16_t& outHeight, Point& outOrigin)
 {
     // 入力矩形の4角（pivot を原点とした相対座標）
-    float left = -fixed_to_float(inputOrigin.x);
-    float top = -fixed_to_float(inputOrigin.y);
-    float right = left + static_cast<float>(inputWidth);
-    float bottom = top + static_cast<float>(inputHeight);
+    const float left = -fixed_to_float(inputOrigin.x);
+    const float right = left + static_cast<float>(inputWidth);
+    const float top = -fixed_to_float(inputOrigin.y);
+    const float bottom = top + static_cast<float>(inputHeight);
 
-    // 4角をアフィン変換（結果はワールド座標）
-    float x0 = matrix.a * left  + matrix.b * top    + matrix.tx;
-    float y0 = matrix.c * left  + matrix.d * top    + matrix.ty;
-    float x1 = matrix.a * right + matrix.b * top    + matrix.tx;
-    float y1 = matrix.c * right + matrix.d * top    + matrix.ty;
-    float x2 = matrix.a * left  + matrix.b * bottom + matrix.tx;
-    float y2 = matrix.c * left  + matrix.d * bottom + matrix.ty;
-    float x3 = matrix.a * right + matrix.b * bottom + matrix.tx;
-    float y3 = matrix.c * right + matrix.d * bottom + matrix.ty;
+    // X座標: 4角をアフィン変換してAABBを計算
+    // x' = a*x + b*y + tx  (tx は最後に加算)
+    const float al = matrix.a * left;
+    const float ar = matrix.a * right;
+    const float x0 = al + matrix.b * top;
+    const float x1 = ar + matrix.b * top;
+    const float x2 = al + matrix.b * bottom;
+    const float x3 = ar + matrix.b * bottom;
+    const float minX = std::min({x0, x1, x2, x3});
+    const float maxX = std::max({x0, x1, x2, x3});
 
-    // AABBを求める
-    float minX = x0, maxX = x0;
-    float minY = y0, maxY = y0;
-    if (x1 < minX) minX = x1; if (x1 > maxX) maxX = x1;
-    if (x2 < minX) minX = x2; if (x2 > maxX) maxX = x2;
-    if (x3 < minX) minX = x3; if (x3 > maxX) maxX = x3;
-    if (y1 < minY) minY = y1; if (y1 > maxY) maxY = y1;
-    if (y2 < minY) minY = y2; if (y2 > maxY) maxY = y2;
-    if (y3 < minY) minY = y3; if (y3 > maxY) maxY = y3;
-
-    // 結果を設定（ceilで切り上げてピクセル境界に合わせる）
-    // origin はバッファ左上のワールド座標
     outWidth = static_cast<int16_t>(std::ceil(maxX - minX));
+    outOrigin.x = float_to_fixed(minX + matrix.tx);
+
+    // Y座標: 同様に計算
+    // y' = c*x + d*y + ty  (ty は最後に加算)
+    const float cl = matrix.c * left;
+    const float cr = matrix.c * right;
+    const float y0 = cl + matrix.d * top;
+    const float y1 = cr + matrix.d * top;
+    const float y2 = cl + matrix.d * bottom;
+    const float y3 = cr + matrix.d * bottom;
+    const float minY = std::min({y0, y1, y2, y3});
+    const float maxY = std::max({y0, y1, y2, y3});
+
     outHeight = static_cast<int16_t>(std::ceil(maxY - minY));
-    outOrigin.x = float_to_fixed(minX);
-    outOrigin.y = float_to_fixed(minY);
+    outOrigin.y = float_to_fixed(minY + matrix.ty);
 }
 
 // 出力矩形から逆変換で必要な入力範囲を計算
