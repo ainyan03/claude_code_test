@@ -56,6 +56,7 @@ public:
     // getDataRange: 上流データ範囲の和集合を返す
     DataRange getDataRange(const RenderRequest& request) const override;
 
+#if defined(BENCH_M5STACK) || defined(BENCH_NATIVE)
     // ========================================
     // ベンチマーク用公開API
     // ========================================
@@ -65,6 +66,7 @@ public:
 
     // fgなし領域の行処理（ベンチマーク用ラッパー）
     static void benchProcessRowNoFg(uint8_t* d, const uint8_t* m, int pixelCount);
+#endif
 
 protected:
     int nodeTypeForMetrics() const override { return NodeType::Matte; }
@@ -133,16 +135,6 @@ private:
     // 中間alpha: out = out*(1-a) + fg*a
     void applyMatteOverlay(ImageBuffer& output, int outWidth,
                            const InputView& fg, const InputView& mask);
-
-    // 行の一部領域をコピー（RGBA8、alpha=255用）
-    static void copyRowRegion(uint8_t* outRow,
-                              const uint8_t* srcRowBase, int srcOffsetX, int srcWidth,
-                              int xStart, int xEnd);
-
-    // オーバーレイブレンド処理（中間alpha値用）
-    // out = out*(1-alpha) + fg*alpha
-    static void blendOverlay(uint8_t* outRow, int xStart, int xEnd, uint8_t alpha,
-                             const uint8_t* fgRowBase, int fgOffsetX, int fgWidth);
 
     // ========================================
     // キャッシュ（getDataRange→onPullProcess間で再利用）
@@ -860,80 +852,7 @@ void MatteNode::applyMatteOverlay(ImageBuffer& output, int outWidth,
     }
 }
 
-void MatteNode::copyRowRegion(uint8_t* outRow,
-                              const uint8_t* srcRowBase, int srcOffsetX, int srcWidth,
-                              int xStart, int xEnd) {
-    if (!srcRowBase) {
-        // ソースがない場合は透明黒
-        std::memset(outRow + xStart * 4, 0, static_cast<size_t>(xEnd - xStart) * 4);
-        return;
-    }
-
-    // ソースの有効X範囲と出力範囲の交差を計算
-    // 新座標系: srcOffsetX = ソース左上 - 出力左上（出力座標系でのソース左端位置）
-    const int srcXStart = std::max(xStart, srcOffsetX);
-    const int srcXEnd = std::min(xEnd, srcWidth + srcOffsetX);
-
-    // 左側の透明部分
-    if (srcXStart > xStart) {
-        std::memset(outRow + xStart * 4, 0, static_cast<size_t>(srcXStart - xStart) * 4);
-    }
-
-    // 有効部分をコピー
-    if (srcXEnd > srcXStart) {
-        std::memcpy(outRow + srcXStart * 4,
-                    srcRowBase + (srcXStart - srcOffsetX) * 4,
-                    static_cast<size_t>(srcXEnd - srcXStart) * 4);
-    }
-
-    // 右側の透明部分
-    const int clearStart = std::max(srcXEnd, xStart);
-    if (clearStart < xEnd) {
-        std::memset(outRow + clearStart * 4, 0, static_cast<size_t>(xEnd - clearStart) * 4);
-    }
-}
-
-void MatteNode::blendOverlay(uint8_t* outRow, int xStart, int xEnd, uint8_t alpha,
-                             const uint8_t* fgRowBase, int fgOffsetX, int fgWidth) {
-    const uint32_t a = alpha;
-    const uint32_t inv_a = 255 - alpha;
-
-    // 前景の有効X範囲を事前計算
-    const int fgXStart = fgRowBase ? std::max(xStart, fgOffsetX) : xEnd;
-    const int fgXEnd = fgRowBase ? std::min(xEnd, fgWidth + fgOffsetX) : xStart;
-
-    // オフセット適用済みポインタ
-    uint8_t* outP = outRow + xStart * 4;
-    const uint8_t* fgP = fgRowBase ? fgRowBase + (xStart - fgOffsetX) * 4 : nullptr;
-
-    for (int x = xStart; x < xEnd; ++x) {
-        // 出力（既にbgがコピー済み）から読み取り
-        uint32_t outR = outP[0] * inv_a;
-        uint32_t outG = outP[1] * inv_a;
-        uint32_t outB = outP[2] * inv_a;
-        uint32_t outA = outP[3] * inv_a;
-
-        // 前景（範囲内のみ）
-        if (x >= fgXStart && x < fgXEnd) {
-            outR += fgP[0] * a;
-            outG += fgP[1] * a;
-            outB += fgP[2] * a;
-            outA += fgP[3] * a;
-        }
-
-        outR /= 255;
-        outG /= 255;
-        outB /= 255;
-        outA /= 255;
-        outP[0] = static_cast<uint8_t>(outR);
-        outP[1] = static_cast<uint8_t>(outG);
-        outP[2] = static_cast<uint8_t>(outB);
-        outP[3] = static_cast<uint8_t>(outA);
-        outP += 4;
-        if (fgP) fgP += 4;
-    }
-}
-
+#if defined(BENCH_M5STACK) || defined(BENCH_NATIVE)
 // ============================================================================
 // MatteNode - ベンチマーク用ラッパー関数
 // ============================================================================
@@ -945,6 +864,7 @@ void MatteNode::benchProcessRowWithFg(uint8_t* d, const uint8_t* m, const uint8_
 void MatteNode::benchProcessRowNoFg(uint8_t* d, const uint8_t* m, int pixelCount) {
     processRowNoFg(d, m, static_cast<int_fast16_t>(pixelCount));
 }
+#endif
 
 } // namespace FLEXIMG_NAMESPACE
 
