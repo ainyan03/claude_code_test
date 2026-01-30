@@ -464,7 +464,7 @@ DataRange SourceNode::getDataRange(const RenderRequest& request) const {
     }
 
     // AABB内の場合のみスキャンライン範囲を計算（baseX/baseY もキャッシュ用に取得）
-    int32_t dxStart, dxEnd, baseX, baseY;
+    int32_t dxStart = 0, dxEnd = 0, baseX = 0, baseY = 0;
     bool hasData = calcScanlineRange(request, dxStart, dxEnd, &baseX, &baseY);
 
     // キャッシュに保存（pullProcessWithAffine で再利用）
@@ -485,7 +485,7 @@ DataRange SourceNode::getDataRange(const RenderRequest& request) const {
 // 前提: request.height == 1（RendererNodeはスキャンライン単位で処理）
 // 有効範囲のみのバッファを返し、範囲外の0データを下流に送らない
 RenderResponse SourceNode::pullProcessWithAffine(const RenderRequest& request) {
-    int32_t dxStart, dxEnd, baseX, baseY;
+    int32_t dxStart = 0, dxEnd = 0, baseX = 0, baseY = 0;
 
     // キャッシュが有効か確認
     if (rangeCache_.origin.x == request.origin.x &&
