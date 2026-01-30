@@ -505,10 +505,13 @@ int MatteNode::scanMaskZeroRanges(const uint8_t* maskData, int maskWidth,
         int misalign = static_cast<int>(addr & 3);
         if (misalign != 0) {
             int alignBytes = 4 - misalign;
-            while (alignBytes > 0 && leftSkip < maskWidth && maskData[leftSkip] == 0) {
-                ++leftSkip;
-                --alignBytes;
+            if (alignBytes > maskWidth) {
+                alignBytes = maskWidth;
             }
+            while (leftSkip < alignBytes && maskData[leftSkip] == 0) {
+                ++leftSkip;
+            }
+            alignBytes -= leftSkip;
             if (leftSkip < maskWidth && maskData[leftSkip] != 0) {
                 outLeftSkip = leftSkip;
                 outRightSkip = 0;
@@ -517,17 +520,14 @@ int MatteNode::scanMaskZeroRanges(const uint8_t* maskData, int maskWidth,
             }
         }
 
-        // Phase 2: 4バイト単位
+        // Phase 2: 4バイト単位（ポインタベース）
         {
-            auto plimit = (maskWidth - leftSkip) >> 2;
-            if (plimit) {
-                const uint32_t* p32 = reinterpret_cast<const uint32_t*>(maskData + leftSkip);
-                while (plimit > 0 && *p32 == 0) {
-                    ++p32;
-                    leftSkip += 4;
-                    --plimit;
-                }
+            const uint32_t* p32 = reinterpret_cast<const uint32_t*>(maskData + leftSkip);
+            const uint32_t* p32_end = p32 + ((maskWidth - leftSkip) >> 2);
+            while (p32 < p32_end && *p32 == 0) {
+                ++p32;
             }
+            leftSkip = static_cast<int>(reinterpret_cast<const uint8_t*>(p32) - maskData);
         }
 
         // Phase 3: 残りを1バイトずつ
@@ -554,28 +554,25 @@ scan_right:
         // Phase 1: アライメントまで1バイトずつ
         uintptr_t endAddr = reinterpret_cast<uintptr_t>(maskData + maskWidth);
         int misalign = static_cast<int>(endAddr & 3);
-        if (misalign != 0) {
-            while (misalign > 0 && rightSkip < limit && maskData[maskWidth - 1 - rightSkip] == 0) {
-                ++rightSkip;
-                --misalign;
-            }
-            if (rightSkip < limit && maskData[maskWidth - 1 - rightSkip] != 0) {
-                outRightSkip = rightSkip;
-                return maskWidth - leftSkip - rightSkip;
-            }
+        if (misalign > limit) {
+            misalign = limit;
+        }
+        while (rightSkip < misalign && maskData[maskWidth - 1 - rightSkip] == 0) {
+            ++rightSkip;
+        }
+        if (rightSkip < limit && maskData[maskWidth - 1 - rightSkip] != 0) {
+            outRightSkip = rightSkip;
+            return maskWidth - leftSkip - rightSkip;
         }
 
-        // Phase 2: 4バイト単位
+        // Phase 2: 4バイト単位（ポインタベース）
         {
-            auto plimit = (limit - rightSkip) >> 2;
-            if (plimit) {
-                const uint32_t* p32 = reinterpret_cast<const uint32_t*>(maskData + maskWidth - rightSkip) - 1;
-                while (plimit > 0 && *p32 == 0) {
-                    --p32;
-                    rightSkip += 4;
-                    --plimit;
-                }
+            const uint32_t* p32 = reinterpret_cast<const uint32_t*>(maskData + maskWidth - rightSkip) - 1;
+            const uint32_t* p32_end = p32 - ((limit - rightSkip) >> 2);
+            while (p32 > p32_end && *p32 == 0) {
+                --p32;
             }
+            rightSkip = static_cast<int>(maskData + maskWidth - reinterpret_cast<const uint8_t*>(p32 + 1));
         }
 
         // Phase 3: 残りを1バイトずつ
