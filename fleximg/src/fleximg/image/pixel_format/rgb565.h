@@ -106,6 +106,7 @@ alignas(64) static const uint16_t rgb565LowTable[256] = {
 
 // RGB565_LE→RGBA8_Straight 1ピクセル変換マクロ（ルックアップテーブル使用）
 // s: uint8_t*, d: uint8_t*, s_off: srcオフセット, d_off: dstオフセット
+// RGB565_LE: [low_byte, high_byte] in memory
 #define RGB565LE_TO_STRAIGHT_PIXEL(s_off, d_off) \
     do { \
         auto l16 = rgb565LowTable[s[s_off]]; \
@@ -115,57 +116,75 @@ alignas(64) static const uint16_t rgb565LowTable[256] = {
         *reinterpret_cast<uint16_t*>(&d[d_off]) = static_cast<uint16_t>(h16 + (l16 & 0xFF00)); \
     } while(0)
 
+#define RGB565LE_TO_STRAIGHT_PIXEL_x2(s_off, d_off) \
+    do { \
+        auto s0 = s[s_off + 0]; \
+        auto s1 = s[s_off + 1]; \
+        auto s2 = s[s_off + 2]; \
+        auto s3 = s[s_off + 3]; \
+        auto l16_0 = rgb565LowTable[s0]; \
+        auto h16_0 = rgb565HighTable[s1]; \
+        auto l16_1 = rgb565LowTable[s2]; \
+        auto h16_1 = rgb565HighTable[s3]; \
+        *reinterpret_cast<uint16_t*>(&d[d_off]) = static_cast<uint16_t>(h16_0 + (l16_0 & 0xFF00)); \
+        d[d_off + 2] = static_cast<uint8_t>(l16_0); \
+        d[d_off + 3] = 255; \
+        *reinterpret_cast<uint16_t*>(&d[d_off + 4]) = static_cast<uint16_t>(h16_1 + (l16_1 & 0xFF00)); \
+        d[d_off + 6] = static_cast<uint8_t>(l16_1); \
+        d[d_off + 7] = 255; \
+    } while(0)
+
 static void rgb565le_toStraight(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB565_LE, ToStraight, pixelCount);
     const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
     uint8_t* __restrict__ d = static_cast<uint8_t*>(dst);
 
-    // 端数処理（1〜3ピクセル）
-    int remainder = pixelCount & 3;
-    while (remainder--) {
+    // 端数処理（1ピクセル）
+    if (pixelCount & 1) {
         RGB565LE_TO_STRAIGHT_PIXEL(0, 0);
         s += 2;
         d += 4;
     }
 
-    // 4ピクセル単位でループ
-    pixelCount >>= 2;
+    // 2ピクセル単位でループ
+    pixelCount >>= 1;
     while (pixelCount--) {
-        RGB565LE_TO_STRAIGHT_PIXEL(0, 0);
-        RGB565LE_TO_STRAIGHT_PIXEL(2, 4);
-        RGB565LE_TO_STRAIGHT_PIXEL(4, 8);
-        RGB565LE_TO_STRAIGHT_PIXEL(6, 12);
-        s += 8;
-        d += 16;
+        RGB565LE_TO_STRAIGHT_PIXEL_x2(0, 0);
+        s += 4;
+        d += 8;
     }
 }
 #undef RGB565LE_TO_STRAIGHT_PIXEL
+#undef RGB565LE_TO_STRAIGHT_PIXEL_x2
+
+
+// RGBA8 → RGB565 変換マクロ（32bitロードした値から変換）
+#define RGBA8_TO_RGB565_LE(rgba) \
+    (((((rgba) >> 3) << 6) + (((rgba) >> 10) & 0x3F)) << 5) + (((rgba) >> 19) & 0x1F)
+
 
 static void rgb565le_fromStraight(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB565_LE, FromStraight, pixelCount);
     uint16_t* __restrict__ d = static_cast<uint16_t*>(dst);
-    const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
+    const uint32_t* __restrict__ s = static_cast<const uint32_t*>(src);
 
-    // 端数処理（1〜3ピクセル）
-    int remainder = pixelCount & 3;
-    while (remainder--) {
-        *d++ = static_cast<uint16_t>(((s[0] >> 3) << 11) | ((s[1] >> 2) << 5) | (s[2] >> 3));
-        s += 4;
+    // 端数処理（1ピクセル）
+    if (pixelCount & 1) {
+        auto rgba0 = s[0];
+        s++;
+        d[0] = static_cast<uint16_t>(RGBA8_TO_RGB565_LE(rgba0));
+        d++;
     }
 
-    // 4ピクセル単位でループ
-    pixelCount >>= 2;
+    // 2ピクセル単位でループ
+    pixelCount >>= 1;
     while (pixelCount--) {
-        // ピクセル0
-        d[0] = static_cast<uint16_t>(((s[0] >> 3) << 11) | ((s[1] >> 2) << 5) | (s[2] >> 3));
-        // ピクセル1
-        d[1] = static_cast<uint16_t>(((s[4] >> 3) << 11) | ((s[5] >> 2) << 5) | (s[6] >> 3));
-        // ピクセル2
-        d[2] = static_cast<uint16_t>(((s[8] >> 3) << 11) | ((s[9] >> 2) << 5) | (s[10] >> 3));
-        // ピクセル3
-        d[3] = static_cast<uint16_t>(((s[12] >> 3) << 11) | ((s[13] >> 2) << 5) | (s[14] >> 3));
-        s += 16;
-        d += 4;
+        auto rgba0 = s[0];
+        auto rgba1 = s[1];
+        s += 2;
+        d[0] = static_cast<uint16_t>(RGBA8_TO_RGB565_LE(rgba0));
+        d[1] = static_cast<uint16_t>(RGBA8_TO_RGB565_LE(rgba1));
+        d += 2;
     }
 }
 
@@ -185,64 +204,74 @@ static void rgb565le_fromStraight(void* __restrict__ dst, const void* __restrict
         *reinterpret_cast<uint16_t*>(&d[d_off]) = static_cast<uint16_t>(h16 + (l16 & 0xFF00)); \
     } while(0)
 
+#define RGB565BE_TO_STRAIGHT_PIXEL_x2(s_off, d_off) \
+    do { \
+        auto s0 = s[s_off + 0]; \
+        auto s1 = s[s_off + 1]; \
+        auto s2 = s[s_off + 2]; \
+        auto s3 = s[s_off + 3]; \
+        auto h16_0 = rgb565HighTable[s0]; \
+        auto l16_0 = rgb565LowTable[s1]; \
+        auto h16_1 = rgb565HighTable[s2]; \
+        auto l16_1 = rgb565LowTable[s3]; \
+        *reinterpret_cast<uint16_t*>(&d[d_off]) = static_cast<uint16_t>(h16_0 + (l16_0 & 0xFF00)); \
+        d[d_off + 2] = static_cast<uint8_t>(l16_0); \
+        d[d_off + 3] = 255; \
+        *reinterpret_cast<uint16_t*>(&d[d_off + 4]) = static_cast<uint16_t>(h16_1 + (l16_1 & 0xFF00)); \
+        d[d_off + 6] = static_cast<uint8_t>(l16_1); \
+        d[d_off + 7] = 255; \
+    } while(0)
+
 static void rgb565be_toStraight(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB565_BE, ToStraight, pixelCount);
     const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
     uint8_t* __restrict__ d = static_cast<uint8_t*>(dst);
 
-    // 端数処理（1〜3ピクセル）
-    int remainder = pixelCount & 3;
-    while (remainder--) {
+    // 端数処理（1ピクセル）
+    if (pixelCount & 1) {
         RGB565BE_TO_STRAIGHT_PIXEL(0, 0);
         s += 2;
         d += 4;
     }
 
-    // 4ピクセル単位でループ
-    pixelCount >>= 2;
+    // 2ピクセル単位でループ
+    pixelCount >>= 1;
     while (pixelCount--) {
-        RGB565BE_TO_STRAIGHT_PIXEL(0, 0);
-        RGB565BE_TO_STRAIGHT_PIXEL(2, 4);
-        RGB565BE_TO_STRAIGHT_PIXEL(4, 8);
-        RGB565BE_TO_STRAIGHT_PIXEL(6, 12);
-        s += 8;
-        d += 16;
+        RGB565BE_TO_STRAIGHT_PIXEL_x2(0, 0);
+        s += 4;
+        d += 8;
     }
 }
 #undef RGB565BE_TO_STRAIGHT_PIXEL
+#undef RGB565BE_TO_STRAIGHT_PIXEL_x2
+
 
 static void rgb565be_fromStraight(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB565_BE, FromStraight, pixelCount);
     uint8_t* __restrict__ d = static_cast<uint8_t*>(dst);
-    const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
+    const uint32_t* __restrict__ s = static_cast<const uint32_t*>(src);
 
-    // 端数処理（1〜3ピクセル）
-    int remainder = pixelCount & 3;
-    while (remainder--) {
-        // RGB565_BE: RRRRRGGG GGGBBBBB
-        d[0] = (s[0] & 0xF8) | (s[1] >> 5);           // 上位: R[7:3] | G[7:5]
-        d[1] = ((s[1] << 3) & 0xE0) | (s[2] >> 3);    // 下位: G[4:2] | B[7:3]
-        s += 4;
+    // 端数処理（1ピクセル）
+    if (pixelCount & 1) {
+        auto rgba0 = s[0];
+        s++;
+        d[0] = static_cast<uint8_t>((rgba0 & 0xF8) + ((rgba0 >> 13) & 0x07));
+        d[1] = static_cast<uint8_t>(((rgba0 >> 10) << 5) + ((rgba0 >> 19) & 0x1F));
         d += 2;
     }
 
-    // 4ピクセル単位でループ
-    pixelCount >>= 2;
+    // 2ピクセル単位でループ
+    pixelCount >>= 1;
     while (pixelCount--) {
-        // ピクセル0
-        d[0] = (s[0] & 0xF8) | (s[1] >> 5);
-        d[1] = ((s[1] << 3) & 0xE0) | (s[2] >> 3);
-        // ピクセル1
-        d[2] = (s[4] & 0xF8) | (s[5] >> 5);
-        d[3] = ((s[5] << 3) & 0xE0) | (s[6] >> 3);
-        // ピクセル2
-        d[4] = (s[8] & 0xF8) | (s[9] >> 5);
-        d[5] = ((s[9] << 3) & 0xE0) | (s[10] >> 3);
-        // ピクセル3
-        d[6] = (s[12] & 0xF8) | (s[13] >> 5);
-        d[7] = ((s[13] << 3) & 0xE0) | (s[14] >> 3);
-        s += 16;
-        d += 8;
+        auto rgba0 = s[0];
+        auto rgba1 = s[1];
+        s += 2;
+
+        d[0] = static_cast<uint8_t>((rgba0 & 0xF8) + ((rgba0 >> 13) & 0x07));
+        d[1] = static_cast<uint8_t>(((rgba0 >> 10) << 5) + ((rgba0 >> 19) & 0x1F));
+        d[2] = static_cast<uint8_t>((rgba1 & 0xF8) + ((rgba1 >> 13) & 0x07));
+        d[3] = static_cast<uint8_t>(((rgba1 >> 10) << 5) + ((rgba1 >> 19) & 0x1F));
+        d += 4;
     }
 }
 

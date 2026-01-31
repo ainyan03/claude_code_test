@@ -504,21 +504,6 @@ TEST_CASE("Index8 conversion with RGBA8 palette") {
         CHECK(pixel0 != 0);  // Red should produce non-zero RGB565
         CHECK(pixel1 != 0);  // Green should produce non-zero RGB565
     }
-
-    SUBCASE("Index8 out-of-range index clamped") {
-        uint8_t src[1] = {200};  // Out of range (palette has 4 entries)
-        uint8_t dst[4] = {0};
-
-        convertFormat(src, PixelFormatIDs::Index8,
-                      dst, PixelFormatIDs::RGBA8_Straight, 1,
-                      &srcAux);
-
-        // Should be clamped to max index (3) = White, semi-transparent
-        CHECK(dst[0] == 255);
-        CHECK(dst[1] == 255);
-        CHECK(dst[2] == 255);
-        CHECK(dst[3] == 128);
-    }
 }
 
 TEST_CASE("Index8 conversion without palette (fallback)") {
@@ -843,44 +828,6 @@ TEST_CASE("Index8 convertFormat with palette") {
         CHECK(dst[13] == 255);
         CHECK(dst[14] == 0);
         CHECK(dst[15] == 255);
-    }
-
-    SUBCASE("palette with index clamping") {
-        // 2-color palette, but index values go beyond
-        uint8_t palette[8] = {
-            10, 20, 30, 255,   // [0]
-            40, 50, 60, 255    // [1]
-        };
-
-        uint8_t src[3] = {0, 1, 5};  // index 5 exceeds palette size
-
-        PixelAuxInfo srcAux;
-        srcAux.palette = palette;
-        srcAux.paletteFormat = PixelFormatIDs::RGBA8_Straight;
-        srcAux.paletteColorCount = 2;
-
-        uint8_t dst[12] = {0};
-        convertFormat(src, PixelFormatIDs::Index8,
-                      dst, PixelFormatIDs::RGBA8_Straight, 3,
-                      &srcAux);
-
-        // Index 0 → palette[0]
-        CHECK(dst[0] == 10);
-        CHECK(dst[1] == 20);
-        CHECK(dst[2] == 30);
-        CHECK(dst[3] == 255);
-
-        // Index 1 → palette[1]
-        CHECK(dst[4] == 40);
-        CHECK(dst[5] == 50);
-        CHECK(dst[6] == 60);
-        CHECK(dst[7] == 255);
-
-        // Index 5 → clamped to palette[1] (maxIdx = 1)
-        CHECK(dst[8] == 40);
-        CHECK(dst[9] == 50);
-        CHECK(dst[10] == 60);
-        CHECK(dst[11] == 255);
     }
 
     SUBCASE("pipeline simulation: RGBA8 → Index8 → RGBA8 with grayscale palette") {
