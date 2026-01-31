@@ -52,7 +52,7 @@ public:
         outputs_.resize(static_cast<size_t>(count));
         for (int i = 0; i < count; ++i) {
             if (outputs_[static_cast<size_t>(i)].owner == nullptr) {
-                outputs_[static_cast<size_t>(i)] = Port(this, i);
+                outputs_[static_cast<size_t>(i)] = core::Port(this, i);
             }
         }
     }

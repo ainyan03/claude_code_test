@@ -89,12 +89,6 @@ TEST_CASE("getBytesPerPixel") {
 }
 
 // =============================================================================
-// Direct Conversion Tests (disabled - getDirectConversion API removed)
-// =============================================================================
-// NOTE: getDirectConversion function was removed from the API
-// These tests are commented out until the API is restored or tests are updated
-
-// =============================================================================
 // getFormatByName Tests
 // =============================================================================
 

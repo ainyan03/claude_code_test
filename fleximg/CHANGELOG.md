@@ -780,11 +780,6 @@
   }
   ```
 
-### 参考資料
-
-- [docs/ideas/IDEA_GAUSSIAN_BLUR_UPGRADE.md](docs/ideas/IDEA_GAUSSIAN_BLUR_UPGRADE.md) - 提案と分析
-- [.work/plans/gaussian-blur-upgrade.md](.work/plans/gaussian-blur-upgrade.md) - 実装計画
-
 ---
 
 ## [2.33.1] - 2026-01-17

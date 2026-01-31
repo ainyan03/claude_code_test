@@ -56,7 +56,7 @@ public:
         inputs_.resize(static_cast<size_t>(count));
         for (int_fast16_t i = 0; i < count; ++i) {
             if (inputs_[static_cast<size_t>(i)].owner == nullptr) {
-                inputs_[static_cast<size_t>(i)] = Port(this, static_cast<int>(i));
+                inputs_[static_cast<size_t>(i)] = core::Port(this, static_cast<int>(i));
             }
         }
     }

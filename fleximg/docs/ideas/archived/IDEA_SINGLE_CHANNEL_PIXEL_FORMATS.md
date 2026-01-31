@@ -1,7 +1,8 @@
 # Alpha8ピクセルフォーマット
 
-> **実装完了**: このアイデアは実装されました。詳細は [DESIGN_CHANNEL_DESCRIPTOR.md](../DESIGN_CHANNEL_DESCRIPTOR.md) を参照してください。
+> **ステータス**: ✅ 実装完了
 >
+> このアイデアは実装されました。詳細は [DESIGN_CHANNEL_DESCRIPTOR.md](../DESIGN_CHANNEL_DESCRIPTOR.md) を参照してください。
 > 以下は当初の構想ドキュメントです（参考用）。
 
 ## 概要
