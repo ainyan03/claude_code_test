@@ -94,6 +94,17 @@ static int benchRead(char* buf, int maxLen) {
 
 [[maybe_unused]] static void benchDelay(int ms) { delay(ms); }
 
+// CPUサイクルカウンタ（Xtensa LX6/LX7）
+static inline uint32_t getCycleCount() {
+    uint32_t count;
+    asm volatile("rsr %0, ccount" : "=a"(count));
+    return count;
+}
+
+static inline uint32_t getCpuFreqMHz() {
+    return ESP.getCpuFreqMHz();  // 通常240MHz
+}
+
 #else  // Native PC
 
 static void benchPrint(const char* str) { std::cout << str; }
@@ -136,6 +147,20 @@ static int benchRead(char* buf, int maxLen) {
 [[maybe_unused]]
 static void benchDelay(int) { /* no-op on PC */ }
 
+// PC用サイクルカウンタ代替（ナノ秒ベース）
+// 実際のCPUサイクルではないが、高精度計測として機能
+static inline uint32_t getCycleCount() {
+    using namespace std::chrono;
+    static auto start = high_resolution_clock::now();
+    auto now = high_resolution_clock::now();
+    return static_cast<uint32_t>(duration_cast<nanoseconds>(now - start).count());
+}
+
+// PC用: 1GHzとして扱い、ナノ秒→マイクロ秒変換を簡略化
+static inline uint32_t getCpuFreqMHz() {
+    return 1000;  // 1GHz = 1000MHz (1 cycle = 1ns)
+}
+
 #endif
 
 // =============================================================================
@@ -146,7 +171,7 @@ static void benchDelay(int) { /* no-op on PC */ }
     static constexpr int BENCH_PIXELS = 4096;
     static constexpr int BENCH_WIDTH = 64;    // 64x64 = 4096
     static constexpr int BENCH_HEIGHT = 64;
-    static constexpr int ITERATIONS = 1000;
+    static constexpr int ITERATIONS = 100;    // 最小値採用のため少数で十分
     static constexpr int WARMUP = 10;
     // Matte pipeline scaled output (2x scale)
     static constexpr int MATTE_RENDER_WIDTH = 128;
@@ -157,7 +182,7 @@ static void benchDelay(int) { /* no-op on PC */ }
     static constexpr int BENCH_PIXELS = 65536;
     static constexpr int BENCH_WIDTH = 256;   // 256x256 = 65536
     static constexpr int BENCH_HEIGHT = 256;
-    static constexpr int ITERATIONS = 1000;
+    static constexpr int ITERATIONS = 100;    // 最小値採用のため少数で十分
     static constexpr int WARMUP = 10;
     // Matte pipeline scaled output (2x scale)
     static constexpr int MATTE_RENDER_WIDTH = 512;
@@ -174,6 +199,10 @@ static uint8_t* bufRGBA8_2 = nullptr;    // Second RGBA8 buffer (canvas for Stra
 static uint8_t* bufRGB888 = nullptr;     // RGB888/BGR888 buffer
 static uint8_t* bufRGB565 = nullptr;     // RGB565 buffer
 static uint8_t* bufRGB332 = nullptr;     // RGB332 buffer
+static uint8_t* bufDDALine = nullptr;    // DDA output line buffer
+
+// DDA benchmark: output line size (supports up to 8x scale from 64px source)
+static constexpr int DDA_DST_LINE_SIZE = 512;
 
 // Platform-specific memory allocation
 // ESP32: Use internal SRAM (not PSRAM) for accurate benchmarking
@@ -188,7 +217,7 @@ static uint8_t* bufRGB332 = nullptr;     // RGB332 buffer
 
 static bool allocateBuffers() {
     // Skip if already allocated
-    if (bufRGBA8 && bufRGBA8_2 && bufRGB888 && bufRGB565 && bufRGB332) {
+    if (bufRGBA8 && bufRGBA8_2 && bufRGB888 && bufRGB565 && bufRGB332 && bufDDALine) {
         return true;
     }
 
@@ -197,8 +226,9 @@ static bool allocateBuffers() {
     bufRGB888 = static_cast<uint8_t*>(BENCH_MALLOC(BENCH_PIXELS * 3));
     bufRGB565 = static_cast<uint8_t*>(BENCH_MALLOC(BENCH_PIXELS * 2));
     bufRGB332 = static_cast<uint8_t*>(BENCH_MALLOC(BENCH_PIXELS * 1));
+    bufDDALine = static_cast<uint8_t*>(BENCH_MALLOC(DDA_DST_LINE_SIZE * 4));
 
-    if (!bufRGBA8 || !bufRGBA8_2 || !bufRGB888 || !bufRGB565 || !bufRGB332) {
+    if (!bufRGBA8 || !bufRGBA8_2 || !bufRGB888 || !bufRGB565 || !bufRGB332 || !bufDDALine) {
         benchPrintln("ERROR: Buffer allocation failed!");
 #ifdef BENCH_M5STACK
         benchPrintf("Internal SRAM may be insufficient. Free: %u bytes\n",
@@ -356,21 +386,133 @@ static void initCanvasRGBA8WithPattern(DstPattern pattern) {
 // Benchmark Runner
 // =============================================================================
 
+// ベンチマーク結果構造体
+struct BenchResult {
+    uint32_t avgCycles;     // 平均サイクル数
+    uint32_t minCycles;     // 最小サイクル数（最も信頼性の高い値）
+    uint32_t maxCycles;     // 最大サイクル数
+    uint32_t avgMicros;     // 平均マイクロ秒
+    uint32_t minMicros;     // 最小マイクロ秒（推奨：外乱の影響を受けにくい）
+    uint32_t overhead;      // 計測オーバーヘッド（サイクル）
+};
+
+// キャリブレーション用：計測オーバーヘッドを測定
+static uint32_t calibrateOverhead() {
+    uint32_t total = 0;
+    constexpr int CAL_ITERATIONS = 100;
+
+    for (int i = 0; i < CAL_ITERATIONS; i++) {
+#ifdef BENCH_M5STACK
+        portDISABLE_INTERRUPTS();
+#endif
+        uint32_t start = getCycleCount();
+        // 空の計測（オーバーヘッドのみ）
+        uint32_t end = getCycleCount();
+#ifdef BENCH_M5STACK
+        portENABLE_INTERRUPTS();
+#endif
+        total += (end - start);
+    }
+
+    return total / CAL_ITERATIONS;
+}
+
+// グローバルオーバーヘッド値（初回計測時に設定）
+static uint32_t g_measureOverhead = 0;
+
+// 厳密計測版ベンチマーク（CPUサイクルカウンタ + 割り込み禁止）
 template<typename Func>
-static uint32_t runBenchmark(Func func) {
-    // Warmup
+static BenchResult runBenchmarkCycles(Func func, int iterations = ITERATIONS) {
+    BenchResult result = {};
+
+    // オーバーヘッドの初回計測
+    if (g_measureOverhead == 0) {
+        g_measureOverhead = calibrateOverhead();
+    }
+    result.overhead = g_measureOverhead;
+
+    // ウォームアップ
     for (int i = 0; i < WARMUP; i++) {
         func();
     }
 
-    // Measure
-    uint32_t start = benchMicros();
-    for (int i = 0; i < ITERATIONS; i++) {
-        func();
-    }
-    uint32_t elapsed = benchMicros() - start;
+    uint64_t totalCycles = 0;
+    result.minCycles = UINT32_MAX;
+    result.maxCycles = 0;
 
-    return elapsed / ITERATIONS;
+    for (int i = 0; i < iterations; i++) {
+        // 定期的にタスク切り替え（ウォッチドッグ対策）
+#ifdef BENCH_M5STACK
+        if ((i & 0xFF) == 0) {
+            vTaskDelay(1);  // タスク切り替えを許可
+        }
+        taskYIELD();
+        portDISABLE_INTERRUPTS();
+#endif
+        uint32_t start = getCycleCount();
+
+        func();
+
+        uint32_t end = getCycleCount();
+#ifdef BENCH_M5STACK
+        portENABLE_INTERRUPTS();
+#endif
+
+        // カウンタラップアラウンド対応（32bit減算は自動的に正しい差分を計算）
+        uint32_t elapsed = end - start;
+
+        // オーバーヘッド補正
+        if (elapsed > g_measureOverhead) {
+            elapsed -= g_measureOverhead;
+        }
+
+        totalCycles += elapsed;
+
+        if (elapsed < result.minCycles) result.minCycles = elapsed;
+        if (elapsed > result.maxCycles) result.maxCycles = elapsed;
+    }
+
+    result.avgCycles = static_cast<uint32_t>(totalCycles / static_cast<uint64_t>(iterations));
+
+    // サイクル→マイクロ秒変換: cycles / MHz = microseconds
+    uint32_t freqMHz = getCpuFreqMHz();
+    result.avgMicros = result.avgCycles / freqMHz;
+    result.minMicros = result.minCycles / freqMHz;
+
+    return result;
+}
+
+// 後方互換性のためのラッパー（既存コードとの互換）
+// minMicrosを返す：外乱の影響を受けにくい最小値を採用
+template<typename Func>
+static uint32_t runBenchmark(Func func) {
+    BenchResult result = runBenchmarkCycles(func);
+    return result.minMicros;
+}
+
+// 詳細結果を表示するヘルパー（将来の拡張用）
+[[maybe_unused]]
+static void printBenchResultDetail(const char* label, const BenchResult& r) {
+    uint32_t freqMHz = getCpuFreqMHz();
+    benchPrintf("  %-20s: %6u us (min=%u avg=%u max=%u cycles, @%uMHz)\n",
+                label,
+                r.minMicros,
+                r.minCycles,
+                r.avgCycles,
+                r.maxCycles,
+                freqMHz);
+}
+
+// キャリブレーション情報を表示
+static void printCalibrationInfo() {
+    if (g_measureOverhead == 0) {
+        g_measureOverhead = calibrateOverhead();
+    }
+    uint32_t freqMHz = getCpuFreqMHz();
+    benchPrintf("Calibration: overhead=%u cycles (~%u ns), CPU=%u MHz\n",
+                g_measureOverhead,
+                g_measureOverhead * 1000 / freqMHz,
+                freqMHz);
 }
 
 // =============================================================================
@@ -721,14 +863,18 @@ static const DDATestCase ddaTests[] = {
     // Horizontal only (incrY == 0) — scale without rotation
     {"H 1:1",  "h", INT_FIXED_ONE,      0},
     {"H x2",   "h", INT_FIXED_ONE / 2,  0},               // 2x zoom
+    {"H x4",   "h", INT_FIXED_ONE / 4,  0},               // 4x zoom
+    {"H x8",   "h", INT_FIXED_ONE / 8,  0},               // 8x zoom
     {"H /2",   "h", INT_FIXED_ONE * 2,  0},               // 2x shrink
     // Vertical only (incrX == 0) — 90-degree rotation equivalent
     {"V 1:1",  "v", 0,                  INT_FIXED_ONE},
     {"V x2",   "v", 0,                  INT_FIXED_ONE / 2},
+    {"V x4",   "v", 0,                  INT_FIXED_ONE / 4},
     {"V /2",   "v", 0,                  INT_FIXED_ONE * 2},
     // Diagonal (both nonzero) — rotation case
     {"D 1:1",  "d", 46341,              46341},            // cos(45)*65536
     {"D x2",   "d", 23170,              23170},            // cos(45)*65536/2
+    {"D x4",   "d", 11585,              11585},            // cos(45)*65536/4
 };
 static constexpr int NUM_DDA_TESTS = sizeof(ddaTests) / sizeof(ddaTests[0]);
 
@@ -773,16 +919,18 @@ static uint8_t* getDDASourceBuffer(int bpp) {
 // Run single DDA test, return ns/px
 static double runDDATest(const ViewPort& srcVP, int bpp, int testIdx) {
     const auto& test = ddaTests[testIdx];
+
+    // 出力ピクセル数を計算（ソース範囲内に収まる最大数、ラインバッファ上限も考慮）
     int count = computeDDASafeCount(test.incrX, test.incrY);
-    int numRows = BENCH_PIXELS / count;
+    count = std::min(count, DDA_DST_LINE_SIZE);
+
+    // 総ピクセル数を一定に保つため、行数を調整
+    int numRows = (BENCH_PIXELS * 4) / count;  // 4倍のピクセル数を処理
     if (numRows < 1) numRows = 1;
     int totalPixels = count * numRows;
 
     uint32_t us = runBenchmark([&]() {
-        uint8_t* dst = bufRGBA8_2;
-        uint8_t* dstLimit = bufRGBA8_2
-            + static_cast<size_t>(BENCH_PIXELS) * 4
-            - static_cast<size_t>(count) * static_cast<size_t>(bpp);
+        uint8_t* dst = bufDDALine;
         for (int row = 0; row < numRows; row++) {
             int_fixed srcX = 0;
             int_fixed srcY = 0;
@@ -797,10 +945,6 @@ static double runDDATest(const ViewPort& srcVP, int bpp, int testIdx) {
 
             view_ops::copyRowDDA(dst, srcVP, count, srcX, srcY,
                                  test.incrX, test.incrY);
-            dst += static_cast<size_t>(count) * static_cast<size_t>(bpp);
-            if (dst > dstLimit) {
-                dst = bufRGBA8_2;
-            }
         }
     });
 
@@ -1283,6 +1427,7 @@ static void printHelp() {
     benchPrintln("  d        : Analyze alpha distribution of test data");
     benchPrintln("  a        : All benchmarks");
     benchPrintln("  l        : List formats");
+    benchPrintln("  k        : Show calibration info (CPU freq, overhead)");
     benchPrintln("  h        : This help");
     benchPrintln();
     benchPrintln("Formats:");
@@ -1384,6 +1529,10 @@ static void processCommand(const char* cmd) {
         case 'l':
         case 'L':
             listFormats();
+            break;
+        case 'k':
+        case 'K':
+            printCalibrationInfo();
             break;
         case 'h':
         case 'H':
