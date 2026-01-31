@@ -69,25 +69,9 @@ alignas(64) static const uint32_t rgb332ToRgba8[256] = {
 
 static void rgb332_toStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
     FLEXIMG_FMT_METRICS(RGB332, ToStraight, pixelCount);
-    const uint8_t* s = static_cast<const uint8_t*>(src);
-    uint32_t* d = static_cast<uint32_t*>(dst);
-
-    // 端数処理（1〜3ピクセル）
-    int remainder = pixelCount & 3;
-    while (remainder--) {
-        *d++ = rgb332ToRgba8[*s++];
-    }
-
-    // 4ピクセル単位でループ
-    pixelCount >>= 2;
-    while (pixelCount--) {
-        d[0] = rgb332ToRgba8[s[0]];
-        d[1] = rgb332ToRgba8[s[1]];
-        d[2] = rgb332ToRgba8[s[2]];
-        d[3] = rgb332ToRgba8[s[3]];
-        s += 4;
-        d += 4;
-    }
+    pixel_format::detail::lut8to32(static_cast<uint32_t*>(dst),
+                     static_cast<const uint8_t*>(src),
+                     pixelCount, rgb332ToRgba8);
 }
 
 // RGBA8 → RGB332 変換マクロ（32bitロードした値から変換）
