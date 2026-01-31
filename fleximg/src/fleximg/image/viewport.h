@@ -180,16 +180,6 @@ void copy(ViewPort& dst, int dstX, int dstY,
         std::memcpy(dstRow, srcRow, static_cast<size_t>(width) * bpp);
     }
 
-#if 0 // 異フォーマット間コピー: 撤去予定（全呼び出し箇所が同一フォーマットであることを確認済み）
-    if (src.formatID != dst.formatID) {
-        for (int y = 0; y < height; ++y) {
-            const void* srcRow = src.pixelAt(srcX, srcY + y);
-            void* dstRow = dst.pixelAt(dstX, dstY + y);
-            convertFormat(srcRow, src.formatID, dstRow, dst.formatID, width);
-        }
-        return;
-    }
-#endif
 }
 
 void clear(ViewPort& dst, int x, int y, int width, int height) {

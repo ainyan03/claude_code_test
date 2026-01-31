@@ -55,11 +55,6 @@ struct Port {
 };
 
 } // namespace core
-
-// [DEPRECATED] 後方互換性のため親名前空間に公開。将来廃止予定。
-// 新規コードでは core:: プレフィックスを使用してください。
-using core::Port;
-
 } // namespace FLEXIMG_NAMESPACE
 
 #endif // FLEXIMG_PORT_H
