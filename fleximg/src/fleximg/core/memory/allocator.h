@@ -68,6 +68,10 @@ public:
         return _aligned_malloc(bytes, alignment);
 #else
         void* ptr = nullptr;
+        // posix_memalignはalignmentがsizeof(void*)の倍数である必要がある
+        if (alignment < sizeof(void*)) {
+            alignment = sizeof(void*);
+        }
         if (posix_memalign(&ptr, alignment, bytes) != 0) {
             return nullptr;
         }

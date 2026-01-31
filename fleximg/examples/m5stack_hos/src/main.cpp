@@ -434,6 +434,10 @@ static void updateFade() {
     applyPaletteToSprites();
 
     fadeFrame++;
+
+    // if (fadeFrame == FADE_FRAMES){
+    //     lcdSink.setDrawEnabled(false);
+    // }
 }
 
 // ========================================
