@@ -84,30 +84,23 @@ static void rgb332_fromStraight(void* dst, const void* src, int pixelCount, cons
     uint8_t* d = static_cast<uint8_t*>(dst);
     const uint32_t* s = static_cast<const uint32_t*>(src);
 
-    // 端数処理（1〜3ピクセル）
-    int remainder = pixelCount & 3;
-    while (remainder--) {
+    // 端数処理（1ピクセル）
+    if (pixelCount & 1) {
         auto rgba = *s++;
         *d++ = static_cast<uint8_t>(RGBA8_TO_RGB332(rgba));
     }
 
-    // 4ピクセル単位でループ（ロードを先に発行してレイテンシ隠蔽）
-    pixelCount >>= 2;
+    // 2ピクセル単位でループ（ロードを先に発行してレイテンシ隠蔽）
+    pixelCount >>= 1;
     while (pixelCount--) {
-        // 4つのロードを先に発行
+        // 2つのロードを先に発行
         auto rgba0 = s[0];
         auto rgba1 = s[1];
-        auto rgba2 = s[2];
-        auto rgba3 = s[3];
-
+        s += 2;
         // 演算と8bitストア
         d[0] = static_cast<uint8_t>(RGBA8_TO_RGB332(rgba0));
         d[1] = static_cast<uint8_t>(RGBA8_TO_RGB332(rgba1));
-        d[2] = static_cast<uint8_t>(RGBA8_TO_RGB332(rgba2));
-        d[3] = static_cast<uint8_t>(RGBA8_TO_RGB332(rgba3));
-
-        s += 4;
-        d += 4;
+        d += 2;
     }
 }
 #undef RGBA8_TO_RGB332
