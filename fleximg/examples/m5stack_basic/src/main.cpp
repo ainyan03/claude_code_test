@@ -33,7 +33,7 @@ using namespace fleximg;
 // 定数定義
 // ========================================
 
-static constexpr int MAX_SOURCES = 16;
+static constexpr int MAX_SOURCES = 32;
 static constexpr int IMAGE_SIZE = 32;
 
 // ピクセルフォーマット配列
@@ -136,8 +136,8 @@ static void getPatternColor(PatternType pattern, int x, int y, int width, int he
     float cy = static_cast<float>(y) - static_cast<float>(height) / 2.0f;
     float dist = sqrtf(cx * cx + cy * cy);
     float maxDist = sqrtf(static_cast<float>(width * width + height * height)) / 2.0f;
-    // 中心で255、端で128（半透明）
-    a = static_cast<uint8_t>(255 - (dist / maxDist) * 127);
+    // 中心で192、端で64（より透過的に）
+    a = static_cast<uint8_t>(192 - (dist / maxDist) * 128);
 }
 
 // 指定フォーマット・模様で画像を生成
@@ -183,6 +183,7 @@ enum class DemoMode {
     Four = 0,       // 4個（各フォーマット1つ）
     Eight,          // 8個（各フォーマット2模様）
     Sixteen,        // 16個（全組み合わせ）
+    ThirtyTwoAlpha, // 32個（RGBA透過のみ、性能限界テスト）
     MODE_COUNT
 };
 
@@ -195,8 +196,8 @@ enum class SpeedLevel {
 
 static const float SPEED_MULTIPLIERS[] = { 0.3f, 1.0f, 2.5f };
 static const char* SPEED_NAMES[] = { "Slow", "Normal", "Fast" };
-static const char* MODE_NAMES[] = { "4 Sources", "8 Sources", "16 Sources" };
-static const int MODE_SOURCE_COUNTS[] = { 4, 8, 16 };
+static const char* MODE_NAMES[] = { "4 Sources", "8 Sources", "16 Sources", "32 Alpha" };
+static const int MODE_SOURCE_COUNTS[] = { 4, 8, 16, 32 };
 
 // ========================================
 // グローバル変数
@@ -277,6 +278,27 @@ static void calcOffsets16(float offsets[][2]) {
     }
 }
 
+// 32個: 二重円周配置（内周16個＋外周16個）
+static void calcOffsets32(float offsets[][2]) {
+    const float outerRadiusX = 110.0f;
+    const float outerRadiusY = 75.0f;
+    const float innerRadiusX = 55.0f;
+    const float innerRadiusY = 38.0f;
+
+    // 外周16個
+    for (int i = 0; i < 16; ++i) {
+        float angle = static_cast<float>(i) * static_cast<float>(M_PI) / 8.0f - static_cast<float>(M_PI) / 2.0f;
+        offsets[i][0] = outerRadiusX * cosf(angle);
+        offsets[i][1] = outerRadiusY * sinf(angle);
+    }
+    // 内周16個（少しオフセットして重なりを促進）
+    for (int i = 0; i < 16; ++i) {
+        float angle = static_cast<float>(i) * static_cast<float>(M_PI) / 8.0f - static_cast<float>(M_PI) / 2.0f + static_cast<float>(M_PI) / 16.0f;
+        offsets[16 + i][0] = innerRadiusX * cosf(angle);
+        offsets[16 + i][1] = innerRadiusY * sinf(angle);
+    }
+}
+
 // 現在のモードに応じたオフセット配列
 static float currentOffsets[MAX_SOURCES][2];
 
@@ -290,6 +312,9 @@ static void updateOffsets() {
             break;
         case DemoMode::Sixteen:
             calcOffsets16(currentOffsets);
+            break;
+        case DemoMode::ThirtyTwoAlpha:
+            calcOffsets32(currentOffsets);
             break;
         default:
             break;
@@ -317,6 +342,14 @@ static int getImageIndex(int sourceIndex) {
                 return pattern * 4 + format;
             }
         case DemoMode::Sixteen:
+            return sourceIndex;
+        case DemoMode::ThirtyTwoAlpha:
+            // RGBA8のみ使用（インデックス3, 7, 11, 15 = 各模様のRGBA8版）
+            // 隣接するソースが異なる模様になるよう交互配置
+            {
+                int pattern = sourceIndex % 4;
+                return pattern * 4 + 3;  // フォーマット3 = RGBA8_Straight
+            }
         default:
             return sourceIndex;
     }
@@ -353,7 +386,8 @@ static void rebuildPipeline() {
         affines[i].connectTo(composite, i);
 
         // 初期配置（モード切替時も現在の角度を維持）
-        float scale = (currentMode == DemoMode::Sixteen) ? 1.3f : 1.8f;
+        float scale = (currentMode == DemoMode::ThirtyTwoAlpha) ? 1.5f :
+                      (currentMode == DemoMode::Sixteen) ? 1.3f : 1.8f;
         affines[i].setScale(scale, scale);
         affines[i].setTranslation(currentOffsets[i][0], currentOffsets[i][1]);
     }
@@ -500,7 +534,8 @@ void loop() {
 
     // 各ソースの更新
     int sourceCount = MODE_SOURCE_COUNTS[static_cast<int>(currentMode)];
-    float scale = (currentMode == DemoMode::Sixteen) ? 1.3f : 1.8f;
+    float baseScale = (currentMode == DemoMode::ThirtyTwoAlpha) ? 1.5f :
+                      (currentMode == DemoMode::Sixteen) ? 1.3f : 1.8f;
 
     constexpr float ONE_CYCLE = 2.0f * static_cast<float>(M_PI);
     for (int i = 0; i < sourceCount; ++i) {
@@ -509,6 +544,14 @@ void loop() {
         individualAngles[i] += deltaAngle * (1.0f + 0.05f * static_cast<float>(i));
         individualAngles[i] = fmodf(individualAngles[i], ONE_CYCLE);
         if (individualAngles[i] < 0.0f) individualAngles[i] += ONE_CYCLE;
+
+        float scale = baseScale;
+        if (currentMode == DemoMode::ThirtyTwoAlpha) {
+            // 32個モード: スケールを1.0〜2.0で周期的に変化
+            // 各ソースで位相をずらして波打つ効果
+            float phase = individualAngles[i] + static_cast<float>(i) * 0.3f;
+            scale = 1.5f + 0.5f * sinf(phase);  // 1.0〜2.0
+        }
 
         affines[i].setRotationScale(individualAngles[i], scale, scale);
         affines[i].setTranslation(currentOffsets[i][0], currentOffsets[i][1]);
