@@ -220,7 +220,85 @@ struct PixelFormatDescriptor {
     }
 };
 
+// ========================================================================
+// 内部ヘルパー関数（ピクセルフォーマット実装用）
+// ========================================================================
+
+namespace pixel_format {
+namespace detail {
+
+// 8bit LUT → Nbit 変換（4ピクセル単位展開）
+// T = uint32_t: rgb332_toStraight, index8_expandIndex (bpc==4) 等で共用
+// T = uint16_t: index8_expandIndex (bpc==2) 等で共用
+template<typename T>
+void lut8toN(T* d, const uint8_t* s, int pixelCount, const T* lut);
+
+// 便利エイリアス
+inline void lut8to32(uint32_t* d, const uint8_t* s, int pixelCount, const uint32_t* lut) {
+    lut8toN(d, s, pixelCount, lut);
+}
+inline void lut8to16(uint16_t* d, const uint8_t* s, int pixelCount, const uint16_t* lut) {
+    lut8toN(d, s, pixelCount, lut);
+}
+
+} // namespace detail
+} // namespace pixel_format
+
 } // namespace FLEXIMG_NAMESPACE
+
+// ------------------------------------------------------------------------
+// 内部ヘルパー関数（実装部）
+// ------------------------------------------------------------------------
+#ifdef FLEXIMG_IMPLEMENTATION
+
+namespace FLEXIMG_NAMESPACE {
+namespace pixel_format {
+namespace detail {
+
+template<typename T>
+void lut8toN(T* d, const uint8_t* s, int pixelCount, const T* lut) {
+    if (pixelCount & 1) {
+        auto v0 = s[0];
+        ++s;
+        d[0] = lut[v0];
+        ++d;
+    }
+    if (pixelCount & 2) {
+        auto v0 = s[0];
+        auto v1 = s[1];
+        s += 2;
+        auto l0 = lut[v0];
+        auto l1 = lut[v1];
+        d[0] = l0;
+        d[1] = l1;
+        d += 2;
+    }
+    pixelCount >>= 2;
+    if (pixelCount == 0) return;
+    do {
+        auto v0 = s[0];
+        auto v1 = s[1];
+        auto v2 = s[2];
+        auto v3 = s[3];
+        s += 4;
+        auto l0 = lut[v0];
+        auto l1 = lut[v1];
+        auto l2 = lut[v2];
+        auto l3 = lut[v3];
+        d[0] = l0; d[1] = l1; d[2] = l2; d[3] = l3;
+        d += 4;
+    } while (--pixelCount);
+}
+
+// 明示的インスタンス化（非inlineを維持）
+template void lut8toN<uint16_t>(uint16_t*, const uint8_t*, int, const uint16_t*);
+template void lut8toN<uint32_t>(uint32_t*, const uint8_t*, int, const uint32_t*);
+
+} // namespace detail
+} // namespace pixel_format
+} // namespace FLEXIMG_NAMESPACE
+
+#endif // FLEXIMG_IMPLEMENTATION
 
 // ========================================================================
 // 各ピクセルフォーマット（個別ヘッダ）

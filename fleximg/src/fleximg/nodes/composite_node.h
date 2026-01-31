@@ -437,7 +437,16 @@ RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
                 uint8_t* overlapDst = canvasRow + static_cast<size_t>(overlapStart) * bytesPerPixel;
                 if (srcFmt->blendUnderStraight) {
                     srcFmt->blendUnderStraight(overlapDst, overlapSrc, overlapWidth, nullptr);
+                } else if (converter) {
+                    // インデックスフォーマット等: converter経由でRGBA8に変換してからブレンド
+                    // converter は resolveConverter で取得済み（パレット情報含む）
+                    ImageBuffer tempBuf(overlapWidth, 1, PixelFormatIDs::RGBA8_Straight,
+                                        InitPolicy::Uninitialized, allocator());
+                    converter(tempBuf.view().pixelAt(0, 0), overlapSrc, overlapWidth);
+                    PixelFormatIDs::RGBA8_Straight->blendUnderStraight(
+                        overlapDst, tempBuf.view().pixelAt(0, 0), overlapWidth, nullptr);
                 } else if (srcFmt->toStraight) {
+                    // フォールバック: toStraight直接使用
                     ImageBuffer tempBuf(overlapWidth, 1, PixelFormatIDs::RGBA8_Straight,
                                         InitPolicy::Uninitialized, allocator());
                     srcFmt->toStraight(tempBuf.view().pixelAt(0, 0), overlapSrc, overlapWidth, nullptr);

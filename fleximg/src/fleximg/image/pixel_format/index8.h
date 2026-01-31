@@ -36,11 +36,11 @@ namespace FLEXIMG_NAMESPACE {
 // expandIndex: インデックス値をパレットフォーマットのピクセルに展開
 // aux->palette, aux->paletteFormat を参照
 // 出力はパレットフォーマットのピクセルデータ
-static void index8_expandIndex(void* dst, const void* src,
-                               int pixelCount, const PixelAuxInfo* aux) {
+static void index8_expandIndex(void* __restrict__ dst, const void* __restrict__ src,
+                               int pixelCount, const PixelAuxInfo* __restrict__ aux) {
     FLEXIMG_FMT_METRICS(Index8, ToStraight, pixelCount);
-    const uint8_t* s = static_cast<const uint8_t*>(src);
-    uint8_t* d = static_cast<uint8_t*>(dst);
+    const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
+    uint8_t* __restrict__ d = static_cast<uint8_t*>(dst);
 
     if (!aux || !aux->palette || !aux->paletteFormat) {
         // パレットなし: ゼロ埋め
@@ -50,16 +50,24 @@ static void index8_expandIndex(void* dst, const void* src,
 
     const uint8_t* p = static_cast<const uint8_t*>(aux->palette);
     // bitsPerPixel / 8 でバイト数を取得（getBytesPerPixelはまだ定義前）
+    // 注意: インデックス値の境界チェックは行わない（呼び出し側の責務）
     int_fast8_t bpc = static_cast<int_fast8_t>((aux->paletteFormat->bitsPerPixel + 7) / 8);
-    uint16_t maxIdx = static_cast<uint16_t>(aux->paletteColorCount > 0
-                       ? aux->paletteColorCount - 1 : 0);
 
-    for (int i = 0; i < pixelCount; ++i) {
-        uint8_t idx = s[i];
-        if (idx > maxIdx) idx = static_cast<uint8_t>(maxIdx);
-        std::memcpy(d + static_cast<size_t>(i) * static_cast<size_t>(bpc),
-                    p + static_cast<size_t>(idx) * static_cast<size_t>(bpc),
-                    static_cast<size_t>(bpc));
+    if (bpc == 4) {
+        // 4バイト（RGBA8等）高速パス
+        pixel_format::detail::lut8to32(reinterpret_cast<uint32_t*>(d), s, pixelCount,
+                         reinterpret_cast<const uint32_t*>(p));
+    } else if (bpc == 2) {
+        // 2バイト（RGB565等）高速パス
+        pixel_format::detail::lut8to16(reinterpret_cast<uint16_t*>(d), s, pixelCount,
+                         reinterpret_cast<const uint16_t*>(p));
+    } else {
+        // 汎用パス（1, 3バイト等）
+        for (int i = 0; i < pixelCount; ++i) {
+            std::memcpy(d + static_cast<size_t>(i) * static_cast<size_t>(bpc),
+                        p + static_cast<size_t>(s[i]) * static_cast<size_t>(bpc),
+                        static_cast<size_t>(bpc));
+        }
     }
 }
 

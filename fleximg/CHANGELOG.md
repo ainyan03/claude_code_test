@@ -1,5 +1,31 @@
 # Changelog
 
+## [2.59.0] - 2026-01-31
+
+### 新機能
+
+- **HOS（Hyper Operating System）デモ追加**: パトレイバー風ブートスクリーンアニメーション
+  - Index8フォーマット + 16色パレットによるメモリ効率化
+  - 半透明パレットによるレイヤー合成
+  - M5Stack Core2/CoreS3対応
+
+### パフォーマンス改善
+
+- **Index8 expandIndex 最適化**:
+  - bpc==4（RGBA8等）: 4ピクセル単位ループ展開
+  - bpc==2（RGB565等）: 高速パス追加
+  - 境界チェック削除（呼び出し側の責務に変更）
+
+### リファクタリング
+
+- **pixel_format::detail namespace新設**: ピクセルフォーマット内部ヘルパーの分離
+- **lut8toN テンプレート化**: lut8to32/lut8to16 を統一テンプレートに
+  - 明示的インスタンス化で非inline維持（バイナリサイズ抑制）
+  - rgb332_toStraight と index8_expandIndex で共用
+- **CompositeNode Index8対応修正**: converter経由でパレット展開してからブレンド
+
+---
+
 ## [2.58.0] - 2026-01-29
 
 ### パフォーマンス改善
