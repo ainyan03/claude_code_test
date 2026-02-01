@@ -129,7 +129,7 @@ PrepareResponse AffineNode::onPushPrepare(const PrepareRequest& request) {
 
 RenderResponse AffineNode::onPullProcess(const RenderRequest& request) {
     Node* upstream = upstreamNode(0);
-    if (!upstream) return RenderResponse();
+    if (!upstream) return makeEmptyResponse(request.origin);
     return upstream->pullProcess(request);
 }
 

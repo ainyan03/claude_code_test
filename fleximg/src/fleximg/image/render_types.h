@@ -9,6 +9,16 @@
 #include "../core/perf_metrics.h"
 #include "../core/memory/allocator.h"
 #include "image_buffer.h"
+#include "data_range.h"
+
+// 前方宣言（循環参照回避）
+namespace FLEXIMG_NAMESPACE {
+class ImageBufferEntryPool;
+class ImageBufferSet;
+}
+
+// ImageBufferSetの完全定義をインクルード（RenderResponseで値として使用）
+#include "image_buffer_set.h"
 
 namespace FLEXIMG_NAMESPACE {
 
@@ -98,6 +108,9 @@ struct PrepareRequest {
     // アロケータ（RendererNodeから伝播、各ノードがprepare時に保持）
     core::memory::IAllocator* allocator = nullptr;
 
+    // エントリプール（RendererNodeから伝播、ImageBufferSet用）
+    ImageBufferEntryPool* entryPool = nullptr;
+
     // 希望フォーマット（下流から上流へ伝播、フォーマット交渉用）
     PixelFormatID preferredFormat = PixelFormatIDs::RGBA8_Straight;
 };
@@ -110,23 +123,7 @@ struct PrepareRequest {
 // 末端ノード（SinkNode/SourceNode）が累積行列からAABBを計算して返す。
 // 状態（status）と境界情報（AABB）を保持する。
 //
-
-// ========================================================================
-// DataRange - 有効データ範囲（X方向）
-// ========================================================================
-//
-// スキャンライン処理（height=1）における有効X範囲を表す。
-// CompositeNode等で上流のデータ範囲を事前に把握し、
-// バッファサイズの最適化や範囲外スキップに使用。
-//
-
-struct DataRange {
-    int16_t startX = 0;     // 有効開始X（request座標系）
-    int16_t endX = 0;       // 有効終了X（request座標系）
-
-    bool hasData() const { return startX < endX; }
-    int16_t width() const { return (startX < endX) ? (endX - startX) : 0; }
-};
+// DataRange は data_range.h で定義
 
 struct PrepareResponse {
     PrepareStatus status = PrepareStatus::Idle;
@@ -315,15 +312,35 @@ inline void calcInverseAffineAABB(
 // ========================================================================
 // RenderResponse - レンダリング応答
 // ========================================================================
+//
+// Phase 3b: ImageBufferSet完全統一
+// - 全てのバッファはImageBufferSet経由で管理
+// - 単一バッファもImageBufferSetにラップして返す
+// - ノード間でImageBufferSetをムーブで受け渡し
+//
+
+// 前方宣言
+class ImageBufferSet;
 
 struct RenderResponse {
-    ImageBuffer buffer;
-    Point origin;  // バッファ内での基準点位置（固定小数点 Q16.16）
+    ImageBufferSet bufferSet;  // バッファセット（値所有）
+    Point origin;              // バッファセット左上のワールド座標（固定小数点 Q16.16）
 
+    // デフォルトコンストラクタ
     RenderResponse() = default;
 
+    // ImageBufferSetムーブコンストラクタ
+    RenderResponse(ImageBufferSet&& set, Point org)
+        : bufferSet(std::move(set)), origin(org) {}
+
+    // ImageBufferコンストラクタ（後方互換・移行用）
+    // 単一バッファをImageBufferSetにラップ
     RenderResponse(ImageBuffer&& buf, Point org)
-        : buffer(std::move(buf)), origin(org) {}
+        : bufferSet(), origin(org) {
+        if (buf.isValid()) {
+            bufferSet.addBuffer(std::move(buf), 0);
+        }
+    }
 
     // ムーブのみ
     RenderResponse(const RenderResponse&) = delete;
@@ -331,9 +348,62 @@ struct RenderResponse {
     RenderResponse(RenderResponse&&) = default;
     RenderResponse& operator=(RenderResponse&&) = default;
 
-    bool isValid() const { return buffer.isValid(); }
-    ViewPort view() { return buffer.view(); }
-    ViewPort view() const { return buffer.view(); }
+    // ========================================
+    // 有効性判定
+    // ========================================
+
+    /// @brief 有効なバッファを持っているか
+    /// @note consolidateIfNeeded後はbufferに、未変換時はbufferSetにデータがある
+    bool isValid() const {
+        return buffer.isValid() || !bufferSet.empty();
+    }
+
+    // ========================================
+    // 単一バッファアクセス（後方互換）
+    // ========================================
+
+    /// @brief 単一バッファのビューを取得
+    /// @note consolidateIfNeeded後はbufferから、それ以外は単一エントリのbufferSetから取得
+    ViewPort view() {
+        // consolidateIfNeeded後はbufferにデータがある
+        if (buffer.isValid()) {
+            return buffer.view();
+        }
+        // 未変換時は単一エントリのbufferSetから取得
+        if (bufferSet.bufferCount() == 1) {
+            return bufferSet.buffer(0).view();
+        }
+        return ViewPort();
+    }
+
+    ViewPort view() const {
+        // consolidateIfNeeded後はbufferにデータがある
+        if (buffer.isValid()) {
+            return buffer.view();
+        }
+        // 未変換時は単一エントリのbufferSetから取得
+        if (bufferSet.bufferCount() == 1) {
+            return bufferSet.buffer(0).view();
+        }
+        return ViewPort();
+    }
+
+    // ========================================
+    // 後方互換API（移行期間用、将来削除予定）
+    // ========================================
+
+    /// @brief 旧buffer互換（consolidateIfNeeded後にアクセス用）
+    /// @deprecated 移行完了後に削除予定
+    ImageBuffer buffer;  // consolidateIfNeeded()で設定される一時バッファ
+
+    /// @brief ImageBufferSetを持っているか
+    /// @deprecated 常にtrueを返すため、将来削除予定
+    bool hasBufferSet() const { return true; }
+
+    /// @brief ImageBufferSetポインタを取得
+    /// @deprecated bufferSetを直接使用してください
+    ImageBufferSet* bufferSet_ptr() { return &bufferSet; }
+    const ImageBufferSet* bufferSet_ptr() const { return &bufferSet; }
 };
 
 } // namespace FLEXIMG_NAMESPACE

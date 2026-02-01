@@ -6,6 +6,7 @@
 #include "../core/perf_metrics.h"
 #include "../core/format_metrics.h"
 #include "../image/render_types.h"
+#include "../image/image_buffer_entry_pool.h"
 #include <algorithm>
 
 namespace FLEXIMG_NAMESPACE {
@@ -142,6 +143,9 @@ public:
         if (downstream) {
             downstream->pushFinalize();
         }
+
+        // エントリプールを一括解放
+        entryPool_.releaseAll();
     }
 
     // パフォーマンス計測結果を取得
@@ -194,6 +198,7 @@ private:
     bool debugCheckerboard_ = false;
     bool debugDataRange_ = false;
     core::memory::IAllocator* pipelineAllocator_ = nullptr;  // パイプライン用アロケータ
+    ImageBufferEntryPool entryPool_;  // ImageBufferSet用エントリプール
 
     // タイルサイズ取得
     // 注: パイプライン上のリクエストは必ずスキャンライン（height=1）
@@ -287,6 +292,7 @@ PrepareStatus RendererNode::execPrepare() {
     PrepareRequest pushReq;
     pushReq.hasPushAffine = false;
     pushReq.allocator = pipelineAllocator_;
+    pushReq.entryPool = &entryPool_;
 
     PrepareResponse pushResult = downstream->pushPrepare(pushReq);
     if (!pushResult.ok()) {
@@ -318,6 +324,7 @@ PrepareStatus RendererNode::execPrepare() {
     pullReq.origin = screenInfo.origin;
     pullReq.hasAffine = false;
     pullReq.allocator = pipelineAllocator_;
+    pullReq.entryPool = &entryPool_;
     // 下流が希望するフォーマットを上流に伝播
     pullReq.preferredFormat = pushResult.preferredFormat;
 

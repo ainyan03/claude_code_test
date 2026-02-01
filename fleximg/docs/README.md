@@ -21,6 +21,7 @@ fleximg の設計ドキュメント一覧です。
 | [DESIGN_PIXEL_FORMAT.md](DESIGN_PIXEL_FORMAT.md) | ピクセルフォーマット変換アルゴリズム |
 | [DESIGN_CHANNEL_DESCRIPTOR.md](DESIGN_CHANNEL_DESCRIPTOR.md) | ChannelType・Alpha8フォーマット設計 |
 | [DESIGN_PERF_METRICS.md](DESIGN_PERF_METRICS.md) | パフォーマンス計測基盤 |
+| [DESIGN_IMAGE_BUFFER_SET.md](DESIGN_IMAGE_BUFFER_SET.md) | 複数バッファ管理クラス（設計中） |
 
 ## その他
 

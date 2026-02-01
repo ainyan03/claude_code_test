@@ -332,7 +332,7 @@ RenderResponse SourceNode::onPullProcess(const RenderRequest& request) {
     FLEXIMG_METRICS_SCOPE(NodeType::Source);
 
     if (!source_.isValid()) {
-        return RenderResponse();
+        return makeEmptyResponse(request.origin);
     }
 
     // アフィン変換が伝播されている場合はDDA処理
@@ -363,7 +363,7 @@ RenderResponse SourceNode::onPullProcess(const RenderRequest& request) {
     auto dxEndY = std::min<int32_t>(request.height, source_.height - srcBaseY);
 
     if (dxStartX >= dxEndX || dxStartY >= dxEndY) {
-        return RenderResponse(ImageBuffer(), request.origin);
+        return makeEmptyResponse(request.origin);
     }
 
     int32_t validW = dxEndX - dxStartX;
@@ -385,7 +385,7 @@ RenderResponse SourceNode::onPullProcess(const RenderRequest& request) {
         request.origin.x + to_fixed(dxStartX),
         request.origin.y + to_fixed(dxStartY)
     };
-    return RenderResponse(std::move(result), adjustedOrigin);
+    return makeResponse(std::move(result), adjustedOrigin);
 }
 
 // ============================================================================
@@ -498,13 +498,13 @@ RenderResponse SourceNode::pullProcessWithAffine(const RenderRequest& request) {
     } else {
         // キャッシュミス: 計算が必要
         if (!calcScanlineRange(request, dxStart, dxEnd, &baseX, &baseY)) {
-            return RenderResponse(ImageBuffer(), request.origin);
+            return makeEmptyResponse(request.origin);
         }
     }
 
     // 有効ピクセルがない場合
     if (dxStart > dxEnd) {
-        return RenderResponse(ImageBuffer(), request.origin);
+        return makeEmptyResponse(request.origin);
     }
 
     // 有効範囲のみのバッファを作成
@@ -545,7 +545,7 @@ RenderResponse SourceNode::pullProcessWithAffine(const RenderRequest& request) {
         request.origin.y
     };
 
-    return RenderResponse(std::move(output), adjustedOrigin);
+    return makeResponse(std::move(output), adjustedOrigin);
 }
 
 } // namespace FLEXIMG_NAMESPACE

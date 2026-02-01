@@ -4,6 +4,7 @@
 #include "../core/node.h"
 #include "../core/perf_metrics.h"
 #include "../image/image_buffer.h"
+#include "../image/image_buffer_set.h"
 #include "../operations/filters.h"
 
 namespace FLEXIMG_NAMESPACE {
@@ -96,7 +97,7 @@ namespace FLEXIMG_NAMESPACE {
 
 RenderResponse FilterNodeBase::onPullProcess(const RenderRequest& request) {
     Node* upstream = upstreamNode(0);
-    if (!upstream) return RenderResponse();
+    if (!upstream) return makeEmptyResponse(request.origin);
 
     int margin = computeInputMargin();
     RenderRequest inputReq = request.expand(margin);
@@ -130,6 +131,9 @@ RenderResponse FilterNodeBase::process(RenderResponse&& input,
     (void)request;  // スキャンライン必須仕様では未使用
     FLEXIMG_METRICS_SCOPE(nodeTypeForMetrics());
 
+    // ImageBufferSetの場合はconsolidate()して単一バッファに変換
+    consolidateIfNeeded(input);
+
     // 入力をRGBA8_Straightに変換（メトリクス記録付き）
     ImageBuffer working = convertFormat(std::move(input.buffer), PixelFormatIDs::RGBA8_Straight);
     ViewPort workingView = working.view();
@@ -138,7 +142,7 @@ RenderResponse FilterNodeBase::process(RenderResponse&& input,
     uint8_t* row = static_cast<uint8_t*>(workingView.data);
     getFilterFunc()(row, workingView.width, params_);
 
-    return RenderResponse(std::move(working), input.origin);
+    return makeResponse(std::move(working), input.origin);
 }
 
 } // namespace FLEXIMG_NAMESPACE

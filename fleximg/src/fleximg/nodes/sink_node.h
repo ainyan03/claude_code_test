@@ -5,6 +5,7 @@
 #include "../core/affine_capability.h"
 #include "../core/perf_metrics.h"
 #include "../image/viewport.h"
+#include "../image/image_buffer_set.h"
 #include "../operations/transform.h"
 
 namespace FLEXIMG_NAMESPACE {
@@ -205,6 +206,9 @@ void SinkNode::onPushProcess(RenderResponse&& input,
     if (!input.isValid() || !target_.isValid()) return;
 
     FLEXIMG_METRICS_SCOPE(NodeType::Sink);
+
+    // ImageBufferSetの場合はconsolidate()して単一バッファに変換
+    consolidateIfNeeded(input, target_.formatID);
 
     // アフィン変換が伝播されている場合はDDA処理
     if (hasAffine_) {

@@ -4,6 +4,7 @@
 // fleximg core
 #include "fleximg/core/node.h"
 #include "fleximg/image/pixel_format.h"
+#include "fleximg/image/image_buffer_set.h"
 
 // M5Unified
 #include <M5Unified.h>
@@ -101,6 +102,15 @@ protected:
         (void)request;
 
         if (!lcd_ || !drawEnabled_) return;
+
+        // ImageBufferSetの場合はconsolidate()して単一バッファに変換
+        consolidateIfNeeded(input);
+
+        // パレット情報を取得（Index8フォーマット対応）
+        const ::fleximg::PixelAuxInfo* srcAux = nullptr;
+        if (input.buffer.auxInfo().palette) {
+            srcAux = &input.buffer.auxInfo();
+        }
 
         ViewPort inputView = input.isValid() ? input.view() : ViewPort();
 

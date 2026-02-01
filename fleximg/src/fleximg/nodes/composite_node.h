@@ -5,6 +5,7 @@
 #include "../core/affine_capability.h"
 #include "../core/perf_metrics.h"
 #include "../image/image_buffer.h"
+#include "../image/image_buffer_set.h"
 #include "../image/pixel_format.h"
 #include "../operations/canvas_utils.h"
 
@@ -102,8 +103,8 @@ private:
     int_fast16_t upstreamCacheCapacity_ = 0;  // 確保サイズ（inputCount）
     mutable int_fast16_t validUpstreamCount_ = 0;  // 有効エントリ数（calcUpstreamRangeUnionで設定）
 
-    // 描画済み範囲の配列（onPullProcess内で使用、ソート済みを維持）
-    DataRange* drawnRanges_ = nullptr;
+    // ImageBufferSet（複数バッファを重複なく管理）
+    ImageBufferSet* bufferSet_ = nullptr;
 
     // getDataRange/onPullProcess 間のキャッシュ
     struct DataRangeCache {
@@ -132,7 +133,7 @@ namespace FLEXIMG_NAMESPACE {
 // ============================================================================
 
 PrepareResponse CompositeNode::onPullPrepare(const PrepareRequest& request) {
-    // 有効な上流キャッシュと描画済み範囲配列を確保（最大で入力数分）
+    // 有効な上流キャッシュとImageBufferSetを確保
     {
         auto cacheInputCount = inputCount();
         if (cacheInputCount > 0 && allocator()) {
@@ -144,11 +145,11 @@ PrepareResponse CompositeNode::onPullPrepare(const PrepareRequest& request) {
                 upstreamCacheCapacity_ = cacheInputCount;
                 validUpstreamCount_ = 0;  // calcUpstreamRangeUnionで設定される
             }
-            // DataRange配列（描画済み範囲用）
-            size_t rangeSize = static_cast<size_t>(cacheInputCount) * sizeof(DataRange);
-            void* rangeMem = allocator()->allocate(rangeSize, alignof(DataRange));
-            if (rangeMem) {
-                drawnRanges_ = static_cast<DataRange*>(rangeMem);
+            // ImageBufferSet（複数バッファ管理用、プール連携）
+            size_t setSize = sizeof(ImageBufferSet);
+            void* setMem = allocator()->allocate(setSize, alignof(ImageBufferSet));
+            if (setMem) {
+                bufferSet_ = new (setMem) ImageBufferSet(entryPool(), allocator());
             }
         }
     }
@@ -247,9 +248,10 @@ void CompositeNode::onPullFinalize() {
         upstreamCacheCapacity_ = 0;
         validUpstreamCount_ = 0;
     }
-    if (drawnRanges_ && allocator()) {
-        allocator()->deallocate(drawnRanges_);
-        drawnRanges_ = nullptr;
+    if (bufferSet_ && allocator()) {
+        bufferSet_->~ImageBufferSet();  // デストラクタを明示的に呼ぶ
+        allocator()->deallocate(bufferSet_);
+        bufferSet_ = nullptr;
     }
     // キャッシュキーも無効化
     rangeCache_.origin = {INT32_MIN, INT32_MIN};
@@ -309,292 +311,85 @@ DataRange CompositeNode::getDataRange(const RenderRequest& request) const {
 }
 
 // onPullProcess: 複数の上流から画像を取得してunder合成
-// under合成: 手前から奥へ処理し、不透明な部分は後のレイヤーをスキップ
-// 最適化: height=1 前提（パイプラインは常にスキャンライン単位で処理）
-//
-// 描画済み範囲配列方式:
-// - drawnRanges_にソート済みの描画済み範囲を保持
-// - 各レイヤー描画時に、重複部分はblend、非重複部分はconverter
-// - 描画後に範囲をマージして配列を更新
+// ImageBufferSet方式:
+// - 各上流の結果をImageBufferSetにaddBuffer()で登録
+// - 重複があれば自動でunder合成
+// - RenderResponseでbufferSetとして返す
 RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
     auto numInputs = inputCount();
-    if (numInputs == 0) return RenderResponse();
+    if (numInputs == 0) return makeEmptyResponse(request.origin);
 
     // キャンバス範囲を取得（キャッシュがあれば再利用）
-    int16_t canvasStartX, canvasEndX;
     int16_t cachedValidCount;
     if (rangeCache_.origin.x == request.origin.x &&
         rangeCache_.origin.y == request.origin.y) {
-        // キャッシュヒット: getDataRange()の計算結果を再利用
-        canvasStartX = rangeCache_.startX;
-        canvasEndX = rangeCache_.endX;
+        // キャッシュヒット
         cachedValidCount = rangeCache_.validUpstreamCount;
+        if (rangeCache_.startX >= rangeCache_.endX) {
+            return makeEmptyResponse(request.origin);
+        }
     } else {
         // キャッシュミス: 和集合を計算
         DataRange range = calcUpstreamRangeUnion(request);
-        canvasStartX = range.startX;
-        canvasEndX = range.endX;
         cachedValidCount = static_cast<int16_t>(validUpstreamCount_);
-    }
-
-    // 有効なデータがない場合は空を返す（originは維持）
-    if (canvasStartX >= canvasEndX) {
-        return RenderResponse(ImageBuffer(), request.origin);
+        if (!range.hasData()) {
+            return makeEmptyResponse(request.origin);
+        }
     }
 
     // 有効な上流が1件のみの場合、そのまま返す（最適化）
-    // キャンバス作成・フォーマット変換・コピー処理をスキップ
     if (cachedValidCount == 1 && upstreamCache_) {
         Node* upstream = upstreamCache_[0].node;
         return upstream->pullProcess(request);
     }
 
-    int16_t canvasWidth = canvasEndX - canvasStartX;
+    // ImageBufferSetがない場合は空を返す
+    if (!bufferSet_) {
+        return makeEmptyResponse(request.origin);
+    }
+
+    // ImageBufferSetをクリアして再利用
+    bufferSet_->clear();
 
     // キャンバス左上のワールド座標（固定小数点 Q16.16）
-    // canvasStartX分だけ右にシフト
-    int_fixed canvasOriginX = request.origin.x + to_fixed(canvasStartX);
-    int_fixed canvasOriginY = request.origin.y;
+    int_fixed canvasOriginX = request.origin.x;
 
-    // キャンバスを作成（height=1、必要幅のみ確保）
-    // 8bit Straight形式: 4バイト/ピクセル
-    constexpr size_t bytesPerPixel = 4;
-    PixelFormatID canvasFormat = PixelFormatIDs::RGBA8_Straight;
-    ImageBuffer canvasBuf(canvasWidth, 1, canvasFormat,
-                          InitPolicy::Uninitialized, allocator());
-#ifdef FLEXIMG_DEBUG_PERF_METRICS
-    PerfMetrics::instance().nodes[NodeType::Composite].recordAlloc(
-        canvasBuf.totalBytes(), canvasBuf.width(), canvasBuf.height());
-#endif
-    uint8_t* canvasRow = static_cast<uint8_t*>(canvasBuf.view().pixelAt(0, 0));
-
-    // 描画済み範囲配列を初期化
-    int_fast16_t drawnCount = 0;
-    // drawnRanges_がnullの場合のフォールバック用（単一範囲追跡）
-    int16_t fallbackStartX = canvasWidth;
-    int16_t fallbackEndX = 0;
-
-    // under合成: 有効な上流のみ順に評価して合成
-    // 入力ポート0が最前面、以降が背面（キャッシュは同じ順序で格納）
+    // under合成: 有効な上流のみ順に評価して登録
+    // 入力ポート0が最前面、以降が背面
     for (int_fast16_t i = 0; i < validUpstreamCount_; i++) {
-        // キャッシュから取得（hasData()チェック不要、キャッシュに入っている時点で有効）
         Node* upstream = upstreamCache_[i].node;
 
-        // 上流を評価（計測対象外）
+        // 上流を評価
         RenderResponse inputResult = upstream->pullProcess(request);
 
         // 空入力はスキップ
         if (!inputResult.isValid()) continue;
 
-        // ここからCompositeNode自身の処理を計測
         FLEXIMG_METRICS_SCOPE(NodeType::Composite);
 
-        // X方向オフセット計算（Y方向は不要、height=1前提）
-        // 入力バッファ左上のワールド座標 - キャンバス左上のワールド座標 = 描画開始位置
-        int offsetX = from_fixed(inputResult.origin.x - canvasOriginX);
-        int srcStartX = std::max(0, -offsetX);
-        int dstStartX = std::max(0, offsetX);
-        int copyWidth = std::min(inputResult.view().width - srcStartX,
-                                 static_cast<int>(canvasWidth) - dstStartX);
-        if (copyWidth <= 0) continue;
+        // X方向オフセット計算（整数ピクセル単位）
+        int16_t baseStartX = static_cast<int16_t>(from_fixed(inputResult.origin.x - canvasOriginX));
 
-        const auto* srcBytes = static_cast<const uint8_t*>(inputResult.view().pixelAt(srcStartX, 0));
-        PixelFormatID srcFmt = inputResult.view().formatID;
-        size_t srcBpp = static_cast<size_t>(getBytesPerPixel(srcFmt));
-
-        // 入力ごとに変換パスを解決（分岐なしの変換関数を取得）
-        auto converter = resolveConverter(
-            srcFmt, canvasFormat,
-            &inputResult.buffer.auxInfo(), allocator());
-
-        // 今回の描画範囲
-        int16_t curStartX = static_cast<int16_t>(dstStartX);
-        int16_t curEndX = static_cast<int16_t>(dstStartX + copyWidth);
-
-        // 描画済み範囲と比較して、重複/非重複を処理
-        // srcPosは今回の入力内でのオフセット（処理済みピクセル数）
-        int srcPos = 0;
-        int writePos = curStartX;
-
-        if (drawnRanges_) {
-            // drawnRanges_がある場合: 範囲配列と比較
-            for (int_fast16_t j = 0; j < drawnCount && writePos < curEndX; j++) {
-                DataRange& drawn = drawnRanges_[j];
-
-                // 描画済み範囲より左にある非重複部分 → converter
-                if (writePos < drawn.startX) {
-                    int nonOverlapEnd = std::min(static_cast<int>(drawn.startX), static_cast<int>(curEndX));
-                    int width = nonOverlapEnd - writePos;
-                    if (width > 0 && converter) {
-                        converter(canvasRow + static_cast<size_t>(writePos) * bytesPerPixel,
-                                  srcBytes + static_cast<size_t>(srcPos) * srcBpp, width);
-                    }
-                    srcPos += width;
-                    writePos = nonOverlapEnd;
-                }
-
-                // 描画済み範囲との重複部分 → blend
-                if (writePos < curEndX && writePos < drawn.endX && drawn.startX < curEndX) {
-                    int overlapStart = std::max(writePos, static_cast<int>(drawn.startX));
-                    int overlapEnd = std::min(static_cast<int>(curEndX), static_cast<int>(drawn.endX));
-                    int width = overlapEnd - overlapStart;
-                    if (width > 0) {
-                        const uint8_t* overlapSrc = srcBytes + static_cast<size_t>(srcPos) * srcBpp;
-                        uint8_t* overlapDst = canvasRow + static_cast<size_t>(overlapStart) * bytesPerPixel;
-                        if (srcFmt->blendUnderStraight) {
-                            srcFmt->blendUnderStraight(overlapDst, overlapSrc, width, nullptr);
-                        } else if (converter) {
-                            ImageBuffer tempBuf(width, 1, PixelFormatIDs::RGBA8_Straight,
-                                                InitPolicy::Uninitialized, allocator());
-                            converter(tempBuf.view().pixelAt(0, 0), overlapSrc, width);
-                            PixelFormatIDs::RGBA8_Straight->blendUnderStraight(
-                                overlapDst, tempBuf.view().pixelAt(0, 0), width, nullptr);
-                        } else if (srcFmt->toStraight) {
-                            ImageBuffer tempBuf(width, 1, PixelFormatIDs::RGBA8_Straight,
-                                                InitPolicy::Uninitialized, allocator());
-                            srcFmt->toStraight(tempBuf.view().pixelAt(0, 0), overlapSrc, width, nullptr);
-                            PixelFormatIDs::RGBA8_Straight->blendUnderStraight(
-                                overlapDst, tempBuf.view().pixelAt(0, 0), width, nullptr);
-                        }
-                        srcPos += width;
-                        writePos = overlapEnd;
-                    }
-                }
-            }
-        } else if (drawnCount > 0) {
-            // フォールバック: 単一範囲（fallbackStartX〜fallbackEndX）と比較
-            // 非重複部分（左側） → converter
-            if (writePos < fallbackStartX) {
-                int nonOverlapEnd = std::min(static_cast<int>(fallbackStartX), static_cast<int>(curEndX));
-                int width = nonOverlapEnd - writePos;
-                if (width > 0 && converter) {
-                    converter(canvasRow + static_cast<size_t>(writePos) * bytesPerPixel,
-                              srcBytes + static_cast<size_t>(srcPos) * srcBpp, width);
-                }
-                srcPos += width;
-                writePos = nonOverlapEnd;
-            }
-            // 重複部分 → blend
-            if (writePos < curEndX && writePos < fallbackEndX && fallbackStartX < curEndX) {
-                int overlapStart = std::max(writePos, static_cast<int>(fallbackStartX));
-                int overlapEnd = std::min(static_cast<int>(curEndX), static_cast<int>(fallbackEndX));
-                int width = overlapEnd - overlapStart;
-                if (width > 0) {
-                    const uint8_t* overlapSrc = srcBytes + static_cast<size_t>(srcPos) * srcBpp;
-                    uint8_t* overlapDst = canvasRow + static_cast<size_t>(overlapStart) * bytesPerPixel;
-                    if (srcFmt->blendUnderStraight) {
-                        srcFmt->blendUnderStraight(overlapDst, overlapSrc, width, nullptr);
-                    } else if (converter) {
-                        ImageBuffer tempBuf(width, 1, PixelFormatIDs::RGBA8_Straight,
-                                            InitPolicy::Uninitialized, allocator());
-                        converter(tempBuf.view().pixelAt(0, 0), overlapSrc, width);
-                        PixelFormatIDs::RGBA8_Straight->blendUnderStraight(
-                            overlapDst, tempBuf.view().pixelAt(0, 0), width, nullptr);
-                    } else if (srcFmt->toStraight) {
-                        ImageBuffer tempBuf(width, 1, PixelFormatIDs::RGBA8_Straight,
-                                            InitPolicy::Uninitialized, allocator());
-                        srcFmt->toStraight(tempBuf.view().pixelAt(0, 0), overlapSrc, width, nullptr);
-                        PixelFormatIDs::RGBA8_Straight->blendUnderStraight(
-                            overlapDst, tempBuf.view().pixelAt(0, 0), width, nullptr);
-                    }
-                    srcPos += width;
-                    writePos = overlapEnd;
-                }
-            }
-        }
-
-        // 残りの非重複部分（全ての描画済み範囲より右） → converter
-        if (writePos < curEndX && converter) {
-            int width = curEndX - writePos;
-            converter(canvasRow + static_cast<size_t>(writePos) * bytesPerPixel,
-                      srcBytes + static_cast<size_t>(srcPos) * srcBpp, width);
-        }
-
-        // 描画済み範囲配列を更新（今回の範囲をマージ）
-        // 重複する範囲を統合し、ソート順を維持
-        if (drawnRanges_) {
-            // 新しい範囲とマージ対象を特定
-            int_fast16_t mergeStart = -1;  // マージ開始インデックス
-            int_fast16_t mergeEnd = -1;    // マージ終了インデックス（含まない）
-            int16_t newStart = curStartX;
-            int16_t newEnd = curEndX;
-
-            for (int_fast16_t j = 0; j < drawnCount; j++) {
-                DataRange& drawn = drawnRanges_[j];
-                // 重複または隣接している場合はマージ対象
-                if (drawn.startX <= newEnd && drawn.endX >= newStart) {
-                    if (mergeStart < 0) mergeStart = j;
-                    mergeEnd = j + 1;
-                    if (drawn.startX < newStart) newStart = drawn.startX;
-                    if (drawn.endX > newEnd) newEnd = drawn.endX;
-                }
-            }
-
-            if (mergeStart < 0) {
-                // マージ対象なし: 新しい範囲を挿入（ソート位置を探す）
-                int_fast16_t insertPos = 0;
-                while (insertPos < drawnCount && drawnRanges_[insertPos].endX < curStartX) {
-                    insertPos++;
-                }
-                // 後ろの要素をシフト
-                for (int_fast16_t j = drawnCount; j > insertPos; j--) {
-                    drawnRanges_[j] = drawnRanges_[j - 1];
-                }
-                drawnRanges_[insertPos] = DataRange{curStartX, curEndX};
-                drawnCount++;
-            } else {
-                // マージ対象あり: 統合した範囲で置き換え
-                drawnRanges_[mergeStart] = DataRange{newStart, newEnd};
-                // マージで消費された範囲を詰める
-                int_fast16_t removeCount = mergeEnd - mergeStart - 1;
-                if (removeCount > 0) {
-                    for (int_fast16_t j = mergeStart + 1; j < drawnCount - removeCount; j++) {
-                        drawnRanges_[j] = drawnRanges_[j + removeCount];
-                    }
-                    drawnCount -= removeCount;
-                }
-            }
-        } else {
-            // drawnRanges_がnullの場合: 単一範囲として追跡（フォールバック）
-            if (curStartX < fallbackStartX) fallbackStartX = curStartX;
-            if (curEndX > fallbackEndX) fallbackEndX = curEndX;
-            drawnCount = 1;  // 少なくとも1つの範囲がある
+        // 上流のImageBufferSetの各エントリを統合
+        for (int j = 0; j < inputResult.bufferSet.bufferCount(); ++j) {
+            DataRange entryRange = inputResult.bufferSet.range(j);
+            int16_t entryStartX = static_cast<int16_t>(baseStartX + entryRange.startX);
+            bufferSet_->addBuffer(std::move(inputResult.bufferSet.buffer(j)), entryStartX);
         }
     }
 
-    if (drawnCount == 0) {
-        return RenderResponse(ImageBuffer(), request.origin);
+    // 結果がない場合
+    if (bufferSet_->empty()) {
+        return makeEmptyResponse(request.origin);
     }
 
-    int16_t finalStartX, finalEndX;
-
-    if (drawnRanges_) {
-        // 描画済み範囲の間のギャップをゼロクリア
-        // （左端・右端の未描画領域はcropで除去するためクリア不要）
-        for (int_fast16_t i = 0; i < drawnCount - 1; i++) {
-            int gapStart = drawnRanges_[i].endX;
-            int gapEnd = drawnRanges_[i + 1].startX;
-            if (gapStart < gapEnd) {
-                std::memset(canvasRow + static_cast<size_t>(gapStart) * bytesPerPixel, 0,
-                            static_cast<size_t>(gapEnd - gapStart) * bytesPerPixel);
-            }
-        }
-        // 描画済み範囲の最小・最大でcrop
-        finalStartX = drawnRanges_[0].startX;
-        finalEndX = drawnRanges_[drawnCount - 1].endX;
-    } else {
-        // フォールバック: 単一範囲として扱う（ギャップなし）
-        finalStartX = fallbackStartX;
-        finalEndX = fallbackEndX;
-    }
-
-    // 左端・右端の未描画領域を除去
-    canvasBuf.cropView(finalStartX, 0, finalEndX - finalStartX, 1);
-
-    // originも調整（finalStartX分だけ右にシフト）
-    int_fixed finalOriginX = canvasOriginX + to_fixed(finalStartX);
-
-    return RenderResponse(std::move(canvasBuf), Point{finalOriginX, canvasOriginY});
+    // RenderResponseにbufferSetをムーブして返す
+    // bufferSet_の内容をムーブし、プール情報を再設定
+    RenderResponse response(std::move(*bufferSet_), request.origin);
+    // bufferSet_を再初期化（次回のprocess用）
+    bufferSet_->setPool(entryPool());
+    bufferSet_->setAllocator(allocator());
+    return response;
 }
 
 } // namespace FLEXIMG_NAMESPACE

@@ -353,7 +353,7 @@ void NinePatchSourceNode::onPullFinalize() {
 
 RenderResponse NinePatchSourceNode::onPullProcess(const RenderRequest& request) {
     if (!sourceValid_ || outputWidth_ <= 0 || outputHeight_ <= 0) {
-        return RenderResponse(ImageBuffer(), request.origin);
+        return makeEmptyResponse(request.origin);
     }
 
     // ジオメトリ計算（まだなら）
@@ -387,7 +387,7 @@ RenderResponse NinePatchSourceNode::onPullProcess(const RenderRequest& request) 
 
     // 有効なデータがない場合は空を返す（originは維持）
     if (canvasStartX >= canvasEndX) {
-        return RenderResponse(ImageBuffer(), request.origin);
+        return makeEmptyResponse(request.origin);
     }
 
     int_fast16_t canvasWidth = canvasEndX - canvasStartX;
@@ -425,7 +425,7 @@ RenderResponse NinePatchSourceNode::onPullProcess(const RenderRequest& request) 
                                  patchResult.view(), patchResult.origin.x, patchResult.origin.y);
     }
 
-    return RenderResponse(std::move(canvasBuf), Point{canvasOriginX, canvasOriginY});
+    return makeResponse(std::move(canvasBuf), Point{canvasOriginX, canvasOriginY});
 }
 
 DataRange NinePatchSourceNode::getDataRange(const RenderRequest& request) const {

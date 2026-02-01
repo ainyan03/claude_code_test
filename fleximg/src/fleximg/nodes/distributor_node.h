@@ -5,6 +5,7 @@
 #include "../core/affine_capability.h"
 #include "../core/perf_metrics.h"
 #include "../image/image_buffer.h"
+#include "../image/image_buffer_set.h"
 
 namespace FLEXIMG_NAMESPACE {
 
@@ -202,6 +203,9 @@ void DistributorNode::onPushProcess(RenderResponse&& input,
         return;
     }
 
+    // ImageBufferSetの場合はconsolidate()して単一バッファに変換
+    consolidateIfNeeded(input);
+
     FLEXIMG_METRICS_SCOPE(NodeType::Distributor);
 
     int numOutputs = outputCount();
@@ -230,7 +234,7 @@ void DistributorNode::onPushProcess(RenderResponse&& input,
         // 最後の出力には元のバッファをmoveで渡す（効率化）
         if (processed < validOutputs) {
             // 参照モード: ViewPortから新しいImageBufferを作成
-            RenderResponse ref(ImageBuffer(input.buffer.view()), input.origin);
+            RenderResponse ref = makeResponse(ImageBuffer(input.buffer.view()), input.origin);
             downstream->pushProcess(std::move(ref), request);
         } else {
             // 最後: 元のバッファをそのまま渡す

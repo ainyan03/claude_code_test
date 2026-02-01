@@ -8,6 +8,7 @@
 #include "perf_metrics.h"
 #include "../image/render_types.h"
 #include "../image/image_buffer.h"
+#include "../image/image_buffer_set.h"
 
 namespace FLEXIMG_NAMESPACE {
 namespace core {
@@ -218,8 +219,9 @@ public:
         if (!shouldContinue) {
             return prepareResponse_;  // DAG共有ノード: キャッシュを返す
         }
-        // 共通処理: アロケータを保持
+        // 共通処理: アロケータとエントリプールを保持
         allocator_ = request.allocator;
+        entryPool_ = request.entryPool;
 
         // 派生クラスのカスタム処理を呼び出し
         PrepareResponse result = onPullPrepare(request);
@@ -240,12 +242,13 @@ public:
         prepareResponse_.status = PrepareStatus::Idle;
 
         // 派生クラスのカスタム処理を呼び出し
-        // 注: allocator_はonPullFinalize()で使用される可能性があるため、
+        // 注: allocator_/entryPool_はonPullFinalize()で使用される可能性があるため、
         //     クリアはonPullFinalize()の後に行う
         onPullFinalize();
 
-        // 共通処理: アロケータをクリア
+        // 共通処理: アロケータとエントリプールをクリア
         allocator_ = nullptr;
+        entryPool_ = nullptr;
     }
 
     // ========================================
@@ -279,8 +282,9 @@ public:
         if (!shouldContinue) {
             return prepareResponse_;  // DAG共有ノード: キャッシュを返す
         }
-        // 共通処理: アロケータを保持
+        // 共通処理: アロケータとエントリプールを保持
         allocator_ = request.allocator;
+        entryPool_ = request.entryPool;
 
         // 派生クラスのカスタム処理を呼び出し
         PrepareResponse result = onPushPrepare(request);
@@ -301,12 +305,13 @@ public:
         prepareResponse_.status = PrepareStatus::Idle;
 
         // 派生クラスのカスタム処理を呼び出し
-        // 注: allocator_はonPushFinalize()で使用される可能性があるため、
+        // 注: allocator_/entryPool_はonPushFinalize()で使用される可能性があるため、
         //     クリアはonPushFinalize()の後に行う
         onPushFinalize();
 
-        // 共通処理: アロケータをクリア
+        // 共通処理: アロケータとエントリプールをクリア
         allocator_ = nullptr;
+        entryPool_ = nullptr;
     }
 
     // ノード名（デバッグ用）
@@ -365,6 +370,36 @@ public:
     // 設定されていない場合はnullptrを返す
     core::memory::IAllocator* allocator() const { return allocator_; }
 
+    // prepare時に設定されたエントリプールを取得
+    // 設定されていない場合はnullptrを返す
+    ImageBufferEntryPool* entryPool() const { return entryPool_; }
+
+    // ========================================
+    // ImageBufferSet統合ヘルパー
+    // ========================================
+
+    // RenderResponseがImageBufferSetを持つ場合、consolidateして単一バッファに変換
+    // 変換後は input.buffer に単一バッファが格納され、input.origin.x が調整される
+    // format: 変換先フォーマット（デフォルト: RGBA8_Straight）
+    void consolidateIfNeeded(RenderResponse& input,
+                             PixelFormatID format = PixelFormatIDs::RGBA8_Straight);
+
+    // ========================================
+    // RenderResponse構築ヘルパー
+    // ========================================
+
+    /// @brief RenderResponseを構築（プール経由でImageBufferSetを使用）
+    /// @param buf 画像バッファ
+    /// @param origin 原点（ワールド座標）
+    /// @return 構築されたRenderResponse
+    /// @note entryPool_とallocator_を自動的に使用
+    RenderResponse makeResponse(ImageBuffer&& buf, Point origin);
+
+    /// @brief 空のRenderResponseを構築
+    /// @param origin 原点（ワールド座標）
+    /// @return 空のRenderResponse
+    RenderResponse makeEmptyResponse(Point origin);
+
 protected:
     std::vector<Port> inputs_;
     std::vector<Port> outputs_;
@@ -375,6 +410,9 @@ protected:
 
     // RendererNodeから伝播されるアロケータ（prepare時に保持、finalize時にクリア）
     core::memory::IAllocator* allocator_ = nullptr;
+
+    // RendererNodeから伝播されるエントリプール（prepare時に保持、finalize時にクリア）
+    ImageBufferEntryPool* entryPool_ = nullptr;
 
     // ========================================
     // Template Method フック（派生クラスでオーバーライド）
@@ -574,6 +612,52 @@ void Node::initPorts(int inputCount, int outputCount) {
     for (int i = 0; i < outputCount; ++i) {
         outputs_[static_cast<size_t>(i)] = Port(this, i);
     }
+}
+
+// ImageBufferSet統合ヘルパー
+// 複数エントリがある場合はconsolidateして単一バッファに変換
+// 結果はinput.buffer（後方互換用）に格納される
+void Node::consolidateIfNeeded(RenderResponse& input, PixelFormatID format) {
+    if (input.bufferSet.empty()) {
+        return;
+    }
+
+    // オフセットを取得
+    DataRange range = input.bufferSet.totalRange();
+
+    // 単一エントリで変換不要なら、bufferに移動するだけ
+    if (input.bufferSet.bufferCount() == 1) {
+        PixelFormatID srcFormat = input.bufferSet.buffer(0).formatID();
+        if (format == nullptr || srcFormat == format) {
+            input.buffer = std::move(input.bufferSet.buffer(0));
+            input.origin.x += to_fixed(range.startX);
+            input.bufferSet.clear();
+            return;
+        }
+    }
+
+    // 複数エントリまたはフォーマット変換が必要
+    ImageBuffer consolidatedBuffer = input.bufferSet.consolidate(format);
+    input.buffer = std::move(consolidatedBuffer);
+    input.origin.x += to_fixed(range.startX);
+}
+
+// RenderResponse構築ヘルパー
+// プール経由でImageBufferSetを使用し、RenderResponseを構築
+RenderResponse Node::makeResponse(ImageBuffer&& buf, Point origin) {
+    if (!buf.isValid()) {
+        return RenderResponse();
+    }
+    ImageBufferSet set(entryPool_, allocator_);
+    set.addBuffer(std::move(buf), 0);
+    return RenderResponse(std::move(set), origin);
+}
+
+// 空のRenderResponseを構築
+RenderResponse Node::makeEmptyResponse(Point origin) {
+    RenderResponse resp;
+    resp.origin = origin;
+    return resp;
 }
 
 } // namespace core
