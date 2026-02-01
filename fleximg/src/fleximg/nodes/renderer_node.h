@@ -5,6 +5,7 @@
 #include "../core/types.h"
 #include "../core/perf_metrics.h"
 #include "../core/format_metrics.h"
+#include "../core/render_context.h"
 #include "../image/render_types.h"
 #include "../image/image_buffer_entry_pool.h"
 #include <algorithm>
@@ -199,6 +200,7 @@ private:
     bool debugDataRange_ = false;
     core::memory::IAllocator* pipelineAllocator_ = nullptr;  // パイプライン用アロケータ
     ImageBufferEntryPool entryPool_;  // ImageBufferSet用エントリプール
+    RenderContext context_;  // レンダリングコンテキスト（allocator + entryPool を統合）
 
     // タイルサイズ取得
     // 注: パイプライン上のリクエストは必ずスキャンライン（height=1）
@@ -281,6 +283,10 @@ PrepareStatus RendererNode::execPrepare() {
         pipelineAllocator_ = &core::memory::DefaultAllocator::instance();
     }
 
+    // コンテキストを設定
+    context_.setAllocator(pipelineAllocator_);
+    context_.setEntryPool(&entryPool_);
+
     // ========================================
     // Step 1: 下流へ準備を伝播（AABB取得用）
     // ========================================
@@ -291,8 +297,7 @@ PrepareStatus RendererNode::execPrepare() {
 
     PrepareRequest pushReq;
     pushReq.hasPushAffine = false;
-    pushReq.allocator = pipelineAllocator_;
-    pushReq.entryPool = &entryPool_;
+    pushReq.context = &context_;
 
     PrepareResponse pushResult = downstream->pushPrepare(pushReq);
     if (!pushResult.ok()) {
@@ -323,8 +328,7 @@ PrepareStatus RendererNode::execPrepare() {
     pullReq.height = screenInfo.height;
     pullReq.origin = screenInfo.origin;
     pullReq.hasAffine = false;
-    pullReq.allocator = pipelineAllocator_;
-    pullReq.entryPool = &entryPool_;
+    pullReq.context = &context_;
     // 下流が希望するフォーマットを上流に伝播
     pullReq.preferredFormat = pushResult.preferredFormat;
 

@@ -6,6 +6,7 @@
 #include "common.h"
 #include "port.h"
 #include "perf_metrics.h"
+#include "render_context.h"
 #include "../image/render_types.h"
 #include "../image/image_buffer.h"
 #include "../image/image_buffer_set.h"
@@ -51,7 +52,7 @@ public:
 
     // コピーコンストラクタ: ポート構造のみコピー、接続は引き継がない
     Node(const Node& other)
-        : allocator_(nullptr)
+        : context_(nullptr)
     {
         prepareResponse_.status = PrepareStatus::Idle;
         initPorts(static_cast<int>(other.inputs_.size()),
@@ -62,7 +63,7 @@ public:
     Node(Node&& other) noexcept
         : inputs_(std::move(other.inputs_))
         , outputs_(std::move(other.outputs_))
-        , allocator_(nullptr)
+        , context_(nullptr)
     {
         prepareResponse_.status = PrepareStatus::Idle;
         // ownerポインタを自分に修正
@@ -81,7 +82,7 @@ public:
             initPorts(static_cast<int>(other.inputs_.size()),
                       static_cast<int>(other.outputs_.size()));
             prepareResponse_.status = PrepareStatus::Idle;
-            allocator_ = nullptr;
+            context_ = nullptr;
         }
         return *this;
     }
@@ -100,7 +101,7 @@ public:
                 port.owner = this;
             }
             prepareResponse_.status = PrepareStatus::Idle;
-            allocator_ = nullptr;
+            context_ = nullptr;
         }
         return *this;
     }
@@ -219,9 +220,8 @@ public:
         if (!shouldContinue) {
             return prepareResponse_;  // DAG共有ノード: キャッシュを返す
         }
-        // 共通処理: アロケータとエントリプールを保持
-        allocator_ = request.allocator;
-        entryPool_ = request.entryPool;
+        // 共通処理: コンテキストを保持
+        context_ = request.context;
 
         // 派生クラスのカスタム処理を呼び出し
         PrepareResponse result = onPullPrepare(request);
@@ -242,13 +242,12 @@ public:
         prepareResponse_.status = PrepareStatus::Idle;
 
         // 派生クラスのカスタム処理を呼び出し
-        // 注: allocator_/entryPool_はonPullFinalize()で使用される可能性があるため、
+        // 注: context_はonPullFinalize()で使用される可能性があるため、
         //     クリアはonPullFinalize()の後に行う
         onPullFinalize();
 
-        // 共通処理: アロケータとエントリプールをクリア
-        allocator_ = nullptr;
-        entryPool_ = nullptr;
+        // 共通処理: コンテキストをクリア
+        context_ = nullptr;
     }
 
     // ========================================
@@ -282,9 +281,8 @@ public:
         if (!shouldContinue) {
             return prepareResponse_;  // DAG共有ノード: キャッシュを返す
         }
-        // 共通処理: アロケータとエントリプールを保持
-        allocator_ = request.allocator;
-        entryPool_ = request.entryPool;
+        // 共通処理: コンテキストを保持
+        context_ = request.context;
 
         // 派生クラスのカスタム処理を呼び出し
         PrepareResponse result = onPushPrepare(request);
@@ -305,13 +303,12 @@ public:
         prepareResponse_.status = PrepareStatus::Idle;
 
         // 派生クラスのカスタム処理を呼び出し
-        // 注: allocator_/entryPool_はonPushFinalize()で使用される可能性があるため、
+        // 注: context_はonPushFinalize()で使用される可能性があるため、
         //     クリアはonPushFinalize()の後に行う
         onPushFinalize();
 
-        // 共通処理: アロケータとエントリプールをクリア
-        allocator_ = nullptr;
-        entryPool_ = nullptr;
+        // 共通処理: コンテキストをクリア
+        context_ = nullptr;
     }
 
     // ノード名（デバッグ用）
@@ -363,16 +360,24 @@ public:
     }
 
     // ========================================
-    // アロケータアクセス
+    // コンテキストアクセス
     // ========================================
 
-    // prepare時に設定されたアロケータを取得
+    // prepare時に設定されたコンテキストを取得
     // 設定されていない場合はnullptrを返す
-    core::memory::IAllocator* allocator() const { return allocator_; }
+    RenderContext* context() const { return context_; }
 
-    // prepare時に設定されたエントリプールを取得
+    // prepare時に設定されたアロケータを取得（context経由）
     // 設定されていない場合はnullptrを返す
-    ImageBufferEntryPool* entryPool() const { return entryPool_; }
+    core::memory::IAllocator* allocator() const {
+        return context_ ? context_->allocator() : nullptr;
+    }
+
+    // prepare時に設定されたエントリプールを取得（context経由）
+    // 設定されていない場合はnullptrを返す
+    ImageBufferEntryPool* entryPool() const {
+        return context_ ? context_->entryPool() : nullptr;
+    }
 
     // ========================================
     // ImageBufferSet統合ヘルパー
@@ -408,11 +413,9 @@ protected:
     // status フィールドで循環参照検出にも使用
     PrepareResponse prepareResponse_;
 
-    // RendererNodeから伝播されるアロケータ（prepare時に保持、finalize時にクリア）
-    core::memory::IAllocator* allocator_ = nullptr;
-
-    // RendererNodeから伝播されるエントリプール（prepare時に保持、finalize時にクリア）
-    ImageBufferEntryPool* entryPool_ = nullptr;
+    // RendererNodeから伝播されるコンテキスト（prepare時に保持、finalize時にクリア）
+    // allocator, entryPool 等のパイプラインリソースを統合管理
+    RenderContext* context_ = nullptr;
 
     // ========================================
     // Template Method フック（派生クラスでオーバーライド）
@@ -578,17 +581,17 @@ bool Node::checkPrepareStatus(bool& shouldContinue) {
 
 // フォーマット変換ヘルパー（メトリクス記録付き）
 // 参照モードから所有モードに変わった場合、ノード別統計に記録
-// allocator_を使用してバッファを確保する
+// allocator()を使用してバッファを確保する
 ImageBuffer Node::convertFormat(ImageBuffer&& buffer, PixelFormatID target,
                                 FormatConversion mode,
                                 const FormatConverter* converter) {
     bool wasOwning = buffer.ownsMemory();
 
-    // 参照モードの場合、ノードのallocator_を新バッファ用に渡す
-    // 注: setAllocator()で参照バッファのallocator_を変更すると、
+    // 参照モードの場合、ノードのallocator()を新バッファ用に渡す
+    // 注: setAllocator()で参照バッファのallocatorを変更すると、
     //     デストラクタが非所有メモリを解放しようとするバグがあるため、
     //     toFormat()のallocパラメータで安全に渡す
-    core::memory::IAllocator* newAlloc = wasOwning ? nullptr : allocator_;
+    core::memory::IAllocator* newAlloc = wasOwning ? nullptr : allocator();
 
     ImageBuffer result = std::move(buffer).toFormat(target, mode, newAlloc, converter);
 
@@ -648,7 +651,7 @@ RenderResponse Node::makeResponse(ImageBuffer&& buf, Point origin) {
     if (!buf.isValid()) {
         return RenderResponse();
     }
-    ImageBufferSet set(entryPool_, allocator_);
+    ImageBufferSet set(entryPool(), allocator());
     set.addBuffer(std::move(buf), 0);
     return RenderResponse(std::move(set), origin);
 }

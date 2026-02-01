@@ -8,6 +8,7 @@
 #include "../core/common.h"
 #include "../core/perf_metrics.h"
 #include "../core/memory/allocator.h"
+#include "../core/render_context.h"
 #include "image_buffer.h"
 #include "data_range.h"
 
@@ -105,11 +106,8 @@ struct PrepareRequest {
     AffineMatrix pushAffineMatrix;
     bool hasPushAffine = false;
 
-    // アロケータ（RendererNodeから伝播、各ノードがprepare時に保持）
-    core::memory::IAllocator* allocator = nullptr;
-
-    // エントリプール（RendererNodeから伝播、ImageBufferSet用）
-    ImageBufferEntryPool* entryPool = nullptr;
+    // レンダリングコンテキスト（RendererNodeから伝播、allocator+entryPoolを統合）
+    RenderContext* context = nullptr;
 
     // 希望フォーマット（下流から上流へ伝播、フォーマット交渉用）
     PixelFormatID preferredFormat = PixelFormatIDs::RGBA8_Straight;

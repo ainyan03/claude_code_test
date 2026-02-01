@@ -460,6 +460,7 @@ src/fleximg/
 │   ├── affine_capability.h   # AffineCapability Mixin（アフィン変換機能）
 │   ├── port.h                # Port（ノード接続）
 │   ├── node.h                # Node 基底クラス
+│   ├── render_context.h      # RenderContext（パイプラインリソース管理）
 │   ├── perf_metrics.h        # パフォーマンス計測（ノード別）
 │   ├── format_metrics.h      # パフォーマンス計測（フォーマット変換別）
 │   └── memory/               # メモリ管理（fleximg::core::memory 名前空間）
