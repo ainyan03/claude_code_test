@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.63.1] - 2026-02-01
+
+### バグ修正
+
+- **ImageBufferSet::mergeOverlapping()**: エントリ再利用方式に変更
+  - 全エントリ解放後に`acquireEntry()`で新規取得していた処理を修正
+  - プール枯渇時にエントリとマージ結果が失われる問題を解消
+  - 最初の重複エントリを再利用することで安定性向上
+
+- **ImageBufferSet::consolidateInPlace()**: 防御的チェックを追加
+  - nullエントリ、無効バッファ、不正範囲（width<=0, dstOffset<0, 範囲超過）をスキップ
+  - ヒープ破壊につながるmemcpy範囲外書き込みを防止
+
+- **ImageBufferSet::applyOffset()**: nullエントリチェックを追加
+
+---
+
 ## [2.63.0] - 2026-02-01
 
 ### リファクタリング
