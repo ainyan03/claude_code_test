@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.63.0] - 2026-02-01
+
+### リファクタリング
+
+- **getDataRange簡略化**: 厳密な範囲計算から概算バウンディングボックスへ
+  - **SourceNode**: DDA有効範囲計算を廃止、PrepareResponse由来のAABBを返却
+    - `rangeCache_`メンバとキャッシュ機構を削除
+    - `pullProcessWithAffine()`は常に`calcScanlineRange()`を呼び出す形式に
+  - **CompositeNode**: キャッシュ機構を廃止、直接イテレート方式に
+    - `upstreamCache_`、`rangeCache_`、`calcUpstreamRangeUnion()`を削除
+    - `onPullProcess()`で全上流を直接イテレートしてtransferFromで統合
+  - getDataRangeの役割を「低負荷でざっくり有効範囲を把握」に再定義
+
+---
+
 ## [2.62.4] - 2026-02-01
 
 ### バグ修正

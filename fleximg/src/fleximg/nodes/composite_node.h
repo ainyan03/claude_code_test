@@ -90,30 +90,6 @@ public:
 
 protected:
     int nodeTypeForMetrics() const override { return NodeType::Composite; }
-
-private:
-    // 有効な上流のキャッシュエントリ（Node* + DataRange）
-    struct UpstreamCacheEntry {
-        Node* node;
-        DataRange range;
-    };
-
-    // 有効な上流のみを格納するキャッシュ（onPullPrepareで確保、onPullFinalizeで解放）
-    UpstreamCacheEntry* upstreamCache_ = nullptr;
-    int_fast16_t upstreamCacheCapacity_ = 0;  // 確保サイズ（inputCount）
-    mutable int_fast16_t validUpstreamCount_ = 0;  // 有効エントリ数（calcUpstreamRangeUnionで設定）
-
-    // getDataRange/onPullProcess 間のキャッシュ
-    struct DataRangeCache {
-        Point origin = {INT32_MIN, INT32_MIN};  // キャッシュキー（無効値で初期化）
-        int16_t startX = 0;
-        int16_t endX = 0;
-        int16_t validUpstreamCount = 0;  // 有効な上流数もキャッシュ
-    };
-    mutable DataRangeCache rangeCache_;
-
-    // 全上流のgetDataRange和集合を計算し、各上流のDataRangeをキャッシュに保存
-    DataRange calcUpstreamRangeUnion(const RenderRequest& request) const;
 };
 
 } // namespace FLEXIMG_NAMESPACE
@@ -130,20 +106,6 @@ namespace FLEXIMG_NAMESPACE {
 // ============================================================================
 
 PrepareResponse CompositeNode::onPullPrepare(const PrepareRequest& request) {
-    // 有効な上流キャッシュを確保
-    {
-        auto cacheInputCount = inputCount();
-        if (cacheInputCount > 0 && allocator()) {
-            size_t cacheSize = static_cast<size_t>(cacheInputCount) * sizeof(UpstreamCacheEntry);
-            void* mem = allocator()->allocate(cacheSize, alignof(UpstreamCacheEntry));
-            if (mem) {
-                upstreamCache_ = static_cast<UpstreamCacheEntry*>(mem);
-                upstreamCacheCapacity_ = cacheInputCount;
-                validUpstreamCount_ = 0;  // calcUpstreamRangeUnionで設定される
-            }
-        }
-    }
-
     PrepareResponse merged;
     merged.status = PrepareStatus::Prepared;
     int validUpstreamCount = 0;
@@ -231,16 +193,6 @@ PrepareResponse CompositeNode::onPullPrepare(const PrepareRequest& request) {
 }
 
 void CompositeNode::onPullFinalize() {
-    // キャッシュを解放
-    if (upstreamCache_ && allocator()) {
-        allocator()->deallocate(upstreamCache_);
-        upstreamCache_ = nullptr;
-        upstreamCacheCapacity_ = 0;
-        validUpstreamCount_ = 0;
-    }
-    // キャッシュキーも無効化
-    rangeCache_.origin = {INT32_MIN, INT32_MIN};
-
     finalize();
     auto numInputs = inputCount();
     for (int_fast16_t i = 0; i < numInputs; ++i) {
@@ -251,81 +203,37 @@ void CompositeNode::onPullFinalize() {
     }
 }
 
-// 全上流のgetDataRange和集合を計算し、有効な上流のみキャッシュに保存
-DataRange CompositeNode::calcUpstreamRangeUnion(const RenderRequest& request) const {
+// getDataRange: 全上流のgetDataRange和集合を返す（軽量版）
+// キャッシュなし、単純にイテレートして和集合を計算
+DataRange CompositeNode::getDataRange(const RenderRequest& request) const {
     auto numInputs = inputCount();
     int_fast16_t startX = request.width;  // 右端で初期化
     int_fast16_t endX = 0;                // 左端で初期化
-    int_fast16_t cacheIndex = 0;          // キャッシュ書き込み位置
 
-    for (int_fast16_t i = 0; i < numInputs; i++) {
+    for (int_fast16_t i = 0; i < numInputs; ++i) {
         Node* upstream = upstreamNode(i);
         if (!upstream) continue;
 
         DataRange range = upstream->getDataRange(request);
         if (!range.hasData()) continue;
 
-        // 有効な上流のみキャッシュに追加
-        if (upstreamCache_ && cacheIndex < upstreamCacheCapacity_) {
-            upstreamCache_[cacheIndex].node = upstream;
-            upstreamCache_[cacheIndex].range = range;
-            ++cacheIndex;
-        }
-
         // 和集合を更新
         if (range.startX < startX) startX = range.startX;
         if (range.endX > endX) endX = range.endX;
     }
 
-    validUpstreamCount_ = cacheIndex;
-    return DataRange{static_cast<int16_t>(startX), static_cast<int16_t>(endX)};  // startX >= endX はデータなし
-}
-
-// getDataRange: 全上流のgetDataRange和集合を返す
-// 計算結果はキャッシュし、onPullProcessで再利用
-DataRange CompositeNode::getDataRange(const RenderRequest& request) const {
-    DataRange range = calcUpstreamRangeUnion(request);
-
-    // キャッシュに保存（validUpstreamCount_ は calcUpstreamRangeUnion で設定済み）
-    rangeCache_.origin = request.origin;
-    rangeCache_.startX = range.startX;
-    rangeCache_.endX = range.endX;
-    rangeCache_.validUpstreamCount = static_cast<int16_t>(validUpstreamCount_);
-
-    return range.hasData() ? range : DataRange{0, 0};
+    // startX >= endX はデータなし
+    return (startX < endX) ? DataRange{static_cast<int16_t>(startX), static_cast<int16_t>(endX)}
+                           : DataRange{0, 0};
 }
 
 // onPullProcess: 複数の上流から画像を取得してunder合成
-// 上流Response再利用方式:
-// - 最初の上流Responseをベースとして再利用
-// - 残りの上流をtransferFromで統合
-// - リソース確保を最小化
+// 直接イテレート方式:
+// - 全上流を順にpullProcess
+// - 最初の有効なResponseをベースに、残りをtransferFromで統合
 RenderResponse& CompositeNode::onPullProcess(const RenderRequest& request) {
     auto numInputs = inputCount();
     if (numInputs == 0) return makeEmptyResponse(request.origin);
-
-    // キャンバス範囲を取得（キャッシュがあれば再利用）
-    int16_t cachedValidCount;
-    if (rangeCache_.origin.x == request.origin.x &&
-        rangeCache_.origin.y == request.origin.y) {
-        // キャッシュヒット
-        cachedValidCount = rangeCache_.validUpstreamCount;
-        if (rangeCache_.startX >= rangeCache_.endX) {
-            return makeEmptyResponse(request.origin);
-        }
-    } else {
-        // キャッシュミス: 和集合を計算
-        DataRange range = calcUpstreamRangeUnion(request);
-        cachedValidCount = static_cast<int16_t>(validUpstreamCount_);
-        if (!range.hasData()) {
-            return makeEmptyResponse(request.origin);
-        }
-    }
-
-    // 有効な上流が1件のみの場合、そのまま返す（最適化）
-    if (cachedValidCount == 1 && upstreamCache_) {
-        return upstreamCache_[0].node->pullProcess(request);
-    }
 
     // キャンバス左上のワールド座標（固定小数点 Q16.16）
     int_fixed canvasOriginX = request.origin.x;
@@ -334,18 +242,21 @@ RenderResponse& CompositeNode::onPullProcess(const RenderRequest& request) {
     RenderResponse* baseResponse = nullptr;
     int_fast16_t startIndex = 0;
 
-    for (int_fast16_t i = 0; i < validUpstreamCount_; i++) {
-        RenderResponse& input = upstreamCache_[i].node->pullProcess(request);
-        if (input.isValid()) {
-            FLEXIMG_METRICS_SCOPE(NodeType::Composite);
-            // オフセットを適用（借用元を直接変更）
-            int16_t offset = static_cast<int16_t>(from_fixed(input.origin.x - canvasOriginX));
-            input.bufferSet.applyOffset(offset);
-            input.origin = request.origin;
-            baseResponse = &input;
-            startIndex = static_cast<int_fast16_t>(i + 1);
-            break;
-        }
+    for (int_fast16_t i = 0; i < numInputs; ++i) {
+        Node* upstream = upstreamNode(i);
+        if (!upstream) continue;
+
+        RenderResponse& input = upstream->pullProcess(request);
+        if (!input.isValid()) continue;
+
+        FLEXIMG_METRICS_SCOPE(NodeType::Composite);
+        // オフセットを適用（借用元を直接変更）
+        int16_t offset = static_cast<int16_t>(from_fixed(input.origin.x - canvasOriginX));
+        input.bufferSet.applyOffset(offset);
+        input.origin = request.origin;
+        baseResponse = &input;
+        startIndex = static_cast<int_fast16_t>(i + 1);
+        break;
     }
 
     // 有効な上流がなかった場合
@@ -354,8 +265,11 @@ RenderResponse& CompositeNode::onPullProcess(const RenderRequest& request) {
     }
 
     // 残りの上流をtransferFromで統合（under合成）
-    for (int_fast16_t i = startIndex; i < validUpstreamCount_; i++) {
-        RenderResponse& input = upstreamCache_[i].node->pullProcess(request);
+    for (int_fast16_t i = startIndex; i < numInputs; ++i) {
+        Node* upstream = upstreamNode(i);
+        if (!upstream) continue;
+
+        RenderResponse& input = upstream->pullProcess(request);
         if (!input.isValid()) continue;
 
         FLEXIMG_METRICS_SCOPE(NodeType::Composite);
