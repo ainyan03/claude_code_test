@@ -354,10 +354,9 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
     // ImageBufferSetの場合はconsolidate()して単一バッファに変換
     consolidateIfNeeded(maskResult);
 
-    // Alpha8に変換
-    if (maskResult.buffer.formatID() != PixelFormatIDs::Alpha8) {
-        maskResult.buffer = convertFormat(std::move(maskResult.buffer),
-                                          PixelFormatIDs::Alpha8, FormatConversion::PreferReference);
+    // Alpha8に変換（bufferSet内で直接変換）
+    if (maskResult.single().formatID() != PixelFormatIDs::Alpha8) {
+        maskResult.bufferSet.convertFormat(PixelFormatIDs::Alpha8);
     }
 
     // 全面0判定（行スキャン）+ 有効範囲へのcrop
@@ -378,12 +377,12 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
 
     // マスクを有効範囲にcrop（左右の0領域をスキップ）
     if (maskLeftSkip > 0 || maskRightSkip > 0) {
-        maskResult.buffer.cropView(
+        maskResult.single().cropView(
             static_cast<int_fast16_t>(maskLeftSkip), 0,
             static_cast<int_fast16_t>(maskEffectiveWidth),
             static_cast<int_fast16_t>(maskView.height));
         maskResult.origin.x += to_fixed(maskLeftSkip);
-        maskView = maskResult.view();  // cropされたビューを再取得
+        maskView = maskResult.singleView();  // cropされたビューを再取得
     }
 
     // ========================================================================
@@ -436,11 +435,11 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
         int bgOffsetX = from_fixed(bgResult.origin.x - unionMinX);
         int bgOffsetY = from_fixed(bgResult.origin.y - unionMinY);
 
-        auto converter = resolveConverter(bgResult.buffer.formatID(),
+        auto converter = resolveConverter(bgResult.single().formatID(),
                                           PixelFormatIDs::RGBA8_Straight,
-                                          &bgResult.buffer.auxInfo(), allocator_);
+                                          &bgResult.single().auxInfo(), allocator_);
         if (converter) {
-            ViewPort bgViewPort = bgResult.view();
+            ViewPort bgViewPort = bgResult.singleView();
             ViewPort outView = outputBuf.view();
             int srcBpp = bgViewPort.bytesPerPixel();
 
@@ -477,9 +476,9 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
         if (fgResult.isValid()) {
             // ImageBufferSetの場合はconsolidate()して単一バッファに変換
             consolidateIfNeeded(fgResult);
-            if (fgResult.buffer.formatID() != PixelFormatIDs::RGBA8_Straight) {
-                fgResult.buffer = convertFormat(std::move(fgResult.buffer),
-                                                PixelFormatIDs::RGBA8_Straight, FormatConversion::PreferReference);
+            // RGBA8_Straightに変換（bufferSet内で直接変換）
+            if (fgResult.single().formatID() != PixelFormatIDs::RGBA8_Straight) {
+                fgResult.bufferSet.convertFormat(PixelFormatIDs::RGBA8_Straight);
             }
         }
     }

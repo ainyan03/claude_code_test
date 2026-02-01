@@ -135,7 +135,7 @@ RenderResponse FilterNodeBase::process(RenderResponse&& input,
     consolidateIfNeeded(input);
 
     // 入力をRGBA8_Straightに変換（メトリクス記録付き）
-    ImageBuffer working = convertFormat(std::move(input.buffer), PixelFormatIDs::RGBA8_Straight);
+    ImageBuffer working = convertFormat(std::move(input.single()), PixelFormatIDs::RGBA8_Straight);
     ViewPort workingView = working.view();
 
     // ラインフィルタを適用（height=1前提）

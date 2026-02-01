@@ -400,14 +400,14 @@ RenderResponse RendererNode::applyDataRangeDebug(Node* upstream,
     }
 
     // 実データをコピー
-    if (result.buffer.isValid() && result.buffer.width() > 0) {
+    if (result.isValid() && result.bufferCount() == 1 && result.single().width() > 0) {
         // resultのoriginからデータ開始位置を計算
         // result.origin はバッファ左上のワールド座標
         // request.origin はリクエスト領域左上のワールド座標
         int dataStartX = from_fixed(result.origin.x - request.origin.x);
-        int dataWidth = result.buffer.width();
+        int dataWidth = result.single().width();
 
-        const uint8_t* src = static_cast<const uint8_t*>(result.buffer.data());
+        const uint8_t* src = static_cast<const uint8_t*>(result.single().data());
         for (int i = 0; i < dataWidth; ++i) {
             int dstX = dataStartX + i;
             if (dstX >= 0 && dstX < request.width) {

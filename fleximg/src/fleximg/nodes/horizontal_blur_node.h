@@ -237,7 +237,7 @@ RenderResponse HorizontalBlurNode::onPullProcess(const RenderRequest& request) {
 #endif
 
     // RGBA8_Straightに変換
-    ImageBuffer buffer = convertFormat(std::move(input.buffer),
+    ImageBuffer buffer = convertFormat(std::move(input.single()),
                                        PixelFormatIDs::RGBA8_Straight);
 
     // 上流から返されたoriginを保存
@@ -340,7 +340,7 @@ void HorizontalBlurNode::onPushProcess(RenderResponse&& input, const RenderReque
     FLEXIMG_METRICS_SCOPE(NodeType::HorizontalBlur);
 
     // RGBA8_Straightに変換
-    ImageBuffer buffer = convertFormat(std::move(input.buffer),
+    ImageBuffer buffer = convertFormat(std::move(input.single()),
                                        PixelFormatIDs::RGBA8_Straight);
     Point currentOrigin = input.origin;
 

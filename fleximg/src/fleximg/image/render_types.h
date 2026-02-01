@@ -313,7 +313,7 @@ inline void calcInverseAffineAABB(
 // RenderResponse - レンダリング応答
 // ========================================================================
 //
-// Phase 3b: ImageBufferSet完全統一
+// 単純化されたRenderResponse:
 // - 全てのバッファはImageBufferSet経由で管理
 // - 単一バッファもImageBufferSetにラップして返す
 // - ノード間でImageBufferSetをムーブで受け渡し
@@ -333,8 +333,7 @@ struct RenderResponse {
     RenderResponse(ImageBufferSet&& set, Point org)
         : bufferSet(std::move(set)), origin(org) {}
 
-    // ImageBufferコンストラクタ（後方互換・移行用）
-    // 単一バッファをImageBufferSetにラップ
+    // ImageBufferコンストラクタ（単一バッファをImageBufferSetにラップ）
     RenderResponse(ImageBuffer&& buf, Point org)
         : bufferSet(), origin(org) {
         if (buf.isValid()) {
@@ -353,57 +352,42 @@ struct RenderResponse {
     // ========================================
 
     /// @brief 有効なバッファを持っているか
-    /// @note consolidateIfNeeded後はbufferに、未変換時はbufferSetにデータがある
-    bool isValid() const {
-        return buffer.isValid() || !bufferSet.empty();
-    }
+    bool isValid() const { return !bufferSet.empty(); }
+
+    /// @brief 空かどうか
+    bool empty() const { return bufferSet.empty(); }
+
+    /// @brief バッファ数を取得
+    int bufferCount() const { return bufferSet.bufferCount(); }
 
     // ========================================
-    // 単一バッファアクセス（後方互換）
+    // 単一バッファアクセス
     // ========================================
+
+    /// @brief 単一バッファを取得（bufferCount()==1 前提）
+    /// @note consolidate()後または単一エントリの場合に使用
+    ImageBuffer& single() {
+        FLEXIMG_ASSERT(bufferSet.bufferCount() == 1, "Expected single buffer");
+        return bufferSet.buffer(0);
+    }
+
+    const ImageBuffer& single() const {
+        FLEXIMG_ASSERT(bufferSet.bufferCount() == 1, "Expected single buffer");
+        return bufferSet.buffer(0);
+    }
 
     /// @brief 単一バッファのビューを取得
-    /// @note consolidateIfNeeded後はbufferから、それ以外は単一エントリのbufferSetから取得
-    ViewPort view() {
-        // consolidateIfNeeded後はbufferにデータがある
-        if (buffer.isValid()) {
-            return buffer.view();
-        }
-        // 未変換時は単一エントリのbufferSetから取得
-        if (bufferSet.bufferCount() == 1) {
-            return bufferSet.buffer(0).view();
-        }
-        return ViewPort();
+    ViewPort singleView() {
+        return bufferSet.bufferCount() == 1 ? bufferSet.buffer(0).view() : ViewPort();
     }
 
-    ViewPort view() const {
-        // consolidateIfNeeded後はbufferにデータがある
-        if (buffer.isValid()) {
-            return buffer.view();
-        }
-        // 未変換時は単一エントリのbufferSetから取得
-        if (bufferSet.bufferCount() == 1) {
-            return bufferSet.buffer(0).view();
-        }
-        return ViewPort();
+    ViewPort singleView() const {
+        return bufferSet.bufferCount() == 1 ? bufferSet.buffer(0).view() : ViewPort();
     }
 
-    // ========================================
-    // 後方互換API（移行期間用、将来削除予定）
-    // ========================================
-
-    /// @brief 旧buffer互換（consolidateIfNeeded後にアクセス用）
-    /// @deprecated 移行完了後に削除予定
-    ImageBuffer buffer;  // consolidateIfNeeded()で設定される一時バッファ
-
-    /// @brief ImageBufferSetを持っているか
-    /// @deprecated 常にtrueを返すため、将来削除予定
-    bool hasBufferSet() const { return true; }
-
-    /// @brief ImageBufferSetポインタを取得
-    /// @deprecated bufferSetを直接使用してください
-    ImageBufferSet* bufferSet_ptr() { return &bufferSet; }
-    const ImageBufferSet* bufferSet_ptr() const { return &bufferSet; }
+    /// @brief 単一バッファのビューを取得（後方互換）
+    ViewPort view() { return singleView(); }
+    ViewPort view() const { return singleView(); }
 };
 
 } // namespace FLEXIMG_NAMESPACE

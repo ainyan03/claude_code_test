@@ -99,7 +99,7 @@ inline RenderResponse ensureBlendableFormat(RenderResponse&& input) {
     // RGBA8_Straight に変換
     Point savedOrigin = input.origin;
     return RenderResponse(
-        std::move(input.buffer).toFormat(PixelFormatIDs::RGBA8_Straight),
+        std::move(input.single()).toFormat(PixelFormatIDs::RGBA8_Straight),
         savedOrigin
     );
 }
