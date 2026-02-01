@@ -4,6 +4,7 @@
 #include "../core/node.h"
 #include "../core/perf_metrics.h"
 #include "../image/image_buffer.h"
+#include "../image/image_buffer_set.h"
 #include <vector>
 #include <algorithm>
 #include <cstring>
@@ -408,6 +409,9 @@ void VerticalBlurNode::onPushProcess(RenderResponse&& input, const RenderRequest
     if (!input.isValid()) {
         std::memset(stage0.rowCache[static_cast<size_t>(slot0)].view().data, 0, static_cast<size_t>(cacheWidth_) * 4);
     } else {
+        // ImageBufferSetの場合はconsolidate()して単一バッファに変換
+        consolidateIfNeeded(input);
+        inputOrigin = input.origin;  // consolidate後のoriginを反映
         ImageBuffer converted = convertFormat(std::move(input.buffer),
                                                PixelFormatIDs::RGBA8_Straight);
         int xOffset = from_fixed(inputOrigin.x - baseOriginX_);
@@ -470,7 +474,7 @@ void VerticalBlurNode::onPushFinalize() {
 
 RenderResponse VerticalBlurNode::onPullProcess(const RenderRequest& request) {
     Node* upstream = upstreamNode(0);
-    if (!upstream) return RenderResponse();
+    if (!upstream) return makeEmptyResponse(request.origin);
 
     // radius=0の場合は処理をスキップしてスルー出力
     if (radius_ == 0) {
@@ -504,7 +508,7 @@ RenderResponse VerticalBlurNode::pullProcessPipeline(Node* upstream, const Rende
 
     // 有効なデータがない場合は空を返す（originは維持）
     if (!range.hasData()) {
-        return RenderResponse(ImageBuffer(), request.origin);
+        return makeEmptyResponse(request.origin);
     }
 
     FLEXIMG_METRICS_SCOPE(NodeType::VerticalBlur);
@@ -524,7 +528,7 @@ RenderResponse VerticalBlurNode::pullProcessPipeline(Node* upstream, const Rende
 
     // 交差領域がなければ空を返す（originは維持）
     if (interLeft >= interRight) {
-        return RenderResponse(ImageBuffer(), request.origin);
+        return makeEmptyResponse(request.origin);
     }
 
     // キャッシュ内のオフセットと出力幅を計算（SourceNodeと同じ丸め方式）
@@ -569,7 +573,7 @@ RenderResponse VerticalBlurNode::pullProcessPipeline(Node* upstream, const Rende
     outputOrigin.x = interLeft;
     outputOrigin.y = request.origin.y;
 
-    return RenderResponse(std::move(output), outputOrigin);
+    return makeResponse(std::move(output), outputOrigin);
 }
 
 void VerticalBlurNode::updateStageCache(int stageIndex, Node* upstream, const RenderRequest& request, int newY) {
@@ -636,6 +640,9 @@ void VerticalBlurNode::fetchRowToStageCache(BlurStage& stage, Node* upstream, co
     if (!result.isValid()) {
         return;
     }
+
+    // ImageBufferSetの場合はconsolidate()して単一バッファに変換
+    consolidateIfNeeded(result);
 
     // upstreamOriginX_はpullProcessPipelineで出力のorigin.x計算に使用
     // アフィン変換された場合、各行のorigin.xが異なる可能性があるため、
@@ -860,7 +867,7 @@ void VerticalBlurNode::emitBlurredLinePipeline() {
 
     Node* downstream = downstreamNode(0);
     if (downstream) {
-        downstream->pushProcess(RenderResponse(std::move(output), outReq.origin), outReq);
+        downstream->pushProcess(makeResponse(std::move(output), outReq.origin), outReq);
     }
 }
 

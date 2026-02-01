@@ -4,6 +4,7 @@
 #include "../core/node.h"
 #include "../core/perf_metrics.h"
 #include "../image/image_buffer.h"
+#include "../image/image_buffer_set.h"
 #include <algorithm>  // for std::min, std::max
 #include <cstring>    // for std::memcpy
 
@@ -200,7 +201,7 @@ PrepareResponse HorizontalBlurNode::onPullPrepare(const PrepareRequest& request)
 
 RenderResponse HorizontalBlurNode::onPullProcess(const RenderRequest& request) {
     Node* upstream = upstreamNode(0);
-    if (!upstream) return RenderResponse();
+    if (!upstream) return makeEmptyResponse(request.origin);
 
     // radius=0またはpasses=0の場合は処理をスキップしてスルー出力
     if (radius_ == 0 || passes_ == 0) {
@@ -218,11 +219,14 @@ RenderResponse HorizontalBlurNode::onPullProcess(const RenderRequest& request) {
     // 上流のデータ範囲を取得して出力バッファサイズを最適化
     DataRange upstreamRange = upstream->getDataRange(inputReq);
     if (!upstreamRange.hasData()) {
-        return RenderResponse(ImageBuffer(), request.origin);
+        return makeEmptyResponse(request.origin);
     }
 
     RenderResponse input = upstream->pullProcess(inputReq);
-    if (!input.isValid()) return RenderResponse(ImageBuffer(), request.origin);
+    if (!input.isValid()) return makeEmptyResponse(request.origin);
+
+    // ImageBufferSetの場合はconsolidate()して単一バッファに変換
+    consolidateIfNeeded(input);
 
     FLEXIMG_METRICS_SCOPE(NodeType::HorizontalBlur);
 
@@ -276,7 +280,7 @@ RenderResponse HorizontalBlurNode::onPullProcess(const RenderRequest& request) {
     if (blurredEndX > request.width) blurredEndX = request.width;
 
     if (blurredStartX >= blurredEndX) {
-        return RenderResponse(ImageBuffer(), request.origin);
+        return makeEmptyResponse(request.origin);
     }
 
     int16_t outputWidth = blurredEndX - blurredStartX;
@@ -309,7 +313,7 @@ RenderResponse HorizontalBlurNode::onPullProcess(const RenderRequest& request) {
                    static_cast<size_t>(copyWidth) * 4);
     }
 
-    return RenderResponse(std::move(output), Point{outputOriginX, request.origin.y});
+    return makeResponse(std::move(output), Point{outputOriginX, request.origin.y});
 }
 
 void HorizontalBlurNode::onPushProcess(RenderResponse&& input, const RenderRequest& request) {
@@ -329,6 +333,9 @@ void HorizontalBlurNode::onPushProcess(RenderResponse&& input, const RenderReque
         }
         return;
     }
+
+    // ImageBufferSetの場合はconsolidate()して単一バッファに変換
+    consolidateIfNeeded(input);
 
     FLEXIMG_METRICS_SCOPE(NodeType::HorizontalBlur);
 

@@ -4,6 +4,7 @@
 #include "../core/node.h"
 #include "../core/perf_metrics.h"
 #include "../image/image_buffer.h"
+#include "../image/image_buffer_set.h"
 #include "../image/pixel_format.h"
 #include "../operations/canvas_utils.h"
 
@@ -329,7 +330,7 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
         if (bgNode) {
             return bgNode->pullProcess(request);
         }
-        return RenderResponse(ImageBuffer(), request.origin);
+        return makeEmptyResponse(request.origin);
     }
 
     // mask取得
@@ -338,7 +339,7 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
         if (bgNode) {
             return bgNode->pullProcess(request);
         }
-        return RenderResponse(ImageBuffer(), request.origin);
+        return makeEmptyResponse(request.origin);
     }
 
     RenderResponse maskResult = maskNode->pullProcess(request);
@@ -347,8 +348,11 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
         if (bgNode) {
             return bgNode->pullProcess(request);
         }
-        return RenderResponse(ImageBuffer(), request.origin);
+        return makeEmptyResponse(request.origin);
     }
+
+    // ImageBufferSetの場合はconsolidate()して単一バッファに変換
+    consolidateIfNeeded(maskResult);
 
     // Alpha8に変換
     if (maskResult.buffer.formatID() != PixelFormatIDs::Alpha8) {
@@ -369,7 +373,7 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
         if (bgNode) {
             return bgNode->pullProcess(request);
         }
-        return RenderResponse(ImageBuffer(), request.origin);
+        return makeEmptyResponse(request.origin);
     }
 
     // マスクを有効範囲にcrop（左右の0領域をスキップ）
@@ -389,6 +393,8 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
     RenderResponse bgResult;
     if (rangeCache_.bgRange.hasData() && bgNode) {
         bgResult = bgNode->pullProcess(request);
+        // ImageBufferSetの場合はconsolidate()して単一バッファに変換
+        consolidateIfNeeded(bgResult);
     }
 
     // 出力領域計算（cropされたmask ∪ bg）
@@ -469,6 +475,8 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
     if (fgNode && rangeCache_.fgRange.hasData()) {
         fgResult = fgNode->pullProcess(request);
         if (fgResult.isValid()) {
+            // ImageBufferSetの場合はconsolidate()して単一バッファに変換
+            consolidateIfNeeded(fgResult);
             if (fgResult.buffer.formatID() != PixelFormatIDs::RGBA8_Straight) {
                 fgResult.buffer = convertFormat(std::move(fgResult.buffer),
                                                 PixelFormatIDs::RGBA8_Straight, FormatConversion::PreferReference);
@@ -488,7 +496,7 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
     // キャッシュ無効化
     rangeCache_.valid = false;
 
-    return RenderResponse(std::move(outputBuf), Point{unionMinX, unionMinY});
+    return makeResponse(std::move(outputBuf), Point{unionMinX, unionMinY});
 }
 
 // ============================================================================
