@@ -339,6 +339,7 @@ void ImageBufferSet::applyOffset(int16_t offsetX) {
     if (offsetX == 0) return;
     for (int i = 0; i < entryCount_; ++i) {
         Entry* entry = entryPtrs_[i];
+        if (!entry) continue;  // 防御的チェック
         entry->range.startX = static_cast<int16_t>(entry->range.startX + offsetX);
         entry->range.endX = static_cast<int16_t>(entry->range.endX + offsetX);
     }
@@ -572,31 +573,31 @@ bool ImageBufferSet::mergeOverlapping(Entry* newEntry,
         }
     }
 
+    // 最初の重複エントリを再利用（プール取得の失敗を回避）
+    Entry* resultEntry = entryPtrs_[overlapStart];
+
     // 新エントリを解放（合成済み）
     releaseEntry(newEntry);
 
-    // 古いエントリを削除（プールに返却）
-    for (int i = overlapStart; i < overlapEnd; ++i) {
+    // 最初以外の古いエントリを削除（プールに返却）
+    for (int i = overlapStart + 1; i < overlapEnd; ++i) {
         releaseEntry(entryPtrs_[i]);
     }
 
-    // ポインタ配列を詰める
-    int removeCount = overlapEnd - overlapStart;
-    for (int i = overlapStart; i < entryCount_ - removeCount; ++i) {
-        entryPtrs_[i] = entryPtrs_[i + removeCount];
+    // ポインタ配列を詰める（最初のエントリは残す）
+    int removeCount = overlapEnd - overlapStart - 1;  // 最初のエントリは残すので -1
+    if (removeCount > 0) {
+        for (int i = overlapStart + 1; i < entryCount_ - removeCount; ++i) {
+            entryPtrs_[i] = entryPtrs_[i + removeCount];
+        }
+        entryCount_ -= removeCount;
     }
-    entryCount_ -= removeCount;
 
-    // 合成結果用のエントリを取得
-    Entry* resultEntry = acquireEntry();
-    if (!resultEntry) {
-        // 緊急時: 最初のエントリを再利用
-        return false;
-    }
+    // 結果を最初のエントリに格納
     resultEntry->buffer = std::move(mergedBuf);
     resultEntry->range = DataRange{mergedStartX, mergedEndX};
 
-    return insertSorted(resultEntry);
+    return true;  // 既にソート位置にあるので insertSorted 不要
 }
 
 // ----------------------------------------------------------------------------
@@ -768,17 +769,30 @@ void ImageBufferSet::consolidateInPlace() {
     // 各エントリを統合バッファにコピー
     for (int i = 0; i < entryCount_; ++i) {
         Entry* entry = entryPtrs_[i];
+        // 防御的チェック: null エントリや無効なバッファをスキップ
+        if (!entry || !entry->buffer.isValid()) {
+            continue;
+        }
+
         int dstOffset = entry->range.startX - total.startX;
         int width = entry->range.endX - entry->range.startX;
 
+        // 防御的チェック: 不正な範囲をスキップ
+        if (width <= 0 || dstOffset < 0 || dstOffset + width > totalWidth) {
+            continue;
+        }
+
         PixelFormatID srcFmt = entry->buffer.view().formatID;
         const void* srcRow = entry->buffer.view().pixelAt(0, 0);
+        if (!srcRow) {
+            continue;
+        }
         void* dstPtr = dstRow + static_cast<size_t>(dstOffset) * bytesPerPixel;
 
         if (srcFmt == PixelFormatIDs::RGBA8_Straight) {
             // 同一フォーマット: 直接コピー
             std::memcpy(dstPtr, srcRow, static_cast<size_t>(width) * bytesPerPixel);
-        } else if (srcFmt->toStraight) {
+        } else if (srcFmt && srcFmt->toStraight) {
             // RGBA8_Straightへ変換
             srcFmt->toStraight(dstPtr, srcRow, width, nullptr);
         }
