@@ -130,21 +130,7 @@ private:
     int_fixed prepareOriginX_ = 0;
     int_fixed prepareOriginY_ = 0;
 
-    // getDataRange/pullProcess 間のキャッシュ
-    // originが極端な値（INT32_MIN）の場合はキャッシュ無効
-    struct DataRangeCache {
-        Point origin = {INT32_MIN, INT32_MIN};  // キャッシュキー（無効値で初期化）
-        int32_t dxStart = 0;
-        int32_t dxEnd = 0;
-        int32_t baseXWithHalf = 0;  // DDA用ベース座標X
-        int32_t baseYWithHalf = 0;  // DDA用ベース座標Y
-    };
-    mutable DataRangeCache rangeCache_;
-
-    // キャッシュを無効化（rangeCache_はmutableなのでconst関数から呼び出し可能）
-    void invalidateRangeCache() const { rangeCache_.origin = {INT32_MIN, INT32_MIN}; }
-
-    // スキャンライン有効範囲を計算（getDataRange/pullProcessWithAffineで共用）
+    // スキャンライン有効範囲を計算（pullProcessWithAffineで使用）
     // 戻り値: true=有効範囲あり, false=有効範囲なし
     // baseXWithHalf/baseYWithHalf はオプショナル出力（nullptrなら出力しない）
     bool calcScanlineRange(const RenderRequest& request,
@@ -172,9 +158,6 @@ namespace FLEXIMG_NAMESPACE {
 PrepareResponse SourceNode::onPullPrepare(const PrepareRequest& request) {
     // 下流からの希望フォーマットを保存（将来のフォーマット最適化用）
     preferredFormat_ = request.preferredFormat;
-
-    // 範囲キャッシュを無効化（アフィン行列が変わる可能性があるため）
-    invalidateRangeCache();
 
     // Prepare時のoriginを保存（Process時の差分計算用）
     prepareOriginX_ = request.origin.x;
@@ -447,63 +430,20 @@ bool SourceNode::calcScanlineRange(const RenderRequest& request,
     return dxStart <= dxEnd;
 }
 
-// getDataRange: アフィン変換を考慮した正確なデータ範囲を返す
+// getDataRange: バウンディングボックスベースの概算範囲を返す
+// アフィン変換時も厳密なDDA計算は行わず、AABBで近似
+// 実際の有効範囲はpullProcess時に確定する
 DataRange SourceNode::getDataRange(const RenderRequest& request) const {
-    // AABB判定（アフィンの有無に関わらず共通）
-    DataRange aabbRange = prepareResponse_.getDataRange(request);
-
-    // アフィン変換がない場合はAABB結果をそのまま返す
-    if (!hasAffine_) {
-        return aabbRange;
-    }
-
-    // アフィンあり: AABB範囲外なら早期リターン（calcScanlineRangeをスキップ）
-    if (!aabbRange.hasData()) {
-        invalidateRangeCache();
-        return aabbRange;  // 空範囲
-    }
-
-    // AABB内の場合のみスキャンライン範囲を計算（baseX/baseY もキャッシュ用に取得）
-    int32_t dxStart = 0, dxEnd = 0, baseX = 0, baseY = 0;
-    bool hasData = calcScanlineRange(request, dxStart, dxEnd, &baseX, &baseY);
-
-    // キャッシュに保存（pullProcessWithAffine で再利用）
-    rangeCache_.origin = request.origin;
-    rangeCache_.dxStart = dxStart;
-    rangeCache_.dxEnd = dxEnd;
-    rangeCache_.baseXWithHalf = baseX;
-    rangeCache_.baseYWithHalf = baseY;
-
-    if (!hasData) {
-        return DataRange{0, 0};  // 有効範囲なし
-    }
-
-    return DataRange{static_cast<int16_t>(dxStart), static_cast<int16_t>(dxEnd + 1)};  // endXは排他的
+    return prepareResponse_.getDataRange(request);
 }
 
 // アフィン変換付きプル処理（スキャンライン専用）
 // 前提: request.height == 1（RendererNodeはスキャンライン単位で処理）
 // 有効範囲のみのバッファを返し、範囲外の0データを下流に送らない
 RenderResponse& SourceNode::pullProcessWithAffine(const RenderRequest& request) {
+    // スキャンライン有効範囲を計算
     int32_t dxStart = 0, dxEnd = 0, baseX = 0, baseY = 0;
-
-    // キャッシュが有効か確認
-    if (rangeCache_.origin.x == request.origin.x &&
-        rangeCache_.origin.y == request.origin.y) {
-        // キャッシュヒット: 全ての値をキャッシュから取得
-        dxStart = rangeCache_.dxStart;
-        dxEnd = rangeCache_.dxEnd;
-        baseX = rangeCache_.baseXWithHalf;
-        baseY = rangeCache_.baseYWithHalf;
-    } else {
-        // キャッシュミス: 計算が必要
-        if (!calcScanlineRange(request, dxStart, dxEnd, &baseX, &baseY)) {
-            return makeEmptyResponse(request.origin);
-        }
-    }
-
-    // 有効ピクセルがない場合
-    if (dxStart > dxEnd) {
+    if (!calcScanlineRange(request, dxStart, dxEnd, &baseX, &baseY)) {
         return makeEmptyResponse(request.origin);
     }
 
