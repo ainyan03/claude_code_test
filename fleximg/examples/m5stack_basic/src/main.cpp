@@ -180,10 +180,12 @@ static ImageBuffer createPatternImage(int width, int height,
 // ========================================
 
 enum class DemoMode {
-    Four = 0,       // 4個（各フォーマット1つ）
-    Eight,          // 8個（各フォーマット2模様）
-    Sixteen,        // 16個（全組み合わせ）
-    ThirtyTwoAlpha, // 32個（RGBA透過のみ、性能限界テスト）
+    SingleDirect = 0,  // 単一Source → Renderer → Sink（CompositeNodeなし）
+    SingleComposite,   // 単一Source → CompositeNode(1入力) → Renderer → Sink
+    Four,              // 4個（各フォーマット1つ）
+    Eight,             // 8個（各フォーマット2模様）
+    Sixteen,           // 16個（全組み合わせ）
+    ThirtyTwoAlpha,    // 32個（RGBA透過のみ、性能限界テスト）
     MODE_COUNT
 };
 
@@ -196,8 +198,8 @@ enum class SpeedLevel {
 
 static const float SPEED_MULTIPLIERS[] = { 0.3f, 1.0f, 2.5f };
 static const char* SPEED_NAMES[] = { "Slow", "Normal", "Fast" };
-static const char* MODE_NAMES[] = { "4 Sources", "8 Sources", "16 Sources", "32 Alpha" };
-static const int MODE_SOURCE_COUNTS[] = { 4, 8, 16, 32 };
+static const char* MODE_NAMES[] = { "1 Direct", "1 Composite", "4 Sources", "8 Sources", "16 Sources", "32 Alpha" };
+static const int MODE_SOURCE_COUNTS[] = { 1, 1, 4, 8, 16, 32 };
 
 // ========================================
 // グローバル変数
@@ -304,6 +306,12 @@ static float currentOffsets[MAX_SOURCES][2];
 
 static void updateOffsets() {
     switch (currentMode) {
+        case DemoMode::SingleDirect:
+        case DemoMode::SingleComposite:
+            // 単一ソース: 中央配置
+            currentOffsets[0][0] = 0.0f;
+            currentOffsets[0][1] = 0.0f;
+            break;
         case DemoMode::Four:
             calcOffsets4(currentOffsets);
             break;
@@ -326,11 +334,16 @@ static void updateOffsets() {
 // ========================================
 
 // 使用する画像インデックスを取得
+// SingleDirect/SingleComposite: グラデーションRGBA8（最も負荷が高いパターン）
 // 4個モード: 各フォーマット1つ（模様0: チェッカー）
 // 8個モード: 各フォーマット2模様（チェッカー + 縦ストライプ）
 // 16個モード: 全16枚
 static int getImageIndex(int sourceIndex) {
     switch (currentMode) {
+        case DemoMode::SingleDirect:
+        case DemoMode::SingleComposite:
+            // グラデーションRGBA8を使用（pattern=3, format=3）
+            return 3 * 4 + 3;  // index 15
         case DemoMode::Four:
             // フォーマット0-3、模様はチェッカー(0)
             return sourceIndex;  // 0, 1, 2, 3
@@ -367,11 +380,29 @@ static void rebuildPipeline() {
     renderer.disconnectAll();
     lcdSink.disconnectAll();
 
-    // CompositeNodeの入力数を設定
-    composite.setInputCount(sourceCount);
-
     // オフセット更新
     updateOffsets();
+
+    // SingleDirectモード: CompositeNodeを使わない
+    if (currentMode == DemoMode::SingleDirect) {
+        int imgIdx = getImageIndex(0);
+        sources[0].setSource(srcImages[imgIdx].view());
+        sources[0].setPivot(
+            float_to_fixed(IMAGE_SIZE / 2.0f),
+            float_to_fixed(IMAGE_SIZE / 2.0f)
+        );
+
+        // Source → Affine → Renderer → Sink（CompositeNodeなし）
+        sources[0] >> affines[0] >> renderer >> lcdSink;
+
+        float scale = 2.5f;  // 単一なので大きめに
+        affines[0].setScale(scale, scale);
+        affines[0].setTranslation(0.0f, 0.0f);
+        return;
+    }
+
+    // CompositeNodeの入力数を設定
+    composite.setInputCount(sourceCount);
 
     // 各ソースを接続
     for (int i = 0; i < sourceCount; ++i) {
@@ -387,7 +418,8 @@ static void rebuildPipeline() {
 
         // 初期配置（モード切替時も現在の角度を維持）
         float scale = (currentMode == DemoMode::ThirtyTwoAlpha) ? 1.5f :
-                      (currentMode == DemoMode::Sixteen) ? 1.3f : 1.8f;
+                      (currentMode == DemoMode::Sixteen) ? 1.3f :
+                      (currentMode == DemoMode::SingleComposite) ? 2.5f : 1.8f;
         affines[i].setScale(scale, scale);
         affines[i].setTranslation(currentOffsets[i][0], currentOffsets[i][1]);
     }
@@ -534,7 +566,9 @@ void loop() {
 
     // 各ソースの更新
     int sourceCount = MODE_SOURCE_COUNTS[static_cast<int>(currentMode)];
-    float baseScale = (currentMode == DemoMode::ThirtyTwoAlpha) ? 1.5f :
+    float baseScale = (currentMode == DemoMode::SingleDirect ||
+                       currentMode == DemoMode::SingleComposite) ? 2.5f :
+                      (currentMode == DemoMode::ThirtyTwoAlpha) ? 1.5f :
                       (currentMode == DemoMode::Sixteen) ? 1.3f : 1.8f;
 
     constexpr float ONE_CYCLE = 2.0f * static_cast<float>(M_PI);
@@ -557,8 +591,10 @@ void loop() {
         affines[i].setTranslation(currentOffsets[i][0], currentOffsets[i][1]);
     }
 
-    // Composite全体も公転（逆方向、遅め）
-    composite.setRotation(-rotationAngle * 0.5f);
+    // Composite全体も公転（SingleDirectモード以外）
+    if (currentMode != DemoMode::SingleDirect) {
+        composite.setRotation(-rotationAngle * 0.5f);
+    }
 
     // レンダリング実行
     renderer.exec();

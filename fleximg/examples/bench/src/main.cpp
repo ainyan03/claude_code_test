@@ -16,6 +16,7 @@
  *   m [pat]  : Matte composite benchmark (direct, no pipeline)
  *   p [pat]  : Matte pipeline benchmark (full node pipeline)
  *   d        : Analyze alpha distribution of test data
+ *   s        : ImageBufferSet benchmark (construct/move overhead)
  *   a        : All benchmarks
  *   l        : List available formats
  *   h        : Help
@@ -50,6 +51,8 @@
 #include "fleximg/image/pixel_format.h"
 #include "fleximg/image/viewport.h"
 #include "fleximg/image/image_buffer.h"
+#include "fleximg/image/image_buffer_set.h"
+#include "fleximg/image/image_buffer_entry_pool.h"
 #include "fleximg/nodes/source_node.h"
 #include "fleximg/nodes/matte_node.h"
 #include "fleximg/nodes/renderer_node.h"
@@ -1425,6 +1428,7 @@ static void printHelp() {
     benchPrintln("  m [pat]  : Matte composite benchmark (direct, no pipeline)");
     benchPrintln("  p [pat]  : Matte pipeline benchmark (full node pipeline)");
     benchPrintln("  d        : Analyze alpha distribution of test data");
+    benchPrintln("  s        : ImageBufferSet benchmark (construct/move overhead)");
     benchPrintln("  a        : All benchmarks");
     benchPrintln("  l        : List formats");
     benchPrintln("  k        : Show calibration info (CPU freq, overhead)");
@@ -1473,6 +1477,132 @@ static void listFormats() {
         benchPrintf("  %-10s : %s\n", formats[i].shortName, formats[i].name);
     }
     benchPrintln();
+}
+
+// =============================================================================
+// ImageBufferSet Benchmark
+// =============================================================================
+
+static constexpr int IBS_ITERATIONS = 1000;
+static constexpr int IBS_WIDTH = 320;  // Typical scanline width
+
+static void runImageBufferSetBenchmark() {
+    benchPrintln();
+    benchPrintln("=== ImageBufferSet Benchmark ===");
+    benchPrintf("Width: %d, Iterations: %d\n", IBS_WIDTH, IBS_ITERATIONS);
+    benchPrintln();
+
+    // Allocate test buffer
+    uint8_t* testBuf = static_cast<uint8_t*>(BENCH_MALLOC(IBS_WIDTH * 4));
+    if (!testBuf) {
+        benchPrintln("ERROR: Buffer allocation failed!");
+        return;
+    }
+    // Initialize with test pattern
+    for (int i = 0; i < IBS_WIDTH * 4; i++) {
+        testBuf[i] = static_cast<uint8_t>(i & 0xFF);
+    }
+
+    // Create a pool for pool-based tests
+    ImageBufferEntryPool pool;
+
+    // Benchmark 1: ImageBuffer construction (reference mode, no alloc)
+    {
+        ViewPort srcView(testBuf, PixelFormatIDs::RGBA8_Straight, IBS_WIDTH * 4, IBS_WIDTH, 1);
+        uint32_t start = benchMicros();
+        for (int i = 0; i < IBS_ITERATIONS; i++) {
+            ImageBuffer buf(srcView);
+            (void)buf;
+        }
+        uint32_t elapsed = benchMicros() - start;
+        float nsPerOp = static_cast<float>(elapsed) * 1000.0f / IBS_ITERATIONS;
+        benchPrintf("ImageBuffer(ViewPort) ref:        %7.1f ns/op\n", static_cast<double>(nsPerOp));
+    }
+
+    // Benchmark 2: ImageBufferSet with pool + addBuffer
+    {
+        ViewPort srcView(testBuf, PixelFormatIDs::RGBA8_Straight, IBS_WIDTH * 4, IBS_WIDTH, 1);
+        uint32_t start = benchMicros();
+        for (int i = 0; i < IBS_ITERATIONS; i++) {
+            ImageBufferSet set(&pool, nullptr);
+            ImageBuffer buf(srcView);
+            set.addBuffer(std::move(buf), 0);
+        }
+        uint32_t elapsed = benchMicros() - start;
+        float nsPerOp = static_cast<float>(elapsed) * 1000.0f / IBS_ITERATIONS;
+        benchPrintf("ImageBufferSet+addBuffer:         %7.1f ns/op\n", static_cast<double>(nsPerOp));
+    }
+
+    // Benchmark 3: RenderResponse construction with ImageBuffer
+    {
+        ViewPort srcView(testBuf, PixelFormatIDs::RGBA8_Straight, IBS_WIDTH * 4, IBS_WIDTH, 1);
+        Point origin{0, 0};
+        uint32_t start = benchMicros();
+        for (int i = 0; i < IBS_ITERATIONS; i++) {
+            ImageBuffer buf(srcView);
+            RenderResponse resp(std::move(buf), origin);
+            (void)resp;
+        }
+        uint32_t elapsed = benchMicros() - start;
+        float nsPerOp = static_cast<float>(elapsed) * 1000.0f / IBS_ITERATIONS;
+        benchPrintf("RenderResponse(ImageBuffer):      %7.1f ns/op\n", static_cast<double>(nsPerOp));
+    }
+
+    // Benchmark 4: RenderResponse move (simulating return from function)
+    {
+        ViewPort srcView(testBuf, PixelFormatIDs::RGBA8_Straight, IBS_WIDTH * 4, IBS_WIDTH, 1);
+        Point origin{0, 0};
+        uint32_t start = benchMicros();
+        for (int i = 0; i < IBS_ITERATIONS; i++) {
+            ImageBuffer buf(srcView);
+            RenderResponse resp1(std::move(buf), origin);
+            RenderResponse resp2(std::move(resp1));  // Move
+            (void)resp2;
+        }
+        uint32_t elapsed = benchMicros() - start;
+        float nsPerOp = static_cast<float>(elapsed) * 1000.0f / IBS_ITERATIONS;
+        benchPrintf("RenderResponse construct+move:    %7.1f ns/op\n", static_cast<double>(nsPerOp));
+    }
+
+    // Benchmark 5: ImageBufferSet move (with pool)
+    {
+        ViewPort srcView(testBuf, PixelFormatIDs::RGBA8_Straight, IBS_WIDTH * 4, IBS_WIDTH, 1);
+        uint32_t start = benchMicros();
+        for (int i = 0; i < IBS_ITERATIONS; i++) {
+            ImageBufferSet set1(&pool, nullptr);
+            ImageBuffer buf(srcView);
+            set1.addBuffer(std::move(buf), 0);
+            ImageBufferSet set2(std::move(set1));  // Move
+            (void)set2;
+        }
+        uint32_t elapsed = benchMicros() - start;
+        float nsPerOp = static_cast<float>(elapsed) * 1000.0f / IBS_ITERATIONS;
+        benchPrintf("ImageBufferSet move:              %7.1f ns/op\n", static_cast<double>(nsPerOp));
+    }
+
+    // Benchmark 6: Full pipeline simulation (construct + move + view)
+    {
+        ViewPort srcView(testBuf, PixelFormatIDs::RGBA8_Straight, IBS_WIDTH * 4, IBS_WIDTH, 1);
+        Point origin{0, 0};
+        uint32_t start = benchMicros();
+        for (int i = 0; i < IBS_ITERATIONS; i++) {
+            // Simulate: SourceNode creates response
+            ImageBuffer buf(srcView);
+            RenderResponse resp(std::move(buf), origin);
+            // Simulate: Response is moved (returned)
+            RenderResponse resp2(std::move(resp));
+            // Simulate: SinkNode accesses view
+            ViewPort v = resp2.view();
+            (void)v;
+        }
+        uint32_t elapsed = benchMicros() - start;
+        float nsPerOp = static_cast<float>(elapsed) * 1000.0f / IBS_ITERATIONS;
+        benchPrintf("Full path (construct+move+view):  %7.1f ns/op\n", static_cast<double>(nsPerOp));
+    }
+
+    benchPrintln();
+
+    BENCH_FREE(testBuf);
 }
 
 static void processCommand(const char* cmd) {
@@ -1533,6 +1663,10 @@ static void processCommand(const char* cmd) {
         case 'k':
         case 'K':
             printCalibrationInfo();
+            break;
+        case 's':
+        case 'S':
+            runImageBufferSetBenchmark();
             break;
         case 'h':
         case 'H':
