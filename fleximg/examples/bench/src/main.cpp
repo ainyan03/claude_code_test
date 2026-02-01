@@ -16,7 +16,8 @@
  *   m [pat]  : Matte composite benchmark (direct, no pipeline)
  *   p [pat]  : Matte pipeline benchmark (full node pipeline)
  *   d        : Analyze alpha distribution of test data
- *   s        : ImageBufferSet benchmark (construct/move overhead)
+ *   s        : ImageBufferSet/RenderResponse move cost benchmark
+ *   r        : RenderResponse move count in pipeline
  *   a        : All benchmarks
  *   l        : List available formats
  *   h        : Help
@@ -46,6 +47,7 @@
 
 // fleximg (stb-style: define FLEXIMG_IMPLEMENTATION before including headers)
 #define FLEXIMG_NAMESPACE fleximg
+#define FLEXIMG_DEBUG_MOVE_COUNT  // ムーブ回数カウンタ有効化
 #define FLEXIMG_IMPLEMENTATION
 #include "fleximg/core/common.h"
 #include "fleximg/image/pixel_format.h"
@@ -1428,7 +1430,8 @@ static void printHelp() {
     benchPrintln("  m [pat]  : Matte composite benchmark (direct, no pipeline)");
     benchPrintln("  p [pat]  : Matte pipeline benchmark (full node pipeline)");
     benchPrintln("  d        : Analyze alpha distribution of test data");
-    benchPrintln("  s        : ImageBufferSet benchmark (construct/move overhead)");
+    benchPrintln("  s        : ImageBufferSet/RenderResponse move cost benchmark");
+    benchPrintln("  r        : RenderResponse move count in pipeline");
     benchPrintln("  a        : All benchmarks");
     benchPrintln("  l        : List formats");
     benchPrintln("  k        : Show calibration info (CPU freq, overhead)");
@@ -1488,8 +1491,31 @@ static constexpr int IBS_WIDTH = 320;  // Typical scanline width
 
 static void runImageBufferSetBenchmark() {
     benchPrintln();
-    benchPrintln("=== ImageBufferSet Benchmark ===");
+    benchPrintln("=== RenderResponse/ImageBufferSet Move Cost Benchmark ===");
     benchPrintf("Width: %d, Iterations: %d\n", IBS_WIDTH, IBS_ITERATIONS);
+    benchPrintln();
+
+    // Benchmark 0: Pure RenderResponse move cost (no construction)
+    {
+        uint8_t* dummyBuf = static_cast<uint8_t*>(BENCH_MALLOC(IBS_WIDTH * 4));
+        if (dummyBuf) {
+            ViewPort srcView(dummyBuf, PixelFormatIDs::RGBA8_Straight, IBS_WIDTH * 4, IBS_WIDTH, 1);
+            Point origin{0, 0};
+            // Pre-create responses
+            ImageBuffer buf(srcView);
+            RenderResponse resp1(std::move(buf), origin);
+
+            uint32_t start = benchMicros();
+            for (int i = 0; i < IBS_ITERATIONS; i++) {
+                RenderResponse resp2(std::move(resp1));
+                resp1 = std::move(resp2);  // Move back
+            }
+            uint32_t elapsed = benchMicros() - start;
+            float nsPerOp = static_cast<float>(elapsed) * 1000.0f / (IBS_ITERATIONS * 2);  // 2 moves per iteration
+            benchPrintf("RenderResponse pure move:         %7.1f ns/move\n", static_cast<double>(nsPerOp));
+            BENCH_FREE(dummyBuf);
+        }
+    }
     benchPrintln();
 
     // Allocate test buffer
@@ -1605,6 +1631,97 @@ static void runImageBufferSetBenchmark() {
     BENCH_FREE(testBuf);
 }
 
+// =============================================================================
+// RenderResponse Move Count in Pipeline Benchmark
+// =============================================================================
+
+static void runMoveCountBenchmark() {
+    benchPrintln();
+    benchPrintln("=== RenderResponse Move Count in Pipeline ===");
+    benchPrintln();
+
+    if (!allocateBuffers()) return;
+    if (!allocateMaskBuffer()) return;
+    size_t outputSize = static_cast<size_t>(MATTE_RENDER_WIDTH) * MATTE_RENDER_HEIGHT * 4;
+    if (!allocateOutputBuffer(outputSize)) return;
+
+    // Initialize buffers
+    initForegroundBuffer();
+    initBackgroundBuffer();
+    initMask2DWithPattern(MaskPattern::Gradient, BENCH_WIDTH, BENCH_HEIGHT);
+
+    // Create ViewPorts
+    ViewPort fgView(bufRGBA8, PixelFormatIDs::RGBA8_Straight,
+                    BENCH_WIDTH * 4, BENCH_WIDTH, BENCH_HEIGHT);
+    ViewPort bgView(bufRGBA8_2, PixelFormatIDs::RGBA8_Straight,
+                    BENCH_WIDTH * 4, BENCH_WIDTH, BENCH_HEIGHT);
+    ViewPort maskView(bufMask, PixelFormatIDs::Alpha8,
+                      BENCH_WIDTH, BENCH_WIDTH, BENCH_HEIGHT);
+    ViewPort outView(bufOutput, PixelFormatIDs::RGBA8_Straight,
+                     MATTE_RENDER_WIDTH * 4, MATTE_RENDER_WIDTH, MATTE_RENDER_HEIGHT);
+
+    float scaleX = static_cast<float>(MATTE_RENDER_WIDTH) / BENCH_WIDTH;
+    float scaleY = static_cast<float>(MATTE_RENDER_HEIGHT) / BENCH_HEIGHT;
+
+    // Build pipeline
+    SourceNode fgSrc(fgView, float_to_fixed(BENCH_WIDTH / 2.0f),
+                     float_to_fixed(BENCH_HEIGHT / 2.0f));
+    fgSrc.setScale(scaleX, scaleY);
+
+    SourceNode bgSrc(bgView, float_to_fixed(BENCH_WIDTH / 2.0f),
+                     float_to_fixed(BENCH_HEIGHT / 2.0f));
+    bgSrc.setScale(scaleX, scaleY);
+
+    SourceNode maskSrc(maskView, float_to_fixed(BENCH_WIDTH / 2.0f),
+                       float_to_fixed(BENCH_HEIGHT / 2.0f));
+    maskSrc.setScale(scaleX, scaleY);
+
+    MatteNode matte;
+    RendererNode renderer;
+    SinkNode sink(outView, float_to_fixed(MATTE_RENDER_WIDTH / 2.0f),
+                  float_to_fixed(MATTE_RENDER_HEIGHT / 2.0f));
+
+    fgSrc >> matte;
+    bgSrc.connectTo(matte, 1);
+    maskSrc.connectTo(matte, 2);
+    matte >> renderer >> sink;
+
+    renderer.setVirtualScreen(MATTE_RENDER_WIDTH, MATTE_RENDER_HEIGHT);
+
+    // Warm up
+    renderer.exec();
+
+    // Reset counter and run
+    RenderResponse::resetMoveCount();
+    uint32_t start = benchMicros();
+    renderer.exec();
+    uint32_t elapsed = benchMicros() - start;
+    int moveCount = RenderResponse::getMoveCount();
+
+    int totalScanlines = MATTE_RENDER_HEIGHT;
+    float movesPerScanline = static_cast<float>(moveCount) / totalScanlines;
+
+    benchPrintf("Pipeline: 3x SourceNode -> MatteNode -> RendererNode -> SinkNode\n");
+    benchPrintf("Output: %dx%d (%.1fx scale)\n", MATTE_RENDER_WIDTH, MATTE_RENDER_HEIGHT,
+                static_cast<double>(scaleX));
+    benchPrintln();
+    benchPrintf("exec() time:        %u us\n", elapsed);
+    benchPrintf("Total moves:        %d\n", moveCount);
+    benchPrintf("Moves per scanline: %.1f\n", static_cast<double>(movesPerScanline));
+    benchPrintln();
+
+    // Estimate move overhead using pure move cost from 's' benchmark
+    // Assume ~50-200ns per move (typical range)
+    float estimatedMoveOverheadUs = static_cast<float>(moveCount) * 0.1f;  // 100ns per move
+    float overheadPercent = (estimatedMoveOverheadUs / static_cast<float>(elapsed)) * 100.0f;
+    benchPrintf("Estimated move overhead: ~%.0f us (%.1f%% of exec time, assuming 100ns/move)\n",
+                static_cast<double>(estimatedMoveOverheadUs),
+                static_cast<double>(overheadPercent));
+    benchPrintln();
+    benchPrintln("Note: Use 's' command to measure actual ns/move on this platform.");
+    benchPrintln();
+}
+
 static void processCommand(const char* cmd) {
     // Skip empty commands
     if (cmd[0] == '\0') return;
@@ -1667,6 +1784,10 @@ static void processCommand(const char* cmd) {
         case 's':
         case 'S':
             runImageBufferSetBenchmark();
+            break;
+        case 'r':
+        case 'R':
+            runMoveCountBenchmark();
             break;
         case 'h':
         case 'H':

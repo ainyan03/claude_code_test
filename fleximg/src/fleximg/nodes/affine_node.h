@@ -54,10 +54,10 @@ protected:
     PrepareResponse onPushPrepare(const PrepareRequest& request) override;
 
     // onPullProcess: AffineNodeは行列を保持するのみ、パススルー
-    RenderResponse onPullProcess(const RenderRequest& request) override;
+    RenderResponse& onPullProcess(const RenderRequest& request) override;
 
     // onPushProcess: AffineNodeは行列を保持するのみ、パススルー
-    void onPushProcess(RenderResponse&& input,
+    void onPushProcess(RenderResponse& input,
                        const RenderRequest& request) override;
 
 
@@ -127,17 +127,19 @@ PrepareResponse AffineNode::onPushPrepare(const PrepareRequest& request) {
     return result;
 }
 
-RenderResponse AffineNode::onPullProcess(const RenderRequest& request) {
+RenderResponse& AffineNode::onPullProcess(const RenderRequest& request) {
     Node* upstream = upstreamNode(0);
-    if (!upstream) return makeEmptyResponse(request.origin);
-    return upstream->pullProcess(request);
+    if (upstream) {
+        return upstream->pullProcess(request);
+    }
+    return makeEmptyResponse(request.origin);
 }
 
-void AffineNode::onPushProcess(RenderResponse&& input,
+void AffineNode::onPushProcess(RenderResponse& input,
                                const RenderRequest& request) {
     Node* downstream = downstreamNode(0);
     if (downstream) {
-        downstream->pushProcess(std::move(input), request);
+        downstream->pushProcess(input, request);
     }
 }
 

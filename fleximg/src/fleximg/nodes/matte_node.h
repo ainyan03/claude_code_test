@@ -84,7 +84,7 @@ protected:
     void onPullFinalize() override;
 
     // onPullProcess: マット合成処理
-    RenderResponse onPullProcess(const RenderRequest& request) override;
+    RenderResponse& onPullProcess(const RenderRequest& request) override;
 
 private:
     // ========================================
@@ -308,7 +308,7 @@ DataRange MatteNode::getDataRange(const RenderRequest& request) const {
 // 5. 合成
 //
 
-RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
+RenderResponse& MatteNode::onPullProcess(const RenderRequest& request) {
     Node* fgNode = upstreamNode(0);    // 前景
     Node* bgNode = upstreamNode(1);    // 背景
     Node* maskNode = upstreamNode(2);  // マスク
@@ -342,7 +342,7 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
         return makeEmptyResponse(request.origin);
     }
 
-    RenderResponse maskResult = maskNode->pullProcess(request);
+    RenderResponse& maskResult = maskNode->pullProcess(request);
     if (!maskResult.isValid()) {
         rangeCache_.valid = false;
         if (bgNode) {
@@ -389,11 +389,14 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
     // Step 2: bg取得・出力領域計算
     // ========================================================================
 
-    RenderResponse bgResult;
+    RenderResponse* bgResultPtr = nullptr;
     if (rangeCache_.bgRange.hasData() && bgNode) {
-        bgResult = bgNode->pullProcess(request);
-        // ImageBufferSetの場合はconsolidate()して単一バッファに変換
-        consolidateIfNeeded(bgResult);
+        RenderResponse& bgResult = bgNode->pullProcess(request);
+        if (bgResult.isValid()) {
+            // ImageBufferSetの場合はconsolidate()して単一バッファに変換
+            consolidateIfNeeded(bgResult);
+            bgResultPtr = &bgResult;
+        }
     }
 
     // 出力領域計算（cropされたmask ∪ bg）
@@ -402,10 +405,10 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
     int_fixed unionMaxX = unionMinX + to_fixed(maskView.width);
     int_fixed unionMaxY = unionMinY + to_fixed(maskView.height);
 
-    if (bgResult.isValid()) {
-        ViewPort bgViewPort = bgResult.view();
-        int_fixed bgMinX = bgResult.origin.x;
-        int_fixed bgMinY = bgResult.origin.y;
+    if (bgResultPtr) {
+        ViewPort bgViewPort = bgResultPtr->view();
+        int_fixed bgMinX = bgResultPtr->origin.x;
+        int_fixed bgMinY = bgResultPtr->origin.y;
         int_fixed bgMaxX = bgMinX + to_fixed(bgViewPort.width);
         int_fixed bgMaxY = bgMinY + to_fixed(bgViewPort.height);
         if (bgMinX < unionMinX) unionMinX = bgMinX;
@@ -431,15 +434,15 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
 #endif
 
     // bgがあればコピー
-    if (bgResult.isValid()) {
-        int bgOffsetX = from_fixed(bgResult.origin.x - unionMinX);
-        int bgOffsetY = from_fixed(bgResult.origin.y - unionMinY);
+    if (bgResultPtr) {
+        int bgOffsetX = from_fixed(bgResultPtr->origin.x - unionMinX);
+        int bgOffsetY = from_fixed(bgResultPtr->origin.y - unionMinY);
 
-        auto converter = resolveConverter(bgResult.single().formatID(),
+        auto converter = resolveConverter(bgResultPtr->single().formatID(),
                                           PixelFormatIDs::RGBA8_Straight,
-                                          &bgResult.single().auxInfo(), allocator());
+                                          &bgResultPtr->single().auxInfo(), allocator());
         if (converter) {
-            ViewPort bgViewPort = bgResult.singleView();
+            ViewPort bgViewPort = bgResultPtr->singleView();
             ViewPort outView = outputBuf.view();
             int srcBpp = bgViewPort.bytesPerPixel();
 
@@ -470,9 +473,9 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
     // Step 4: fg取得
     // ========================================================================
 
-    RenderResponse fgResult;
+    RenderResponse* fgResultPtr = nullptr;
     if (fgNode && rangeCache_.fgRange.hasData()) {
-        fgResult = fgNode->pullProcess(request);
+        RenderResponse& fgResult = fgNode->pullProcess(request);
         if (fgResult.isValid()) {
             // ImageBufferSetの場合はconsolidate()して単一バッファに変換
             consolidateIfNeeded(fgResult);
@@ -480,6 +483,7 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
             if (fgResult.single().formatID() != PixelFormatIDs::RGBA8_Straight) {
                 fgResult.bufferSet.convertFormat(PixelFormatIDs::RGBA8_Straight);
             }
+            fgResultPtr = &fgResult;
         }
     }
 
@@ -487,7 +491,11 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
     // Step 5: 合成
     // ========================================================================
 
-    InputView fgView = InputView::from(fgResult, unionMinX, unionMinY);
+    // InputView::fromにはconst参照が必要なので、一時的なRenderResponseを使う
+    static RenderResponse emptyResult;
+    emptyResult.origin = Point{};
+
+    InputView fgView = InputView::from(fgResultPtr ? *fgResultPtr : emptyResult, unionMinX, unionMinY);
     InputView maskInputView = InputView::from(maskResult, unionMinX, unionMinY);
 
     applyMatteOverlay(outputBuf, unionWidth, fgView, maskInputView);

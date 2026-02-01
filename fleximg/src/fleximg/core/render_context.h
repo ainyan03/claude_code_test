@@ -8,6 +8,7 @@
 
 #include "common.h"
 #include "memory/allocator.h"
+#include "../image/render_types.h"
 
 // 前方宣言（循環参照回避）
 namespace FLEXIMG_NAMESPACE {
@@ -35,6 +36,16 @@ namespace core {
 
 class RenderContext {
 public:
+    /// @brief RenderResponseプールサイズ
+    static constexpr int MAX_RESPONSES = 64;
+
+    /// @brief エラー種別
+    enum class Error {
+        None = 0,
+        PoolExhausted,       // プール枯渇
+        ResponseNotReturned, // 未返却検出
+    };
+
     RenderContext() = default;
 
     // ========================================
@@ -57,9 +68,71 @@ public:
     /// @brief エントリプールを設定
     void setEntryPool(ImageBufferEntryPool* pool) { entryPool_ = pool; }
 
+    // ========================================
+    // RenderResponse貸出API（参照返し）
+    // ========================================
+
+    /// @brief RenderResponseを取得（借用）
+    /// @return 初期化済みRenderResponse参照（pool/allocator設定済み）
+    /// @note プール枯渇時はエラーフラグを設定し、最後のエントリを返す
+    RenderResponse& acquireResponse() {
+        if (nextResponseIndex_ >= MAX_RESPONSES) {
+            // プール枯渇 - エラーフラグを設定、最後のエントリを返す
+            error_ = Error::PoolExhausted;
+            RenderResponse& fallback = responsePool_[MAX_RESPONSES - 1];
+            fallback.bufferSet.setPool(entryPool_);
+            fallback.bufferSet.setAllocator(allocator_);
+            fallback.bufferSet.clear();
+            return fallback;
+        }
+        ++inUseCount_;
+        RenderResponse& resp = responsePool_[nextResponseIndex_++];
+        resp.bufferSet.setPool(entryPool_);
+        resp.bufferSet.setAllocator(allocator_);
+        resp.bufferSet.clear();
+        return resp;
+    }
+
+    /// @brief RenderResponseを返却
+    /// @param resp 返却するResponse参照
+    void releaseResponse(RenderResponse& resp) {
+        (void)resp;  // 参照の検証は省略（信頼ベース）
+        if (inUseCount_ > 0) --inUseCount_;
+    }
+
+    /// @brief スキャンライン終了時にリソースをリセット（RendererNode用）
+    /// @note 未返却チェックを行い、インデックスをリセット
+    void resetScanlineResources() {
+        // 未返却チェック（1つは下流に渡されるため、1以下なら正常）
+        if (inUseCount_ > 1) {
+            error_ = Error::ResponseNotReturned;
+        }
+        nextResponseIndex_ = 0;
+        inUseCount_ = 0;
+    }
+
+    // ========================================
+    // エラー管理
+    // ========================================
+
+    /// @brief エラーがあるか確認
+    bool hasError() const { return error_ != Error::None; }
+
+    /// @brief エラー種別を取得
+    Error error() const { return error_; }
+
+    /// @brief エラーをクリア
+    void clearError() { error_ = Error::None; }
+
 private:
     memory::IAllocator* allocator_ = nullptr;
     ImageBufferEntryPool* entryPool_ = nullptr;
+
+    // RenderResponseプール（スキャンライン単位で再利用）
+    RenderResponse responsePool_[MAX_RESPONSES];
+    int nextResponseIndex_ = 0;
+    int inUseCount_ = 0;  // 貸出中のResponse数
+    Error error_ = Error::None;
 };
 
 } // namespace core

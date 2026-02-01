@@ -80,7 +80,7 @@ public:
     void onPushFinalize() override;
 
     // onPushProcess: 全出力に参照モードで配信
-    void onPushProcess(RenderResponse&& input,
+    void onPushProcess(RenderResponse& input,
                        const RenderRequest& request) override;
 };
 
@@ -196,7 +196,7 @@ void DistributorNode::onPushFinalize() {
     finalize();
 }
 
-void DistributorNode::onPushProcess(RenderResponse&& input,
+void DistributorNode::onPushProcess(RenderResponse& input,
                                     const RenderRequest& request) {
     // プッシュ型単一入力: 無効なら処理終了
     if (!input.isValid()) {
@@ -231,14 +231,14 @@ void DistributorNode::onPushProcess(RenderResponse&& input,
         ++processed;
 
         // 参照モードImageBufferを作成（メモリ解放しない）
-        // 最後の出力には元のバッファをmoveで渡す（効率化）
+        // 最後の出力には元のバッファの参照をそのまま渡す
         if (processed < validOutputs) {
             // 参照モード: ViewPortから新しいImageBufferを作成
-            RenderResponse ref = makeResponse(ImageBuffer(input.single().view()), input.origin);
-            downstream->pushProcess(std::move(ref), request);
+            RenderResponse& ref = makeResponse(ImageBuffer(input.single().view()), input.origin);
+            downstream->pushProcess(ref, request);
         } else {
-            // 最後: 元のバッファをそのまま渡す
-            downstream->pushProcess(std::move(input), request);
+            // 最後: 元のバッファ参照をそのまま渡す
+            downstream->pushProcess(input, request);
         }
     }
 }

@@ -8,7 +8,6 @@
 #include "../core/common.h"
 #include "../core/perf_metrics.h"
 #include "../core/memory/allocator.h"
-#include "../core/render_context.h"
 #include "image_buffer.h"
 #include "data_range.h"
 
@@ -16,6 +15,8 @@
 namespace FLEXIMG_NAMESPACE {
 class ImageBufferEntryPool;
 class ImageBufferSet;
+namespace core { class RenderContext; }
+using core::RenderContext;
 }
 
 // ImageBufferSetの完全定義をインクルード（RenderResponseで値として使用）
@@ -324,6 +325,13 @@ struct RenderResponse {
     ImageBufferSet bufferSet;  // バッファセット（値所有）
     Point origin;              // バッファセット左上のワールド座標（固定小数点 Q16.16）
 
+#ifdef FLEXIMG_DEBUG_MOVE_COUNT
+    // ムーブ回数カウンタ（ベンチマーク用）
+    static inline int moveCount = 0;
+    static void resetMoveCount() { moveCount = 0; }
+    static int getMoveCount() { return moveCount; }
+#endif
+
     // デフォルトコンストラクタ
     RenderResponse() = default;
 
@@ -339,11 +347,30 @@ struct RenderResponse {
         }
     }
 
-    // ムーブのみ
+    // ムーブのみ（コピー禁止）
     RenderResponse(const RenderResponse&) = delete;
     RenderResponse& operator=(const RenderResponse&) = delete;
+
+#ifdef FLEXIMG_DEBUG_MOVE_COUNT
+    // カスタムムーブコンストラクタ（カウンタ付き）
+    RenderResponse(RenderResponse&& other) noexcept
+        : bufferSet(std::move(other.bufferSet)), origin(other.origin) {
+        ++moveCount;
+    }
+
+    // カスタムムーブ代入演算子（カウンタ付き）
+    RenderResponse& operator=(RenderResponse&& other) noexcept {
+        if (this != &other) {
+            bufferSet = std::move(other.bufferSet);
+            origin = other.origin;
+            ++moveCount;
+        }
+        return *this;
+    }
+#else
     RenderResponse(RenderResponse&&) = default;
     RenderResponse& operator=(RenderResponse&&) = default;
+#endif
 
     // ========================================
     // 有効性判定

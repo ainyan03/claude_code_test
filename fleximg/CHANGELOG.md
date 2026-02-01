@@ -1,5 +1,53 @@
 # Changelog
 
+## [2.62.4] - 2026-02-01
+
+### バグ修正
+
+- **ImageBufferEntryPool::release()**: エントリ返却時にバッファをリセット
+  - 参照ベースパターン移行後、エントリ再取得時のムーブ代入でヒープ破損が発生する問題を修正
+  - 返却時に`buffer.reset()`を呼び出し、再取得前にバッファをクリア
+
+---
+
+## [2.62.3] - 2026-02-01
+
+### リファクタリング
+
+- **RenderResponse参照ベースパターン**: 値渡しから参照渡しへ移行
+  - `pullProcess()` の戻り値を `RenderResponse` → `RenderResponse&` に変更
+  - `pushProcess()` / `onPushProcess()` の引数を `RenderResponse&&` → `RenderResponse&` に変更
+  - RenderContextがRenderResponseプール（MAX_RESPONSES=64）を管理
+  - ムーブコスト削減とリソース管理の一元化を実現
+  - 全ノード（Source, Composite, Filter, Matte, Affine, Sink, Distributor等）を更新
+  - examples内のLcdSinkNodeも同様に更新
+
+---
+
+## [2.62.2] - 2026-02-01
+
+### パフォーマンス改善
+
+- **ImageBufferSet::transferFrom()**: バッチ転送APIを追加
+  - 他のImageBufferSetからエントリポインタを直接移動
+  - プール操作（acquire/release）を回避し、オーバーヘッド削減
+  - CompositeNode::onPullProcessで使用し、上流結果の統合を効率化
+
+---
+
+## [2.62.1] - 2026-02-01
+
+### パフォーマンス改善
+
+- **ImageBufferEntryPool**: modulo演算をビットマスク演算に最適化
+  - 組み込み環境での除算回避によるパフォーマンス向上
+
+### リファクタリング
+
+- **AffineNode::onPullProcess**: 条件分岐を正常パス優先の形式に整理
+
+---
+
 ## [2.62.0] - 2026-02-01
 
 ### リファクタリング

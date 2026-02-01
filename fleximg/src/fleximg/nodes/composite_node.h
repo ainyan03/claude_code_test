@@ -83,7 +83,7 @@ public:
     void onPullFinalize() override;
 
     // onPullProcess: 複数の上流から画像を取得してunder合成
-    RenderResponse onPullProcess(const RenderRequest& request) override;
+    RenderResponse& onPullProcess(const RenderRequest& request) override;
 
     // getDataRange: 全上流のgetDataRange和集合を返す
     DataRange getDataRange(const RenderRequest& request) const override;
@@ -102,9 +102,6 @@ private:
     UpstreamCacheEntry* upstreamCache_ = nullptr;
     int_fast16_t upstreamCacheCapacity_ = 0;  // 確保サイズ（inputCount）
     mutable int_fast16_t validUpstreamCount_ = 0;  // 有効エントリ数（calcUpstreamRangeUnionで設定）
-
-    // ImageBufferSet（複数バッファを重複なく管理）
-    ImageBufferSet* bufferSet_ = nullptr;
 
     // getDataRange/onPullProcess 間のキャッシュ
     struct DataRangeCache {
@@ -133,23 +130,16 @@ namespace FLEXIMG_NAMESPACE {
 // ============================================================================
 
 PrepareResponse CompositeNode::onPullPrepare(const PrepareRequest& request) {
-    // 有効な上流キャッシュとImageBufferSetを確保
+    // 有効な上流キャッシュを確保
     {
         auto cacheInputCount = inputCount();
         if (cacheInputCount > 0 && allocator()) {
-            // UpstreamCacheEntry配列
             size_t cacheSize = static_cast<size_t>(cacheInputCount) * sizeof(UpstreamCacheEntry);
             void* mem = allocator()->allocate(cacheSize, alignof(UpstreamCacheEntry));
             if (mem) {
                 upstreamCache_ = static_cast<UpstreamCacheEntry*>(mem);
                 upstreamCacheCapacity_ = cacheInputCount;
                 validUpstreamCount_ = 0;  // calcUpstreamRangeUnionで設定される
-            }
-            // ImageBufferSet（複数バッファ管理用、プール連携）
-            size_t setSize = sizeof(ImageBufferSet);
-            void* setMem = allocator()->allocate(setSize, alignof(ImageBufferSet));
-            if (setMem) {
-                bufferSet_ = new (setMem) ImageBufferSet(entryPool(), allocator());
             }
         }
     }
@@ -248,11 +238,6 @@ void CompositeNode::onPullFinalize() {
         upstreamCacheCapacity_ = 0;
         validUpstreamCount_ = 0;
     }
-    if (bufferSet_ && allocator()) {
-        bufferSet_->~ImageBufferSet();  // デストラクタを明示的に呼ぶ
-        allocator()->deallocate(bufferSet_);
-        bufferSet_ = nullptr;
-    }
     // キャッシュキーも無効化
     rangeCache_.origin = {INT32_MIN, INT32_MIN};
 
@@ -311,11 +296,11 @@ DataRange CompositeNode::getDataRange(const RenderRequest& request) const {
 }
 
 // onPullProcess: 複数の上流から画像を取得してunder合成
-// ImageBufferSet方式:
-// - 各上流の結果をImageBufferSetにaddBuffer()で登録
-// - 重複があれば自動でunder合成
-// - RenderResponseでbufferSetとして返す
-RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
+// 上流Response再利用方式:
+// - 最初の上流Responseをベースとして再利用
+// - 残りの上流をtransferFromで統合
+// - リソース確保を最小化
+RenderResponse& CompositeNode::onPullProcess(const RenderRequest& request) {
     auto numInputs = inputCount();
     if (numInputs == 0) return makeEmptyResponse(request.origin);
 
@@ -339,57 +324,50 @@ RenderResponse CompositeNode::onPullProcess(const RenderRequest& request) {
 
     // 有効な上流が1件のみの場合、そのまま返す（最適化）
     if (cachedValidCount == 1 && upstreamCache_) {
-        Node* upstream = upstreamCache_[0].node;
-        return upstream->pullProcess(request);
+        return upstreamCache_[0].node->pullProcess(request);
     }
-
-    // ImageBufferSetがない場合は空を返す
-    if (!bufferSet_) {
-        return makeEmptyResponse(request.origin);
-    }
-
-    // ImageBufferSetをクリアして再利用
-    bufferSet_->clear();
 
     // キャンバス左上のワールド座標（固定小数点 Q16.16）
     int_fixed canvasOriginX = request.origin.x;
 
-    // under合成: 有効な上流のみ順に評価して登録
-    // 入力ポート0が最前面、以降が背面
+    // 最初の有効な上流Responseをベースにする
+    RenderResponse* baseResponse = nullptr;
+    int_fast16_t startIndex = 0;
+
     for (int_fast16_t i = 0; i < validUpstreamCount_; i++) {
-        Node* upstream = upstreamCache_[i].node;
+        RenderResponse& input = upstreamCache_[i].node->pullProcess(request);
+        if (input.isValid()) {
+            FLEXIMG_METRICS_SCOPE(NodeType::Composite);
+            // オフセットを適用（借用元を直接変更）
+            int16_t offset = static_cast<int16_t>(from_fixed(input.origin.x - canvasOriginX));
+            input.bufferSet.applyOffset(offset);
+            input.origin = request.origin;
+            baseResponse = &input;
+            startIndex = static_cast<int_fast16_t>(i + 1);
+            break;
+        }
+    }
 
-        // 上流を評価
-        RenderResponse inputResult = upstream->pullProcess(request);
+    // 有効な上流がなかった場合
+    if (!baseResponse) {
+        return makeEmptyResponse(request.origin);
+    }
 
-        // 空入力はスキップ
-        if (!inputResult.isValid()) continue;
+    // 残りの上流をtransferFromで統合（under合成）
+    for (int_fast16_t i = startIndex; i < validUpstreamCount_; i++) {
+        RenderResponse& input = upstreamCache_[i].node->pullProcess(request);
+        if (!input.isValid()) continue;
 
         FLEXIMG_METRICS_SCOPE(NodeType::Composite);
 
         // X方向オフセット計算（整数ピクセル単位）
-        int16_t baseStartX = static_cast<int16_t>(from_fixed(inputResult.origin.x - canvasOriginX));
+        int16_t offset = static_cast<int16_t>(from_fixed(input.origin.x - canvasOriginX));
 
-        // 上流のImageBufferSetの各エントリを統合
-        for (int j = 0; j < inputResult.bufferSet.bufferCount(); ++j) {
-            DataRange entryRange = inputResult.bufferSet.range(j);
-            int16_t entryStartX = static_cast<int16_t>(baseStartX + entryRange.startX);
-            bufferSet_->addBuffer(std::move(inputResult.bufferSet.buffer(j)), entryStartX);
-        }
+        // 上流のImageBufferSetの全エントリをバッチ転送
+        baseResponse->bufferSet.transferFrom(input.bufferSet, offset);
     }
 
-    // 結果がない場合
-    if (bufferSet_->empty()) {
-        return makeEmptyResponse(request.origin);
-    }
-
-    // RenderResponseにbufferSetをムーブして返す
-    // bufferSet_の内容をムーブし、プール情報を再設定
-    RenderResponse response(std::move(*bufferSet_), request.origin);
-    // bufferSet_を再初期化（次回のprocess用）
-    bufferSet_->setPool(entryPool());
-    bufferSet_->setAllocator(allocator());
-    return response;
+    return *baseResponse;
 }
 
 } // namespace FLEXIMG_NAMESPACE

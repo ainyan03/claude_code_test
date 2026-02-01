@@ -182,7 +182,7 @@ public:
     void onPullFinalize() override;
 
     // onPullProcess: 全9区画を処理して合成
-    RenderResponse onPullProcess(const RenderRequest& request) override;
+    RenderResponse& onPullProcess(const RenderRequest& request) override;
 
     // getDataRange: 全パッチのデータ範囲の和集合を返す
     DataRange getDataRange(const RenderRequest& request) const override;
@@ -351,7 +351,7 @@ void NinePatchSourceNode::onPullFinalize() {
     finalize();
 }
 
-RenderResponse NinePatchSourceNode::onPullProcess(const RenderRequest& request) {
+RenderResponse& NinePatchSourceNode::onPullProcess(const RenderRequest& request) {
     if (!sourceValid_ || outputWidth_ <= 0 || outputHeight_ <= 0) {
         return makeEmptyResponse(request.origin);
     }
@@ -413,11 +413,11 @@ RenderResponse NinePatchSourceNode::onPullProcess(const RenderRequest& request) 
         DataRange range = patches_[i].getDataRange(request);
         if (!range.hasData()) continue;
 
-        RenderResponse patchResult = patches_[i].pullProcess(request);
+        RenderResponse& patchResult = patches_[i].pullProcess(request);
         if (!patchResult.isValid()) continue;
 
         // フォーマット変換
-        patchResult = canvas_utils::ensureBlendableFormat(std::move(patchResult));
+        canvas_utils::ensureBlendableFormat(patchResult);
 
         // キャンバスに配置（全パッチ上書き）
         // NinePatchではパッチ同士の重なりは単純上書きで良い

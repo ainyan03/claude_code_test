@@ -96,7 +96,7 @@ public:
 
     // onPullProcess: ソース画像のスキャンラインを返す
     // SourceNodeは入力がないため、上流を呼び出さずに直接処理
-    RenderResponse onPullProcess(const RenderRequest& request) override;
+    RenderResponse& onPullProcess(const RenderRequest& request) override;
 
     // getDataRange: アフィン変換を考慮した正確なデータ範囲を返す
     // アフィン変換がある場合、AABB ではなくスキャンラインごとの正確な範囲を計算
@@ -153,7 +153,7 @@ private:
                            int32_t* baseYWithHalf = nullptr) const;
 
     // アフィン変換付きプル処理（スキャンライン専用）
-    RenderResponse pullProcessWithAffine(const RenderRequest& request);
+    RenderResponse& pullProcessWithAffine(const RenderRequest& request);
 };
 
 } // namespace FLEXIMG_NAMESPACE
@@ -328,7 +328,7 @@ PrepareResponse SourceNode::onPullPrepare(const PrepareRequest& request) {
     return result;
 }
 
-RenderResponse SourceNode::onPullProcess(const RenderRequest& request) {
+RenderResponse& SourceNode::onPullProcess(const RenderRequest& request) {
     FLEXIMG_METRICS_SCOPE(NodeType::Source);
 
     if (!source_.isValid()) {
@@ -484,7 +484,7 @@ DataRange SourceNode::getDataRange(const RenderRequest& request) const {
 // アフィン変換付きプル処理（スキャンライン専用）
 // 前提: request.height == 1（RendererNodeはスキャンライン単位で処理）
 // 有効範囲のみのバッファを返し、範囲外の0データを下流に送らない
-RenderResponse SourceNode::pullProcessWithAffine(const RenderRequest& request) {
+RenderResponse& SourceNode::pullProcessWithAffine(const RenderRequest& request) {
     int32_t dxStart = 0, dxEnd = 0, baseX = 0, baseY = 0;
 
     // キャッシュが有効か確認
