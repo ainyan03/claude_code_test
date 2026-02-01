@@ -13,6 +13,36 @@
 
 #include "types.h"
 
+#include <cstdlib>  // std::abort
+
+// ========================================================================
+// Debug/Release assertion macros
+// ========================================================================
+//
+// FLEXIMG_ASSERT(cond, msg): デバッグ時のみ有効（リリースでは無効化）
+// FLEXIMG_REQUIRE(cond, msg): 常に有効（致命的エラー検出用）
+//
+
+#ifdef FLEXIMG_DEBUG
+  #define FLEXIMG_ASSERT(cond, msg) \
+    do { if (!(cond)) { std::abort(); } } while(0)
+#else
+  #define FLEXIMG_ASSERT(cond, msg) ((void)0)
+#endif
+
+#define FLEXIMG_REQUIRE(cond, msg) \
+  do { if (!(cond)) { std::abort(); } } while(0)
+
+// ========================================================================
+// Deprecated attribute
+// ========================================================================
+
+#if __cplusplus >= 201402L
+  #define FLEXIMG_DEPRECATED(msg) [[deprecated(msg)]]
+#else
+  #define FLEXIMG_DEPRECATED(msg)
+#endif
+
 // Version information
 #define FLEXIMG_VERSION_MAJOR 2
 #define FLEXIMG_VERSION_MINOR 0

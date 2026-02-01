@@ -170,8 +170,8 @@ void copy(ViewPort& dst, int dstX, int dstY,
 
     // view_ops::copy は同一フォーマット間の矩形コピー専用。
     // 異フォーマット間変換は resolveConverter / convertFormat を直接使用すること。
-    assert(src.formatID == dst.formatID
-           && "view_ops::copy requires matching formats; use convertFormat for conversion");
+    FLEXIMG_ASSERT(src.formatID == dst.formatID,
+                   "view_ops::copy requires matching formats; use convertFormat for conversion");
 
     size_t bpp = static_cast<size_t>(dst.bytesPerPixel());
     for (int y = 0; y < height; ++y) {
