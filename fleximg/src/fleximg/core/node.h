@@ -615,29 +615,30 @@ void Node::initPorts(int inputCount, int outputCount) {
 }
 
 // ImageBufferSet統合ヘルパー
-// 複数エントリがある場合はconsolidateして単一バッファに変換
+// 複数エントリがある場合はconsolidateInPlaceして単一バッファに変換
 // 変換後はbufferSet内に単一バッファが残り、origin.xが調整される
 void Node::consolidateIfNeeded(RenderResponse& input, PixelFormatID format) {
     if (input.bufferSet.empty()) {
         return;
     }
 
-    // オフセットを取得（consolidate前に取得）
+    // オフセットを取得（統合前に取得）
     DataRange range = input.bufferSet.totalRange();
 
-    // 単一エントリで変換不要ならそのまま
-    if (input.bufferSet.bufferCount() == 1) {
-        PixelFormatID srcFormat = input.bufferSet.buffer(0).formatID();
-        if (format == nullptr || srcFormat == format) {
-            input.origin.x += to_fixed(range.startX);
-            return;
+    // その場統合（フォーマット変換なし、最初のエントリを再利用）
+    input.bufferSet.consolidateInPlace();
+
+    // フォーマット変換が必要な場合
+    // convertFormat()経由でメトリクス記録を維持
+    if (format != nullptr && input.bufferSet.bufferCount() == 1) {
+        PixelFormatID srcFormat = input.single().formatID();
+        if (srcFormat != format) {
+            ImageBuffer converted = convertFormat(std::move(input.single()), format);
+            input.bufferSet.replaceBuffer(0, std::move(converted));
         }
     }
 
-    // 複数エントリまたはフォーマット変換が必要 → consolidate
-    // consolidate()はバッファを返してbufferSetを空にするので、結果を再追加
-    ImageBuffer consolidated = input.bufferSet.consolidate(format);
-    input.bufferSet.addBuffer(std::move(consolidated), 0);
+    // origin調整
     input.origin.x += to_fixed(range.startX);
 }
 

@@ -156,6 +156,11 @@ public:
     /// @return 統合されたバッファ
     ImageBuffer consolidate(PixelFormatID format = nullptr);
 
+    /// @brief その場で統合（最初のエントリを再利用、フォーマット変換なし）
+    /// @note フォーマット変換はNode::convertFormat()経由で行う（メトリクス記録のため）
+    /// @note 統合後は entryCount_ == 1 または 0（空の場合）となる
+    void consolidateInPlace();
+
     /// @brief 隣接バッファを統合（ギャップが閾値以下の場合）
     /// @param gapThreshold ギャップ閾値（ピクセル単位）
     void mergeAdjacent(int16_t gapThreshold = 8);
@@ -176,6 +181,12 @@ public:
     ImageBuffer& buffer(int index) {
         return entryPtrs_[index]->buffer;
     }
+
+    /// @brief 指定インデックスのバッファを入れ替え
+    /// @param index エントリインデックス
+    /// @param buffer 新しいバッファ
+    /// @note エントリ自体は再利用（acquire/releaseなし）
+    void replaceBuffer(int index, ImageBuffer&& buffer);
 
     /// @brief 指定インデックスの範囲を取得
     DataRange range(int index) const {
@@ -652,6 +663,81 @@ ImageBuffer ImageBufferSet::consolidate(PixelFormatID format) {
 
     releaseAllEntries();
     return result;
+}
+
+// ----------------------------------------------------------------------------
+// consolidateInPlace
+// ----------------------------------------------------------------------------
+
+void ImageBufferSet::consolidateInPlace() {
+    // 空または単一エントリの場合は何もしない
+    if (entryCount_ <= 1) {
+        return;
+    }
+
+    // アロケータがない場合は統合できない
+    if (!allocator_) {
+        return;
+    }
+
+    // 全体範囲を計算
+    DataRange total = totalRange();
+    int totalWidth = total.endX - total.startX;
+
+    if (totalWidth <= 0) {
+        return;
+    }
+
+    // 統合用バッファを確保（RGBA8_Straight固定）
+    ImageBuffer merged(totalWidth, 1, PixelFormatIDs::RGBA8_Straight,
+                       InitPolicy::Zero, allocator_);
+    if (!merged.isValid()) {
+        return;
+    }
+
+    uint8_t* dstRow = static_cast<uint8_t*>(merged.view().pixelAt(0, 0));
+    constexpr size_t bytesPerPixel = 4;
+
+    // 各エントリを統合バッファにコピー
+    for (int i = 0; i < entryCount_; ++i) {
+        Entry* entry = entryPtrs_[i];
+        int dstOffset = entry->range.startX - total.startX;
+        int width = entry->range.endX - entry->range.startX;
+
+        PixelFormatID srcFmt = entry->buffer.view().formatID;
+        const void* srcRow = entry->buffer.view().pixelAt(0, 0);
+        void* dstPtr = dstRow + static_cast<size_t>(dstOffset) * bytesPerPixel;
+
+        if (srcFmt == PixelFormatIDs::RGBA8_Straight) {
+            // 同一フォーマット: 直接コピー
+            std::memcpy(dstPtr, srcRow, static_cast<size_t>(width) * bytesPerPixel);
+        } else if (srcFmt->toStraight) {
+            // RGBA8_Straightへ変換
+            srcFmt->toStraight(dstPtr, srcRow, width, nullptr);
+        }
+    }
+
+    // 最初のエントリを再利用し、残りを解放
+    Entry* firstEntry = entryPtrs_[0];
+    for (int i = 1; i < entryCount_; ++i) {
+        releaseEntry(entryPtrs_[i]);
+        entryPtrs_[i] = nullptr;
+    }
+
+    // 最初のエントリに統合結果を格納
+    firstEntry->buffer = std::move(merged);
+    firstEntry->range = DataRange{0, static_cast<int16_t>(totalWidth)};
+    entryCount_ = 1;
+}
+
+// ----------------------------------------------------------------------------
+// replaceBuffer
+// ----------------------------------------------------------------------------
+
+void ImageBufferSet::replaceBuffer(int index, ImageBuffer&& buffer) {
+    FLEXIMG_ASSERT(index >= 0 && index < entryCount_, "Invalid index");
+    entryPtrs_[index]->buffer = std::move(buffer);
+    entryPtrs_[index]->range = DataRange{0, static_cast<int16_t>(entryPtrs_[index]->buffer.width())};
 }
 
 // ----------------------------------------------------------------------------

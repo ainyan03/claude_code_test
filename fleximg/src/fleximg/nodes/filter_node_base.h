@@ -131,18 +131,19 @@ RenderResponse FilterNodeBase::process(RenderResponse&& input,
     (void)request;  // スキャンライン必須仕様では未使用
     FLEXIMG_METRICS_SCOPE(nodeTypeForMetrics());
 
-    // ImageBufferSetの場合はconsolidate()して単一バッファに変換
-    consolidateIfNeeded(input);
+    // 統合 + フォーマット変換を一括実行（メトリクス記録付き）
+    consolidateIfNeeded(input, PixelFormatIDs::RGBA8_Straight);
 
-    // 入力をRGBA8_Straightに変換（メトリクス記録付き）
-    ImageBuffer working = convertFormat(std::move(input.single()), PixelFormatIDs::RGBA8_Straight);
+    // input.single() を直接加工
+    ImageBuffer& working = input.single();
     ViewPort workingView = working.view();
 
     // ラインフィルタを適用（height=1前提）
     uint8_t* row = static_cast<uint8_t*>(workingView.data);
     getFilterFunc()(row, workingView.width, params_);
 
-    return makeResponse(std::move(working), input.origin);
+    // inputをそのまま返す（makeResponse不要）
+    return std::move(input);
 }
 
 } // namespace FLEXIMG_NAMESPACE
