@@ -106,7 +106,7 @@ protected:
         // ImageBufferSetの場合はconsolidate()して単一バッファに変換
         consolidateIfNeeded(input);
 
-        ViewPort inputView = input.isValid() ? input.view() : ViewPort();
+        ViewPort inputView = input.isValid() ? input.singleView() : ViewPort();
 
         // 配置計算（SinkNodeと同じ座標系）
         // originX_/Y_: 出力バッファ内でのワールド原点の位置（バッファ座標）

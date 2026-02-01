@@ -412,7 +412,7 @@ void VerticalBlurNode::onPushProcess(RenderResponse&& input, const RenderRequest
         // ImageBufferSetの場合はconsolidate()して単一バッファに変換
         consolidateIfNeeded(input);
         inputOrigin = input.origin;  // consolidate後のoriginを反映
-        ImageBuffer converted = convertFormat(std::move(input.buffer),
+        ImageBuffer converted = convertFormat(std::move(input.single()),
                                                PixelFormatIDs::RGBA8_Straight);
         int xOffset = from_fixed(inputOrigin.x - baseOriginX_);
         storeInputRowToStageCache(stage0, converted, slot0, xOffset);
@@ -652,7 +652,7 @@ void VerticalBlurNode::fetchRowToStageCache(BlurStage& stage, Node* upstream, co
         upstreamOriginXSet_ = true;
     }
 
-    ImageBuffer converted = convertFormat(std::move(result.buffer),
+    ImageBuffer converted = convertFormat(std::move(result.single()),
                                            PixelFormatIDs::RGBA8_Straight);
     ViewPort srcView = converted.view();
 

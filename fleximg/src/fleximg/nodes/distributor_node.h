@@ -234,7 +234,7 @@ void DistributorNode::onPushProcess(RenderResponse&& input,
         // 最後の出力には元のバッファをmoveで渡す（効率化）
         if (processed < validOutputs) {
             // 参照モード: ViewPortから新しいImageBufferを作成
-            RenderResponse ref = makeResponse(ImageBuffer(input.buffer.view()), input.origin);
+            RenderResponse ref = makeResponse(ImageBuffer(input.single().view()), input.origin);
             downstream->pushProcess(std::move(ref), request);
         } else {
             // 最後: 元のバッファをそのまま渡す

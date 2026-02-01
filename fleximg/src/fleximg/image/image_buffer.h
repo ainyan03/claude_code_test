@@ -333,7 +333,7 @@ private:
         capacity_ = static_cast<size_t>(view_.stride) * static_cast<size_t>(view_.height);
         if (capacity_ > 0 && allocator_) {
             view_.data = allocator_->allocate(capacity_);
-            assert(view_.data != nullptr && "Memory allocation failed");
+            FLEXIMG_REQUIRE(view_.data != nullptr, "Memory allocation failed");
             if (view_.data) {
                 switch (initPolicy_) {
                     case InitPolicy::Zero:

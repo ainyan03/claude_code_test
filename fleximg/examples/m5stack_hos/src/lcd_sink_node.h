@@ -106,7 +106,7 @@ protected:
         // ImageBufferSetの場合はconsolidate()して単一バッファに変換
         consolidateIfNeeded(input);
 
-        ViewPort inputView = input.isValid() ? input.view() : ViewPort();
+        ViewPort inputView = input.isValid() ? input.singleView() : ViewPort();
 
         // 新座標系: originはバッファ左上のワールド座標
         // Y座標はrequestから取得（inputが無効でも常に正しい値を持つ）

@@ -239,7 +239,7 @@ void SinkNode::onPushProcess(RenderResponse&& input,
     // （同一フォーマットは memcpy、異なる場合は解決済み変換関数で処理）
     auto converter = resolveConverter(
         inputView.formatID, target_.formatID,
-        &input.buffer.auxInfo(), allocator());
+        &input.single().auxInfo(), allocator());
 
     if (converter) {
         for (int_fast32_t y = 0; y < copyH; ++y) {
@@ -265,11 +265,11 @@ void SinkNode::pushProcessWithAffine(RenderResponse&& input) {
     ImageBuffer convertedBuffer;
     ViewPort inputView;
 
-    if (input.buffer.formatID() != targetFormat) {
-        convertedBuffer = std::move(input.buffer).toFormat(targetFormat);
+    if (input.single().formatID() != targetFormat) {
+        convertedBuffer = std::move(input.single()).toFormat(targetFormat);
         inputView = convertedBuffer.view();
     } else {
-        inputView = input.view();
+        inputView = input.singleView();
     }
 
     // アフィン変換を適用してターゲットに書き込み（pivot は事前計算済み）

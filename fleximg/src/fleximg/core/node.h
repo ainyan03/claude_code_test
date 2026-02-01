@@ -196,7 +196,7 @@ public:
     // 派生クラスはonPullProcess()をオーバーライド
     virtual RenderResponse pullProcess(const RenderRequest& request) final {
         // 共通処理: スキャンライン処理チェック
-        assert(request.height == 1 && "Scanline processing requires height == 1");
+        FLEXIMG_ASSERT(request.height == 1, "Scanline processing requires height == 1");
         // 共通処理: 準備完了状態チェック
         if (prepareResponse_.status != PrepareStatus::Prepared) {
             return RenderResponse();
@@ -259,7 +259,7 @@ public:
     // 派生クラスはonPushProcess()をオーバーライド
     virtual void pushProcess(RenderResponse&& input, const RenderRequest& request) final {
         // 共通処理: スキャンライン処理チェック
-        assert(request.height == 1 && "Scanline processing requires height == 1");
+        FLEXIMG_ASSERT(request.height == 1, "Scanline processing requires height == 1");
         // 共通処理: 準備完了状態チェック
         if (prepareResponse_.status != PrepareStatus::Prepared) {
             return;
@@ -379,7 +379,7 @@ public:
     // ========================================
 
     // RenderResponseがImageBufferSetを持つ場合、consolidateして単一バッファに変換
-    // 変換後は input.buffer に単一バッファが格納され、input.origin.x が調整される
+    // 変換後は bufferSet 内に単一バッファが残り、input.origin.x が調整される
     // format: 変換先フォーマット（デフォルト: RGBA8_Straight）
     void consolidateIfNeeded(RenderResponse& input,
                              PixelFormatID format = PixelFormatIDs::RGBA8_Straight);
@@ -616,29 +616,28 @@ void Node::initPorts(int inputCount, int outputCount) {
 
 // ImageBufferSet統合ヘルパー
 // 複数エントリがある場合はconsolidateして単一バッファに変換
-// 結果はinput.buffer（後方互換用）に格納される
+// 変換後はbufferSet内に単一バッファが残り、origin.xが調整される
 void Node::consolidateIfNeeded(RenderResponse& input, PixelFormatID format) {
     if (input.bufferSet.empty()) {
         return;
     }
 
-    // オフセットを取得
+    // オフセットを取得（consolidate前に取得）
     DataRange range = input.bufferSet.totalRange();
 
-    // 単一エントリで変換不要なら、bufferに移動するだけ
+    // 単一エントリで変換不要ならそのまま
     if (input.bufferSet.bufferCount() == 1) {
         PixelFormatID srcFormat = input.bufferSet.buffer(0).formatID();
         if (format == nullptr || srcFormat == format) {
-            input.buffer = std::move(input.bufferSet.buffer(0));
             input.origin.x += to_fixed(range.startX);
-            input.bufferSet.clear();
             return;
         }
     }
 
-    // 複数エントリまたはフォーマット変換が必要
-    ImageBuffer consolidatedBuffer = input.bufferSet.consolidate(format);
-    input.buffer = std::move(consolidatedBuffer);
+    // 複数エントリまたはフォーマット変換が必要 → consolidate
+    // consolidate()はバッファを返してbufferSetを空にするので、結果を再追加
+    ImageBuffer consolidated = input.bufferSet.consolidate(format);
+    input.bufferSet.addBuffer(std::move(consolidated), 0);
     input.origin.x += to_fixed(range.startX);
 }
 
