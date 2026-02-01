@@ -129,10 +129,10 @@ protected:
     PrepareResponse onPullPrepare(const PrepareRequest& request) override;
 
     // onPullProcess: 水平ブラー処理
-    RenderResponse onPullProcess(const RenderRequest& request) override;
+    RenderResponse& onPullProcess(const RenderRequest& request) override;
 
     // onPushProcess: 水平ブラー処理（push型）
-    void onPushProcess(RenderResponse&& input, const RenderRequest& request) override;
+    void onPushProcess(RenderResponse& input, const RenderRequest& request) override;
 
 private:
     int radius_ = 5;
@@ -199,7 +199,7 @@ PrepareResponse HorizontalBlurNode::onPullPrepare(const PrepareRequest& request)
     return upstreamResult;
 }
 
-RenderResponse HorizontalBlurNode::onPullProcess(const RenderRequest& request) {
+RenderResponse& HorizontalBlurNode::onPullProcess(const RenderRequest& request) {
     Node* upstream = upstreamNode(0);
     if (!upstream) return makeEmptyResponse(request.origin);
 
@@ -222,7 +222,7 @@ RenderResponse HorizontalBlurNode::onPullProcess(const RenderRequest& request) {
         return makeEmptyResponse(request.origin);
     }
 
-    RenderResponse input = upstream->pullProcess(inputReq);
+    RenderResponse& input = upstream->pullProcess(inputReq);
     if (!input.isValid()) return makeEmptyResponse(request.origin);
 
     // ImageBufferSetの場合はconsolidate()して単一バッファに変換
@@ -237,7 +237,7 @@ RenderResponse HorizontalBlurNode::onPullProcess(const RenderRequest& request) {
 #endif
 
     // RGBA8_Straightに変換
-    ImageBuffer buffer = convertFormat(std::move(input.single()),
+    ImageBuffer buffer = convertFormat(ImageBuffer(input.single()),
                                        PixelFormatIDs::RGBA8_Straight);
 
     // 上流から返されたoriginを保存
@@ -316,12 +316,12 @@ RenderResponse HorizontalBlurNode::onPullProcess(const RenderRequest& request) {
     return makeResponse(std::move(output), Point{outputOriginX, request.origin.y});
 }
 
-void HorizontalBlurNode::onPushProcess(RenderResponse&& input, const RenderRequest& request) {
+void HorizontalBlurNode::onPushProcess(RenderResponse& input, const RenderRequest& request) {
     // radius=0またはpasses=0の場合はスルー
     if (radius_ == 0 || passes_ == 0) {
         Node* downstream = downstreamNode(0);
         if (downstream) {
-            downstream->pushProcess(std::move(input), request);
+            downstream->pushProcess(input, request);
         }
         return;
     }
@@ -329,7 +329,7 @@ void HorizontalBlurNode::onPushProcess(RenderResponse&& input, const RenderReque
     if (!input.isValid()) {
         Node* downstream = downstreamNode(0);
         if (downstream) {
-            downstream->pushProcess(std::move(input), request);
+            downstream->pushProcess(input, request);
         }
         return;
     }
@@ -340,7 +340,7 @@ void HorizontalBlurNode::onPushProcess(RenderResponse&& input, const RenderReque
     FLEXIMG_METRICS_SCOPE(NodeType::HorizontalBlur);
 
     // RGBA8_Straightに変換
-    ImageBuffer buffer = convertFormat(std::move(input.single()),
+    ImageBuffer buffer = convertFormat(ImageBuffer(input.single()),
                                        PixelFormatIDs::RGBA8_Straight);
     Point currentOrigin = input.origin;
 
@@ -369,7 +369,8 @@ void HorizontalBlurNode::onPushProcess(RenderResponse&& input, const RenderReque
     if (downstream) {
         RenderRequest outReq = request;
         outReq.width = static_cast<int16_t>(buffer.width());
-        downstream->pushProcess(RenderResponse(std::move(buffer), currentOrigin), outReq);
+        RenderResponse& resp = makeResponse(std::move(buffer), currentOrigin);
+        downstream->pushProcess(resp, outReq);
     }
 }
 

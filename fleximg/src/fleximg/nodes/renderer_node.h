@@ -170,25 +170,31 @@ protected:
 
         // 上流からプル
         Node* upstream = upstreamNode(0);
-        if (!upstream) return;
+        if (!upstream) {
+            context_.resetScanlineResources();
+            return;
+        }
 
-        RenderResponse result = upstream->pullProcess(request);
+        RenderResponse& result = upstream->pullProcess(request);
 
         // デバッグ: DataRange可視化
         if (debugDataRange_) {
-            result = applyDataRangeDebug(upstream, request, std::move(result));
+            applyDataRangeDebug(upstream, request, result);
         }
 
         // 下流へプッシュ（有効なデータがなくても常に転送）
         Node* downstream = downstreamNode(0);
         if (downstream) {
-            downstream->pushProcess(std::move(result), request);
+            downstream->pushProcess(result, request);
         }
+
+        // タイル処理完了後にResponseプールをリセット
+        context_.resetScanlineResources();
     }
 
-    // デバッグ用: DataRange可視化処理
-    RenderResponse applyDataRangeDebug(Node* upstream, const RenderRequest& request,
-                                       RenderResponse&& result);
+    // デバッグ用: DataRange可視化処理（resultを直接変更）
+    void applyDataRangeDebug(Node* upstream, const RenderRequest& request,
+                             RenderResponse& result);
 
 private:
     int virtualWidth_ = 0;
@@ -361,9 +367,9 @@ void RendererNode::execProcess() {
 // デバッグ用: DataRange可視化処理
 // - getDataRange()の範囲外: マゼンタ（データがないはずの領域）
 // - AABBとgetDataRangeの差分: 青（AABBでは含まれるがgetDataRangeで除外された領域）
-RenderResponse RendererNode::applyDataRangeDebug(Node* upstream,
-                                                  const RenderRequest& request,
-                                                  RenderResponse&& result) {
+void RendererNode::applyDataRangeDebug(Node* upstream,
+                                       const RenderRequest& request,
+                                       RenderResponse& result) {
     // 正確な範囲を取得
     DataRange exactRange = upstream->getDataRange(request);
 
@@ -439,8 +445,10 @@ RenderResponse RendererNode::applyDataRangeDebug(Node* upstream,
     addMarker(exactRange.startX);
     if (exactRange.endX > 0) addMarker(static_cast<int16_t>(exactRange.endX - 1));
 
-    // 新しいoriginはrequest.originと一致
-    return RenderResponse(std::move(debugBuffer), request.origin);
+    // resultのbufferSetをクリアして新しいデバッグバッファを設定
+    result.bufferSet.clear();
+    result.bufferSet.addBuffer(std::move(debugBuffer), 0);
+    result.origin = request.origin;
 }
 
 } // namespace FLEXIMG_NAMESPACE

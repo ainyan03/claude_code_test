@@ -88,12 +88,12 @@ public:
     // Template Method フック
     PrepareResponse onPullPrepare(const PrepareRequest& request) override;
     PrepareResponse onPushPrepare(const PrepareRequest& request) override;
-    void onPushProcess(RenderResponse&& input, const RenderRequest& request) override;
+    void onPushProcess(RenderResponse& input, const RenderRequest& request) override;
     void onPushFinalize() override;
 
 protected:
     int nodeTypeForMetrics() const override { return NodeType::VerticalBlur; }
-    RenderResponse onPullProcess(const RenderRequest& request) override;
+    RenderResponse& onPullProcess(const RenderRequest& request) override;
 
 private:
     int radius_ = 5;
@@ -169,7 +169,7 @@ private:
     mutable DataRangeCache rangeCache_;
 
     // 内部実装（宣言のみ）
-    RenderResponse pullProcessPipeline(Node* upstream, const RenderRequest& request);
+    RenderResponse& pullProcessPipeline(Node* upstream, const RenderRequest& request);
     void updateStageCache(int stageIndex, Node* upstream, const RenderRequest& request, int newY);
     void fetchRowToStageCache(BlurStage& stage, Node* upstream, const RenderRequest& request, int srcY, int cacheIndex);
     void fetchRowFromPrevStage(int stageIndex, Node* upstream, const RenderRequest& request, int srcY, int cacheIndex);
@@ -383,12 +383,12 @@ PrepareResponse VerticalBlurNode::onPushPrepare(const PrepareRequest& request) {
     return downstreamResult;
 }
 
-void VerticalBlurNode::onPushProcess(RenderResponse&& input, const RenderRequest& request) {
+void VerticalBlurNode::onPushProcess(RenderResponse& input, const RenderRequest& request) {
     // radius=0の場合はスルー
     if (radius_ == 0) {
         Node* downstream = downstreamNode(0);
         if (downstream) {
-            downstream->pushProcess(std::move(input), request);
+            downstream->pushProcess(input, request);
         }
         return;
     }
@@ -412,7 +412,7 @@ void VerticalBlurNode::onPushProcess(RenderResponse&& input, const RenderRequest
         // ImageBufferSetの場合はconsolidate()して単一バッファに変換
         consolidateIfNeeded(input);
         inputOrigin = input.origin;  // consolidate後のoriginを反映
-        ImageBuffer converted = convertFormat(std::move(input.single()),
+        ImageBuffer converted = convertFormat(ImageBuffer(input.single()),
                                                PixelFormatIDs::RGBA8_Straight);
         int xOffset = from_fixed(inputOrigin.x - baseOriginX_);
         storeInputRowToStageCache(stage0, converted, slot0, xOffset);
@@ -472,7 +472,7 @@ void VerticalBlurNode::onPushFinalize() {
     finalize();
 }
 
-RenderResponse VerticalBlurNode::onPullProcess(const RenderRequest& request) {
+RenderResponse& VerticalBlurNode::onPullProcess(const RenderRequest& request) {
     Node* upstream = upstreamNode(0);
     if (!upstream) return makeEmptyResponse(request.origin);
 
@@ -489,7 +489,7 @@ RenderResponse VerticalBlurNode::onPullProcess(const RenderRequest& request) {
 // パイプライン処理
 // ========================================
 
-RenderResponse VerticalBlurNode::pullProcessPipeline(Node* upstream, const RenderRequest& request) {
+RenderResponse& VerticalBlurNode::pullProcessPipeline(Node* upstream, const RenderRequest& request) {
     int requestY = from_fixed(request.origin.y);
     // 注: 各ステージの初期化はupdateStageCache内で行われる
 
@@ -636,7 +636,7 @@ void VerticalBlurNode::fetchRowToStageCache(BlurStage& stage, Node* upstream, co
         return;
     }
 
-    RenderResponse result = upstream->pullProcess(upstreamReq);
+    RenderResponse& result = upstream->pullProcess(upstreamReq);
     if (!result.isValid()) {
         return;
     }
@@ -652,7 +652,7 @@ void VerticalBlurNode::fetchRowToStageCache(BlurStage& stage, Node* upstream, co
         upstreamOriginXSet_ = true;
     }
 
-    ImageBuffer converted = convertFormat(std::move(result.single()),
+    ImageBuffer converted = convertFormat(ImageBuffer(result.single()),
                                            PixelFormatIDs::RGBA8_Straight);
     ViewPort srcView = converted.view();
 
@@ -867,7 +867,8 @@ void VerticalBlurNode::emitBlurredLinePipeline() {
 
     Node* downstream = downstreamNode(0);
     if (downstream) {
-        downstream->pushProcess(makeResponse(std::move(output), outReq.origin), outReq);
+        RenderResponse& resp = makeResponse(std::move(output), outReq.origin);
+        downstream->pushProcess(resp, outReq);
     }
 }
 

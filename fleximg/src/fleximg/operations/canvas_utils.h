@@ -85,23 +85,19 @@ inline void placeFirst(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canv
 
 // フォーマット変換（必要なら）
 // blend関数が対応していないフォーマットをRGBA8_Straightに変換
-inline RenderResponse ensureBlendableFormat(RenderResponse&& input) {
+inline void ensureBlendableFormat(RenderResponse& input) {
     if (!input.isValid()) {
-        return std::move(input);
+        return;
     }
 
     PixelFormatID inputFmt = input.view().formatID;
     if (inputFmt == PixelFormatIDs::RGBA8_Straight) {
-        // 対応フォーマットならそのまま返す
-        return std::move(input);
+        // 対応フォーマットならそのまま
+        return;
     }
 
-    // RGBA8_Straight に変換
-    Point savedOrigin = input.origin;
-    return RenderResponse(
-        std::move(input.single()).toFormat(PixelFormatIDs::RGBA8_Straight),
-        savedOrigin
-    );
+    // RGBA8_Straight に変換（bufferSet内で直接変換）
+    input.bufferSet.convertFormat(PixelFormatIDs::RGBA8_Straight);
 }
 
 } // namespace canvas_utils

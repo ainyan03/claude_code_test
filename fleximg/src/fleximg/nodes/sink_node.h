@@ -87,7 +87,7 @@ protected:
 
     // onPushProcess: タイル単位で呼び出され、出力バッファに書き込み
     // SinkNodeは終端なので下流への伝播なし
-    void onPushProcess(RenderResponse&& input,
+    void onPushProcess(RenderResponse& input,
                        const RenderRequest& request) override;
 
 private:
@@ -102,7 +102,7 @@ private:
     bool hasAffine_ = false;       // アフィン変換が伝播されているか
 
     // アフィン変換付きプッシュ処理
-    void pushProcessWithAffine(RenderResponse&& input);
+    void pushProcessWithAffine(RenderResponse& input);
 
     // アフィン変換実装（事前計算済み値を使用）
     void applyAffine(ViewPort& dst,
@@ -199,7 +199,7 @@ PrepareResponse SinkNode::onPushPrepare(const PrepareRequest& request) {
     return result;
 }
 
-void SinkNode::onPushProcess(RenderResponse&& input,
+void SinkNode::onPushProcess(RenderResponse& input,
                              const RenderRequest& request) {
     (void)request;  // 現在は未使用
 
@@ -212,7 +212,7 @@ void SinkNode::onPushProcess(RenderResponse&& input,
 
     // アフィン変換が伝播されている場合はDDA処理
     if (hasAffine_) {
-        pushProcessWithAffine(std::move(input));
+        pushProcessWithAffine(input);
         return;
     }
 
@@ -254,7 +254,7 @@ void SinkNode::onPushProcess(RenderResponse&& input,
 // SinkNode - private ヘルパーメソッド実装
 // ============================================================================
 
-void SinkNode::pushProcessWithAffine(RenderResponse&& input) {
+void SinkNode::pushProcessWithAffine(RenderResponse& input) {
     // 特異行列チェック
     if (!invMatrix_.valid) {
         return;
@@ -266,7 +266,7 @@ void SinkNode::pushProcessWithAffine(RenderResponse&& input) {
     ViewPort inputView;
 
     if (input.single().formatID() != targetFormat) {
-        convertedBuffer = std::move(input.single()).toFormat(targetFormat);
+        convertedBuffer = ImageBuffer(input.single()).toFormat(targetFormat);
         inputView = convertedBuffer.view();
     } else {
         inputView = input.singleView();

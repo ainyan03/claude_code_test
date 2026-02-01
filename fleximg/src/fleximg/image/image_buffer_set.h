@@ -142,6 +142,17 @@ public:
     /// @brief バッファを登録（DataRange指定）
     bool addBuffer(ImageBuffer&& buffer, const DataRange& range);
 
+    /// @brief 他のImageBufferSetからエントリをバッチ転送
+    /// @param source 転送元（転送後は空になる）
+    /// @param offsetX 各エントリに加算するXオフセット
+    /// @return 成功時 true
+    /// @note プール操作なしでエントリポインタを直接移動
+    bool transferFrom(ImageBufferSet& source, int16_t offsetX);
+
+    /// @brief 全エントリにXオフセットを適用
+    /// @param offsetX 各エントリに加算するXオフセット
+    void applyOffset(int16_t offsetX);
+
     // ========================================
     // 変換・統合
     // ========================================
@@ -323,6 +334,62 @@ bool ImageBufferSet::addBuffer(const ImageBuffer& buffer, int16_t startX) {
     ImageBuffer copy = buffer;  // コピー
     return addBuffer(std::move(copy), startX);
 }
+
+void ImageBufferSet::applyOffset(int16_t offsetX) {
+    if (offsetX == 0) return;
+    for (int i = 0; i < entryCount_; ++i) {
+        Entry* entry = entryPtrs_[i];
+        entry->range.startX = static_cast<int16_t>(entry->range.startX + offsetX);
+        entry->range.endX = static_cast<int16_t>(entry->range.endX + offsetX);
+    }
+}
+
+bool ImageBufferSet::transferFrom(ImageBufferSet& source, int16_t offsetX) {
+    if (source.entryCount_ == 0) {
+        return true;  // 空なら何もしない
+    }
+
+    // オフセット適用
+    source.applyOffset(offsetX);
+
+    // 空の場合: 直接コピー
+    if (entryCount_ == 0) {
+        for (int i = 0; i < source.entryCount_; ++i) {
+            entryPtrs_[i] = source.entryPtrs_[i];
+            source.entryPtrs_[i] = nullptr;
+        }
+        entryCount_ = source.entryCount_;
+        source.entryCount_ = 0;
+        return true;
+    }
+
+    // 既存エントリあり: 1つずつ挿入（重複処理含む）
+    for (int i = 0; i < source.entryCount_; ++i) {
+        Entry* entry = source.entryPtrs_[i];
+        source.entryPtrs_[i] = nullptr;
+
+        // 重複チェック
+        int overlapStart = 0, overlapEnd = 0;
+        if (findOverlapping(entry->range, overlapStart, overlapEnd)) {
+            // 重複あり → 合成処理
+            if (!mergeOverlapping(entry, overlapStart, overlapEnd)) {
+                return false;
+            }
+        } else {
+            // 重複なし → ソート位置に挿入
+            if (!insertSorted(entry)) {
+                return false;
+            }
+        }
+    }
+
+    source.entryCount_ = 0;
+    return true;
+}
+
+// ----------------------------------------------------------------------------
+// addBuffer
+// ----------------------------------------------------------------------------
 
 bool ImageBufferSet::addBuffer(ImageBuffer&& buffer, const DataRange& range) {
     if (!buffer.isValid()) {

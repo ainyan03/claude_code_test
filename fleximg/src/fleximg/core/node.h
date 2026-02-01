@@ -173,10 +173,11 @@ public:
     // ========================================
 
     // 入力画像から出力画像を生成
-    virtual RenderResponse process(RenderResponse&& input,
-                                   const RenderRequest& request) {
+    // 入力を改変して返すか、新しいResponseを返す
+    virtual RenderResponse& process(RenderResponse& input,
+                                    const RenderRequest& request) {
         (void)request;
-        return std::move(input);  // デフォルトはパススルー
+        return input;  // デフォルトはパススルー
     }
 
     // 準備処理（スクリーン情報を受け取る）
@@ -195,12 +196,13 @@ public:
 
     // 上流から画像を取得して処理（finalメソッド）
     // 派生クラスはonPullProcess()をオーバーライド
-    virtual RenderResponse pullProcess(const RenderRequest& request) final {
+    // 戻り値: RenderContext所有のResponse参照（借用）
+    virtual RenderResponse& pullProcess(const RenderRequest& request) final {
         // 共通処理: スキャンライン処理チェック
         FLEXIMG_ASSERT(request.height == 1, "Scanline processing requires height == 1");
         // 共通処理: 準備完了状態チェック
         if (prepareResponse_.status != PrepareStatus::Prepared) {
-            return RenderResponse();
+            return makeEmptyResponse(request.origin);
         }
         // 派生クラスのカスタム処理を呼び出し
         return onPullProcess(request);
@@ -256,7 +258,7 @@ public:
 
     // 上流から画像を受け取って処理し、下流へ渡す（finalメソッド）
     // 派生クラスはonPushProcess()をオーバーライド
-    virtual void pushProcess(RenderResponse&& input, const RenderRequest& request) final {
+    virtual void pushProcess(RenderResponse& input, const RenderRequest& request) final {
         // 共通処理: スキャンライン処理チェック
         FLEXIMG_ASSERT(request.height == 1, "Scanline processing requires height == 1");
         // 共通処理: 準備完了状態チェック
@@ -264,7 +266,7 @@ public:
             return;
         }
         // 派生クラスのカスタム処理を呼び出し
-        onPushProcess(std::move(input), request);
+        onPushProcess(input, request);
     }
 
     // 下流へ準備を伝播（finalメソッド）
@@ -390,20 +392,19 @@ public:
                              PixelFormatID format = PixelFormatIDs::RGBA8_Straight);
 
     // ========================================
-    // RenderResponse構築ヘルパー
+    // RenderResponse取得ヘルパー
     // ========================================
 
-    /// @brief RenderResponseを構築（プール経由でImageBufferSetを使用）
+    /// @brief RenderResponseを取得しバッファを設定
     /// @param buf 画像バッファ
     /// @param origin 原点（ワールド座標）
-    /// @return 構築されたRenderResponse
-    /// @note entryPool_とallocator_を自動的に使用
-    RenderResponse makeResponse(ImageBuffer&& buf, Point origin);
+    /// @return RenderContext所有のResponse参照
+    RenderResponse& makeResponse(ImageBuffer&& buf, Point origin);
 
-    /// @brief 空のRenderResponseを構築
+    /// @brief 空のRenderResponseを取得
     /// @param origin 原点（ワールド座標）
-    /// @return 空のRenderResponse
-    RenderResponse makeEmptyResponse(Point origin);
+    /// @return RenderContext所有の空Response参照
+    RenderResponse& makeEmptyResponse(Point origin);
 
 protected:
     std::vector<Port> inputs_;
@@ -479,20 +480,20 @@ protected:
 
     // pullProcess()から呼ばれるフック
     // デフォルト: 上流からpullしてprocess()を呼び出す
-    virtual RenderResponse onPullProcess(const RenderRequest& request) {
+    virtual RenderResponse& onPullProcess(const RenderRequest& request) {
         Node* upstream = upstreamNode(0);
-        if (!upstream) return RenderResponse();
-        RenderResponse input = upstream->pullProcess(request);
-        return process(std::move(input), request);
+        if (!upstream) return makeEmptyResponse(request.origin);
+        RenderResponse& input = upstream->pullProcess(request);
+        return process(input, request);
     }
 
     // pushProcess()から呼ばれるフック
     // デフォルト: process()を呼び出して下流へpush
-    virtual void onPushProcess(RenderResponse&& input, const RenderRequest& request) {
-        RenderResponse output = process(std::move(input), request);
+    virtual void onPushProcess(RenderResponse& input, const RenderRequest& request) {
+        RenderResponse& output = process(input, request);
         Node* downstream = downstreamNode(0);
         if (downstream) {
-            downstream->pushProcess(std::move(output), request);
+            downstream->pushProcess(output, request);
         }
     }
 
@@ -646,19 +647,21 @@ void Node::consolidateIfNeeded(RenderResponse& input, PixelFormatID format) {
 }
 
 // RenderResponse構築ヘルパー
-// プール経由でImageBufferSetを使用し、RenderResponseを構築
-RenderResponse Node::makeResponse(ImageBuffer&& buf, Point origin) {
-    if (!buf.isValid()) {
-        return RenderResponse();
+// RenderContext経由でResponseを取得し、バッファを追加して返す
+RenderResponse& Node::makeResponse(ImageBuffer&& buf, Point origin) {
+    FLEXIMG_ASSERT(context_ != nullptr, "RenderContext required for makeResponse");
+    RenderResponse& resp = context_->acquireResponse();
+    if (buf.isValid()) {
+        resp.bufferSet.addBuffer(std::move(buf), 0);
     }
-    ImageBufferSet set(entryPool(), allocator());
-    set.addBuffer(std::move(buf), 0);
-    return RenderResponse(std::move(set), origin);
+    resp.origin = origin;
+    return resp;
 }
 
 // 空のRenderResponseを構築
-RenderResponse Node::makeEmptyResponse(Point origin) {
-    RenderResponse resp;
+RenderResponse& Node::makeEmptyResponse(Point origin) {
+    FLEXIMG_ASSERT(context_ != nullptr, "RenderContext required for makeEmptyResponse");
+    RenderResponse& resp = context_->acquireResponse();
     resp.origin = origin;
     return resp;
 }

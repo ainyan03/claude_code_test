@@ -596,26 +596,52 @@ void loop() {
         composite.setRotation(-rotationAngle * 0.5f);
     }
 
-    // レンダリング実行
-    renderer.exec();
-
-    // FPS表示
+    // レンダリング実行（処理時間計測）
+    static uint32_t execTimeSum = 0;
+    static uint32_t execTimeMin = UINT32_MAX;
     static unsigned long lastTime = 0;
     static int frameCount = 0;
     static float fps = 0.0f;
+    static float avgExecUs = 0.0f;
+    static float minExecUs = 0.0f;
+
+    // exec処理時間計測
+    unsigned long execStart = lgfx::micros();
+    renderer.exec();
+    unsigned long execEnd = lgfx::micros();
+    uint32_t execTime = static_cast<uint32_t>(execEnd - execStart);
+    execTimeSum += execTime;
+    if (execTime < execTimeMin) {
+        execTimeMin = execTime;
+    }
 
     frameCount++;
     unsigned long now = lgfx::millis();
     if (now - lastTime >= 1000) {
         fps = static_cast<float>(frameCount) * 1000.0f / static_cast<float>(now - lastTime);
+        avgExecUs = static_cast<float>(execTimeSum) / static_cast<float>(frameCount);
+        minExecUs = static_cast<float>(execTimeMin);
+
+        // printf出力
+        printf("FPS=%.1f, avg=%.0fus, min=%.0fus (%s)\n",
+               static_cast<double>(fps),
+               static_cast<double>(avgExecUs),
+               static_cast<double>(minExecUs),
+               MODE_NAMES[static_cast<int>(currentMode)]);
+
         frameCount = 0;
+        execTimeSum = 0;
+        execTimeMin = UINT32_MAX;
         lastTime = now;
 
-        // FPS表示更新
-        int16_t dispH = static_cast<int16_t>(M5.Display.height());
-        M5.Display.fillRect(0, dispH - 16, 100, 16, TFT_BLACK);
-        M5.Display.setCursor(0, dispH - 16);
+        // FPS表示更新（右上）
+        int16_t dispW = static_cast<int16_t>(M5.Display.width());
+        M5.Display.fillRect(dispW - 145, 0, 145, 12, TFT_BLACK);
+        M5.Display.setCursor(dispW - 145, 0);
         M5.Display.setTextColor(TFT_GREEN);
-        M5.Display.printf("FPS:%.1f", static_cast<double>(fps));
+        M5.Display.printf("%.1fFPS %.0f/%.0fus",
+                          static_cast<double>(fps),
+                          static_cast<double>(minExecUs),
+                          static_cast<double>(avgExecUs));
     }
 }
