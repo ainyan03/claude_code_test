@@ -750,7 +750,7 @@ void VerticalBlurNode::initializeStage(BlurStage& stage, int width) {
     stage.rowDataRange.assign(cacheRows, DataRange{0, 0});  // 空範囲で初期化
     for (size_t i = 0; i < cacheRows; i++) {
         stage.rowCache[i] = ImageBuffer(width, 1, PixelFormatIDs::RGBA8_Straight,
-                                        InitPolicy::Zero, allocator_);
+                                        InitPolicy::Zero, allocator());
     }
     stage.colSumR.assign(static_cast<size_t>(width), 0);
     stage.colSumG.assign(static_cast<size_t>(width), 0);

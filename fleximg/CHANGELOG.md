@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.62.0] - 2026-02-01
+
+### リファクタリング
+
+- **RenderContext導入**: パイプライン動的リソース管理の一元化
+  - `core/render_context.h` 新規作成
+  - PrepareRequest.allocator/entryPool を PrepareRequest.context に統合
+  - Node基底クラスの allocator_/entryPool_ を context_ に統合
+  - 既存のアクセサ（allocator(), entryPool()）は context_ 経由で維持（互換性確保）
+  - RendererNodeが RenderContext を値型メンバとして所有し、全ノードに伝播
+  - 将来拡張に対応（PerfMetrics, TextureCache, RenderFlags等）
+
+---
+
 ## [2.61.0] - 2026-01-31
 
 ### リファクタリング

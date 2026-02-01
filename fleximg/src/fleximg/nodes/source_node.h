@@ -509,7 +509,7 @@ RenderResponse SourceNode::pullProcessWithAffine(const RenderRequest& request) {
 
     // 有効範囲のみのバッファを作成
     int validWidth = dxEnd - dxStart + 1;
-    ImageBuffer output(validWidth, 1, source_.formatID, InitPolicy::Uninitialized, allocator_);
+    ImageBuffer output(validWidth, 1, source_.formatID, InitPolicy::Uninitialized, allocator());
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
     PerfMetrics::instance().nodes[NodeType::Source].recordAlloc(
         output.totalBytes(), output.width(), output.height());

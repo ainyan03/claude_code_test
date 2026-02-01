@@ -424,7 +424,7 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
     FLEXIMG_METRICS_SCOPE(NodeType::Matte);
 
     ImageBuffer outputBuf(unionWidth, unionHeight, PixelFormatIDs::RGBA8_Straight,
-                          InitPolicy::Zero, allocator_);
+                          InitPolicy::Zero, allocator());
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
     PerfMetrics::instance().nodes[NodeType::Matte].recordAlloc(
         outputBuf.totalBytes(), outputBuf.width(), outputBuf.height());
@@ -437,7 +437,7 @@ RenderResponse MatteNode::onPullProcess(const RenderRequest& request) {
 
         auto converter = resolveConverter(bgResult.single().formatID(),
                                           PixelFormatIDs::RGBA8_Straight,
-                                          &bgResult.single().auxInfo(), allocator_);
+                                          &bgResult.single().auxInfo(), allocator());
         if (converter) {
             ViewPort bgViewPort = bgResult.singleView();
             ViewPort outView = outputBuf.view();
