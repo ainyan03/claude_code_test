@@ -56,7 +56,7 @@ public:
     // ========================================
 
     /// @brief デフォルトコンストラクタ
-    ImageBufferEntryPool() {
+    ImageBufferEntryPool() : nextHint_(0) {
         // エントリを初期化
         for (int i = 0; i < POOL_SIZE; ++i) {
             entries_[i].inUse = false;
@@ -83,11 +83,15 @@ public:
     /// @brief 空きエントリを取得
     /// @return 取得したエントリへのポインタ。空きがない場合はnullptr
     /// @note バッファ/範囲のリセットは行わない（呼び出し側で初期化される）
+    /// @note ヒント付き循環探索でO(1)に近い性能を実現
     Entry* acquire() {
+        // nextHint_から開始して循環探索
         for (int i = 0; i < POOL_SIZE; ++i) {
-            if (!entries_[i].inUse) {
-                entries_[i].inUse = true;
-                return &entries_[i];
+            int idx = (nextHint_ + i) % POOL_SIZE;
+            if (!entries_[idx].inUse) {
+                entries_[idx].inUse = true;
+                nextHint_ = (idx + 1) % POOL_SIZE;
+                return &entries_[idx];
             }
         }
         return nullptr;  // 枯渇
@@ -108,6 +112,7 @@ public:
             entries_[i].inUse = false;
             entries_[i].buffer.reset();  // 軽量リセット
         }
+        nextHint_ = 0;  // ヒントをリセット
     }
 
     // ========================================
@@ -138,6 +143,7 @@ public:
 
 private:
     Entry entries_[POOL_SIZE];  ///< エントリ配列
+    int nextHint_;              ///< 次回探索開始位置（循環探索用）
 };
 
 } // namespace FLEXIMG_NAMESPACE
