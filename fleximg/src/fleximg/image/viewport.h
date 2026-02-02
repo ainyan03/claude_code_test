@@ -113,7 +113,8 @@ void copyRowDDA(
 );
 
 // DDA行転写（バイリニア補間）
-// 現状はRGBA8888専用、非対応フォーマットは最近傍にフォールバック
+// copyQuadDDA → フォーマット変換 → bilinearBlend_RGBA8888 のパイプライン
+// copyQuadDDA未対応フォーマットは最近傍にフォールバック
 void copyRowDDABilinear(
     void* dst,
     const ViewPort& src,
@@ -213,8 +214,8 @@ void copyRowDDA(
 ) {
     if (!src.isValid() || count <= 0) return;
 
-    // DDAParam を構築
-    DDAParam param = { src.stride, srcX, srcY, incrX, incrY };
+    // DDAParam を構築（copyRowDDAでは srcWidth/srcHeight/weights は使用しない）
+    DDAParam param = { src.stride, 0, 0, srcX, srcY, incrX, incrY, nullptr };
 
     // フォーマットの関数ポインタを呼び出し
     if (src.formatID && src.formatID->copyRowDDA) {
@@ -227,6 +228,81 @@ void copyRowDDA(
     }
 }
 
+// ============================================================================
+// バイリニア補間関数（RGBA8888固定）
+// ============================================================================
+//
+// copyQuadDDAで抽出した4ピクセルデータからバイリニア補間を実行する。
+// 入力: quadPixels = [p00,p10,p01,p11] × count（各4bytes、RGBA8888）
+// 出力: dst = 補間結果 × count（各4bytes、RGBA8888）
+//
+
+inline void bilinearBlend_RGBA8888(
+    uint8_t* __restrict__ dst,
+    const uint8_t* __restrict__ quadPixels,
+    const BilinearWeight* __restrict__ weights,
+    int count
+) {
+    constexpr int QUAD_SIZE = 16;  // 4 pixels × 4 bytes
+
+    for (int i = 0; i < count; ++i) {
+        // 4点を32bitでロード
+        uint32_t q00 = *reinterpret_cast<const uint32_t*>(quadPixels);
+        uint32_t q10 = *reinterpret_cast<const uint32_t*>(quadPixels + 4);
+        uint32_t q01 = *reinterpret_cast<const uint32_t*>(quadPixels + 8);
+        uint32_t q11 = *reinterpret_cast<const uint32_t*>(quadPixels + 12);
+
+        uint32_t fx = weights[i].fx;
+        uint32_t fy = weights[i].fy;
+        uint32_t ifx = 256 - fx;
+        uint32_t ify = 256 - fy;
+
+        // R,B（偶数バイト位置）をマスク
+        uint32_t q00_rb = q00 & 0xFF00FF;
+        uint32_t q10_rb = q10 & 0xFF00FF;
+        uint32_t q01_rb = q01 & 0xFF00FF;
+        uint32_t q11_rb = q11 & 0xFF00FF;
+
+        // G,A（奇数バイト位置）をシフト＆マスク
+        uint32_t q00_ga = (q00 >> 8) & 0xFF00FF;
+        uint32_t q10_ga = (q10 >> 8) & 0xFF00FF;
+        uint32_t q01_ga = (q01 >> 8) & 0xFF00FF;
+        uint32_t q11_ga = (q11 >> 8) & 0xFF00FF;
+
+        // X方向補間（R,B同時）→ 8bit精度に丸める
+        uint32_t top_rb = ((q00_rb * ifx + q10_rb * fx) >> 8) & 0xFF00FF;
+        uint32_t bottom_rb = ((q01_rb * ifx + q11_rb * fx) >> 8) & 0xFF00FF;
+
+        // X方向補間（G,A同時）→ 8bit精度に丸める
+        uint32_t top_ga = ((q00_ga * ifx + q10_ga * fx) >> 8) & 0xFF00FF;
+        uint32_t bottom_ga = ((q01_ga * ifx + q11_ga * fx) >> 8) & 0xFF00FF;
+
+        // Y方向補間（R,B同時）
+        uint32_t result_rb = (top_rb * ify + bottom_rb * fy) >> 8;
+
+        // Y方向補間（G,A同時）- 16bit×2形式のまま保持
+        uint32_t result_ga = top_ga * ify + bottom_ga * fy;
+
+        // 結果を出力（リトルエンディアン: G,Aは上位バイトが正しい位置に来る）
+        *reinterpret_cast<uint32_t*>(dst) = result_ga;
+        dst[0] = static_cast<uint8_t>(result_rb);        // R
+        dst[2] = static_cast<uint8_t>(result_rb >> 16);  // B
+
+        dst += 4;
+        quadPixels += QUAD_SIZE;
+    }
+}
+
+// ============================================================================
+// copyRowDDABilinear - 新アーキテクチャ
+// ============================================================================
+//
+// 処理フロー:
+// 1. copyQuadDDA: 4ピクセル抽出（元フォーマット）
+// 2. convertFormat: フォーマット変換（RGBA8_Straight以外の場合）
+// 3. bilinearBlend_RGBA8888: バイリニア補間
+//
+
 void copyRowDDABilinear(
     void* dst,
     const ViewPort& src,
@@ -238,49 +314,60 @@ void copyRowDDABilinear(
 ) {
     if (!src.isValid() || count <= 0) return;
 
-    // 現状はRGBA8888専用、それ以外は最近傍フォールバック
-    if (getBytesPerPixel(src.formatID) != 4) {
+    // copyQuadDDA未対応フォーマットは最近傍フォールバック
+    if (!src.formatID || !src.formatID->copyQuadDDA) {
         copyRowDDA(dst, src, count, srcX, srcY, incrX, incrY);
         return;
     }
 
-    constexpr int BPP = 4;  // RGBA8888 = 4 bytes per pixel
-    uint8_t* dstRow = static_cast<uint8_t*>(dst);
+    // チャンク処理用定数
+    constexpr int CHUNK_SIZE = 64;
+
+    // 一時バッファ（スタック確保）
+    uint8_t quadBuffer[CHUNK_SIZE * 4 * 4];      // 最大1024 bytes（4bpp × 4 × 64）
+    BilinearWeight weights[CHUNK_SIZE];          // 128 bytes
+    uint8_t convertedQuad[CHUNK_SIZE * 4 * 4];   // 変換用（RGBA8888、1024 bytes）
+
+    // RGBA8_Straightかどうか判定（変換スキップ用）
+    const bool needsConversion = (src.formatID != PixelFormatIDs::RGBA8_Straight);
+
+    uint8_t* dstPtr = static_cast<uint8_t*>(dst);
     const uint8_t* srcData = static_cast<const uint8_t*>(src.data);
-    const int32_t srcStride = src.stride;
-    const int32_t srcLastX = src.width - 1;
-    const int32_t srcLastY = src.height - 1;
 
-    for (int i = 0; i < count; i++) {
-        // 整数部（ピクセル座標）
-        int32_t sx = srcX >> INT_FIXED_SHIFT;
-        int32_t sy = srcY >> INT_FIXED_SHIFT;
+    for (int offset = 0; offset < count; offset += CHUNK_SIZE) {
+        int chunk = (count - offset < CHUNK_SIZE) ? (count - offset) : CHUNK_SIZE;
 
-        // 小数部を 0-255 に正規化（補間の重み）
-        uint32_t fx = (static_cast<uint32_t>(srcX) >> 8) & 0xFF;
-        uint32_t fy = (static_cast<uint32_t>(srcY) >> 8) & 0xFF;
+        // DDAParam を構築
+        DDAParam param = {
+            src.stride,
+            src.width,
+            src.height,
+            srcX,
+            srcY,
+            incrX,
+            incrY,
+            weights
+        };
 
-        // 4点のポインタを取得（境界クランプ）
-        const uint8_t* p00 = srcData
-            + static_cast<size_t>(sy) * static_cast<size_t>(srcStride)
-            + static_cast<size_t>(sx) * BPP;
-        const uint8_t* p10 = (sx >= srcLastX) ? p00 : p00 + BPP;
-        const uint8_t* p01 = (sy >= srcLastY) ? p00 : p00 + srcStride;
-        const uint8_t* p11 = (sx >= srcLastX) ? p01 : p01 + BPP;
+        // 関数A: 4ピクセル抽出
+        src.formatID->copyQuadDDA(quadBuffer, srcData, chunk, &param);
 
-        // バイリニア補間（各チャンネル）
-        uint32_t ifx = 256 - fx;
-        uint32_t ify = 256 - fy;
-
-        for (int c = 0; c < 4; c++) {
-            uint32_t top    = p00[c] * ifx + p10[c] * fx;
-            uint32_t bottom = p01[c] * ifx + p11[c] * fx;
-            dstRow[c] = static_cast<uint8_t>((top * ify + bottom * fy) >> 16);
+        // フォーマット変換（必要な場合）
+        const uint8_t* quadRGBA = quadBuffer;
+        if (needsConversion) {
+            convertFormat(quadBuffer, src.formatID,
+                          convertedQuad, PixelFormatIDs::RGBA8_Straight,
+                          chunk * 4, nullptr, nullptr);
+            quadRGBA = convertedQuad;
         }
 
-        dstRow += BPP;
-        srcX += incrX;
-        srcY += incrY;
+        // 関数B: バイリニア補間
+        bilinearBlend_RGBA8888(dstPtr, quadRGBA, weights, chunk);
+
+        // 次のチャンクへ
+        dstPtr += chunk * 4;  // 出力は常にRGBA8888（4bpp）
+        srcX += incrX * chunk;
+        srcY += incrY * chunk;
     }
 }
 
