@@ -77,7 +77,7 @@ static void benchCopyRowDDA(
     int_fixed incrY
 ) {
     if (!src.isValid() || count <= 0) return;
-    DDAParam param = { src.stride, srcX, srcY, incrX, incrY };
+    DDAParam param = { src.stride, 0, 0, srcX, srcY, incrX, incrY, nullptr };
     if (src.formatID && src.formatID->copyRowDDA) {
         src.formatID->copyRowDDA(
             static_cast<uint8_t*>(dst),
@@ -961,7 +961,7 @@ static uint8_t* getDDASourceBuffer(int bpp) {
 }
 
 // Run single DDA test, return ns/px
-static double runDDATest(const ViewPort& srcVP, int bpp, int testIdx) {
+static double runDDATest(const ViewPort& srcVP, int /*bpp*/, int testIdx) {
     const auto& test = ddaTests[testIdx];
 
     // 出力ピクセル数を計算（ソース範囲内に収まる最大数、ラインバッファ上限も考慮）

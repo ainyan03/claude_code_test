@@ -10,19 +10,31 @@
 namespace FLEXIMG_NAMESPACE {
 
 // ========================================================================
+// バイリニア補間の重み情報
+// ========================================================================
+
+struct BilinearWeight {
+    uint8_t fx;  // X方向小数部（0-255）
+    uint8_t fy;  // Y方向小数部（0-255）
+};
+
+// ========================================================================
 // DDA転写パラメータ
 // ========================================================================
 //
-// copyRowDDA 関数に渡すパラメータ構造体。
+// copyRowDDA / copyQuadDDA 関数に渡すパラメータ構造体。
 // アフィン変換等でのピクセルサンプリングに使用する。
 //
 
 struct DDAParam {
     int32_t srcStride;    // ソースのストライド（バイト数）
+    int32_t srcWidth;     // ソース幅（copyQuadDDA用、境界クランプ）
+    int32_t srcHeight;    // ソース高さ（copyQuadDDA用、境界クランプ）
     int_fixed srcX;       // ソース開始X座標（Q16.16固定小数点）
     int_fixed srcY;       // ソース開始Y座標（Q16.16固定小数点）
     int_fixed incrX;      // 1ピクセルあたりのX増分（Q16.16固定小数点）
     int_fixed incrY;      // 1ピクセルあたりのY増分（Q16.16固定小数点）
+    BilinearWeight* weights;  // 重み出力先（copyQuadDDA用）
 };
 
 // DDA行転写関数の型定義
@@ -37,12 +49,30 @@ using CopyRowDDA_Func = void(*)(
     const DDAParam* param
 );
 
+// DDA 4ピクセル抽出関数の型定義（バイリニア補間用）
+// dst: 出力先バッファ（[p00,p10,p01,p11] × count）
+// srcData: ソースデータ先頭
+// count: 抽出ピクセル数
+// param: DDAパラメータ（srcWidth/srcHeight/weightsを使用）
+using CopyQuadDDA_Func = void(*)(
+    uint8_t* dst,
+    const uint8_t* srcData,
+    int count,
+    const DDAParam* param
+);
+
 // BPP別 DDA転写関数（前方宣言）
 // 実装は FLEXIMG_IMPLEMENTATION 部で提供
 void copyRowDDA_1bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
 void copyRowDDA_2bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
 void copyRowDDA_3bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
 void copyRowDDA_4bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+
+// BPP別 DDA 4ピクセル抽出関数（前方宣言）
+void copyQuadDDA_1bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+void copyQuadDDA_2bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+void copyQuadDDA_3bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+void copyQuadDDA_4bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
 
 // 前方宣言
 struct PixelFormatDescriptor;
@@ -224,6 +254,7 @@ struct PixelFormatDescriptor {
 
     // DDA転写関数
     CopyRowDDA_Func copyRowDDA;                  // DDA方式の行転写（nullptrなら未対応）
+    CopyQuadDDA_Func copyQuadDDA;                // DDA方式の4ピクセル抽出（バイリニア用、nullptrなら未対応）
 
     // ========================================================================
     // チャンネルアクセスメソッド（Phase 2で追加）
@@ -593,6 +624,197 @@ inline void copyRowDDA_3bpp(uint8_t* dst, const uint8_t* srcData, int count, con
 }
 inline void copyRowDDA_4bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
     copyRowDDA_bpp<4>(dst, srcData, count, param);
+}
+
+// ============================================================================
+// DDA 4ピクセル抽出関数（バイリニア補間用）
+// ============================================================================
+//
+// バイリニア補間に必要な4ピクセル（2x2グリッド）を抽出する。
+// 出力形式: [p00,p10,p01,p11][p00,p10,p01,p11]... × count
+// 重み情報はparam->weightsに出力される。
+//
+// 最適化:
+// - 案1: CheckBoundaryテンプレートパラメータで境界チェック有無を制御
+// - 案2: コピー部分のみテンプレート化（copyQuadPixels）
+//
+
+// 4ピクセルのコピー（BPP依存部分のみ）
+template<size_t BPP>
+inline void copyQuadPixels(
+    uint8_t* __restrict__ dst,
+    const uint8_t* p00,
+    const uint8_t* p10,
+    const uint8_t* p01,
+    const uint8_t* p11
+) {
+    if constexpr (BPP == 1) {
+        dst[0] = p00[0]; dst[1] = p10[0]; dst[2] = p01[0]; dst[3] = p11[0];
+    } else if constexpr (BPP == 2) {
+        auto d = reinterpret_cast<uint16_t*>(dst);
+        d[0] = *reinterpret_cast<const uint16_t*>(p00);
+        d[1] = *reinterpret_cast<const uint16_t*>(p10);
+        d[2] = *reinterpret_cast<const uint16_t*>(p01);
+        d[3] = *reinterpret_cast<const uint16_t*>(p11);
+    } else if constexpr (BPP == 3) {
+        dst[0] = p00[0]; dst[1] = p00[1]; dst[2] = p00[2];
+        dst[3] = p10[0]; dst[4] = p10[1]; dst[5] = p10[2];
+        dst[6] = p01[0]; dst[7] = p01[1]; dst[8] = p01[2];
+        dst[9] = p11[0]; dst[10] = p11[1]; dst[11] = p11[2];
+    } else if constexpr (BPP == 4) {
+        auto d = reinterpret_cast<uint32_t*>(dst);
+        d[0] = *reinterpret_cast<const uint32_t*>(p00);
+        d[1] = *reinterpret_cast<const uint32_t*>(p10);
+        d[2] = *reinterpret_cast<const uint32_t*>(p01);
+        d[3] = *reinterpret_cast<const uint32_t*>(p11);
+    }
+}
+
+// 4ピクセル抽出ループ（境界チェック有無をテンプレートで制御）
+template<size_t BPP, bool CheckBoundary>
+void copyQuadDDA_loop(
+    uint8_t* __restrict__ dst,
+    const uint8_t* __restrict__ srcData,
+    int count,
+    int_fixed srcX,
+    int_fixed srcY,
+    const int_fixed incrX,
+    const int_fixed incrY,
+    const int32_t srcStride,
+    const int32_t srcLastX,
+    const int32_t srcLastY,
+    BilinearWeight* weights,
+    int weightOffset
+) {
+    constexpr size_t QUAD_SIZE = BPP * 4;
+
+    for (int i = 0; i < count; ++i) {
+        int32_t sx = srcX >> INT_FIXED_SHIFT;
+        int32_t sy = srcY >> INT_FIXED_SHIFT;
+
+        weights[weightOffset + i].fx = static_cast<uint8_t>(static_cast<uint32_t>(srcX) >> 8);
+        weights[weightOffset + i].fy = static_cast<uint8_t>(static_cast<uint32_t>(srcY) >> 8);
+
+        const uint8_t* p00 = srcData
+            + static_cast<size_t>(sy) * static_cast<size_t>(srcStride)
+            + static_cast<size_t>(sx) * BPP;
+
+        const uint8_t* p10;
+        const uint8_t* p01;
+        const uint8_t* p11;
+
+        if constexpr (CheckBoundary) {
+            p10 = (sx >= srcLastX) ? p00 : p00 + BPP;
+            p01 = (sy >= srcLastY) ? p00 : p00 + srcStride;
+            p11 = (sx >= srcLastX) ? p01 : p01 + BPP;
+        } else {
+            p10 = p00 + BPP;
+            p01 = p00 + srcStride;
+            p11 = p01 + BPP;
+        }
+
+        copyQuadPixels<BPP>(dst, p00, p10, p01, p11);
+
+        dst += QUAD_SIZE;
+        srcX += incrX;
+        srcY += incrY;
+    }
+}
+
+template<size_t BytesPerPixel>
+void copyQuadDDA_bpp(
+    uint8_t* __restrict__ dst,
+    const uint8_t* __restrict__ srcData,
+    int count,
+    const DDAParam* param
+) {
+    int_fixed srcX = param->srcX;
+    int_fixed srcY = param->srcY;
+    const int_fixed incrX = param->incrX;
+    const int_fixed incrY = param->incrY;
+    const int32_t srcStride = param->srcStride;
+    const int32_t srcLastX = param->srcWidth - 1;
+    const int32_t srcLastY = param->srcHeight - 1;
+    BilinearWeight* weights = param->weights;
+
+    constexpr size_t BPP = BytesPerPixel;
+    constexpr size_t QUAD_SIZE = BPP * 4;
+
+    // 境界に到達するまでの安全なピクセル数を計算
+    int safeEnd = count;
+
+    // X方向の安全範囲を計算
+    if (incrX > 0) {
+        int_fixed xLimit = (static_cast<int_fixed>(srcLastX) << INT_FIXED_SHIFT) - srcX;
+        if (xLimit > 0) {
+            int safeCountX = static_cast<int>(xLimit / incrX);
+            if (safeCountX < safeEnd) safeEnd = safeCountX;
+        } else {
+            safeEnd = 0;
+        }
+    }
+
+    // Y方向の安全範囲を計算
+    if (incrY > 0) {
+        int_fixed yLimit = (static_cast<int_fixed>(srcLastY) << INT_FIXED_SHIFT) - srcY;
+        if (yLimit > 0) {
+            int safeCountY = static_cast<int>(yLimit / incrY);
+            if (safeCountY < safeEnd) safeEnd = safeCountY;
+        } else {
+            safeEnd = 0;
+        }
+    }
+
+    // 開始位置が既に境界に近い場合
+    int32_t startSx = srcX >> INT_FIXED_SHIFT;
+    int32_t startSy = srcY >> INT_FIXED_SHIFT;
+    if (startSx >= srcLastX || startSy >= srcLastY) {
+        safeEnd = 0;
+    }
+
+    // 中央の安全な部分（境界チェックなし）
+    if (safeEnd > 0) {
+        copyQuadDDA_loop<BPP, false>(
+            dst, srcData, safeEnd,
+            srcX, srcY, incrX, incrY,
+            srcStride, srcLastX, srcLastY,
+            weights, 0
+        );
+        dst += static_cast<size_t>(safeEnd) * QUAD_SIZE;
+        srcX += incrX * safeEnd;
+        srcY += incrY * safeEnd;
+    }
+
+    // 末尾の境界チェック必要部分
+    int tailCount = count - safeEnd;
+    if (tailCount > 0) {
+        copyQuadDDA_loop<BPP, true>(
+            dst, srcData, tailCount,
+            srcX, srcY, incrX, incrY,
+            srcStride, srcLastX, srcLastY,
+            weights, safeEnd
+        );
+    }
+}
+
+// 明示的インスタンス化
+template void copyQuadDDA_bpp<1>(uint8_t*, const uint8_t*, int, const DDAParam*);
+template void copyQuadDDA_bpp<2>(uint8_t*, const uint8_t*, int, const DDAParam*);
+template void copyQuadDDA_bpp<3>(uint8_t*, const uint8_t*, int, const DDAParam*);
+template void copyQuadDDA_bpp<4>(uint8_t*, const uint8_t*, int, const DDAParam*);
+
+// BPP別の関数ポインタ取得用ラッパー（非テンプレート）
+inline void copyQuadDDA_1bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+    copyQuadDDA_bpp<1>(dst, srcData, count, param);
+}
+inline void copyQuadDDA_2bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+    copyQuadDDA_bpp<2>(dst, srcData, count, param);
+}
+inline void copyQuadDDA_3bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+    copyQuadDDA_bpp<3>(dst, srcData, count, param);
+}
+inline void copyQuadDDA_4bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+    copyQuadDDA_bpp<4>(dst, srcData, count, param);
 }
 
 } // namespace detail

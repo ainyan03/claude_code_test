@@ -154,7 +154,8 @@ const PixelFormatDescriptor Index8 = {
     nullptr,  // blendUnderStraight
     nullptr,  // siblingEndian
     nullptr,  // swapEndian
-    pixel_format::detail::copyRowDDA_1bpp  // copyRowDDA
+    pixel_format::detail::copyRowDDA_1bpp,  // copyRowDDA
+    nullptr  // copyQuadDDA（パレット展開が必要なため未対応、Nearestフォールバック）
 };
 
 } // namespace BuiltinFormats
