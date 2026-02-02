@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.63.10] - 2026-02-02
+
+### 性能改善
+
+- **ImageBufferSet::createBuffer()**: 直接バッファ作成メソッドを追加
+  - Entry内でImageBufferを直接構築し、std::moveのオーバーヘッドを削減
+  - acquire→構築→挿入を一括処理
+  - エントリ不足時は自動的にmergeAdjacentでフォールバック
+
+- **SourceNode::pullProcessWithAffine()**: createBuffer()を使用するよう変更
+  - 従来: ImageBuffer作成→makeEmptyResponse→addBuffer（複数回std::move）
+  - 改善: makeEmptyResponse→createBuffer（直接構築、std::move不要）
+
+---
+
 ## [2.63.9] - 2026-02-02
 
 ### リファクタリング

@@ -447,12 +447,26 @@ RenderResponse& SourceNode::pullProcessWithAffine(const RenderRequest& request) 
         return makeEmptyResponse(request.origin);
     }
 
-    // 有効範囲のみのバッファを作成
+    // originを有効範囲に合わせて調整
+    // dxStart分だけ右にオフセット（バッファ左端のワールド座標）
+    Point adjustedOrigin = {
+        request.origin.x + to_fixed(dxStart),
+        request.origin.y
+    };
+
+    // 空のResponseを取得し、bufferSetに直接バッファを作成（ムーブなし）
     int validWidth = dxEnd - dxStart + 1;
-    ImageBuffer output(validWidth, 1, source_.formatID, InitPolicy::Uninitialized, allocator());
+    RenderResponse& resp = makeEmptyResponse(adjustedOrigin);
+    ImageBuffer* output = resp.bufferSet.createBuffer(
+        validWidth, 1, source_.formatID, InitPolicy::Uninitialized, 0);
+
+    if (!output) {
+        return resp;  // バッファ作成失敗時は空のResponseを返す
+    }
+
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
     PerfMetrics::instance().nodes[NodeType::Source].recordAlloc(
-        output.totalBytes(), output.width(), output.height());
+        output->totalBytes(), output->width(), output->height());
 #endif
 
     // DDA転写（1行のみ）
@@ -461,7 +475,7 @@ RenderResponse& SourceNode::pullProcessWithAffine(const RenderRequest& request) 
     int32_t srcX_fixed = invA * dxStart + baseX;
     int32_t srcY_fixed = invC * dxStart + baseY;
 
-    void* dstRow = output.data();
+    void* dstRow = output->data();
 
     if (useBilinear_) {
         // バイリニア補間（RGBA8888専用、他フォーマットは最近傍フォールバック）
@@ -475,17 +489,10 @@ RenderResponse& SourceNode::pullProcessWithAffine(const RenderRequest& request) 
 
     // パレット情報を出力ImageBufferに設定
     if (palette_) {
-        output.setPalette(palette_);
+        output->setPalette(palette_);
     }
 
-    // originを有効範囲に合わせて調整
-    // dxStart分だけ右にオフセット（バッファ左端のワールド座標）
-    Point adjustedOrigin = {
-        request.origin.x + to_fixed(dxStart),
-        request.origin.y
-    };
-
-    return makeResponse(std::move(output), adjustedOrigin);
+    return resp;
 }
 
 } // namespace FLEXIMG_NAMESPACE
