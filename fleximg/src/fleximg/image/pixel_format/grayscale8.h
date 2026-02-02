@@ -86,7 +86,8 @@ const PixelFormatDescriptor Grayscale8 = {
     nullptr,  // expandIndex
     nullptr,  // blendUnderStraight
     nullptr,  // siblingEndian
-    nullptr   // swapEndian
+    nullptr,  // swapEndian
+    pixel_format::detail::copyRowDDA_1bpp  // copyRowDDA
 };
 
 } // namespace BuiltinFormats

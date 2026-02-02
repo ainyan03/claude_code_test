@@ -198,198 +198,9 @@ void clear(ViewPort& dst, int x, int y, int width, int height) {
 // DDA転写関数 - 実装
 // ============================================================================
 
-namespace detail {
+} // namespace view_ops
 
-// BPP → ネイティブ型マッピング（ロード・ストア分離用）
-// BPP 1, 2, 4 はネイティブ型で直接ロード・ストア可能
-// BPP 3 はネイティブ型が存在しないため byte 単位で処理
-template<size_t BPP> struct PixelType {};
-template<> struct PixelType<1> { using type = uint8_t; };
-template<> struct PixelType<2> { using type = uint16_t; };
-template<> struct PixelType<4> { using type = uint32_t; };
-
-// DDA行転写: Y座標一定パス（ソース行が同一の場合）
-// srcRowBase = srcData + sy * srcStride（呼び出し前に計算済み）
-// 4ピクセル単位展開でループオーバーヘッドを削減
-template<size_t BytesPerPixel>
-void copyRowDDA_ConstY(
-    uint8_t* __restrict__ dstRow,
-    const uint8_t* __restrict__ srcRowBase,
-    int count,
-    int_fixed srcX,
-    int_fixed incrX
-) {
-    // 端数を先に処理し、4ピクセルループを最後に連続実行する
-
-    if constexpr (BytesPerPixel == 3) {
-        if (count & 1) {
-            // BPP==3: byte単位でロード・ストア分離（3bytes × 4pixels）
-            size_t s0 = static_cast<size_t>(srcX >> INT_FIXED_SHIFT) * 3;
-            uint8_t p00 = srcRowBase[s0], p01 = srcRowBase[s0+1], p02 = srcRowBase[s0+2];
-            srcX += incrX;
-            dstRow[0]  = p00; dstRow[1]  = p01; dstRow[2]  = p02;
-            dstRow += BytesPerPixel;
-        }
-        count >>= 1;
-        while (count--) {
-            // BPP==3: byte単位でロード・ストア分離（3bytes × 4pixels）
-            size_t s0 = static_cast<size_t>(srcX >> INT_FIXED_SHIFT) * 3;
-            uint8_t p00 = srcRowBase[s0], p01 = srcRowBase[s0+1], p02 = srcRowBase[s0+2];
-            srcX += incrX;
-            dstRow[0]  = p00; dstRow[1]  = p01; dstRow[2]  = p02;
-
-            size_t s1 = static_cast<size_t>(srcX >> INT_FIXED_SHIFT) * 3;
-            uint8_t p10 = srcRowBase[s1], p11 = srcRowBase[s1+1], p12 = srcRowBase[s1+2];
-            srcX += incrX;
-            dstRow[3]  = p10; dstRow[4]  = p11; dstRow[5]  = p12;
-
-            dstRow += BytesPerPixel * 2;
-        }
-    } else {
-        using T = typename PixelType<BytesPerPixel>::type;
-        auto src = reinterpret_cast<const T*>(srcRowBase);
-        auto dst = reinterpret_cast<T*>(dstRow);
-        int remainder = count & 3;
-        for (int i = 0; i < remainder; i++) {
-            // BPP 1, 2, 4: ネイティブ型でロード・ストア分離
-            auto p0 = src[srcX >> INT_FIXED_SHIFT]; srcX += incrX;
-            dst[0] = p0;
-            dst += 1;
-        }
-        int count4 = count >> 2;
-        for (int i = 0; i < count4; i++) {
-            // BPP 1, 2, 4: ネイティブ型でロード・ストア分離
-            auto p0 = src[srcX >> INT_FIXED_SHIFT]; srcX += incrX;
-            auto p1 = src[srcX >> INT_FIXED_SHIFT]; srcX += incrX;
-            auto p2 = src[srcX >> INT_FIXED_SHIFT]; srcX += incrX;
-            auto p3 = src[srcX >> INT_FIXED_SHIFT]; srcX += incrX;
-            dst[0] = p0;
-            dst[1] = p1;
-            dst[2] = p2;
-            dst[3] = p3;
-            dst += 4;
-        }
-    }
-}
-
-// DDA行転写: X座標一定パス（ソース列が同一の場合）
-// srcColBase = srcData + sx * BPP（呼び出し前に加算済み）
-// 4ピクセル単位展開でループオーバーヘッドを削減
-template<size_t BytesPerPixel>
-void copyRowDDA_ConstX(
-    uint8_t* __restrict__ dstRow,
-    const uint8_t* __restrict__ srcColBase,
-    int count,
-    int32_t srcStride,
-    int_fixed srcY,
-    int_fixed incrY
-) {
-    int32_t sy;
-    // 端数を先に処理し、4ピクセルループを最後に連続実行する
-    if constexpr (BytesPerPixel == 3) {
-        while (count--) {
-            // BPP==3: byte単位でピクセルごとにロード・ストア
-            sy = srcY >> INT_FIXED_SHIFT;
-            const uint8_t* r = srcColBase + static_cast<size_t>(sy * srcStride);
-            auto p0 = r[0], p1 = r[1], p2 = r[2];
-            srcY += incrY;
-            dstRow[0] = p0; dstRow[1] = p1; dstRow[2] = p2;
-            dstRow += BytesPerPixel;
-        }
-    } else {
-        using T = typename PixelType<BytesPerPixel>::type;
-        auto dst = reinterpret_cast<T*>(dstRow);
-        int remain = count & 3;
-        while (remain--) {
-            sy = srcY >> INT_FIXED_SHIFT;
-            auto p = *reinterpret_cast<const T*>(srcColBase + static_cast<size_t>(sy * srcStride));
-            srcY += incrY;
-            dst[0] = p;
-            dst += 1;
-        }
-
-        count >>= 2;
-        while (count--) {
-            // BPP 1, 2, 4: ネイティブ型でロード・ストア分離
-            sy = srcY >> INT_FIXED_SHIFT;
-            auto p0 = *reinterpret_cast<const T*>(srcColBase + static_cast<size_t>(sy * srcStride));
-            srcY += incrY;
-            sy = srcY >> INT_FIXED_SHIFT;
-            auto p1 = *reinterpret_cast<const T*>(srcColBase + static_cast<size_t>(sy * srcStride));
-            srcY += incrY;
-            dst[0] = p0;
-            dst[1] = p1;
-            sy = srcY >> INT_FIXED_SHIFT;
-            auto p2 = *reinterpret_cast<const T*>(srcColBase + static_cast<size_t>(sy * srcStride));
-            srcY += incrY;
-            sy = srcY >> INT_FIXED_SHIFT;
-            auto p3 = *reinterpret_cast<const T*>(srcColBase + static_cast<size_t>(sy * srcStride));
-            srcY += incrY;
-            dst[2] = p2;
-            dst[3] = p3;
-            dst += 4;
-        }
-    }
-
-}
-
-// DDA行転写の汎用実装（両方非ゼロ、回転を含む変換）
-// 4ピクセル単位展開でループオーバーヘッドを削減
-template<size_t BytesPerPixel>
-void copyRowDDA_Impl(
-    uint8_t* __restrict__ dstRow,
-    const uint8_t* __restrict__ srcData,
-    int count,
-    int32_t srcStride,
-    int_fixed srcX,
-    int_fixed srcY,
-    int_fixed incrX,
-    int_fixed incrY
-) {
-    int32_t sx, sy;
-    // 端数を先に処理し、4ピクセルループを最後に連続実行する
-    if constexpr (BytesPerPixel == 3) {
-        while (count--) {
-            // BPP==3: byte単位でピクセルごとにロード・ストア
-            sx = srcX >> INT_FIXED_SHIFT;
-            sy = srcY >> INT_FIXED_SHIFT;
-            const uint8_t* r0 = srcData + static_cast<size_t>(sy * srcStride + sx * 3);
-            uint8_t p00 = r0[0], p01 = r0[1], p02 = r0[2];
-            srcX += incrX; srcY += incrY;
-            dstRow[0] = p00; dstRow[1] = p01; dstRow[2] = p02;
-            dstRow += BytesPerPixel;
-        }
-    } else {
-        using T = typename PixelType<BytesPerPixel>::type;
-        auto d = reinterpret_cast<T*>(dstRow);
-        if (count & 1) {
-            sx = srcX >> INT_FIXED_SHIFT;
-            sy = srcY >> INT_FIXED_SHIFT;
-            auto p = reinterpret_cast<const T*>(srcData + static_cast<size_t>(sy * srcStride))[sx];
-            srcX += incrX; srcY += incrY;
-            d[0] = p;
-            d++;
-        }
-    
-        count >>= 1;
-        while (count--) {
-            sx = srcX >> INT_FIXED_SHIFT;
-            sy = srcY >> INT_FIXED_SHIFT;
-            auto p0 = reinterpret_cast<const T*>(srcData + static_cast<size_t>(sy * srcStride))[sx];
-            srcX += incrX; srcY += incrY;
-            sx = srcX >> INT_FIXED_SHIFT;
-            sy = srcY >> INT_FIXED_SHIFT;
-            auto p1 = reinterpret_cast<const T*>(srcData + static_cast<size_t>(sy * srcStride))[sx];
-            srcX += incrX; srcY += incrY;
-            // BPP 1, 2, 4: ネイティブ型でロード・ストア分離
-            d[0] = p0;
-            d[1] = p1;
-            d += 2;
-        }
-    }
-}
-
-} // namespace detail
+namespace view_ops {
 
 void copyRowDDA(
     void* dst,
@@ -402,52 +213,17 @@ void copyRowDDA(
 ) {
     if (!src.isValid() || count <= 0) return;
 
-    uint8_t* dstRow = static_cast<uint8_t*>(dst);
-    const uint8_t* srcData = static_cast<const uint8_t*>(src.data);
-    int32_t srcStride = src.stride;
-    auto bpp = getBytesPerPixel(src.formatID);
+    // DDAParam を構築
+    DDAParam param = { src.stride, srcX, srcY, incrX, incrY };
 
-    // ソース座標の整数部が全ピクセルで同一か判定（座標は呼び出し側で非負が保証済み）
-    int32_t syFirst = srcY >> INT_FIXED_SHIFT;
-    int32_t syLast  = (srcY + incrY * count) >> INT_FIXED_SHIFT;
-
-    if (syFirst == syLast) {
-        // Y座標一定パス（高頻度: 回転なし拡大縮小・平行移動、微小Y変動も含む）
-        const uint8_t* srcRowBase = srcData
-            + static_cast<size_t>(syFirst * srcStride);
-        switch (bpp) {
-            case 4: detail::copyRowDDA_ConstY<4>(dstRow, srcRowBase, count, srcX, incrX); break;
-            case 3: detail::copyRowDDA_ConstY<3>(dstRow, srcRowBase, count, srcX, incrX); break;
-            case 2: detail::copyRowDDA_ConstY<2>(dstRow, srcRowBase, count, srcX, incrX); break;
-            case 1: detail::copyRowDDA_ConstY<1>(dstRow, srcRowBase, count, srcX, incrX); break;
-            default: break;
-        }
-        return;
-    }
-
-    int32_t sxFirst = srcX >> INT_FIXED_SHIFT;
-    int32_t sxLast  = (srcX + incrX * count) >> INT_FIXED_SHIFT;
-    if (sxFirst == sxLast) {
-        // X座標一定パス（微小X変動も含む）
-        const uint8_t* srcColBase = srcData
-            + static_cast<size_t>(sxFirst * bpp);
-        switch (bpp) {
-            case 4: detail::copyRowDDA_ConstX<4>(dstRow, srcColBase, count, srcStride, srcY, incrY); break;
-            case 3: detail::copyRowDDA_ConstX<3>(dstRow, srcColBase, count, srcStride, srcY, incrY); break;
-            case 2: detail::copyRowDDA_ConstX<2>(dstRow, srcColBase, count, srcStride, srcY, incrY); break;
-            case 1: detail::copyRowDDA_ConstX<1>(dstRow, srcColBase, count, srcStride, srcY, incrY); break;
-            default: break;
-        }
-        return;
-    }
-
-    // 汎用パス（回転を含む変換）
-    switch (bpp) {
-        case 4: detail::copyRowDDA_Impl<4>(dstRow, srcData, count, srcStride, srcX, srcY, incrX, incrY); break;
-        case 3: detail::copyRowDDA_Impl<3>(dstRow, srcData, count, srcStride, srcX, srcY, incrX, incrY); break;
-        case 2: detail::copyRowDDA_Impl<2>(dstRow, srcData, count, srcStride, srcX, srcY, incrX, incrY); break;
-        case 1: detail::copyRowDDA_Impl<1>(dstRow, srcData, count, srcStride, srcX, srcY, incrX, incrY); break;
-        default: break;
+    // フォーマットの関数ポインタを呼び出し
+    if (src.formatID && src.formatID->copyRowDDA) {
+        src.formatID->copyRowDDA(
+            static_cast<uint8_t*>(dst),
+            static_cast<const uint8_t*>(src.data),
+            count,
+            &param
+        );
     }
 }
 

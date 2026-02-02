@@ -153,7 +153,8 @@ const PixelFormatDescriptor Index8 = {
     index8_expandIndex,  // expandIndex
     nullptr,  // blendUnderStraight
     nullptr,  // siblingEndian
-    nullptr   // swapEndian
+    nullptr,  // swapEndian
+    pixel_format::detail::copyRowDDA_1bpp  // copyRowDDA
 };
 
 } // namespace BuiltinFormats

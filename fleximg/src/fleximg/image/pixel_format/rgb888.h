@@ -194,7 +194,8 @@ const PixelFormatDescriptor RGB888 = {
     nullptr,  // expandIndex
     nullptr,  // blendUnderStraight
     &BGR888,  // siblingEndian
-    swap24    // swapEndian
+    swap24,   // swapEndian
+    pixel_format::detail::copyRowDDA_3bpp  // copyRowDDA
 };
 
 const PixelFormatDescriptor BGR888 = {
@@ -217,7 +218,8 @@ const PixelFormatDescriptor BGR888 = {
     nullptr,  // expandIndex
     nullptr,  // blendUnderStraight
     &RGB888,  // siblingEndian
-    swap24    // swapEndian
+    swap24,   // swapEndian
+    pixel_format::detail::copyRowDDA_3bpp  // copyRowDDA
 };
 
 } // namespace BuiltinFormats

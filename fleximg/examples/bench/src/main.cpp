@@ -63,6 +63,32 @@
 using namespace fleximg;
 
 // =============================================================================
+// DDA Helper
+// =============================================================================
+
+// ViewPort から直接 copyRowDDA を呼び出すヘルパー
+static void benchCopyRowDDA(
+    void* dst,
+    const ViewPort& src,
+    int count,
+    int_fixed srcX,
+    int_fixed srcY,
+    int_fixed incrX,
+    int_fixed incrY
+) {
+    if (!src.isValid() || count <= 0) return;
+    DDAParam param = { src.stride, srcX, srcY, incrX, incrY };
+    if (src.formatID && src.formatID->copyRowDDA) {
+        src.formatID->copyRowDDA(
+            static_cast<uint8_t*>(dst),
+            static_cast<const uint8_t*>(src.data),
+            count,
+            &param
+        );
+    }
+}
+
+// =============================================================================
 // Platform Abstraction
 // =============================================================================
 
@@ -948,7 +974,7 @@ static double runDDATest(const ViewPort& srcVP, int bpp, int testIdx) {
             }
             // Diagonal: always start from (0, 0)
 
-            view_ops::copyRowDDA(dst, srcVP, count, srcX, srcY,
+            benchCopyRowDDA(dst, srcVP, count, srcX, srcY,
                                  test.incrX, test.incrY);
         }
     });

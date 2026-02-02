@@ -483,8 +483,21 @@ RenderResponse& SourceNode::pullProcessWithAffine(const RenderRequest& request) 
             srcX_fixed, srcY_fixed, invA, invC);
     } else {
         // 最近傍補間（BPP分岐は関数内部で実施）
-        view_ops::copyRowDDA(dstRow, source_, validWidth,
-            srcX_fixed, srcY_fixed, invA, invC);
+        // view_ops::copyRowDDA(dstRow, source_, validWidth,
+        //     srcX_fixed, srcY_fixed, invA, invC);
+
+        // DDAParam を構築
+        DDAParam param = { source_.stride, srcX_fixed, srcY_fixed, invA, invC };
+
+        // フォーマットの関数ポインタを呼び出し
+       if (source_.formatID && source_.formatID->copyRowDDA) {
+            source_.formatID->copyRowDDA(
+                static_cast<uint8_t*>(dstRow),
+                static_cast<const uint8_t*>(source_.data),
+                validWidth,
+                &param
+            );
+       }
     }
 
     // パレット情報を出力ImageBufferに設定
