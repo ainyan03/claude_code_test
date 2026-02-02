@@ -54,7 +54,7 @@ namespace FLEXIMG_NAMESPACE {
 class ImageBufferSet {
 public:
     /// @brief 最大エントリ数（ImageBufferSet内の上限）
-    static constexpr int MAX_ENTRIES = 8;
+    static constexpr int MAX_ENTRIES = 32;
 
     /// @brief エントリ型（プールから取得）
     using Entry = ImageBufferEntryPool::Entry;
@@ -346,6 +346,40 @@ void ImageBufferSet::applyOffset(int16_t offsetX) {
 }
 
 bool ImageBufferSet::transferFrom(ImageBufferSet& source, int16_t offsetX) {
+#ifdef FLEXIMG_DEBUG
+    // デバッグ: thisとsourceの整合性チェック
+    if (entryCount_ < 0 || entryCount_ > MAX_ENTRIES) {
+        printf("ERROR: transferFrom this=%p entryCount_=%d (MAX=%d)\n",
+               static_cast<void*>(this), entryCount_, MAX_ENTRIES);
+        fflush(stdout);
+#ifdef ARDUINO
+        vTaskDelay(1);
+#endif
+    }
+    FLEXIMG_ASSERT(entryCount_ >= 0 && entryCount_ <= MAX_ENTRIES, "transferFrom: invalid entryCount_");
+    FLEXIMG_ASSERT(source.entryCount_ >= 0 && source.entryCount_ <= MAX_ENTRIES, "transferFrom: invalid source.entryCount_");
+    for (int i = 0; i < entryCount_; ++i) {
+        if (!entryPtrs_[i] || !entryPtrs_[i]->inUse || !entryPtrs_[i]->buffer.isValid()) {
+            printf("ERROR: this[%d]=%p inUse=%d valid=%d\n", i,
+                   static_cast<void*>(entryPtrs_[i]),
+                   entryPtrs_[i] ? entryPtrs_[i]->inUse : -1,
+                   entryPtrs_[i] ? entryPtrs_[i]->buffer.isValid() : -1);
+            fflush(stdout);
+#ifdef ARDUINO
+            vTaskDelay(1);
+#endif
+        }
+        FLEXIMG_ASSERT(entryPtrs_[i] != nullptr, "transferFrom: NULL entry in this");
+        FLEXIMG_ASSERT(entryPtrs_[i]->inUse, "transferFrom: entry not in use (this)");
+        FLEXIMG_ASSERT(entryPtrs_[i]->buffer.isValid(), "transferFrom: invalid buffer (this)");
+    }
+    for (int i = 0; i < source.entryCount_; ++i) {
+        FLEXIMG_ASSERT(source.entryPtrs_[i] != nullptr, "transferFrom: NULL entry in source");
+        FLEXIMG_ASSERT(source.entryPtrs_[i]->inUse, "transferFrom: entry not in use (source)");
+        FLEXIMG_ASSERT(source.entryPtrs_[i]->buffer.isValid(), "transferFrom: invalid buffer (source)");
+    }
+#endif
+
     if (source.entryCount_ == 0) {
         return true;  // 空なら何もしない
     }
@@ -436,6 +470,13 @@ bool ImageBufferSet::addBuffer(ImageBuffer&& buffer, const DataRange& range) {
 // ----------------------------------------------------------------------------
 
 bool ImageBufferSet::insertSorted(Entry* entry) {
+#ifdef FLEXIMG_DEBUG
+    FLEXIMG_ASSERT(entry != nullptr, "insertSorted: entry is null");
+    FLEXIMG_ASSERT(entryCount_ >= 0 && entryCount_ <= MAX_ENTRIES, "insertSorted: invalid entryCount_");
+    for (int i = 0; i < entryCount_; ++i) {
+        FLEXIMG_ASSERT(entryPtrs_[i] != nullptr, "insertSorted: NULL entry in entryPtrs_");
+    }
+#endif
     if (entryCount_ >= MAX_ENTRIES) {
         // 上限超過 → 隣接統合を試みる
         mergeAdjacent(0);  // 隣接を強制統合
@@ -471,6 +512,9 @@ bool ImageBufferSet::insertSorted(Entry* entry) {
 
 bool ImageBufferSet::findOverlapping(const DataRange& range,
                                      int& outOverlapStart, int& outOverlapEnd) const {
+#ifdef FLEXIMG_DEBUG
+    FLEXIMG_ASSERT(entryCount_ >= 0 && entryCount_ <= MAX_ENTRIES, "findOverlapping: invalid entryCount_");
+#endif
     outOverlapStart = -1;
     outOverlapEnd = -1;
 
@@ -514,6 +558,21 @@ bool ImageBufferSet::findOverlapping(const DataRange& range,
 
 bool ImageBufferSet::mergeOverlapping(Entry* newEntry,
                                       int overlapStart, int overlapEnd) {
+#ifdef FLEXIMG_DEBUG
+    // デバッグ: 引数と内部状態の検証
+    FLEXIMG_ASSERT(newEntry != nullptr, "mergeOverlapping: newEntry is null");
+    FLEXIMG_ASSERT(newEntry->inUse, "mergeOverlapping: newEntry not in use");
+    FLEXIMG_ASSERT(newEntry->buffer.isValid(), "mergeOverlapping: newEntry buffer invalid");
+    FLEXIMG_ASSERT(overlapStart >= 0, "mergeOverlapping: overlapStart < 0");
+    FLEXIMG_ASSERT(overlapEnd <= entryCount_, "mergeOverlapping: overlapEnd > entryCount_");
+    FLEXIMG_ASSERT(overlapStart < overlapEnd, "mergeOverlapping: empty overlap range");
+    for (int i = 0; i < entryCount_; ++i) {
+        FLEXIMG_ASSERT(entryPtrs_[i] != nullptr, "mergeOverlapping: NULL entry in entryPtrs_");
+        FLEXIMG_ASSERT(entryPtrs_[i]->inUse, "mergeOverlapping: entry not in use");
+        FLEXIMG_ASSERT(entryPtrs_[i]->buffer.isValid(), "mergeOverlapping: buffer invalid");
+    }
+#endif
+
     if (!allocator_) {
         // アロケータがない場合は暫定的に追加
         return insertSorted(newEntry);
@@ -586,11 +645,14 @@ bool ImageBufferSet::mergeOverlapping(Entry* newEntry,
     };
 
     // 最初の既存より左
+    FLEXIMG_ASSERT(entryPtrs_[overlapStart], "NULL entry at overlapStart");
     int16_t firstExStart = entryPtrs_[overlapStart]->range.startX;
     copyNewRegion(newRange.startX, std::min(newRange.endX, firstExStart));
 
     // 既存間のギャップ
     for (int i = overlapStart; i < overlapEnd - 1; ++i) {
+        FLEXIMG_ASSERT(entryPtrs_[i], "NULL entry in gap loop");
+        FLEXIMG_ASSERT(entryPtrs_[i + 1], "NULL entry+1 in gap loop");
         int16_t gapStart = entryPtrs_[i]->range.endX;
         int16_t gapEnd = entryPtrs_[i + 1]->range.startX;
         if (gapStart < gapEnd) {
@@ -601,11 +663,13 @@ bool ImageBufferSet::mergeOverlapping(Entry* newEntry,
     }
 
     // 最後の既存より右
+    FLEXIMG_ASSERT(entryPtrs_[overlapEnd - 1], "NULL entry at overlapEnd-1");
     int16_t lastExEnd = entryPtrs_[overlapEnd - 1]->range.endX;
     copyNewRegion(std::max(newRange.startX, lastExEnd), newRange.endX);
 
     // --- 3. 重複部分のみblendUnder ---
     for (int i = overlapStart; i < overlapEnd; ++i) {
+        FLEXIMG_ASSERT(entryPtrs_[i], "NULL entry in blendUnder loop");
         Entry* existing = entryPtrs_[i];
         int16_t exStart = existing->range.startX;
         int16_t exEnd = existing->range.endX;

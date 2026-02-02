@@ -103,6 +103,17 @@ public:
     /// @note バッファも解放（再取得時のムーブ代入での二重解放を防止）
     void release(Entry* entry) {
         if (entry && entry >= entries_ && entry < entries_ + POOL_SIZE) {
+#ifdef FLEXIMG_DEBUG
+            if (!entry->inUse) {
+                printf("DOUBLE RELEASE: entry=%p idx=%d\n",
+                       static_cast<void*>(entry),
+                       static_cast<int>(entry - entries_));
+                fflush(stdout);
+#ifdef ARDUINO
+                vTaskDelay(1);
+#endif
+            }
+#endif
             entry->buffer.reset();  // バッファ解放（重要: 再取得前にクリア）
             entry->inUse = false;
         }
