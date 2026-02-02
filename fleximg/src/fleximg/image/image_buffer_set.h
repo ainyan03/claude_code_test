@@ -475,6 +475,7 @@ bool ImageBufferSet::findOverlapping(const DataRange& range,
     outOverlapEnd = -1;
 
     for (int i = 0; i < entryCount_; ++i) {
+        FLEXIMG_ASSERT(entryPtrs_[i], "NULL entry pointer in findOverlapping");
         const DataRange& existing = entryPtrs_[i]->range;
 
         // 重複判定: !(range.endX <= existing.startX || range.startX >= existing.endX)
@@ -545,6 +546,7 @@ bool ImageBufferSet::mergeOverlapping(Entry* newEntry,
 
     // --- 1. 全既存エントリをmergedBufに直接コピー/変換 ---
     for (int i = overlapStart; i < overlapEnd; ++i) {
+        FLEXIMG_ASSERT(entryPtrs_[i], "NULL entry pointer in mergeOverlapping");
         Entry* existing = entryPtrs_[i];
         int16_t exStart = existing->range.startX;
         int16_t exEnd = existing->range.endX;
@@ -664,6 +666,10 @@ bool ImageBufferSet::mergeOverlapping(Entry* newEntry,
             entryPtrs_[i] = entryPtrs_[i + removeCount];
         }
         entryCount_ -= removeCount;
+        // 末尾のポインタをNULLクリア（再利用時の安全性確保）
+        for (int i = entryCount_; i < entryCount_ + removeCount; ++i) {
+            entryPtrs_[i] = nullptr;
+        }
     }
 
     // 結果を最初のエントリに格納

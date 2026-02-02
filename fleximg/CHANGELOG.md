@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.63.5] - 2026-02-02
+
+### バグ修正
+
+- **ImageBufferSet::mergeOverlapping()**: 配列圧縮後の末尾NULLクリアを追加
+  - 複数エントリ統合時に配列を詰める処理で、末尾の未使用ポインタをNULLクリア
+  - 再利用時のstale pointer参照によるクラッシュを防止
+  - デバッグビルド時のNULLアサートチェックを追加（findOverlapping, mergeOverlapping）
+
+---
+
 ## [2.63.4] - 2026-02-02
 
 ### 性能改善
