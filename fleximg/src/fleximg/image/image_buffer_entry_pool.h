@@ -7,7 +7,6 @@
 #define FLEXIMG_IMAGE_BUFFER_ENTRY_POOL_H
 
 #include "image_buffer.h"
-#include "data_range.h"
 #include "../core/common.h"
 
 namespace FLEXIMG_NAMESPACE {
@@ -25,8 +24,8 @@ namespace FLEXIMG_NAMESPACE {
 // - フレーム終了時にreleaseAll()で一括解放
 //
 // メモリ構成:
-// - Entry構造体: ImageBuffer(64バイト) + DataRange(4バイト) + bool(1バイト) ≈ 70バイト
-// - 32エントリ × 70バイト ≈ 2.2KB
+// - Entry構造体: ImageBuffer(約66バイト) + bool(1バイト) ≈ 68バイト
+// - 32エントリ × 68バイト ≈ 2.2KB
 //
 // 使用例:
 //   ImageBufferEntryPool pool;
@@ -46,9 +45,9 @@ public:
     static constexpr int POOL_SIZE = 1 << POOL_SIZE_BITS;
 
     /// @brief エントリ構造体
+    /// @note 座標情報はImageBuffer.startX()で管理
     struct Entry {
-        ImageBuffer buffer;   ///< バッファ本体
-        DataRange range;      ///< 範囲（startX, endX）
+        ImageBuffer buffer;   ///< バッファ本体（startX内包）
         bool inUse = false;   ///< 使用中フラグ
     };
 

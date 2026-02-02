@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.63.11] - 2026-02-02
+
+### リファクタリング
+
+- **ImageBuffer**: X座標オフセット（startX）をクラス内部に移動
+  - `startX()`, `endX()`, `setStartX()`, `addOffset()`アクセサを追加
+  - ムーブ/コピー/リセット時に座標情報も適切に処理
+
+- **ImageBufferEntryPool::Entry**: `range`メンバを削除
+  - 座標情報はImageBuffer.startX()で管理
+  - Entry構造体を簡素化（約4バイト削減）
+
+- **ImageBufferSet**: Entry.range参照をbuffer.startX()/endX()に置換
+  - applyOffset(): バッファのaddOffset()を直接呼び出し
+  - range()/totalRange(): buffer座標から計算
+  - 統合・マージ処理: 同様にbuffer座標を使用
+  - データと座標の不整合リスクを排除
+
+---
+
 ## [2.63.10] - 2026-02-02
 
 ### 性能改善
