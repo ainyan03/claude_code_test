@@ -1823,6 +1823,17 @@ void setup() {
     benchPrintln("fleximg Unified Benchmark");
     benchPrintf("Free heap: %d bytes\n", ESP.getFreeHeap());
 
+    // sizeof情報を表示
+    benchPrintln("\n=== sizeof info ===");
+    benchPrintf("ImageBuffer:         %u bytes\n", sizeof(ImageBuffer));
+    benchPrintf("  ViewPort:          %u bytes\n", sizeof(ViewPort));
+    benchPrintf("  PixelAuxInfo:      %u bytes\n", sizeof(PixelAuxInfo));
+    benchPrintf("  IAllocator*:       %u bytes\n", sizeof(core::memory::IAllocator*));
+    benchPrintf("ImageBufferSet:      %u bytes\n", sizeof(ImageBufferSet));
+    benchPrintf("Entry:               %u bytes\n", sizeof(ImageBufferEntryPool::Entry));
+    benchPrintf("ImageBufferEntryPool:%u bytes\n", sizeof(ImageBufferEntryPool));
+    benchPrintln();
+
     if (!allocateBuffers()) {
         M5.Display.println("Alloc failed!");
         return;
@@ -1869,6 +1880,17 @@ void loop() {
 
 int main(int argc, char* argv[]) {
     benchPrintln("fleximg Unified Benchmark (Native)");
+    benchPrintln();
+
+    // sizeof情報を表示
+    benchPrintln("=== sizeof info ===");
+    benchPrintf("ImageBuffer:         %zu bytes\n", sizeof(ImageBuffer));
+    benchPrintf("  ViewPort:          %zu bytes\n", sizeof(ViewPort));
+    benchPrintf("  PixelAuxInfo:      %zu bytes\n", sizeof(PixelAuxInfo));
+    benchPrintf("  IAllocator*:       %zu bytes\n", sizeof(core::memory::IAllocator*));
+    benchPrintf("ImageBufferSet:      %zu bytes\n", sizeof(ImageBufferSet));
+    benchPrintf("Entry:               %zu bytes\n", sizeof(ImageBufferEntryPool::Entry));
+    benchPrintf("ImageBufferEntryPool:%zu bytes\n", sizeof(ImageBufferEntryPool));
     benchPrintln();
 
     if (!allocateBuffers()) {

@@ -60,7 +60,7 @@ public:
     ImageBuffer()
         : view_(), capacity_(0),
           allocator_(&core::memory::DefaultAllocator::instance()),
-          initPolicy_(DefaultInitPolicy) {}
+          auxInfo_(), startX_(0), initPolicy_(DefaultInitPolicy) {}
 
     // サイズ指定コンストラクタ
     // alloc = nullptr の場合、DefaultAllocator を使用
@@ -70,7 +70,7 @@ public:
         : view_(nullptr, fmt, 0, static_cast<int16_t>(w), static_cast<int16_t>(h))
         , capacity_(0)
         , allocator_(alloc ? alloc : &core::memory::DefaultAllocator::instance())
-        , initPolicy_(init) {
+        , auxInfo_(), startX_(0), initPolicy_(init) {
         allocate();
     }
 
@@ -80,7 +80,7 @@ public:
         : view_(view)
         , capacity_(0)
         , allocator_(nullptr)  // nullなのでデストラクタで解放しない
-        , initPolicy_(InitPolicy::Zero)
+        , auxInfo_(), startX_(0), initPolicy_(InitPolicy::Zero)
     {}
 
     // デストラクタ
@@ -99,9 +99,9 @@ public:
                 other.view_.width, other.view_.height)
         , capacity_(0)
         , allocator_(other.allocator_ ? other.allocator_ : &core::memory::DefaultAllocator::instance())
-        , initPolicy_(InitPolicy::Uninitialized)
         , auxInfo_(other.auxInfo_)
-        , startX_(other.startX_) {
+        , startX_(other.startX_)
+        , initPolicy_(InitPolicy::Uninitialized) {
         if (other.isValid()) {
             allocate();
             copyFrom(other);
@@ -131,8 +131,8 @@ public:
     // ムーブコンストラクタ
     ImageBuffer(ImageBuffer&& other) noexcept
         : view_(other.view_), capacity_(other.capacity_),
-          allocator_(other.allocator_), initPolicy_(other.initPolicy_),
-          auxInfo_(other.auxInfo_), startX_(other.startX_) {
+          allocator_(other.allocator_), auxInfo_(other.auxInfo_),
+          startX_(other.startX_), initPolicy_(other.initPolicy_) {
         other.view_.data = nullptr;
         other.view_.width = other.view_.height = 0;
         other.view_.stride = 0;
@@ -346,9 +346,9 @@ private:
     ViewPort view_;           // コンポジション: 画像データへのビュー
     size_t capacity_;
     core::memory::IAllocator* allocator_;
-    InitPolicy initPolicy_;
     PixelAuxInfo auxInfo_;    // 補助情報（パレット、カラーキー等）
     int16_t startX_ = 0;      // X座標オフセット（ImageBufferSet用）
+    InitPolicy initPolicy_;
 
     void allocate() {
         auto bpp = getBytesPerPixel(view_.formatID);

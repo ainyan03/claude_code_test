@@ -7,16 +7,23 @@
 - **ImageBuffer**: X座標オフセット（startX）をクラス内部に移動
   - `startX()`, `endX()`, `setStartX()`, `addOffset()`アクセサを追加
   - ムーブ/コピー/リセット時に座標情報も適切に処理
+  - メンバ順序を最適化してサイズ削減（M5Stack: 44バイト）
 
 - **ImageBufferEntryPool::Entry**: `range`メンバを削除
   - 座標情報はImageBuffer.startX()で管理
-  - Entry構造体を簡素化（約4バイト削減）
+  - Entry構造体を簡素化（M5Stack: 48バイト）
 
 - **ImageBufferSet**: Entry.range参照をbuffer.startX()/endX()に置換
   - applyOffset(): バッファのaddOffset()を直接呼び出し
   - range()/totalRange(): buffer座標から計算
-  - 統合・マージ処理: 同様にbuffer座標を使用
-  - データと座標の不整合リスクを排除
+  - MAX_ENTRIES: 8→4に削減
+
+- **PixelAuxInfo**: メンバ順序を最適化（M5Stack: 16バイト）
+
+### 内部改善
+
+- **bench**: 起動時にsizeof情報を表示（M5Stack/Native両対応）
+- **初期化順序**: コンストラクタの初期化リストを宣言順序に統一
 
 ---
 

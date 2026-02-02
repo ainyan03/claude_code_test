@@ -22,14 +22,14 @@ using PixelFormatID = const PixelFormatDescriptor*;
 // ========================================================================
 
 struct PixelAuxInfo {
-    uint32_t colorKey = 0;          // 透過カラー（4 bytes）
-    uint8_t alphaMultiplier = 255;  // アルファ係数（1 byte）
-    bool useColorKey = false;       // カラーキー有効フラグ（1 byte）
-
     // パレット情報（インデックスフォーマット用）
     const void* palette = nullptr;           // パレットデータポインタ（非所有）
     PixelFormatID paletteFormat = nullptr;   // パレットエントリのフォーマット
     uint16_t paletteColorCount = 0;          // パレットエントリ数
+
+    uint8_t alphaMultiplier = 255;  // アルファ係数（1 byte）
+    bool useColorKey = false;       // カラーキー有効フラグ（1 byte）
+    uint32_t colorKey = 0;          // 透過カラー（4 bytes）
 
     // デフォルトコンストラクタ
     constexpr PixelAuxInfo() = default;
@@ -40,7 +40,7 @@ struct PixelAuxInfo {
 
     // カラーキー指定
     constexpr PixelAuxInfo(uint32_t key, bool use)
-        : colorKey(key), useColorKey(use) {}
+        : useColorKey(use), colorKey(key) {}
 };
 
 // 後方互換性のためエイリアスを残す

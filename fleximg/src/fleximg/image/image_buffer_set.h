@@ -54,7 +54,7 @@ namespace FLEXIMG_NAMESPACE {
 class ImageBufferSet {
 public:
     /// @brief 最大エントリ数（ImageBufferSet内の上限）
-    static constexpr int MAX_ENTRIES = 8;
+    static constexpr int MAX_ENTRIES = 4;
 
     /// @brief エントリ型（プールから取得）
     using Entry = ImageBufferEntryPool::Entry;
