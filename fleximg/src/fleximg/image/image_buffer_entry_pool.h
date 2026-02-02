@@ -42,7 +42,7 @@ namespace FLEXIMG_NAMESPACE {
 class ImageBufferEntryPool {
 public:
     /// @brief プールサイズ（組み込み向け固定上限）
-    static constexpr int POOL_SIZE_BITS = 3;  // 2^5 = 32エントリ
+    static constexpr int POOL_SIZE_BITS = 5;  // 2^5 = 32エントリ
     static constexpr int POOL_SIZE = 1 << POOL_SIZE_BITS;
 
     /// @brief エントリ構造体
