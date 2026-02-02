@@ -8,7 +8,12 @@
   - `InitPolicy::Zero`を廃止、`InitPolicy::Uninitialized`に変更
   - prevとcurrの間のギャップ部分のみmemsetでゼロ埋め
   - ギャップなし（隣接または重複）の場合はゼロ初期化が完全に不要
-  - consolidateInPlace()、mergeOverlapping()と同様の最適化パターン
+
+- **ImageBufferSet::consolidate()**: ギャップ部分のみゼロ埋め
+  - `InitPolicy::Zero`を廃止、`InitPolicy::Uninitialized`に変更
+  - カーソルベースでエントリ間ギャップと末尾ギャップのみゼロ埋め
+  - ギャップなしの場合はゼロ初期化が完全に不要
+  - consolidateInPlace()、mergeOverlapping()、mergeAdjacent()と同様の最適化パターン
 
 ---
 
