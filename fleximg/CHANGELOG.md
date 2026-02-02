@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.63.3] - 2026-02-02
+
+### バグ修正
+
+- **ImageBufferSet::consolidateInPlace()**: 単一エントリ時のrange正規化を追加
+  - 単一エントリの場合もrangeを`{0, width}`に正規化するよう修正
+  - CompositeNode下流のフィルタノードでX方向オフセットが二重適用される問題を解消
+  - `consolidateIfNeeded()`が複数回呼ばれた際のorigin累積バグを修正
+
+---
+
 ## [2.63.2] - 2026-02-02
 
 ### 性能改善

@@ -813,8 +813,18 @@ ImageBuffer ImageBufferSet::consolidate(PixelFormatID format) {
 // ----------------------------------------------------------------------------
 
 void ImageBufferSet::consolidateInPlace() {
-    // 空または単一エントリの場合は何もしない
-    if (entryCount_ <= 1) {
+    // 空の場合は何もしない
+    if (entryCount_ == 0) {
+        return;
+    }
+
+    // 単一エントリの場合: rangeのみ正規化（バッファは変更不要）
+    // consolidateIfNeeded() が origin.x += range.startX を行うため、
+    // range を {0, width} に正規化しないと二重加算が発生する
+    if (entryCount_ == 1) {
+        int16_t width = static_cast<int16_t>(
+            entryPtrs_[0]->range.endX - entryPtrs_[0]->range.startX);
+        entryPtrs_[0]->range = DataRange{0, width};
         return;
     }
 
