@@ -1013,6 +1013,18 @@ void ImageBufferSet::replaceBuffer(int index, ImageBuffer&& buffer) {
 // ----------------------------------------------------------------------------
 // mergeAdjacent
 // ----------------------------------------------------------------------------
+//
+// 最適化版: ギャップ部分のみゼロ埋め
+//
+// 処理:
+// 1. InitPolicy::Uninitialized でバッファ確保（ゼロ初期化なし）
+// 2. prevをコピー
+// 3. ギャップ部分のみゼロ埋め（gap > 0 の場合のみ）
+// 4. currをコピー
+//
+// これにより:
+// - ギャップなしの場合: ゼロ初期化が完全に不要
+// - ギャップありの場合: ギャップ部分のみゼロ埋め
 
 void ImageBufferSet::mergeAdjacent(int16_t gapThreshold) {
     if (entryCount_ < 2 || !allocator_) {
@@ -1032,9 +1044,9 @@ void ImageBufferSet::mergeAdjacent(int16_t gapThreshold) {
             int16_t mergedEndX = curr->range.endX;
             int mergedWidth = mergedEndX - mergedStartX;
 
-            // 統合バッファを確保
+            // 統合バッファを確保（ゼロ初期化なし）
             ImageBuffer merged(mergedWidth, 1, PixelFormatIDs::RGBA8_Straight,
-                               InitPolicy::Zero, allocator_);
+                               InitPolicy::Uninitialized, allocator_);
             if (!merged.isValid()) {
                 continue;
             }
@@ -1043,16 +1055,22 @@ void ImageBufferSet::mergeAdjacent(int16_t gapThreshold) {
             constexpr size_t bytesPerPixel = 4;
 
             // prev をコピー
+            int prevWidth = prev->range.endX - prev->range.startX;
             {
-                int width = prev->range.endX - prev->range.startX;
                 PixelFormatID srcFmt = prev->buffer.view().formatID;
                 const void* srcRow = prev->buffer.view().pixelAt(0, 0);
 
                 if (srcFmt == PixelFormatIDs::RGBA8_Straight) {
-                    std::memcpy(mergedRow, srcRow, static_cast<size_t>(width) * bytesPerPixel);
+                    std::memcpy(mergedRow, srcRow, static_cast<size_t>(prevWidth) * bytesPerPixel);
                 } else if (srcFmt->toStraight) {
-                    srcFmt->toStraight(mergedRow, srcRow, width, &prev->buffer.auxInfo());
+                    srcFmt->toStraight(mergedRow, srcRow, prevWidth, &prev->buffer.auxInfo());
                 }
+            }
+
+            // ギャップ部分をゼロ埋め（gap > 0 の場合のみ）
+            if (gap > 0) {
+                uint8_t* gapPtr = mergedRow + static_cast<size_t>(prevWidth) * bytesPerPixel;
+                std::memset(gapPtr, 0, static_cast<size_t>(gap) * bytesPerPixel);
             }
 
             // curr をコピー
