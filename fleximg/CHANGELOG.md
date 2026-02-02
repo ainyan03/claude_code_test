@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.63.2] - 2026-02-02
+
+### 性能改善
+
+- **ImageBufferSet::mergeOverlapping()**: 領域分割による効率的な合成
+  - ゼロ初期化（InitPolicy::Zero）を廃止、Uninitializedに変更
+  - 一時バッファ（exTempBuf, newTempBuf）を廃止、mergedBufに直接出力
+  - 重複部分のみblendUnderを適用（非重複部分はmemcpyのみ）
+  - 処理フロー:
+    1. 全既存エントリをmergedBufに直接コピー/変換
+    2. 新エントリの非重複部分をmergedBufに直接コピー/変換
+    3. 重複部分のみblendUnder
+
+---
+
 ## [2.63.1] - 2026-02-01
 
 ### バグ修正
