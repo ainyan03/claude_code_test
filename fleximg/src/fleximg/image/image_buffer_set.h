@@ -346,6 +346,51 @@ inline void copyLineToStraight(
     }
 }
 
+/// @brief 任意フォーマット間の変換（Straight経由の汎用変換対応）
+/// @param dst 出力先
+/// @param src 入力元
+/// @param width ピクセル数
+/// @param srcFmt ソースのピクセルフォーマット
+/// @param dstFmt 出力のピクセルフォーマット
+/// @param auxInfo ソースの補助情報（パレット等）
+/// @param allocator 一時バッファ用アロケータ（汎用変換時に必要）
+/// @note 変換パターン: 同一フォーマット→コピー、→Straight、Straight→、汎用(経由)
+inline void convertLine(
+    void* dst,
+    const void* src,
+    int width,
+    PixelFormatID srcFmt,
+    PixelFormatID dstFmt,
+    const PixelAuxInfo* auxInfo,
+    core::memory::IAllocator* allocator)
+{
+    if (srcFmt == dstFmt) {
+        // 同一フォーマット: 直接コピー
+        size_t bpp = static_cast<size_t>(getBytesPerPixel(dstFmt));
+        std::memcpy(dst, src, static_cast<size_t>(width) * bpp);
+        return;
+    }
+    if (dstFmt == PixelFormatIDs::RGBA8_Straight && srcFmt && srcFmt->toStraight) {
+        // RGBA8_Straightへ変換
+        srcFmt->toStraight(dst, src, width, auxInfo);
+        return;
+    }
+    if (srcFmt == PixelFormatIDs::RGBA8_Straight && dstFmt && dstFmt->fromStraight) {
+        // RGBA8_Straightから変換
+        dstFmt->fromStraight(dst, src, width, auxInfo);
+        return;
+    }
+    // 汎用変換（Straight経由）
+    if (allocator && srcFmt && srcFmt->toStraight && dstFmt && dstFmt->fromStraight) {
+        ImageBuffer tempBuf(width, 1, PixelFormatIDs::RGBA8_Straight,
+                            InitPolicy::Uninitialized, allocator);
+        if (tempBuf.isValid()) {
+            srcFmt->toStraight(tempBuf.view().pixelAt(0, 0), src, width, auxInfo);
+            dstFmt->fromStraight(dst, tempBuf.view().pixelAt(0, 0), width, nullptr);
+        }
+    }
+}
+
 // ----------------------------------------------------------------------------
 // addBuffer
 // ----------------------------------------------------------------------------
@@ -793,20 +838,8 @@ void ImageBufferSet::convertFormat(PixelFormatID format, bool doMergeAdjacent) {
         void* dstRow = converted.view().pixelAt(0, 0);
         const PixelAuxInfo* auxInfo = &entry->buffer.auxInfo();
 
-        // フォーマット変換
-        if (format == PixelFormatIDs::RGBA8_Straight && srcFmt->toStraight) {
-            srcFmt->toStraight(dstRow, srcRow, width, auxInfo);
-        } else if (srcFmt == PixelFormatIDs::RGBA8_Straight && format->fromStraight) {
-            format->fromStraight(dstRow, srcRow, width, auxInfo);
-        } else {
-            // 汎用変換（Straight経由）
-            ImageBuffer tempBuf(width, 1, PixelFormatIDs::RGBA8_Straight,
-                                InitPolicy::Uninitialized, allocator_);
-            if (tempBuf.isValid() && srcFmt->toStraight && format->fromStraight) {
-                srcFmt->toStraight(tempBuf.view().pixelAt(0, 0), srcRow, width, auxInfo);
-                format->fromStraight(dstRow, tempBuf.view().pixelAt(0, 0), width, nullptr);
-            }
-        }
+        // フォーマット変換（convertLineヘルパー使用）
+        convertLine(dstRow, srcRow, width, srcFmt, format, auxInfo, allocator_);
 
         entry->buffer = std::move(converted);
     }
@@ -890,24 +923,8 @@ ImageBuffer ImageBufferSet::consolidate(PixelFormatID format) {
         void* dstPtr = dstRow + static_cast<size_t>(entryStart) * dstBpp;
         const PixelAuxInfo* auxInfo = &entry->buffer.auxInfo();
 
-        if (srcFmt == format) {
-            // 同一フォーマット: 直接コピー
-            std::memcpy(dstPtr, srcRow, static_cast<size_t>(width) * dstBpp);
-        } else if (format == PixelFormatIDs::RGBA8_Straight && srcFmt->toStraight) {
-            // RGBA8_Straightへ変換
-            srcFmt->toStraight(dstPtr, srcRow, width, auxInfo);
-        } else if (srcFmt == PixelFormatIDs::RGBA8_Straight && format->fromStraight) {
-            // RGBA8_Straightから変換
-            format->fromStraight(dstPtr, srcRow, width, auxInfo);
-        } else {
-            // 汎用変換（Straight経由）
-            ImageBuffer tempBuf(width, 1, PixelFormatIDs::RGBA8_Straight,
-                                InitPolicy::Uninitialized, allocator_);
-            if (tempBuf.isValid() && srcFmt->toStraight && format->fromStraight) {
-                srcFmt->toStraight(tempBuf.view().pixelAt(0, 0), srcRow, width, auxInfo);
-                format->fromStraight(dstPtr, tempBuf.view().pixelAt(0, 0), width, nullptr);
-            }
-        }
+        // フォーマット変換（convertLineヘルパー使用）
+        convertLine(dstPtr, srcRow, width, srcFmt, format, auxInfo, allocator_);
 
         // カーソルを更新
         cursor = entryEnd;
