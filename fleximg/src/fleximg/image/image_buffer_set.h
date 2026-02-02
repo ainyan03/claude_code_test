@@ -129,6 +129,17 @@ public:
     /// @brief バッファを登録（DataRange指定）
     bool addBuffer(ImageBuffer&& buffer, const DataRange& range);
 
+    /// @brief 新しいバッファを直接作成して登録
+    /// @param width バッファ幅
+    /// @param height バッファ高さ
+    /// @param format ピクセルフォーマット
+    /// @param policy 初期化ポリシー
+    /// @param startX 開始X座標
+    /// @return 作成されたバッファへの参照（失敗時はnullバッファ）
+    /// @note ムーブ操作なしでEntry内に直接構築
+    ImageBuffer* createBuffer(int width, int height, PixelFormatID format,
+                              InitPolicy policy, int16_t startX);
+
     /// @brief 他のImageBufferSetからエントリをバッチ転送
     /// @param source 転送元（転送後は空になる）
     /// @param offsetX 各エントリに加算するXオフセット
@@ -511,6 +522,53 @@ bool ImageBufferSet::addBuffer(ImageBuffer&& buffer, const DataRange& range) {
 
     // 挿入またはマージ
     return insertOrMerge(entry);
+}
+
+// ----------------------------------------------------------------------------
+// createBuffer
+// ----------------------------------------------------------------------------
+
+ImageBuffer* ImageBufferSet::createBuffer(int width, int height, PixelFormatID format,
+                                          InitPolicy policy, int16_t startX) {
+    if (width <= 0 || height <= 0 || !format) {
+        return nullptr;
+    }
+
+    // エントリを取得
+    Entry* entry = acquireEntry();
+    if (!entry) {
+        // プール枯渇時: consolidateして空きを作る
+        if (entryCount_ > 0) {
+            mergeAdjacent(0);
+            entry = acquireEntry();
+        }
+        if (!entry) {
+            return nullptr;
+        }
+    }
+
+    // Entry内に直接ImageBufferを構築（ムーブなし）
+    entry->buffer = ImageBuffer(width, height, format, policy, allocator_);
+    if (!entry->buffer.isValid()) {
+        releaseEntry(entry);
+        return nullptr;
+    }
+
+    entry->range = DataRange{startX, static_cast<int16_t>(startX + width)};
+
+    // 空の場合は直接追加
+    if (entryCount_ == 0) {
+        entryPtrs_[0] = entry;
+        entryCount_ = 1;
+        return &entry->buffer;
+    }
+
+    // 挿入またはマージ
+    if (!insertOrMerge(entry)) {
+        return nullptr;
+    }
+
+    return &entry->buffer;
 }
 
 // ----------------------------------------------------------------------------
