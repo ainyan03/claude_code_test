@@ -54,7 +54,7 @@ namespace FLEXIMG_NAMESPACE {
 class ImageBufferSet {
 public:
     /// @brief 最大エントリ数（ImageBufferSet内の上限）
-    static constexpr int MAX_ENTRIES = 8;
+    static constexpr int MAX_ENTRIES = 4;
 
     /// @brief エントリ型（プールから取得）
     using Entry = ImageBufferEntryPool::Entry;
@@ -199,7 +199,8 @@ public:
 
     /// @brief 指定インデックスの範囲を取得
     DataRange range(int index) const {
-        return entryPtrs_[index]->range;
+        const auto& buf = entryPtrs_[index]->buffer;
+        return DataRange{buf.startX(), buf.endX()};
     }
 
     /// @brief 全体の範囲（最小startX〜最大endX）を取得
@@ -208,8 +209,8 @@ public:
             return DataRange{0, 0};
         }
         return DataRange{
-            entryPtrs_[0]->range.startX,
-            entryPtrs_[entryCount_ - 1]->range.endX
+            entryPtrs_[0]->buffer.startX(),
+            entryPtrs_[entryCount_ - 1]->buffer.endX()
         };
     }
 
@@ -415,8 +416,7 @@ void ImageBufferSet::applyOffset(int16_t offsetX) {
     for (int i = 0; i < entryCount_; ++i) {
         Entry* entry = entryPtrs_[i];
         if (!entry) continue;  // 防御的チェック
-        entry->range.startX = static_cast<int16_t>(entry->range.startX + offsetX);
-        entry->range.endX = static_cast<int16_t>(entry->range.endX + offsetX);
+        entry->buffer.addOffset(offsetX);
     }
 }
 
@@ -511,7 +511,7 @@ bool ImageBufferSet::addBuffer(ImageBuffer&& buffer, const DataRange& range) {
     }
 
     entry->buffer = std::move(buffer);
-    entry->range = range;
+    entry->buffer.setStartX(range.startX);
 
     // 空の場合は直接追加
     if (entryCount_ == 0) {
@@ -554,7 +554,7 @@ ImageBuffer* ImageBufferSet::createBuffer(int width, int height, PixelFormatID f
         return nullptr;
     }
 
-    entry->range = DataRange{startX, static_cast<int16_t>(startX + width)};
+    entry->buffer.setStartX(startX);
 
     // 空の場合は直接追加
     if (entryCount_ == 0) {
@@ -588,11 +588,11 @@ bool ImageBufferSet::insertSorted(Entry* entry) {
         return false;
     }
 
-    const DataRange& range = entry->range;
+    int16_t newStartX = entry->buffer.startX();
 
     // 挿入位置を探す（startXの昇順）
     int insertPos = 0;
-    while (insertPos < entryCount_ && entryPtrs_[insertPos]->range.startX < range.startX) {
+    while (insertPos < entryCount_ && entryPtrs_[insertPos]->buffer.startX() < newStartX) {
         ++insertPos;
     }
 
@@ -618,20 +618,19 @@ bool ImageBufferSet::insertOrMerge(Entry* entry) {
         mergeAdjacent(0);
         if (entryCount_ >= MAX_ENTRIES) {
             // consolidateInPlace前にオフセットを保存
-            int16_t originalStartX = entryPtrs_[0]->range.startX;
+            int16_t originalStartX = entryPtrs_[0]->buffer.startX();
             consolidateInPlace();
-            // consolidateInPlaceは{0, width}に正規化するのでオフセットを復元
+            // consolidateInPlaceはstartX=0に正規化するのでオフセットを復元
             if (entryCount_ == 1) {
-                int16_t width = entryPtrs_[0]->range.endX;
-                entryPtrs_[0]->range = DataRange{originalStartX,
-                    static_cast<int16_t>(originalStartX + width)};
+                entryPtrs_[0]->buffer.addOffset(originalStartX);
             }
         }
     }
 
     // 重複チェック → マージまたは挿入
     int overlapStart = 0, overlapEnd = 0;
-    if (findOverlapping(entry->range, overlapStart, overlapEnd)) {
+    DataRange entryRange{entry->buffer.startX(), entry->buffer.endX()};
+    if (findOverlapping(entryRange, overlapStart, overlapEnd)) {
         return mergeOverlapping(entry, overlapStart, overlapEnd);
     }
     return insertSorted(entry);
@@ -651,10 +650,12 @@ bool ImageBufferSet::findOverlapping(const DataRange& range,
 
     for (int i = 0; i < entryCount_; ++i) {
         FLEXIMG_ASSERT(entryPtrs_[i], "NULL entry pointer in findOverlapping");
-        const DataRange& existing = entryPtrs_[i]->range;
+        const auto& buf = entryPtrs_[i]->buffer;
+        int16_t existingStartX = buf.startX();
+        int16_t existingEndX = buf.endX();
 
         // 重複判定: !(range.endX <= existing.startX || range.startX >= existing.endX)
-        if (range.endX > existing.startX && range.startX < existing.endX) {
+        if (range.endX > existingStartX && range.startX < existingEndX) {
             if (outOverlapStart < 0) {
                 outOverlapStart = i;
             }
@@ -709,7 +710,8 @@ bool ImageBufferSet::mergeOverlapping(Entry* newEntry,
         return insertSorted(newEntry);
     }
 
-    const DataRange& newRange = newEntry->range;
+    int16_t newStartX = newEntry->buffer.startX();
+    int16_t newEndX = newEntry->buffer.endX();
     constexpr size_t bytesPerPixel = 4;
 
     // ========================================
@@ -732,24 +734,24 @@ bool ImageBufferSet::mergeOverlapping(Entry* newEntry,
 
     if (allEditable) {
         // 条件2: 非重複領域をカウント
-        int16_t firstExStart = entryPtrs_[overlapStart]->range.startX;
-        int16_t lastExEnd = entryPtrs_[overlapEnd - 1]->range.endX;
+        int16_t firstExStart = entryPtrs_[overlapStart]->buffer.startX();
+        int16_t lastExEnd = entryPtrs_[overlapEnd - 1]->buffer.endX();
 
         int nonOverlapCount = 0;
 
         // 左側の非重複（新エントリが既存より左にはみ出す）
-        if (newRange.startX < firstExStart) {
+        if (newStartX < firstExStart) {
             ++nonOverlapCount;
         }
 
         // 既存エントリ間のギャップで新エントリがカバーする部分
         for (int i = overlapStart; i < overlapEnd - 1; ++i) {
-            int16_t gapStart = entryPtrs_[i]->range.endX;
-            int16_t gapEnd = entryPtrs_[i + 1]->range.startX;
+            int16_t gapStart = entryPtrs_[i]->buffer.endX();
+            int16_t gapEnd = entryPtrs_[i + 1]->buffer.startX();
             if (gapStart < gapEnd) {
                 // ギャップが存在し、新エントリがカバーしている
-                int16_t coverStart = std::max(gapStart, newRange.startX);
-                int16_t coverEnd = std::min(gapEnd, newRange.endX);
+                int16_t coverStart = std::max(gapStart, newStartX);
+                int16_t coverEnd = std::min(gapEnd, newEndX);
                 if (coverStart < coverEnd) {
                     ++nonOverlapCount;
                 }
@@ -757,7 +759,7 @@ bool ImageBufferSet::mergeOverlapping(Entry* newEntry,
         }
 
         // 右側の非重複（新エントリが既存より右にはみ出す）
-        if (newRange.endX > lastExEnd) {
+        if (newEndX > lastExEnd) {
             ++nonOverlapCount;
         }
 
@@ -771,17 +773,17 @@ bool ImageBufferSet::mergeOverlapping(Entry* newEntry,
             // 各既存エントリに対して重複部分をブレンド
             for (int i = overlapStart; i < overlapEnd; ++i) {
                 Entry* existing = entryPtrs_[i];
-                int16_t exStart = existing->range.startX;
-                int16_t exEnd = existing->range.endX;
+                int16_t exStart = existing->buffer.startX();
+                int16_t exEnd = existing->buffer.endX();
 
                 // 重複範囲を計算
-                int16_t oStart = std::max(exStart, newRange.startX);
-                int16_t oEnd = std::min(exEnd, newRange.endX);
+                int16_t oStart = std::max(exStart, newStartX);
+                int16_t oEnd = std::min(exEnd, newEndX);
 
                 if (oStart < oEnd) {
                     int width = oEnd - oStart;
                     int dstOffset = oStart - exStart;
-                    int srcOffset = oStart - newRange.startX;
+                    int srcOffset = oStart - newStartX;
 
                     uint8_t* dstPtr = static_cast<uint8_t*>(existing->buffer.view().pixelAt(dstOffset, 0));
                     size_t srcBpp = newFmt->bytesPerUnit / newFmt->pixelsPerUnit;
@@ -819,11 +821,11 @@ bool ImageBufferSet::mergeOverlapping(Entry* newEntry,
     // ========================================
 
     // 合成対象の全体範囲を計算
-    int16_t mergedStartX = newRange.startX;
-    int16_t mergedEndX = newRange.endX;
+    int16_t mergedStartX = newStartX;
+    int16_t mergedEndX = newEndX;
     for (int i = overlapStart; i < overlapEnd; ++i) {
-        mergedStartX = std::min(mergedStartX, entryPtrs_[i]->range.startX);
-        mergedEndX = std::max(mergedEndX, entryPtrs_[i]->range.endX);
+        mergedStartX = std::min(mergedStartX, entryPtrs_[i]->buffer.startX());
+        mergedEndX = std::max(mergedEndX, entryPtrs_[i]->buffer.endX());
     }
     int mergedWidth = mergedEndX - mergedStartX;
 
@@ -844,8 +846,8 @@ bool ImageBufferSet::mergeOverlapping(Entry* newEntry,
     for (int i = overlapStart; i < overlapEnd; ++i) {
         FLEXIMG_ASSERT(entryPtrs_[i], "NULL entry pointer in mergeOverlapping");
         Entry* existing = entryPtrs_[i];
-        int16_t exStart = existing->range.startX;
-        int16_t exEnd = existing->range.endX;
+        int16_t exStart = existing->buffer.startX();
+        int16_t exEnd = existing->buffer.endX();
         int exWidth = exEnd - exStart;
         int dstOffset = exStart - mergedStartX;
 
@@ -864,7 +866,7 @@ bool ImageBufferSet::mergeOverlapping(Entry* newEntry,
         if (regionStart >= regionEnd) return;
         int width = regionEnd - regionStart;
         int dstOffset = regionStart - mergedStartX;
-        int srcOffset = regionStart - newRange.startX;
+        int srcOffset = regionStart - newStartX;
         uint8_t* dstPtr = mergedRow + static_cast<size_t>(dstOffset) * bytesPerPixel;
         const uint8_t* srcPtr = newSrcRow + static_cast<size_t>(srcOffset) * srcBytesPerPixel;
         copyLineToStraight(dstPtr, srcPtr, width, newFmt, newAuxInfo);
@@ -872,42 +874,42 @@ bool ImageBufferSet::mergeOverlapping(Entry* newEntry,
 
     // 最初の既存より左
     FLEXIMG_ASSERT(entryPtrs_[overlapStart], "NULL entry at overlapStart");
-    int16_t firstExStart = entryPtrs_[overlapStart]->range.startX;
-    copyNewRegion(newRange.startX, std::min(newRange.endX, firstExStart));
+    int16_t firstExStart = entryPtrs_[overlapStart]->buffer.startX();
+    copyNewRegion(newStartX, std::min(newEndX, firstExStart));
 
     // 既存間のギャップ
     for (int i = overlapStart; i < overlapEnd - 1; ++i) {
         FLEXIMG_ASSERT(entryPtrs_[i], "NULL entry in gap loop");
         FLEXIMG_ASSERT(entryPtrs_[i + 1], "NULL entry+1 in gap loop");
-        int16_t gapStart = entryPtrs_[i]->range.endX;
-        int16_t gapEnd = entryPtrs_[i + 1]->range.startX;
+        int16_t gapStart = entryPtrs_[i]->buffer.endX();
+        int16_t gapEnd = entryPtrs_[i + 1]->buffer.startX();
         if (gapStart < gapEnd) {
-            int16_t copyStart = std::max(gapStart, newRange.startX);
-            int16_t copyEnd = std::min(gapEnd, newRange.endX);
+            int16_t copyStart = std::max(gapStart, newStartX);
+            int16_t copyEnd = std::min(gapEnd, newEndX);
             copyNewRegion(copyStart, copyEnd);
         }
     }
 
     // 最後の既存より右
     FLEXIMG_ASSERT(entryPtrs_[overlapEnd - 1], "NULL entry at overlapEnd-1");
-    int16_t lastExEnd = entryPtrs_[overlapEnd - 1]->range.endX;
-    copyNewRegion(std::max(newRange.startX, lastExEnd), newRange.endX);
+    int16_t lastExEnd = entryPtrs_[overlapEnd - 1]->buffer.endX();
+    copyNewRegion(std::max(newStartX, lastExEnd), newEndX);
 
     // --- 3. 重複部分のみblendUnder ---
     for (int i = overlapStart; i < overlapEnd; ++i) {
         FLEXIMG_ASSERT(entryPtrs_[i], "NULL entry in blendUnder loop");
         Entry* existing = entryPtrs_[i];
-        int16_t exStart = existing->range.startX;
-        int16_t exEnd = existing->range.endX;
+        int16_t exStart = existing->buffer.startX();
+        int16_t exEnd = existing->buffer.endX();
 
         // 重複範囲を計算
-        int16_t oStart = std::max(exStart, newRange.startX);
-        int16_t oEnd = std::min(exEnd, newRange.endX);
+        int16_t oStart = std::max(exStart, newStartX);
+        int16_t oEnd = std::min(exEnd, newEndX);
 
         if (oStart < oEnd) {
             int width = oEnd - oStart;
             int dstOffset = oStart - mergedStartX;
-            int srcOffset = oStart - newRange.startX;
+            int srcOffset = oStart - newStartX;
             uint8_t* dstPtr = mergedRow + static_cast<size_t>(dstOffset) * bytesPerPixel;
 
             // 新エントリをunder合成（既存の下に）
@@ -964,7 +966,7 @@ bool ImageBufferSet::mergeOverlapping(Entry* newEntry,
 
     // 結果を最初のエントリに格納
     resultEntry->buffer = std::move(mergedBuf);
-    resultEntry->range = DataRange{mergedStartX, mergedEndX};
+    resultEntry->buffer.setStartX(mergedStartX);
 
     return true;  // 既にソート位置にあるので insertSorted 不要
 }
@@ -992,7 +994,7 @@ void ImageBufferSet::convertFormat(PixelFormatID format, bool doMergeAdjacent) {
             continue;  // 変換不要
         }
 
-        int width = entry->range.endX - entry->range.startX;
+        int width = entry->buffer.width();
 
         // 変換先バッファを確保
         ImageBuffer converted(width, 1, format, InitPolicy::Uninitialized, allocator_);
@@ -1073,8 +1075,8 @@ ImageBuffer ImageBufferSet::consolidate(PixelFormatID format) {
     // 各エントリを出力バッファにコピー（ギャップをゼロ埋め）
     for (int i = 0; i < entryCount_; ++i) {
         Entry* entry = entryPtrs_[i];
-        int entryStart = entry->range.startX - total.startX;
-        int entryEnd = entry->range.endX - total.startX;
+        int entryStart = entry->buffer.startX() - total.startX;
+        int entryEnd = entry->buffer.endX() - total.startX;
         int width = entryEnd - entryStart;
 
         // ギャップをゼロ埋め（cursor < entryStart の場合）
@@ -1130,13 +1132,11 @@ void ImageBufferSet::consolidateInPlace() {
         return;
     }
 
-    // 単一エントリの場合: rangeのみ正規化（バッファは変更不要）
-    // consolidateIfNeeded() が origin.x += range.startX を行うため、
-    // range を {0, width} に正規化しないと二重加算が発生する
+    // 単一エントリの場合: startXのみ正規化（バッファは変更不要）
+    // consolidateIfNeeded() が origin.x += startX を行うため、
+    // startX を 0 に正規化しないと二重加算が発生する
     if (entryCount_ == 1) {
-        int16_t width = static_cast<int16_t>(
-            entryPtrs_[0]->range.endX - entryPtrs_[0]->range.startX);
-        entryPtrs_[0]->range = DataRange{0, width};
+        entryPtrs_[0]->buffer.setStartX(0);
         return;
     }
 
@@ -1174,8 +1174,8 @@ void ImageBufferSet::consolidateInPlace() {
             continue;
         }
 
-        int entryStart = entry->range.startX - total.startX;
-        int entryEnd = entry->range.endX - total.startX;
+        int entryStart = entry->buffer.startX() - total.startX;
+        int entryEnd = entry->buffer.endX() - total.startX;
         int width = entryEnd - entryStart;
 
         // 防御的チェック: 不正な範囲をスキップ
@@ -1219,7 +1219,7 @@ void ImageBufferSet::consolidateInPlace() {
 
     // 最初のエントリに統合結果を格納
     firstEntry->buffer = std::move(merged);
-    firstEntry->range = DataRange{0, static_cast<int16_t>(totalWidth)};
+    firstEntry->buffer.setStartX(0);
     entryCount_ = 1;
 }
 
@@ -1230,7 +1230,7 @@ void ImageBufferSet::consolidateInPlace() {
 void ImageBufferSet::replaceBuffer(int index, ImageBuffer&& buffer) {
     FLEXIMG_ASSERT(index >= 0 && index < entryCount_, "Invalid index");
     entryPtrs_[index]->buffer = std::move(buffer);
-    entryPtrs_[index]->range = DataRange{0, static_cast<int16_t>(entryPtrs_[index]->buffer.width())};
+    entryPtrs_[index]->buffer.setStartX(0);
 }
 
 // ----------------------------------------------------------------------------
@@ -1259,12 +1259,12 @@ void ImageBufferSet::mergeAdjacent(int16_t gapThreshold) {
         Entry* curr = entryPtrs_[i];
         Entry* prev = entryPtrs_[i - 1];
 
-        int16_t gap = curr->range.startX - prev->range.endX;
+        int16_t gap = static_cast<int16_t>(curr->buffer.startX() - prev->buffer.endX());
 
         if (gap <= gapThreshold) {
             // 統合: prevとcurrをマージ
-            int16_t mergedStartX = prev->range.startX;
-            int16_t mergedEndX = curr->range.endX;
+            int16_t mergedStartX = prev->buffer.startX();
+            int16_t mergedEndX = curr->buffer.endX();
             int mergedWidth = mergedEndX - mergedStartX;
 
             // 統合バッファを確保（ゼロ初期化なし）
@@ -1278,7 +1278,7 @@ void ImageBufferSet::mergeAdjacent(int16_t gapThreshold) {
             constexpr size_t bytesPerPixel = 4;
 
             // prev をコピー
-            int prevWidth = prev->range.endX - prev->range.startX;
+            int prevWidth = prev->buffer.width();
             copyLineToStraight(mergedRow, prev->buffer.view().pixelAt(0, 0),
                                prevWidth, prev->buffer.view().formatID,
                                &prev->buffer.auxInfo());
@@ -1290,8 +1290,8 @@ void ImageBufferSet::mergeAdjacent(int16_t gapThreshold) {
             }
 
             // curr をコピー
-            int currWidth = curr->range.endX - curr->range.startX;
-            int currDstOffset = curr->range.startX - mergedStartX;
+            int currWidth = curr->buffer.width();
+            int currDstOffset = curr->buffer.startX() - mergedStartX;
             void* currDstPtr = mergedRow + static_cast<size_t>(currDstOffset) * bytesPerPixel;
             copyLineToStraight(currDstPtr, curr->buffer.view().pixelAt(0, 0),
                                currWidth, curr->buffer.view().formatID,
@@ -1299,7 +1299,7 @@ void ImageBufferSet::mergeAdjacent(int16_t gapThreshold) {
 
             // prevを統合結果で置き換え
             prev->buffer = std::move(merged);
-            prev->range = DataRange{mergedStartX, mergedEndX};
+            prev->buffer.setStartX(mergedStartX);
 
             // currを解放
             releaseEntry(curr);
