@@ -560,13 +560,14 @@ bool ImageBufferSet::mergeOverlapping(Entry* newEntry,
             std::memcpy(dstPtr, exSrcRow, static_cast<size_t>(exWidth) * bytesPerPixel);
         } else if (exFmt->toStraight) {
             // フォーマット変換してmergedBufに直接出力
-            exFmt->toStraight(dstPtr, exSrcRow, exWidth, nullptr);
+            exFmt->toStraight(dstPtr, exSrcRow, exWidth, &existing->buffer.auxInfo());
         }
     }
 
     // --- 2. 新エントリの非重複部分をmergedBufに直接コピー/変換 ---
 
     // ヘルパー: 新エントリの指定範囲をmergedBufにコピー/変換
+    const PixelAuxInfo& newAuxInfo = newEntry->buffer.auxInfo();
     auto copyNewRegion = [&](int16_t regionStart, int16_t regionEnd) {
         if (regionStart >= regionEnd) return;
         int width = regionEnd - regionStart;
@@ -578,7 +579,7 @@ bool ImageBufferSet::mergeOverlapping(Entry* newEntry,
         if (newFmt == PixelFormatIDs::RGBA8_Straight) {
             std::memcpy(dstPtr, srcPtr, static_cast<size_t>(width) * bytesPerPixel);
         } else if (newFmt->toStraight) {
-            newFmt->toStraight(dstPtr, srcPtr, width, nullptr);
+            newFmt->toStraight(dstPtr, srcPtr, width, &newAuxInfo);
         }
     };
 
@@ -635,7 +636,7 @@ bool ImageBufferSet::mergeOverlapping(Entry* newEntry,
                                     InitPolicy::Uninitialized, allocator_);
                 if (tempBuf.isValid()) {
                     const uint8_t* srcPtr = newSrcRow + static_cast<size_t>(srcOffset) * (newFmt->bytesPerUnit / newFmt->pixelsPerUnit);
-                    newFmt->toStraight(tempBuf.view().pixelAt(0, 0), srcPtr, width, nullptr);
+                    newFmt->toStraight(tempBuf.view().pixelAt(0, 0), srcPtr, width, &newAuxInfo);
                     PixelFormatIDs::RGBA8_Straight->blendUnderStraight(
                         dstPtr, tempBuf.view().pixelAt(0, 0), width, nullptr);
                 }
@@ -705,18 +706,19 @@ void ImageBufferSet::convertFormat(PixelFormatID format, bool doMergeAdjacent) {
 
         const void* srcRow = entry->buffer.view().pixelAt(0, 0);
         void* dstRow = converted.view().pixelAt(0, 0);
+        const PixelAuxInfo* auxInfo = &entry->buffer.auxInfo();
 
         // フォーマット変換
         if (format == PixelFormatIDs::RGBA8_Straight && srcFmt->toStraight) {
-            srcFmt->toStraight(dstRow, srcRow, width, nullptr);
+            srcFmt->toStraight(dstRow, srcRow, width, auxInfo);
         } else if (srcFmt == PixelFormatIDs::RGBA8_Straight && format->fromStraight) {
-            format->fromStraight(dstRow, srcRow, width, nullptr);
+            format->fromStraight(dstRow, srcRow, width, auxInfo);
         } else {
             // 汎用変換（Straight経由）
             ImageBuffer tempBuf(width, 1, PixelFormatIDs::RGBA8_Straight,
                                 InitPolicy::Uninitialized, allocator_);
             if (tempBuf.isValid() && srcFmt->toStraight && format->fromStraight) {
-                srcFmt->toStraight(tempBuf.view().pixelAt(0, 0), srcRow, width, nullptr);
+                srcFmt->toStraight(tempBuf.view().pixelAt(0, 0), srcRow, width, auxInfo);
                 format->fromStraight(dstRow, tempBuf.view().pixelAt(0, 0), width, nullptr);
             }
         }
@@ -780,22 +782,23 @@ ImageBuffer ImageBufferSet::consolidate(PixelFormatID format) {
         PixelFormatID srcFmt = entry->buffer.view().formatID;
         const void* srcRow = entry->buffer.view().pixelAt(0, 0);
         void* dstPtr = dstRow + static_cast<size_t>(dstOffset) * dstBpp;
+        const PixelAuxInfo* auxInfo = &entry->buffer.auxInfo();
 
         if (srcFmt == format) {
             // 同一フォーマット: 直接コピー
             std::memcpy(dstPtr, srcRow, static_cast<size_t>(width) * dstBpp);
         } else if (format == PixelFormatIDs::RGBA8_Straight && srcFmt->toStraight) {
             // RGBA8_Straightへ変換
-            srcFmt->toStraight(dstPtr, srcRow, width, nullptr);
+            srcFmt->toStraight(dstPtr, srcRow, width, auxInfo);
         } else if (srcFmt == PixelFormatIDs::RGBA8_Straight && format->fromStraight) {
             // RGBA8_Straightから変換
-            format->fromStraight(dstPtr, srcRow, width, nullptr);
+            format->fromStraight(dstPtr, srcRow, width, auxInfo);
         } else {
             // 汎用変換（Straight経由）
             ImageBuffer tempBuf(width, 1, PixelFormatIDs::RGBA8_Straight,
                                 InitPolicy::Uninitialized, allocator_);
             if (tempBuf.isValid() && srcFmt->toStraight && format->fromStraight) {
-                srcFmt->toStraight(tempBuf.view().pixelAt(0, 0), srcRow, width, nullptr);
+                srcFmt->toStraight(tempBuf.view().pixelAt(0, 0), srcRow, width, auxInfo);
                 format->fromStraight(dstPtr, tempBuf.view().pixelAt(0, 0), width, nullptr);
             }
         }
@@ -866,7 +869,7 @@ void ImageBufferSet::consolidateInPlace() {
             std::memcpy(dstPtr, srcRow, static_cast<size_t>(width) * bytesPerPixel);
         } else if (srcFmt && srcFmt->toStraight) {
             // RGBA8_Straightへ変換
-            srcFmt->toStraight(dstPtr, srcRow, width, nullptr);
+            srcFmt->toStraight(dstPtr, srcRow, width, &entry->buffer.auxInfo());
         }
     }
 
@@ -934,7 +937,7 @@ void ImageBufferSet::mergeAdjacent(int16_t gapThreshold) {
                 if (srcFmt == PixelFormatIDs::RGBA8_Straight) {
                     std::memcpy(mergedRow, srcRow, static_cast<size_t>(width) * bytesPerPixel);
                 } else if (srcFmt->toStraight) {
-                    srcFmt->toStraight(mergedRow, srcRow, width, nullptr);
+                    srcFmt->toStraight(mergedRow, srcRow, width, &prev->buffer.auxInfo());
                 }
             }
 
@@ -949,7 +952,7 @@ void ImageBufferSet::mergeAdjacent(int16_t gapThreshold) {
                 if (srcFmt == PixelFormatIDs::RGBA8_Straight) {
                     std::memcpy(dstPtr, srcRow, static_cast<size_t>(width) * bytesPerPixel);
                 } else if (srcFmt->toStraight) {
-                    srcFmt->toStraight(dstPtr, srcRow, width, nullptr);
+                    srcFmt->toStraight(dstPtr, srcRow, width, &curr->buffer.auxInfo());
                 }
             }
 
