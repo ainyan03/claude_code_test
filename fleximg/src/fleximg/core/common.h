@@ -13,6 +13,7 @@
 
 #include "types.h"
 
+#include <cstdio>   // printf
 #include <cstdlib>  // std::abort
 
 // ========================================================================
