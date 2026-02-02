@@ -37,7 +37,7 @@ namespace core {
 class RenderContext {
 public:
     /// @brief RenderResponseプールサイズ（ImageBufferEntryPoolと同様の管理）
-    static constexpr int MAX_RESPONSES_BITS = 4;  // 2^4 = 16
+    static constexpr int MAX_RESPONSES_BITS = 3;  // 2^3 = 8
     static constexpr int MAX_RESPONSES = 1 << MAX_RESPONSES_BITS;
 
     /// @brief エラー種別
