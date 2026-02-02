@@ -317,7 +317,8 @@ const PixelFormatDescriptor RGB565_LE = {
     nullptr,  // expandIndex
     nullptr,  // blendUnderStraight
     &RGB565_BE,  // siblingEndian
-    swap16       // swapEndian
+    swap16,      // swapEndian
+    copyRowDDA_2bpp  // copyRowDDA
 };
 
 const PixelFormatDescriptor RGB565_BE = {
@@ -340,7 +341,8 @@ const PixelFormatDescriptor RGB565_BE = {
     nullptr,  // expandIndex
     nullptr,  // blendUnderStraight
     &RGB565_LE,  // siblingEndian
-    swap16       // swapEndian
+    swap16,      // swapEndian
+    copyRowDDA_2bpp  // copyRowDDA
 };
 
 } // namespace BuiltinFormats

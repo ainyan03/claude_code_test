@@ -81,7 +81,8 @@ const PixelFormatDescriptor Alpha8 = {
     nullptr,  // expandIndex
     nullptr,  // blendUnderStraight
     nullptr,  // siblingEndian
-    nullptr   // swapEndian
+    nullptr,  // swapEndian
+    copyRowDDA_1bpp  // copyRowDDA
 };
 
 } // namespace BuiltinFormats

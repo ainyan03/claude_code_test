@@ -390,6 +390,75 @@ void copyRowDDA_Impl(
 }
 
 } // namespace detail
+} // namespace view_ops
+
+// ============================================================================
+// BPP別 DDA転写関数（CopyRowDDA_Func シグネチャ準拠）
+// ============================================================================
+//
+// PixelFormatDescriptor::copyRowDDA に設定する関数群。
+// 内部で view_ops::detail 名前空間のテンプレート関数を呼び出す。
+//
+
+template<size_t BytesPerPixel>
+void copyRowDDA_bpp(
+    uint8_t* dst,
+    const uint8_t* srcData,
+    int count,
+    const DDAParam* param
+) {
+    int_fixed srcX = param->srcX;
+    int_fixed srcY = param->srcY;
+    int_fixed incrX = param->incrX;
+    int_fixed incrY = param->incrY;
+    int32_t srcStride = param->srcStride;
+
+    // ソース座標の整数部が全ピクセルで同一か判定（座標は呼び出し側で非負が保証済み）
+    int32_t syFirst = srcY >> INT_FIXED_SHIFT;
+    int32_t syLast  = (srcY + incrY * count) >> INT_FIXED_SHIFT;
+
+    if (syFirst == syLast) {
+        // Y座標一定パス（高頻度: 回転なし拡大縮小・平行移動、微小Y変動も含む）
+        const uint8_t* srcRowBase = srcData + static_cast<size_t>(syFirst * srcStride);
+        view_ops::detail::copyRowDDA_ConstY<BytesPerPixel>(dst, srcRowBase, count, srcX, incrX);
+        return;
+    }
+
+    int32_t sxFirst = srcX >> INT_FIXED_SHIFT;
+    int32_t sxLast  = (srcX + incrX * count) >> INT_FIXED_SHIFT;
+    if (sxFirst == sxLast) {
+        // X座標一定パス（微小X変動も含む）
+        const uint8_t* srcColBase = srcData + static_cast<size_t>(sxFirst * static_cast<int32_t>(BytesPerPixel));
+        view_ops::detail::copyRowDDA_ConstX<BytesPerPixel>(dst, srcColBase, count, srcStride, srcY, incrY);
+        return;
+    }
+
+    // 汎用パス（回転を含む変換）
+    view_ops::detail::copyRowDDA_Impl<BytesPerPixel>(dst, srcData, count, srcStride, srcX, srcY, incrX, incrY);
+}
+
+// 明示的インスタンス化（各フォーマットから参照される）
+template void copyRowDDA_bpp<1>(uint8_t*, const uint8_t*, int, const DDAParam*);
+template void copyRowDDA_bpp<2>(uint8_t*, const uint8_t*, int, const DDAParam*);
+template void copyRowDDA_bpp<3>(uint8_t*, const uint8_t*, int, const DDAParam*);
+template void copyRowDDA_bpp<4>(uint8_t*, const uint8_t*, int, const DDAParam*);
+
+// BPP別の関数ポインタ取得用ラッパー（非テンプレート）
+// pixel_format.h で前方宣言済み
+void copyRowDDA_1bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+    copyRowDDA_bpp<1>(dst, srcData, count, param);
+}
+void copyRowDDA_2bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+    copyRowDDA_bpp<2>(dst, srcData, count, param);
+}
+void copyRowDDA_3bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+    copyRowDDA_bpp<3>(dst, srcData, count, param);
+}
+void copyRowDDA_4bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+    copyRowDDA_bpp<4>(dst, srcData, count, param);
+}
+
+namespace view_ops {
 
 void copyRowDDA(
     void* dst,
@@ -402,52 +471,17 @@ void copyRowDDA(
 ) {
     if (!src.isValid() || count <= 0) return;
 
-    uint8_t* dstRow = static_cast<uint8_t*>(dst);
-    const uint8_t* srcData = static_cast<const uint8_t*>(src.data);
-    int32_t srcStride = src.stride;
-    auto bpp = getBytesPerPixel(src.formatID);
+    // DDAParam を構築
+    DDAParam param = { src.stride, srcX, srcY, incrX, incrY };
 
-    // ソース座標の整数部が全ピクセルで同一か判定（座標は呼び出し側で非負が保証済み）
-    int32_t syFirst = srcY >> INT_FIXED_SHIFT;
-    int32_t syLast  = (srcY + incrY * count) >> INT_FIXED_SHIFT;
-
-    if (syFirst == syLast) {
-        // Y座標一定パス（高頻度: 回転なし拡大縮小・平行移動、微小Y変動も含む）
-        const uint8_t* srcRowBase = srcData
-            + static_cast<size_t>(syFirst * srcStride);
-        switch (bpp) {
-            case 4: detail::copyRowDDA_ConstY<4>(dstRow, srcRowBase, count, srcX, incrX); break;
-            case 3: detail::copyRowDDA_ConstY<3>(dstRow, srcRowBase, count, srcX, incrX); break;
-            case 2: detail::copyRowDDA_ConstY<2>(dstRow, srcRowBase, count, srcX, incrX); break;
-            case 1: detail::copyRowDDA_ConstY<1>(dstRow, srcRowBase, count, srcX, incrX); break;
-            default: break;
-        }
-        return;
-    }
-
-    int32_t sxFirst = srcX >> INT_FIXED_SHIFT;
-    int32_t sxLast  = (srcX + incrX * count) >> INT_FIXED_SHIFT;
-    if (sxFirst == sxLast) {
-        // X座標一定パス（微小X変動も含む）
-        const uint8_t* srcColBase = srcData
-            + static_cast<size_t>(sxFirst * bpp);
-        switch (bpp) {
-            case 4: detail::copyRowDDA_ConstX<4>(dstRow, srcColBase, count, srcStride, srcY, incrY); break;
-            case 3: detail::copyRowDDA_ConstX<3>(dstRow, srcColBase, count, srcStride, srcY, incrY); break;
-            case 2: detail::copyRowDDA_ConstX<2>(dstRow, srcColBase, count, srcStride, srcY, incrY); break;
-            case 1: detail::copyRowDDA_ConstX<1>(dstRow, srcColBase, count, srcStride, srcY, incrY); break;
-            default: break;
-        }
-        return;
-    }
-
-    // 汎用パス（回転を含む変換）
-    switch (bpp) {
-        case 4: detail::copyRowDDA_Impl<4>(dstRow, srcData, count, srcStride, srcX, srcY, incrX, incrY); break;
-        case 3: detail::copyRowDDA_Impl<3>(dstRow, srcData, count, srcStride, srcX, srcY, incrX, incrY); break;
-        case 2: detail::copyRowDDA_Impl<2>(dstRow, srcData, count, srcStride, srcX, srcY, incrX, incrY); break;
-        case 1: detail::copyRowDDA_Impl<1>(dstRow, srcData, count, srcStride, srcX, srcY, incrX, incrY); break;
-        default: break;
+    // フォーマットの関数ポインタを呼び出し
+    if (src.formatID && src.formatID->copyRowDDA) {
+        src.formatID->copyRowDDA(
+            static_cast<uint8_t*>(dst),
+            static_cast<const uint8_t*>(src.data),
+            count,
+            &param
+        );
     }
 }
 

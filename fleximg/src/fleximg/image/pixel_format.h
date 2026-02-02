@@ -5,8 +5,44 @@
 #include <cstddef>
 #include <cstring>
 #include "../core/common.h"
+#include "../core/types.h"
 
 namespace FLEXIMG_NAMESPACE {
+
+// ========================================================================
+// DDA転写パラメータ
+// ========================================================================
+//
+// copyRowDDA 関数に渡すパラメータ構造体。
+// アフィン変換等でのピクセルサンプリングに使用する。
+//
+
+struct DDAParam {
+    int32_t srcStride;    // ソースのストライド（バイト数）
+    int_fixed srcX;       // ソース開始X座標（Q16.16固定小数点）
+    int_fixed srcY;       // ソース開始Y座標（Q16.16固定小数点）
+    int_fixed incrX;      // 1ピクセルあたりのX増分（Q16.16固定小数点）
+    int_fixed incrY;      // 1ピクセルあたりのY増分（Q16.16固定小数点）
+};
+
+// DDA行転写関数の型定義
+// dst: 出力先バッファ
+// srcData: ソースデータ先頭
+// count: 転写ピクセル数
+// param: DDAパラメータ（const、関数内でローカルコピーして使用）
+using CopyRowDDA_Func = void(*)(
+    uint8_t* dst,
+    const uint8_t* srcData,
+    int count,
+    const DDAParam* param
+);
+
+// BPP別 DDA転写関数（前方宣言）
+// 実装は viewport.h の FLEXIMG_IMPLEMENTATION 部で提供
+void copyRowDDA_1bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+void copyRowDDA_2bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+void copyRowDDA_3bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+void copyRowDDA_4bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
 
 // 前方宣言
 struct PixelFormatDescriptor;
@@ -185,6 +221,9 @@ struct PixelFormatDescriptor {
     // エンディアン変換（兄弟フォーマットがある場合）
     const PixelFormatDescriptor* siblingEndian;  // エンディアン違いの兄弟（なければnullptr）
     SwapEndianFunc swapEndian;                   // バイトスワップ関数
+
+    // DDA転写関数
+    CopyRowDDA_Func copyRowDDA;                  // DDA方式の行転写（nullptrなら未対応）
 
     // ========================================================================
     // チャンネルアクセスメソッド（Phase 2で追加）
