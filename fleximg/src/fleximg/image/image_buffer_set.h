@@ -321,6 +321,77 @@ void ImageBufferSet::releaseAllEntries() {
 }
 
 // ----------------------------------------------------------------------------
+// フォーマット変換ヘルパー
+// ----------------------------------------------------------------------------
+
+/// @brief ソースバッファからRGBA8_Straightバッファへコピー/変換
+/// @param dst 出力先（RGBA8_Straight形式、4バイト/ピクセル）
+/// @param src 入力元
+/// @param width ピクセル数
+/// @param srcFmt ソースのピクセルフォーマット
+/// @param auxInfo ソースの補助情報（パレット等）
+/// @note srcFmtがRGBA8_Straightの場合は直接コピー、それ以外はtoStraightで変換
+inline void copyLineToStraight(
+    void* dst,
+    const void* src,
+    int width,
+    PixelFormatID srcFmt,
+    const PixelAuxInfo* auxInfo)
+{
+    constexpr size_t bytesPerPixel = 4;
+    if (srcFmt == PixelFormatIDs::RGBA8_Straight) {
+        std::memcpy(dst, src, static_cast<size_t>(width) * bytesPerPixel);
+    } else if (srcFmt && srcFmt->toStraight) {
+        srcFmt->toStraight(dst, src, width, auxInfo);
+    }
+}
+
+/// @brief 任意フォーマット間の変換（Straight経由の汎用変換対応）
+/// @param dst 出力先
+/// @param src 入力元
+/// @param width ピクセル数
+/// @param srcFmt ソースのピクセルフォーマット
+/// @param dstFmt 出力のピクセルフォーマット
+/// @param auxInfo ソースの補助情報（パレット等）
+/// @param allocator 一時バッファ用アロケータ（汎用変換時に必要）
+/// @note 変換パターン: 同一フォーマット→コピー、→Straight、Straight→、汎用(経由)
+inline void convertLine(
+    void* dst,
+    const void* src,
+    int width,
+    PixelFormatID srcFmt,
+    PixelFormatID dstFmt,
+    const PixelAuxInfo* auxInfo,
+    core::memory::IAllocator* allocator)
+{
+    if (srcFmt == dstFmt) {
+        // 同一フォーマット: 直接コピー
+        size_t bpp = static_cast<size_t>(getBytesPerPixel(dstFmt));
+        std::memcpy(dst, src, static_cast<size_t>(width) * bpp);
+        return;
+    }
+    if (dstFmt == PixelFormatIDs::RGBA8_Straight && srcFmt && srcFmt->toStraight) {
+        // RGBA8_Straightへ変換
+        srcFmt->toStraight(dst, src, width, auxInfo);
+        return;
+    }
+    if (srcFmt == PixelFormatIDs::RGBA8_Straight && dstFmt && dstFmt->fromStraight) {
+        // RGBA8_Straightから変換
+        dstFmt->fromStraight(dst, src, width, auxInfo);
+        return;
+    }
+    // 汎用変換（Straight経由）
+    if (allocator && srcFmt && srcFmt->toStraight && dstFmt && dstFmt->fromStraight) {
+        ImageBuffer tempBuf(width, 1, PixelFormatIDs::RGBA8_Straight,
+                            InitPolicy::Uninitialized, allocator);
+        if (tempBuf.isValid()) {
+            srcFmt->toStraight(tempBuf.view().pixelAt(0, 0), src, width, auxInfo);
+            dstFmt->fromStraight(dst, tempBuf.view().pixelAt(0, 0), width, nullptr);
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
 // addBuffer
 // ----------------------------------------------------------------------------
 
@@ -612,36 +683,25 @@ bool ImageBufferSet::mergeOverlapping(Entry* newEntry,
         int exWidth = exEnd - exStart;
         int dstOffset = exStart - mergedStartX;
 
-        PixelFormatID exFmt = existing->buffer.view().formatID;
-        const uint8_t* exSrcRow = static_cast<const uint8_t*>(existing->buffer.view().pixelAt(0, 0));
         uint8_t* dstPtr = mergedRow + static_cast<size_t>(dstOffset) * bytesPerPixel;
-
-        if (exFmt == PixelFormatIDs::RGBA8_Straight) {
-            // 同一フォーマット: 直接コピー
-            std::memcpy(dstPtr, exSrcRow, static_cast<size_t>(exWidth) * bytesPerPixel);
-        } else if (exFmt->toStraight) {
-            // フォーマット変換してmergedBufに直接出力
-            exFmt->toStraight(dstPtr, exSrcRow, exWidth, &existing->buffer.auxInfo());
-        }
+        copyLineToStraight(dstPtr, existing->buffer.view().pixelAt(0, 0),
+                           exWidth, existing->buffer.view().formatID,
+                           &existing->buffer.auxInfo());
     }
 
     // --- 2. 新エントリの非重複部分をmergedBufに直接コピー/変換 ---
 
     // ヘルパー: 新エントリの指定範囲をmergedBufにコピー/変換
-    const PixelAuxInfo& newAuxInfo = newEntry->buffer.auxInfo();
+    const PixelAuxInfo* newAuxInfo = &newEntry->buffer.auxInfo();
+    size_t srcBytesPerPixel = newFmt->bytesPerUnit / newFmt->pixelsPerUnit;
     auto copyNewRegion = [&](int16_t regionStart, int16_t regionEnd) {
         if (regionStart >= regionEnd) return;
         int width = regionEnd - regionStart;
         int dstOffset = regionStart - mergedStartX;
         int srcOffset = regionStart - newRange.startX;
         uint8_t* dstPtr = mergedRow + static_cast<size_t>(dstOffset) * bytesPerPixel;
-        const uint8_t* srcPtr = newSrcRow + static_cast<size_t>(srcOffset) * (newFmt->bytesPerUnit / newFmt->pixelsPerUnit);
-
-        if (newFmt == PixelFormatIDs::RGBA8_Straight) {
-            std::memcpy(dstPtr, srcPtr, static_cast<size_t>(width) * bytesPerPixel);
-        } else if (newFmt->toStraight) {
-            newFmt->toStraight(dstPtr, srcPtr, width, &newAuxInfo);
-        }
+        const uint8_t* srcPtr = newSrcRow + static_cast<size_t>(srcOffset) * srcBytesPerPixel;
+        copyLineToStraight(dstPtr, srcPtr, width, newFmt, newAuxInfo);
     };
 
     // 最初の既存より左
@@ -702,7 +762,7 @@ bool ImageBufferSet::mergeOverlapping(Entry* newEntry,
                                     InitPolicy::Uninitialized, allocator_);
                 if (tempBuf.isValid()) {
                     const uint8_t* srcPtr = newSrcRow + static_cast<size_t>(srcOffset) * (newFmt->bytesPerUnit / newFmt->pixelsPerUnit);
-                    newFmt->toStraight(tempBuf.view().pixelAt(0, 0), srcPtr, width, &newAuxInfo);
+                    newFmt->toStraight(tempBuf.view().pixelAt(0, 0), srcPtr, width, newAuxInfo);
                     PixelFormatIDs::RGBA8_Straight->blendUnderStraight(
                         dstPtr, tempBuf.view().pixelAt(0, 0), width, nullptr);
                 }
@@ -778,20 +838,8 @@ void ImageBufferSet::convertFormat(PixelFormatID format, bool doMergeAdjacent) {
         void* dstRow = converted.view().pixelAt(0, 0);
         const PixelAuxInfo* auxInfo = &entry->buffer.auxInfo();
 
-        // フォーマット変換
-        if (format == PixelFormatIDs::RGBA8_Straight && srcFmt->toStraight) {
-            srcFmt->toStraight(dstRow, srcRow, width, auxInfo);
-        } else if (srcFmt == PixelFormatIDs::RGBA8_Straight && format->fromStraight) {
-            format->fromStraight(dstRow, srcRow, width, auxInfo);
-        } else {
-            // 汎用変換（Straight経由）
-            ImageBuffer tempBuf(width, 1, PixelFormatIDs::RGBA8_Straight,
-                                InitPolicy::Uninitialized, allocator_);
-            if (tempBuf.isValid() && srcFmt->toStraight && format->fromStraight) {
-                srcFmt->toStraight(tempBuf.view().pixelAt(0, 0), srcRow, width, auxInfo);
-                format->fromStraight(dstRow, tempBuf.view().pixelAt(0, 0), width, nullptr);
-            }
-        }
+        // フォーマット変換（convertLineヘルパー使用）
+        convertLine(dstRow, srcRow, width, srcFmt, format, auxInfo, allocator_);
 
         entry->buffer = std::move(converted);
     }
@@ -875,24 +923,8 @@ ImageBuffer ImageBufferSet::consolidate(PixelFormatID format) {
         void* dstPtr = dstRow + static_cast<size_t>(entryStart) * dstBpp;
         const PixelAuxInfo* auxInfo = &entry->buffer.auxInfo();
 
-        if (srcFmt == format) {
-            // 同一フォーマット: 直接コピー
-            std::memcpy(dstPtr, srcRow, static_cast<size_t>(width) * dstBpp);
-        } else if (format == PixelFormatIDs::RGBA8_Straight && srcFmt->toStraight) {
-            // RGBA8_Straightへ変換
-            srcFmt->toStraight(dstPtr, srcRow, width, auxInfo);
-        } else if (srcFmt == PixelFormatIDs::RGBA8_Straight && format->fromStraight) {
-            // RGBA8_Straightから変換
-            format->fromStraight(dstPtr, srcRow, width, auxInfo);
-        } else {
-            // 汎用変換（Straight経由）
-            ImageBuffer tempBuf(width, 1, PixelFormatIDs::RGBA8_Straight,
-                                InitPolicy::Uninitialized, allocator_);
-            if (tempBuf.isValid() && srcFmt->toStraight && format->fromStraight) {
-                srcFmt->toStraight(tempBuf.view().pixelAt(0, 0), srcRow, width, auxInfo);
-                format->fromStraight(dstPtr, tempBuf.view().pixelAt(0, 0), width, nullptr);
-            }
-        }
+        // フォーマット変換（convertLineヘルパー使用）
+        convertLine(dstPtr, srcRow, width, srcFmt, format, auxInfo, allocator_);
 
         // カーソルを更新
         cursor = entryEnd;
@@ -993,18 +1025,12 @@ void ImageBufferSet::consolidateInPlace() {
         }
 
         // エントリをコピー
-        PixelFormatID srcFmt = entry->buffer.view().formatID;
         const void* srcRow = entry->buffer.view().pixelAt(0, 0);
         if (srcRow) {
             void* dstPtr = dstRow + static_cast<size_t>(entryStart) * bytesPerPixel;
-
-            if (srcFmt == PixelFormatIDs::RGBA8_Straight) {
-                // 同一フォーマット: 直接コピー
-                std::memcpy(dstPtr, srcRow, static_cast<size_t>(width) * bytesPerPixel);
-            } else if (srcFmt && srcFmt->toStraight) {
-                // RGBA8_Straightへ変換
-                srcFmt->toStraight(dstPtr, srcRow, width, &entry->buffer.auxInfo());
-            }
+            copyLineToStraight(dstPtr, srcRow, width,
+                               entry->buffer.view().formatID,
+                               &entry->buffer.auxInfo());
         }
 
         // カーソルを更新
@@ -1087,16 +1113,9 @@ void ImageBufferSet::mergeAdjacent(int16_t gapThreshold) {
 
             // prev をコピー
             int prevWidth = prev->range.endX - prev->range.startX;
-            {
-                PixelFormatID srcFmt = prev->buffer.view().formatID;
-                const void* srcRow = prev->buffer.view().pixelAt(0, 0);
-
-                if (srcFmt == PixelFormatIDs::RGBA8_Straight) {
-                    std::memcpy(mergedRow, srcRow, static_cast<size_t>(prevWidth) * bytesPerPixel);
-                } else if (srcFmt->toStraight) {
-                    srcFmt->toStraight(mergedRow, srcRow, prevWidth, &prev->buffer.auxInfo());
-                }
-            }
+            copyLineToStraight(mergedRow, prev->buffer.view().pixelAt(0, 0),
+                               prevWidth, prev->buffer.view().formatID,
+                               &prev->buffer.auxInfo());
 
             // ギャップ部分をゼロ埋め（gap > 0 の場合のみ）
             if (gap > 0) {
@@ -1105,19 +1124,12 @@ void ImageBufferSet::mergeAdjacent(int16_t gapThreshold) {
             }
 
             // curr をコピー
-            {
-                int dstOffset = curr->range.startX - mergedStartX;
-                int width = curr->range.endX - curr->range.startX;
-                PixelFormatID srcFmt = curr->buffer.view().formatID;
-                const void* srcRow = curr->buffer.view().pixelAt(0, 0);
-                void* dstPtr = mergedRow + static_cast<size_t>(dstOffset) * bytesPerPixel;
-
-                if (srcFmt == PixelFormatIDs::RGBA8_Straight) {
-                    std::memcpy(dstPtr, srcRow, static_cast<size_t>(width) * bytesPerPixel);
-                } else if (srcFmt->toStraight) {
-                    srcFmt->toStraight(dstPtr, srcRow, width, &curr->buffer.auxInfo());
-                }
-            }
+            int currWidth = curr->range.endX - curr->range.startX;
+            int currDstOffset = curr->range.startX - mergedStartX;
+            void* currDstPtr = mergedRow + static_cast<size_t>(currDstOffset) * bytesPerPixel;
+            copyLineToStraight(currDstPtr, curr->buffer.view().pixelAt(0, 0),
+                               currWidth, curr->buffer.view().formatID,
+                               &curr->buffer.auxInfo());
 
             // prevを統合結果で置き換え
             prev->buffer = std::move(merged);
