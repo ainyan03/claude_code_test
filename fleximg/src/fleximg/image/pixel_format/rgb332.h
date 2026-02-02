@@ -132,7 +132,7 @@ const PixelFormatDescriptor RGB332 = {
     nullptr,  // blendUnderStraight
     nullptr,  // siblingEndian
     nullptr,  // swapEndian
-    copyRowDDA_1bpp  // copyRowDDA
+    pixel_format::detail::copyRowDDA_1bpp  // copyRowDDA
 };
 
 } // namespace BuiltinFormats

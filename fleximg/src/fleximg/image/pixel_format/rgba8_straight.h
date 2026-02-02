@@ -279,7 +279,7 @@ const PixelFormatDescriptor RGBA8_Straight = {
     rgba8Straight_blendUnderStraight,  // blendUnderStraight
     nullptr,  // siblingEndian
     nullptr,  // swapEndian
-    copyRowDDA_4bpp  // copyRowDDA
+    pixel_format::detail::copyRowDDA_4bpp  // copyRowDDA
 };
 
 } // namespace BuiltinFormats

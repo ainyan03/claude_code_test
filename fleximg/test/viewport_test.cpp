@@ -10,6 +10,33 @@
 using namespace fleximg;
 
 // =============================================================================
+// テスト用ヘルパー関数
+// =============================================================================
+
+// ViewPort から直接 copyRowDDA を呼び出すヘルパー
+// testCopyRowDDA の代替として使用
+static void testCopyRowDDA(
+    void* dst,
+    const ViewPort& src,
+    int count,
+    int_fixed srcX,
+    int_fixed srcY,
+    int_fixed incrX,
+    int_fixed incrY
+) {
+    if (!src.isValid() || count <= 0) return;
+    DDAParam param = { src.stride, srcX, srcY, incrX, incrY };
+    if (src.formatID && src.formatID->copyRowDDA) {
+        src.formatID->copyRowDDA(
+            static_cast<uint8_t*>(dst),
+            static_cast<const uint8_t*>(src.data),
+            count,
+            &param
+        );
+    }
+}
+
+// =============================================================================
 // ViewPort Construction Tests
 // =============================================================================
 
@@ -222,7 +249,7 @@ TEST_CASE("copyRowDDA: incrY==0 (horizontal scan)") {
         int_fixed incrX = INT_FIXED_ONE;
         int_fixed incrY = 0;
 
-        view_ops::copyRowDDA(dstActual, src, COUNT, srcX, srcY, incrX, incrY);
+        testCopyRowDDA(dstActual, src, COUNT, srcX, srcY, incrX, incrY);
         copyRowDDA_Reference(dstExpected, srcBuf, src.stride, BPP,
                              srcX, srcY, incrX, incrY, COUNT);
 
@@ -241,7 +268,7 @@ TEST_CASE("copyRowDDA: incrY==0 (horizontal scan)") {
         int_fixed incrX = INT_FIXED_ONE / 2;  // 0.5刻み → 2倍拡大
         int_fixed incrY = 0;
 
-        view_ops::copyRowDDA(dstActual, src, COUNT, srcX, srcY, incrX, incrY);
+        testCopyRowDDA(dstActual, src, COUNT, srcX, srcY, incrX, incrY);
         copyRowDDA_Reference(dstExpected, srcBuf, src.stride, BPP,
                              srcX, srcY, incrX, incrY, COUNT);
 
@@ -260,7 +287,7 @@ TEST_CASE("copyRowDDA: incrY==0 (horizontal scan)") {
         int_fixed incrX = INT_FIXED_ONE * 2;  // 2.0刻み → 0.5倍縮小
         int_fixed incrY = 0;
 
-        view_ops::copyRowDDA(dstActual, src, COUNT, srcX, srcY, incrX, incrY);
+        testCopyRowDDA(dstActual, src, COUNT, srcX, srcY, incrX, incrY);
         copyRowDDA_Reference(dstExpected, srcBuf, src.stride, BPP,
                              srcX, srcY, incrX, incrY, COUNT);
 
@@ -295,7 +322,7 @@ TEST_CASE("copyRowDDA: incrX==0 (vertical scan)") {
     int_fixed incrX = 0;
     int_fixed incrY = INT_FIXED_ONE;
 
-    view_ops::copyRowDDA(dstActual, src, COUNT, srcX, srcY, incrX, incrY);
+    testCopyRowDDA(dstActual, src, COUNT, srcX, srcY, incrX, incrY);
     copyRowDDA_Reference(dstExpected, srcBuf, src.stride, BPP,
                          srcX, srcY, incrX, incrY, COUNT);
 
@@ -329,7 +356,7 @@ TEST_CASE("copyRowDDA: both non-zero (diagonal/rotation)") {
     int_fixed incrX = INT_FIXED_ONE;      // 斜め: X+1, Y+1
     int_fixed incrY = INT_FIXED_ONE;
 
-    view_ops::copyRowDDA(dstActual, src, COUNT, srcX, srcY, incrX, incrY);
+    testCopyRowDDA(dstActual, src, COUNT, srcX, srcY, incrX, incrY);
     copyRowDDA_Reference(dstExpected, srcBuf, src.stride, BPP,
                          srcX, srcY, incrX, incrY, COUNT);
 
@@ -357,7 +384,7 @@ TEST_CASE("copyRowDDA: boundary conditions") {
         int_fixed incrX = INT_FIXED_ONE;
         int_fixed incrY = 0;
 
-        view_ops::copyRowDDA(dstActual, src, 1, srcX, srcY, incrX, incrY);
+        testCopyRowDDA(dstActual, src, 1, srcX, srcY, incrX, incrY);
         copyRowDDA_Reference(dstExpected, srcBuf, src.stride, BPP,
                              srcX, srcY, incrX, incrY, 1);
 
@@ -376,7 +403,7 @@ TEST_CASE("copyRowDDA: boundary conditions") {
         int_fixed incrX = INT_FIXED_ONE;
         int_fixed incrY = 0;
 
-        view_ops::copyRowDDA(dstActual, src, COUNT, srcX, srcY, incrX, incrY);
+        testCopyRowDDA(dstActual, src, COUNT, srcX, srcY, incrX, incrY);
         copyRowDDA_Reference(dstExpected, srcBuf, src.stride, BPP,
                              srcX, srcY, incrX, incrY, COUNT);
 
@@ -387,7 +414,7 @@ TEST_CASE("copyRowDDA: boundary conditions") {
 
     SUBCASE("count==0 (no-op)") {
         uint8_t dstActual[BPP] = {0xAA, 0xBB, 0xCC, 0xDD};
-        view_ops::copyRowDDA(dstActual, src, 0, 0, 0, INT_FIXED_ONE, 0);
+        testCopyRowDDA(dstActual, src, 0, 0, 0, INT_FIXED_ONE, 0);
         // バッファが変更されていないことを確認
         CHECK(dstActual[0] == 0xAA);
         CHECK(dstActual[1] == 0xBB);
@@ -429,7 +456,7 @@ TEST_CASE("copyRowDDA: 2BPP format") {
         int_fixed incrX = 0;
         int_fixed incrY = INT_FIXED_ONE / 2;  // 0.5刻み
 
-        view_ops::copyRowDDA(dstActual, src2, COUNT, srcX, srcY, incrX, incrY);
+        testCopyRowDDA(dstActual, src2, COUNT, srcX, srcY, incrX, incrY);
         copyRowDDA_Reference(dstExpected, srcBuf2, src2.stride, BPP2,
                              srcX, srcY, incrX, incrY, COUNT);
 
@@ -467,7 +494,7 @@ TEST_CASE("copyRowDDA: relaxed ConstY condition (small incrY, same row)") {
         int_fixed incrX = INT_FIXED_ONE;
         int_fixed incrY = INT_FIXED_ONE / 256;
 
-        view_ops::copyRowDDA(dstActual, src, COUNT, srcX, srcY, incrX, incrY);
+        testCopyRowDDA(dstActual, src, COUNT, srcX, srcY, incrX, incrY);
         copyRowDDA_Reference(dstExpected, srcBuf, src.stride, BPP,
                              srcX, srcY, incrX, incrY, COUNT);
 
@@ -488,7 +515,7 @@ TEST_CASE("copyRowDDA: relaxed ConstY condition (small incrY, same row)") {
         int_fixed incrX = INT_FIXED_ONE;
         int_fixed incrY = INT_FIXED_ONE / 10;  // 0.1
 
-        view_ops::copyRowDDA(dstActual, src, COUNT, srcX, srcY, incrX, incrY);
+        testCopyRowDDA(dstActual, src, COUNT, srcX, srcY, incrX, incrY);
         copyRowDDA_Reference(dstExpected, srcBuf, src.stride, BPP,
                              srcX, srcY, incrX, incrY, COUNT);
 
@@ -509,7 +536,7 @@ TEST_CASE("copyRowDDA: relaxed ConstY condition (small incrY, same row)") {
         int_fixed incrX = INT_FIXED_ONE;
         int_fixed incrY = -(INT_FIXED_ONE / 256);  // -0.004
 
-        view_ops::copyRowDDA(dstActual, src, COUNT, srcX, srcY, incrX, incrY);
+        testCopyRowDDA(dstActual, src, COUNT, srcX, srcY, incrX, incrY);
         copyRowDDA_Reference(dstExpected, srcBuf, src.stride, BPP,
                              srcX, srcY, incrX, incrY, COUNT);
 
@@ -547,7 +574,7 @@ TEST_CASE("copyRowDDA: relaxed ConstX condition (small incrX, same column)") {
         int_fixed incrX = INT_FIXED_ONE / 256;
         int_fixed incrY = INT_FIXED_ONE;
 
-        view_ops::copyRowDDA(dstActual, src, COUNT, srcX, srcY, incrX, incrY);
+        testCopyRowDDA(dstActual, src, COUNT, srcX, srcY, incrX, incrY);
         copyRowDDA_Reference(dstExpected, srcBuf, src.stride, BPP,
                              srcX, srcY, incrX, incrY, COUNT);
 
@@ -568,7 +595,7 @@ TEST_CASE("copyRowDDA: relaxed ConstX condition (small incrX, same column)") {
         int_fixed incrX = INT_FIXED_ONE / 10;
         int_fixed incrY = INT_FIXED_ONE;
 
-        view_ops::copyRowDDA(dstActual, src, COUNT, srcX, srcY, incrX, incrY);
+        testCopyRowDDA(dstActual, src, COUNT, srcX, srcY, incrX, incrY);
         copyRowDDA_Reference(dstExpected, srcBuf, src.stride, BPP,
                              srcX, srcY, incrX, incrY, COUNT);
 

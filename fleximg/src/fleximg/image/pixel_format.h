@@ -340,7 +340,8 @@ template void lut8toN<uint32_t>(uint32_t*, const uint8_t*, int, const uint32_t*)
 // DDA転写関数 - 実装
 // ============================================================================
 
-namespace dda_detail {
+namespace pixel_format {
+namespace detail {
 
 // BPP → ネイティブ型マッピング（ロード・ストア分離用）
 // BPP 1, 2, 4 はネイティブ型で直接ロード・ストア可能
@@ -539,14 +540,11 @@ void copyRowDDA_Impl(
     }
 }
 
-} // namespace dda_detail
-
 // ============================================================================
 // BPP別 DDA転写関数（CopyRowDDA_Func シグネチャ準拠）
 // ============================================================================
 //
 // PixelFormatDescriptor::copyRowDDA に設定する関数群。
-// 内部で dda_detail 名前空間のテンプレート関数を呼び出す。
 //
 
 template<size_t BytesPerPixel>
@@ -561,7 +559,7 @@ void copyRowDDA_bpp(
     // ソース座標の整数部が全ピクセルで同一か判定（座標は呼び出し側で非負が保証済み）
     if (0 == (((srcY & ((1 << INT_FIXED_SHIFT) - 1)) + incrY * count) >> INT_FIXED_SHIFT)) {
         // Y座標一定パス（高頻度: 回転なし拡大縮小・平行移動、微小Y変動も含む）
-        dda_detail::copyRowDDA_ConstY<BytesPerPixel>(dst, srcData, count, param);
+        copyRowDDA_ConstY<BytesPerPixel>(dst, srcData, count, param);
         return;
     }
 
@@ -569,12 +567,12 @@ void copyRowDDA_bpp(
     const int_fixed incrX = param->incrX;
     if (0 == (((srcX & ((1 << INT_FIXED_SHIFT) - 1)) + incrX * count) >> INT_FIXED_SHIFT)) {
         // X座標一定パス（微小X変動も含む）
-        dda_detail::copyRowDDA_ConstX<BytesPerPixel>(dst, srcData, count, param);
+        copyRowDDA_ConstX<BytesPerPixel>(dst, srcData, count, param);
         return;
     }
 
     // 汎用パス（回転を含む変換）
-    dda_detail::copyRowDDA_Impl<BytesPerPixel>(dst, srcData, count, param);
+    copyRowDDA_Impl<BytesPerPixel>(dst, srcData, count, param);
 }
 
 // 明示的インスタンス化（各フォーマットから参照される）
@@ -584,19 +582,21 @@ template void copyRowDDA_bpp<3>(uint8_t*, const uint8_t*, int, const DDAParam*);
 template void copyRowDDA_bpp<4>(uint8_t*, const uint8_t*, int, const DDAParam*);
 
 // BPP別の関数ポインタ取得用ラッパー（非テンプレート）
-void copyRowDDA_1bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+inline void copyRowDDA_1bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
     copyRowDDA_bpp<1>(dst, srcData, count, param);
 }
-void copyRowDDA_2bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+inline void copyRowDDA_2bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
     copyRowDDA_bpp<2>(dst, srcData, count, param);
 }
-void copyRowDDA_3bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+inline void copyRowDDA_3bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
     copyRowDDA_bpp<3>(dst, srcData, count, param);
 }
-void copyRowDDA_4bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+inline void copyRowDDA_4bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
     copyRowDDA_bpp<4>(dst, srcData, count, param);
 }
 
+} // namespace detail
+} // namespace pixel_format
 } // namespace FLEXIMG_NAMESPACE
 
 #endif // FLEXIMG_IMPLEMENTATION

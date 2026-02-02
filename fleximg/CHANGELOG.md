@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.63.12] - 2026-02-02
+
+### リファクタリング
+
+- **DDA転写関数**: `dda_detail`名前空間を`pixel_format::detail`に統合
+  - DDA関数はPixelFormatDescriptorの内部実装詳細であり、pixel_format名前空間に属するのが適切
+  - `pixel_format::detail::copyRowDDA_Xbpp`としてアクセス
+  - 将来のbit-packedフォーマット追加に向けた整理
+
+- **view_ops::copyRowDDA廃止準備**: テスト・ベンチマークでの直接参照を削除
+  - `viewport_test.cpp`: `testCopyRowDDA`ヘルパー関数に置換
+  - `bench/main.cpp`: `benchCopyRowDDA`ヘルパー関数に置換
+  - SourceNodeは既にfunction pointer方式に移行済み
+
+---
+
 ## [2.63.11] - 2026-02-02
 
 ### リファクタリング
