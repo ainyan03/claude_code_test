@@ -64,32 +64,19 @@ public:
     // ========================================
 
     /// @brief デフォルトコンストラクタ
-    ImageBufferSet()
-        : pool_(nullptr), allocator_(nullptr), entryCount_(0) {
-        for (int i = 0; i < MAX_ENTRIES; ++i) {
-            entryPtrs_[i] = nullptr;
-        }
-    }
+    ImageBufferSet() = default;
 
     /// @brief コンストラクタ（プール指定）
     /// @param pool エントリプール
     /// @param allocator メモリアロケータ（合成用バッファ確保）
     explicit ImageBufferSet(ImageBufferEntryPool* pool,
                            core::memory::IAllocator* allocator = nullptr)
-        : pool_(pool), allocator_(allocator), entryCount_(0) {
-        for (int i = 0; i < MAX_ENTRIES; ++i) {
-            entryPtrs_[i] = nullptr;
-        }
-    }
+        : pool_(pool), allocator_(allocator) {}
 
     /// @brief コンストラクタ（アロケータのみ、後方互換）
     /// @param allocator メモリアロケータ
     explicit ImageBufferSet(core::memory::IAllocator* allocator)
-        : pool_(nullptr), allocator_(allocator), entryCount_(0) {
-        for (int i = 0; i < MAX_ENTRIES; ++i) {
-            entryPtrs_[i] = nullptr;
-        }
-    }
+        : allocator_(allocator) {}
 
     /// @brief デストラクタ
     ~ImageBufferSet() {
@@ -244,10 +231,10 @@ public:
     core::memory::IAllocator* allocator() const { return allocator_; }
 
 private:
-    Entry* entryPtrs_[MAX_ENTRIES];  ///< エントリポインタ配列（ソート済み）
-    ImageBufferEntryPool* pool_;     ///< エントリプール
-    core::memory::IAllocator* allocator_;  ///< メモリアロケータ（合成用）
-    int entryCount_;  ///< 有効エントリ数
+    Entry* entryPtrs_[MAX_ENTRIES] = {};  ///< エントリポインタ配列（ソート済み、nullptrで初期化）
+    ImageBufferEntryPool* pool_ = nullptr;     ///< エントリプール
+    core::memory::IAllocator* allocator_ = nullptr;  ///< メモリアロケータ（合成用）
+    int entryCount_ = 0;  ///< 有効エントリ数
 
     // ========================================
     // 内部ヘルパー
@@ -568,38 +555,27 @@ bool ImageBufferSet::insertSorted(Entry* entry) {
 // ----------------------------------------------------------------------------
 
 bool ImageBufferSet::insertOrMerge(Entry* entry) {
-    // 重複チェック
-    int overlapStart = 0, overlapEnd = 0;
-    if (findOverlapping(entry->range, overlapStart, overlapEnd)) {
-        // 重複あり → 合成処理
-        return mergeOverlapping(entry, overlapStart, overlapEnd);
-    }
-
-    // 重複なし → ソート位置に挿入
-    if (insertSorted(entry)) {
-        return true;
-    }
-
-    // 挿入失敗（上限超過）→ 統合して空きを作る
-    mergeAdjacent(0);
-    if (entryCount_ >= MAX_ENTRIES) {
-        // consolidateInPlace前にオフセットを保存
-        int16_t originalStartX = entryPtrs_[0]->range.startX;
-        consolidateInPlace();
-        // consolidateInPlaceは{0, width}に正規化するのでオフセットを復元
-        if (entryCount_ == 1) {
-            int16_t width = entryPtrs_[0]->range.endX;
-            entryPtrs_[0]->range = DataRange{originalStartX,
-                static_cast<int16_t>(originalStartX + width)};
+    // エントリ数が半分を超えたら積極的に統合して空きを確保
+    if (entryCount_ > (MAX_ENTRIES >> 1)) {
+        mergeAdjacent(0);
+        if (entryCount_ >= MAX_ENTRIES) {
+            // consolidateInPlace前にオフセットを保存
+            int16_t originalStartX = entryPtrs_[0]->range.startX;
+            consolidateInPlace();
+            // consolidateInPlaceは{0, width}に正規化するのでオフセットを復元
+            if (entryCount_ == 1) {
+                int16_t width = entryPtrs_[0]->range.endX;
+                entryPtrs_[0]->range = DataRange{originalStartX,
+                    static_cast<int16_t>(originalStartX + width)};
+            }
         }
     }
 
-    // 統合後は重複が発生している可能性があるので再チェック
+    // 重複チェック → マージまたは挿入
+    int overlapStart = 0, overlapEnd = 0;
     if (findOverlapping(entry->range, overlapStart, overlapEnd)) {
         return mergeOverlapping(entry, overlapStart, overlapEnd);
     }
-
-    // 再度挿入を試みる
     return insertSorted(entry);
 }
 

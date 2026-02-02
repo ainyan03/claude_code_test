@@ -87,11 +87,12 @@ public:
     /// @note ヒント付き循環探索でO(1)に近い性能を実現
     Entry* acquire() {
         // nextHint_から開始して循環探索
+        uint_fast8_t idx = nextHint_;
         for (int i = 0; i < POOL_SIZE; ++i) {
-            int idx = (nextHint_ + i) & (POOL_SIZE - 1);
+            idx = (idx + 1) & (POOL_SIZE - 1);
             if (!entries_[idx].inUse) {
                 entries_[idx].inUse = true;
-                nextHint_ = (idx + 1) & (POOL_SIZE - 1);
+                nextHint_ = idx;
                 return &entries_[idx];
             }
         }
@@ -115,8 +116,10 @@ public:
 #endif
             }
 #endif
-            entry->buffer.reset();  // バッファ解放（重要: 再取得前にクリア）
-            entry->inUse = false;
+            if (entry->inUse) {
+                entry->buffer.reset();  // バッファ解放（重要: 再取得前にクリア）
+                entry->inUse = false;
+            }
         }
     }
 
@@ -124,8 +127,8 @@ public:
     void releaseAll() {
         for (int i = 0; i < POOL_SIZE; ++i) {
             if (entries_[i].inUse) {
-                entries_[i].inUse = false;
                 entries_[i].buffer.reset();  // 軽量リセット
+                entries_[i].inUse = false;
             }
         }
         nextHint_ = 0;  // ヒントをリセット
@@ -159,7 +162,7 @@ public:
 
 private:
     Entry entries_[POOL_SIZE];  ///< エントリ配列
-    int nextHint_;              ///< 次回探索開始位置（循環探索用）
+    uint8_t nextHint_;              ///< 次回探索開始位置（循環探索用）
 };
 
 } // namespace FLEXIMG_NAMESPACE
