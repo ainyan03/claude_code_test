@@ -63,32 +63,35 @@ public:
     // RendererNode用設定メソッド
     // ========================================
 
-    /// @brief アロケータを設定
-    void setAllocator(memory::IAllocator* alloc) { allocator_ = alloc; }
-
-    /// @brief エントリプールを設定
-    void setEntryPool(ImageBufferEntryPool* pool) { entryPool_ = pool; }
+    /// @brief アロケータとエントリプールを一括設定
+    /// @param alloc メモリアロケータ
+    /// @param pool エントリプール
+    void setup(memory::IAllocator* alloc, ImageBufferEntryPool* pool) {
+        allocator_ = alloc;
+        entryPool_ = pool;
+        for (uint_fast8_t i = 0; i < MAX_RESPONSES; ++i) {
+            responsePool_[i].bufferSet.setAllocator(allocator_);
+            responsePool_[i].bufferSet.setPool(entryPool_);
+        }
+    }
 
     // ========================================
     // RenderResponse貸出API（ImageBufferEntryPool方式）
     // ========================================
 
     /// @brief RenderResponseを取得（借用）
-    /// @return 初期化済みRenderResponse参照（pool/allocator設定済み）
+    /// @return RenderResponse参照（pool/allocatorはsetupで設定済み）
     /// @note プール枯渇時はエラーフラグを設定し、フォールバックを返す
-    /// @note ImageBufferEntryPoolと同様のヒント付き循環探索
+    /// @note ヒント付き循環探索でO(1)に近い性能を実現
     RenderResponse& acquireResponse() {
         // nextHint_から開始して循環探索
+        uint_fast8_t idx = nextHint_;
         for (int i = 0; i < MAX_RESPONSES; ++i) {
-            int idx = (nextHint_ + i) & (MAX_RESPONSES - 1);
+            idx = (idx + 1) & (MAX_RESPONSES - 1);
             if (!responsePool_[idx].inUse) {
                 responsePool_[idx].inUse = true;
-                nextHint_ = (idx + 1) & (MAX_RESPONSES - 1);
-                RenderResponse& resp = responsePool_[idx];
-                resp.bufferSet.setPool(entryPool_);
-                resp.bufferSet.setAllocator(allocator_);
-                resp.bufferSet.clear();
-                return resp;
+                nextHint_ = idx;
+                return responsePool_[idx];
             }
         }
         // プール枯渇
@@ -150,8 +153,8 @@ public:
 #endif
         for (int i = 0; i < MAX_RESPONSES; ++i) {
             if (responsePool_[i].inUse) {
-                responsePool_[i].inUse = false;
                 responsePool_[i].bufferSet.clear();
+                responsePool_[i].inUse = false;
             }
         }
         nextHint_ = 0;
@@ -176,8 +179,8 @@ private:
 
     // RenderResponseプール（ImageBufferEntryPoolと同様の管理）
     RenderResponse responsePool_[MAX_RESPONSES];
-    int nextHint_ = 0;  // 次回探索開始位置（循環探索用）
     Error error_ = Error::None;
+    uint_fast8_t nextHint_ = 0;  // 次回探索開始位置（循環探索用）
 };
 
 } // namespace core

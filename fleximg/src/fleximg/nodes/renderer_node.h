@@ -289,9 +289,8 @@ PrepareStatus RendererNode::execPrepare() {
         pipelineAllocator_ = &core::memory::DefaultAllocator::instance();
     }
 
-    // コンテキストを設定
-    context_.setAllocator(pipelineAllocator_);
-    context_.setEntryPool(&entryPool_);
+    // コンテキストを設定（一括設定でループを1回に削減）
+    context_.setup(pipelineAllocator_, &entryPool_);
 
     // ========================================
     // Step 1: 下流へ準備を伝播（AABB取得用）
