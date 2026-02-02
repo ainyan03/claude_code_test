@@ -76,9 +76,25 @@ public:
     /// @return 初期化済みRenderResponse参照（pool/allocator設定済み）
     /// @note プール枯渇時はエラーフラグを設定し、最後のエントリを返す
     RenderResponse& acquireResponse() {
+#ifdef FLEXIMG_DEBUG
+        if (nextResponseIndex_ >= MAX_RESPONSES - 4) {
+            printf("WARN: acquireResponse idx=%d/%d\n", nextResponseIndex_, MAX_RESPONSES);
+            fflush(stdout);
+#ifdef ARDUINO
+            vTaskDelay(1);
+#endif
+        }
+#endif
         if (nextResponseIndex_ >= MAX_RESPONSES) {
             // プール枯渇 - エラーフラグを設定、最後のエントリを返す
             error_ = Error::PoolExhausted;
+#ifdef FLEXIMG_DEBUG
+            printf("ERROR: RenderResponse pool exhausted! MAX=%d\n", MAX_RESPONSES);
+            fflush(stdout);
+#ifdef ARDUINO
+            vTaskDelay(1);
+#endif
+#endif
             RenderResponse& fallback = responsePool_[MAX_RESPONSES - 1];
             fallback.bufferSet.setPool(entryPool_);
             fallback.bufferSet.setAllocator(allocator_);
@@ -103,6 +119,13 @@ public:
     /// @brief スキャンライン終了時にリソースをリセット（RendererNode用）
     /// @note 未返却チェックを行い、インデックスをリセット
     void resetScanlineResources() {
+#ifdef FLEXIMG_DEBUG
+        static int resetCount = 0;
+        if (++resetCount % 100 == 0) {
+            printf("RESET: cnt=%d idx=%d\n", resetCount, nextResponseIndex_);
+            fflush(stdout);
+        }
+#endif
         // 未返却チェック（1つは下流に渡されるため、1以下なら正常）
         if (inUseCount_ > 1) {
             error_ = Error::ResponseNotReturned;

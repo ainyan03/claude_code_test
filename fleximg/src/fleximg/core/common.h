@@ -24,14 +24,19 @@
 //
 
 #ifdef FLEXIMG_DEBUG
-  #define FLEXIMG_ASSERT(cond, msg) \
-    do { if (!(cond)) { std::abort(); } } while(0)
+  #ifdef ARDUINO
+    #define FLEXIMG_ASSERT(cond, msg) \
+      do { if (!(cond)) { printf("ASSERT FAIL: %s\n", msg); fflush(stdout); vTaskDelay(1); std::abort(); } } while(0)
+  #else
+    #define FLEXIMG_ASSERT(cond, msg) \
+      do { if (!(cond)) { printf("ASSERT FAIL: %s\n", msg); std::abort(); } } while(0)
+  #endif
 #else
   #define FLEXIMG_ASSERT(cond, msg) ((void)0)
 #endif
 
 #define FLEXIMG_REQUIRE(cond, msg) \
-  do { if (!(cond)) { std::abort(); } } while(0)
+  do { if (!(cond)) { printf("REQUIRE FAIL: %s\n", msg); std::abort(); } } while(0)
 
 // ========================================================================
 // Deprecated attribute

@@ -42,7 +42,7 @@ namespace FLEXIMG_NAMESPACE {
 class ImageBufferEntryPool {
 public:
     /// @brief プールサイズ（組み込み向け固定上限）
-    static constexpr int POOL_SIZE_BITS = 5;  // 2^5 = 32エントリ
+    static constexpr int POOL_SIZE_BITS = 3;  // 2^5 = 32エントリ
     static constexpr int POOL_SIZE = 1 << POOL_SIZE_BITS;
 
     /// @brief エントリ構造体
@@ -103,6 +103,15 @@ public:
     /// @note バッファも解放（再取得時のムーブ代入での二重解放を防止）
     void release(Entry* entry) {
         if (entry && entry >= entries_ && entry < entries_ + POOL_SIZE) {
+#ifdef FLEXIMG_DEBUG
+            if (!entry->inUse) {
+                printf("DOUBLE RELEASE: entry=%p\n", static_cast<void*>(entry));
+                fflush(stdout);
+#ifdef ARDUINO
+                vTaskDelay(1);
+#endif
+            }
+#endif
             entry->buffer.reset();  // バッファ解放（重要: 再取得前にクリア）
             entry->inUse = false;
         }
