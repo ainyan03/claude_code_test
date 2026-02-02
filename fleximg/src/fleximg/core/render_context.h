@@ -37,7 +37,8 @@ namespace core {
 class RenderContext {
 public:
     /// @brief RenderResponseプールサイズ（ImageBufferEntryPoolと同様の管理）
-    static constexpr int MAX_RESPONSES = 16;
+    static constexpr int MAX_RESPONSES_BITS = 4;  // 2^4 = 16
+    static constexpr int MAX_RESPONSES = 1 << MAX_RESPONSES_BITS;
 
     /// @brief エラー種別
     enum class Error {
@@ -79,10 +80,10 @@ public:
     RenderResponse& acquireResponse() {
         // nextHint_から開始して循環探索
         for (int i = 0; i < MAX_RESPONSES; ++i) {
-            int idx = (nextHint_ + i) % MAX_RESPONSES;
+            int idx = (nextHint_ + i) & (MAX_RESPONSES - 1);
             if (!responsePool_[idx].inUse) {
                 responsePool_[idx].inUse = true;
-                nextHint_ = (idx + 1) % MAX_RESPONSES;
+                nextHint_ = (idx + 1) & (MAX_RESPONSES - 1);
                 RenderResponse& resp = responsePool_[idx];
                 resp.bufferSet.setPool(entryPool_);
                 resp.bufferSet.setAllocator(allocator_);
@@ -112,11 +113,12 @@ public:
     /// @note ImageBufferEntryPoolと同様の範囲チェック付き
     void releaseResponse(RenderResponse& resp) {
         // 範囲チェック（プール内のアドレスか確認）
-        if (&resp >= responsePool_ && &resp < responsePool_ + MAX_RESPONSES) {
+        size_t idx = static_cast<size_t>(&resp - responsePool_);
+        if (idx < MAX_RESPONSES) {
 #ifdef FLEXIMG_DEBUG
             if (!resp.inUse) {
                 printf("WARN: releaseResponse called on non-inUse response idx=%d\n",
-                       static_cast<int>(&resp - responsePool_));
+                       static_cast<int>(idx));
                 fflush(stdout);
 #ifdef ARDUINO
                 vTaskDelay(1);
@@ -147,8 +149,10 @@ public:
         }
 #endif
         for (int i = 0; i < MAX_RESPONSES; ++i) {
-            responsePool_[i].bufferSet.clear();
-            responsePool_[i].inUse = false;
+            if (responsePool_[i].inUse) {
+                responsePool_[i].inUse = false;
+                responsePool_[i].bufferSet.clear();
+            }
         }
         nextHint_ = 0;
     }
