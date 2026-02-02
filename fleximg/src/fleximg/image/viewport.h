@@ -393,6 +393,11 @@ void copyRowDDA_Impl(
 } // namespace view_ops
 
 // ============================================================================
+// 以下は pixel_format.h に移動済み（確認後に削除予定）
+// ============================================================================
+#if 0
+
+// ============================================================================
 // BPP別 DDA転写関数（CopyRowDDA_Func シグネチャ準拠）
 // ============================================================================
 //
@@ -457,6 +462,8 @@ void copyRowDDA_3bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAP
 void copyRowDDA_4bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
     copyRowDDA_bpp<4>(dst, srcData, count, param);
 }
+
+#endif // pixel_format.h に移動済み
 
 namespace view_ops {
 
