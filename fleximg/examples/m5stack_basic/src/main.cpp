@@ -182,6 +182,7 @@ static ImageBuffer createPatternImage(int width, int height,
 enum class DemoMode {
     SingleDirect = 0,  // 単一Source → Renderer → Sink（CompositeNodeなし）
     SingleComposite,   // 単一Source → CompositeNode(1入力) → Renderer → Sink
+    SingleBilinear,    // 単一Source（バイリニア補間） → Renderer → Sink
     Four,              // 4個（各フォーマット1つ）
     Eight,             // 8個（各フォーマット2模様）
     Sixteen,           // 16個（全組み合わせ）
@@ -198,14 +199,14 @@ enum class SpeedLevel {
 
 static const float SPEED_MULTIPLIERS[] = { 0.3f, 1.0f, 2.5f };
 static const char* SPEED_NAMES[] = { "Slow", "Normal", "Fast" };
-static const char* MODE_NAMES[] = { "1 Direct", "1 Composite", "4 Sources", "8 Sources", "16 Sources", "32 Alpha" };
-static const int MODE_SOURCE_COUNTS[] = { 1, 1, 4, 8, 16, 32 };
+static const char* MODE_NAMES[] = { "1 Direct", "1 Composite", "1 Bilinear", "4 Sources", "8 Sources", "16 Sources", "32 Alpha" };
+static const int MODE_SOURCE_COUNTS[] = { 1, 1, 1, 4, 8, 16, 32 };
 
 // ========================================
 // グローバル変数
 // ========================================
 
-static DemoMode currentMode = DemoMode::Four;
+static DemoMode currentMode = DemoMode::SingleDirect;
 static SpeedLevel speedLevel = SpeedLevel::Normal;
 static bool reverseDirection = false;
 
@@ -308,6 +309,7 @@ static void updateOffsets() {
     switch (currentMode) {
         case DemoMode::SingleDirect:
         case DemoMode::SingleComposite:
+        case DemoMode::SingleBilinear:
             // 単一ソース: 中央配置
             currentOffsets[0][0] = 0.0f;
             currentOffsets[0][1] = 0.0f;
@@ -342,6 +344,7 @@ static int getImageIndex(int sourceIndex) {
     switch (currentMode) {
         case DemoMode::SingleDirect:
         case DemoMode::SingleComposite:
+        case DemoMode::SingleBilinear:
             // グラデーションRGBA8を使用（pattern=3, format=3）
             return 3 * 4 + 3;  // index 15
         case DemoMode::Four:
@@ -387,6 +390,7 @@ static void rebuildPipeline() {
     if (currentMode == DemoMode::SingleDirect) {
         int imgIdx = getImageIndex(0);
         sources[0].setSource(srcImages[imgIdx].view());
+        sources[0].setInterpolationMode(InterpolationMode::Nearest);
         sources[0].setPivot(
             float_to_fixed(IMAGE_SIZE / 2.0f),
             float_to_fixed(IMAGE_SIZE / 2.0f)
@@ -396,6 +400,25 @@ static void rebuildPipeline() {
         sources[0] >> affines[0] >> renderer >> lcdSink;
 
         float scale = 2.5f;  // 単一なので大きめに
+        affines[0].setScale(scale, scale);
+        affines[0].setTranslation(0.0f, 0.0f);
+        return;
+    }
+
+    // SingleBilinearモード: バイリニア補間で拡大表示
+    if (currentMode == DemoMode::SingleBilinear) {
+        int imgIdx = getImageIndex(0);
+        sources[0].setSource(srcImages[imgIdx].view());
+        sources[0].setInterpolationMode(InterpolationMode::Bilinear);
+        sources[0].setPivot(
+            float_to_fixed(IMAGE_SIZE / 2.0f),
+            float_to_fixed(IMAGE_SIZE / 2.0f)
+        );
+
+        // Source → Affine → Renderer → Sink（CompositeNodeなし）
+        sources[0] >> affines[0] >> renderer >> lcdSink;
+
+        float scale = 10.0f;  // バイリニアの効果がわかるよう大きく拡大
         affines[0].setScale(scale, scale);
         affines[0].setTranslation(0.0f, 0.0f);
         return;
@@ -566,7 +589,8 @@ void loop() {
 
     // 各ソースの更新
     int sourceCount = MODE_SOURCE_COUNTS[static_cast<int>(currentMode)];
-    float baseScale = (currentMode == DemoMode::SingleDirect ||
+    float baseScale = (currentMode == DemoMode::SingleBilinear) ? 10.0f :
+                      (currentMode == DemoMode::SingleDirect ||
                        currentMode == DemoMode::SingleComposite) ? 2.5f :
                       (currentMode == DemoMode::ThirtyTwoAlpha) ? 1.5f :
                       (currentMode == DemoMode::Sixteen) ? 1.3f : 1.8f;
@@ -591,8 +615,8 @@ void loop() {
         affines[i].setTranslation(currentOffsets[i][0], currentOffsets[i][1]);
     }
 
-    // Composite全体も公転（SingleDirectモード以外）
-    if (currentMode != DemoMode::SingleDirect) {
+    // Composite全体も公転（SingleDirect/SingleBilinearモード以外）
+    if (currentMode != DemoMode::SingleDirect && currentMode != DemoMode::SingleBilinear) {
         composite.setRotation(-rotationAngle * 0.5f);
     }
 

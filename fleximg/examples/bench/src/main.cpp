@@ -88,6 +88,19 @@ static void benchCopyRowDDA(
     }
 }
 
+// ViewPort から直接 copyRowDDABilinear を呼び出すヘルパー
+static void benchCopyRowDDABilinear(
+    void* dst,
+    const ViewPort& src,
+    int count,
+    int_fixed srcX,
+    int_fixed srcY,
+    int_fixed incrX,
+    int_fixed incrY
+) {
+    view_ops::copyRowDDABilinear(dst, src, count, srcX, srcY, incrX, incrY);
+}
+
 // =============================================================================
 // Platform Abstraction
 // =============================================================================
@@ -982,6 +995,41 @@ static double runDDATest(const ViewPort& srcVP, int bpp, int testIdx) {
     return (static_cast<double>(us) * 1000.0) / totalPixels;
 }
 
+// Run single DDA Bilinear test, return ns/px (RGBA8888 only)
+static double runDDATestBilinear(const ViewPort& srcVP, int testIdx) {
+    const auto& test = ddaTests[testIdx];
+
+    // 出力ピクセル数を計算（ソース範囲内に収まる最大数、ラインバッファ上限も考慮）
+    int count = computeDDASafeCount(test.incrX, test.incrY);
+    count = std::min(count, DDA_DST_LINE_SIZE);
+
+    // 総ピクセル数を一定に保つため、行数を調整
+    int numRows = (BENCH_PIXELS * 4) / count;  // 4倍のピクセル数を処理
+    if (numRows < 1) numRows = 1;
+    int totalPixels = count * numRows;
+
+    uint32_t us = runBenchmark([&]() {
+        uint8_t* dst = bufDDALine;
+        for (int row = 0; row < numRows; row++) {
+            int_fixed srcX = 0;
+            int_fixed srcY = 0;
+            if (test.incrY == 0 && test.incrX != 0) {
+                // Horizontal: vary source row
+                srcY = static_cast<int_fixed>((row % DDA_SRC_SIZE) << INT_FIXED_SHIFT);
+            } else if (test.incrX == 0 && test.incrY != 0) {
+                // Vertical: vary source column
+                srcX = static_cast<int_fixed>((row % DDA_SRC_SIZE) << INT_FIXED_SHIFT);
+            }
+            // Diagonal: always start from (0, 0)
+
+            benchCopyRowDDABilinear(dst, srcVP, count, srcX, srcY,
+                                    test.incrX, test.incrY);
+        }
+    });
+
+    return (static_cast<double>(us) * 1000.0) / totalPixels;
+}
+
 static void runDDABenchmark(const char* args) {
     // Parse: "[grp] [bpp]"  grp = all|h|v|d  bpp = all|4|3|2|1
     char groupStr[16] = "all";
@@ -1033,10 +1081,17 @@ static void runDDABenchmark(const char* args) {
         ViewPort srcVP(getDDASourceBuffer(cfg.bpp),
                        DDA_SRC_SIZE, DDA_SRC_SIZE, cfg.formatID);
 
+        const bool showBilinear = (cfg.bpp == 4);  // Bilinear is RGBA8 only
+
         benchPrintf("Format: %s\n", cfg.formatID->name);
         benchPrintln();
-        benchPrintf("%-12s %7s %7s\n", "Test", "us/frm", "ns/px");
-        benchPrintln("------------ ------- -------");
+        if (showBilinear) {
+            benchPrintf("%-12s %8s %8s %6s\n", "Test", "Nearest", "Bilinear", "Ratio");
+            benchPrintln("------------ -------- -------- ------");
+        } else {
+            benchPrintf("%-12s %7s %7s\n", "Test", "us/frm", "ns/px");
+            benchPrintln("------------ ------- -------");
+        }
 
         bool found = false;
         for (int i = 0; i < NUM_DDA_TESTS; i++) {
@@ -1046,10 +1101,18 @@ static void runDDABenchmark(const char* args) {
                 if (numRows < 1) numRows = 1;
                 int totalPixels = count * numRows;
 
-                double ns = runDDATest(srcVP, cfg.bpp, i);
-                auto us = static_cast<uint32_t>(ns * totalPixels / 1000.0 + 0.5);
-                benchPrintf("%-12s %7u %7.2f  (%d x %d rows)\n",
-                    ddaTests[i].name, us, ns, count, numRows);
+                double nsNearest = runDDATest(srcVP, cfg.bpp, i);
+
+                if (showBilinear) {
+                    double nsBilinear = runDDATestBilinear(srcVP, i);
+                    double ratio = nsBilinear / nsNearest;
+                    benchPrintf("%-12s %8.2f %8.2f %5.1fx\n",
+                        ddaTests[i].name, nsNearest, nsBilinear, ratio);
+                } else {
+                    auto us = static_cast<uint32_t>(nsNearest * totalPixels / 1000.0 + 0.5);
+                    benchPrintf("%-12s %7u %7.2f  (%d x %d rows)\n",
+                        ddaTests[i].name, us, nsNearest, count, numRows);
+                }
                 found = true;
             }
         }
@@ -1060,6 +1123,7 @@ static void runDDABenchmark(const char* args) {
         }
     } else {
         // Multi-BPP mode: ns/px columns side by side
+        benchPrintln("[Nearest interpolation]");
         benchPrintf("%-12s", "Test");
         for (int b = 0; b < numActive; b++) {
             benchPrintf(" %7s", ddaBppConfigs[activeBppIdx[b]].label);
@@ -1071,6 +1135,10 @@ static void runDDABenchmark(const char* args) {
         }
         benchPrintln();
 
+        // 4BPP結果を保存（Bilinear比較用）
+        double nearest4bpp[NUM_DDA_TESTS] = {};
+        bool has4bpp = false;
+
         bool found = false;
         for (int i = 0; i < NUM_DDA_TESTS; i++) {
             if (allGroups || strcmp(ddaTests[i].group, groupStr) == 0) {
@@ -1081,6 +1149,10 @@ static void runDDABenchmark(const char* args) {
                                    DDA_SRC_SIZE, DDA_SRC_SIZE, cfg.formatID);
                     double ns = runDDATest(srcVP, cfg.bpp, i);
                     benchPrintf(" %7.2f", ns);
+                    if (cfg.bpp == 4) {
+                        nearest4bpp[i] = ns;
+                        has4bpp = true;
+                    }
                 }
                 benchPrintln();
                 found = true;
@@ -1090,6 +1162,26 @@ static void runDDABenchmark(const char* args) {
         if (!found) {
             benchPrintf("Unknown group: %s\n", groupStr);
             benchPrintln("Available: all | h | v | d");
+        }
+
+        // 4BPPが含まれていればBilinear結果を追加
+        if (has4bpp && found) {
+            benchPrintln();
+            benchPrintln("[Bilinear interpolation - RGBA8 only]");
+            benchPrintf("%-12s %8s %8s %6s\n", "Test", "Nearest", "Bilinear", "Ratio");
+            benchPrintln("------------ -------- -------- ------");
+
+            ViewPort srcVP(getDDASourceBuffer(4),
+                           DDA_SRC_SIZE, DDA_SRC_SIZE, PixelFormatIDs::RGBA8_Straight);
+
+            for (int i = 0; i < NUM_DDA_TESTS; i++) {
+                if (allGroups || strcmp(ddaTests[i].group, groupStr) == 0) {
+                    double nsBilinear = runDDATestBilinear(srcVP, i);
+                    double ratio = nsBilinear / nearest4bpp[i];
+                    benchPrintf("%-12s %8.2f %8.2f %5.1fx\n",
+                        ddaTests[i].name, nearest4bpp[i], nsBilinear, ratio);
+                }
+            }
         }
     }
 
