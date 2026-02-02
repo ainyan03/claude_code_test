@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.63.7] - 2026-02-02
+
+### 性能改善
+
+- **ImageBufferSet::mergeAdjacent()**: ギャップ部分のみゼロ埋め
+  - `InitPolicy::Zero`を廃止、`InitPolicy::Uninitialized`に変更
+  - prevとcurrの間のギャップ部分のみmemsetでゼロ埋め
+  - ギャップなし（隣接または重複）の場合はゼロ初期化が完全に不要
+  - consolidateInPlace()、mergeOverlapping()と同様の最適化パターン
+
+---
+
 ## [2.63.6] - 2026-02-02
 
 ### バグ修正
