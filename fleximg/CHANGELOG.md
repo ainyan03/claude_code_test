@@ -1,5 +1,28 @@
 # Changelog
 
+## [2.63.6] - 2026-02-02
+
+### バグ修正
+
+- **RenderContext**: RenderResponseプール管理をinUseフラグ方式に再設計
+  - ImageBufferEntryPoolと同様のヒント付き循環探索による効率的なスロット取得
+  - `releaseResponse()`で即時スロット返却（bufferSet.clear() + inUse=false）
+  - プールサイズを64→16に削減（適切な返却により十分）
+  - 使用中のRenderResponseが上書きされることによるDOUBLE RELEASEを根本解決
+
+- **CompositeNode**: 使い終わったRenderResponseを即時返却
+  - overlay入力のtransferFrom後に`releaseResponse()`を呼び出し
+  - プールの効率的な再利用を実現
+
+### 内部改善
+
+- **デバッグチェック強化**（FLEXIMG_DEBUG時のみ）
+  - ImageBufferSet: transferFrom/mergeOverlapping/insertSortedでエントリ整合性チェック
+  - RenderContext: 非inUseへのrelease警告、未返却検出警告
+  - ImageBufferEntryPool: DOUBLE RELEASE検出時にエントリインデックスを出力
+
+---
+
 ## [2.63.5] - 2026-02-02
 
 ### バグ修正
