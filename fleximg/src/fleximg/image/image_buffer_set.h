@@ -54,7 +54,7 @@ namespace FLEXIMG_NAMESPACE {
 class ImageBufferSet {
 public:
     /// @brief 最大エントリ数（ImageBufferSet内の上限）
-    static constexpr int MAX_ENTRIES = 32;
+    static constexpr int MAX_ENTRIES = 8;
 
     /// @brief エントリ型（プールから取得）
     using Entry = ImageBufferEntryPool::Entry;
@@ -282,6 +282,12 @@ private:
     /// @return 成功時 true
     bool mergeOverlapping(Entry* newEntry,
                           int overlapStart, int overlapEnd);
+
+    /// @brief エントリを挿入またはマージ（上限超過時は統合して再試行）
+    /// @param entry 挿入するエントリ
+    /// @return 成功時 true
+    /// @note addBuffer/transferFromの共通処理
+    bool insertOrMerge(Entry* entry);
 };
 
 } // namespace FLEXIMG_NAMESPACE
@@ -474,18 +480,9 @@ bool ImageBufferSet::transferFrom(ImageBufferSet& source, int16_t offsetX) {
         Entry* entry = source.entryPtrs_[i];
         source.entryPtrs_[i] = nullptr;
 
-        // 重複チェック
-        int overlapStart = 0, overlapEnd = 0;
-        if (findOverlapping(entry->range, overlapStart, overlapEnd)) {
-            // 重複あり → 合成処理
-            if (!mergeOverlapping(entry, overlapStart, overlapEnd)) {
-                return false;
-            }
-        } else {
-            // 重複なし → ソート位置に挿入
-            if (!insertSorted(entry)) {
-                return false;
-            }
+        // 挿入またはマージ
+        if (!insertOrMerge(entry)) {
+            return false;
         }
     }
 
@@ -525,15 +522,8 @@ bool ImageBufferSet::addBuffer(ImageBuffer&& buffer, const DataRange& range) {
         return true;
     }
 
-    // 重複チェック
-    int overlapStart = 0, overlapEnd = 0;
-    if (findOverlapping(range, overlapStart, overlapEnd)) {
-        // 重複あり → 合成処理
-        return mergeOverlapping(entry, overlapStart, overlapEnd);
-    }
-
-    // 重複なし → ソート位置に挿入
-    return insertSorted(entry);
+    // 挿入またはマージ
+    return insertOrMerge(entry);
 }
 
 // ----------------------------------------------------------------------------
@@ -549,12 +539,8 @@ bool ImageBufferSet::insertSorted(Entry* entry) {
     }
 #endif
     if (entryCount_ >= MAX_ENTRIES) {
-        // 上限超過 → 隣接統合を試みる
-        mergeAdjacent(0);  // 隣接を強制統合
-        if (entryCount_ >= MAX_ENTRIES) {
-            releaseEntry(entry);
-            return false;  // それでもダメなら失敗
-        }
+        // 上限超過 → 呼び出し元で統合処理を行う
+        return false;
     }
 
     const DataRange& range = entry->range;
@@ -575,6 +561,46 @@ bool ImageBufferSet::insertSorted(Entry* entry) {
     ++entryCount_;
 
     return true;
+}
+
+// ----------------------------------------------------------------------------
+// insertOrMerge
+// ----------------------------------------------------------------------------
+
+bool ImageBufferSet::insertOrMerge(Entry* entry) {
+    // 重複チェック
+    int overlapStart = 0, overlapEnd = 0;
+    if (findOverlapping(entry->range, overlapStart, overlapEnd)) {
+        // 重複あり → 合成処理
+        return mergeOverlapping(entry, overlapStart, overlapEnd);
+    }
+
+    // 重複なし → ソート位置に挿入
+    if (insertSorted(entry)) {
+        return true;
+    }
+
+    // 挿入失敗（上限超過）→ 統合して空きを作る
+    mergeAdjacent(0);
+    if (entryCount_ >= MAX_ENTRIES) {
+        // consolidateInPlace前にオフセットを保存
+        int16_t originalStartX = entryPtrs_[0]->range.startX;
+        consolidateInPlace();
+        // consolidateInPlaceは{0, width}に正規化するのでオフセットを復元
+        if (entryCount_ == 1) {
+            int16_t width = entryPtrs_[0]->range.endX;
+            entryPtrs_[0]->range = DataRange{originalStartX,
+                static_cast<int16_t>(originalStartX + width)};
+        }
+    }
+
+    // 統合後は重複が発生している可能性があるので再チェック
+    if (findOverlapping(entry->range, overlapStart, overlapEnd)) {
+        return mergeOverlapping(entry, overlapStart, overlapEnd);
+    }
+
+    // 再度挿入を試みる
+    return insertSorted(entry);
 }
 
 // ----------------------------------------------------------------------------
@@ -651,6 +677,112 @@ bool ImageBufferSet::mergeOverlapping(Entry* newEntry,
 
     const DataRange& newRange = newEntry->range;
     constexpr size_t bytesPerPixel = 4;
+
+    // ========================================
+    // 最適化パス: 既存バッファへの直接ブレンド
+    // ========================================
+    // 条件:
+    // 1. 全既存エントリが直接編集可能（RGBA8_Straight + ownsMemory）
+    // 2. 非重複領域が1箇所以下
+    // 効果: 新規バッファ確保なしでブレンド完了
+
+    // 条件1: 全既存エントリが直接編集可能か確認
+    bool allEditable = true;
+    for (int i = overlapStart; i < overlapEnd; ++i) {
+        const ImageBuffer& buf = entryPtrs_[i]->buffer;
+        if (buf.view().formatID != PixelFormatIDs::RGBA8_Straight || !buf.ownsMemory()) {
+            allEditable = false;
+            break;
+        }
+    }
+
+    if (allEditable) {
+        // 条件2: 非重複領域をカウント
+        int16_t firstExStart = entryPtrs_[overlapStart]->range.startX;
+        int16_t lastExEnd = entryPtrs_[overlapEnd - 1]->range.endX;
+
+        int nonOverlapCount = 0;
+
+        // 左側の非重複（新エントリが既存より左にはみ出す）
+        if (newRange.startX < firstExStart) {
+            ++nonOverlapCount;
+        }
+
+        // 既存エントリ間のギャップで新エントリがカバーする部分
+        for (int i = overlapStart; i < overlapEnd - 1; ++i) {
+            int16_t gapStart = entryPtrs_[i]->range.endX;
+            int16_t gapEnd = entryPtrs_[i + 1]->range.startX;
+            if (gapStart < gapEnd) {
+                // ギャップが存在し、新エントリがカバーしている
+                int16_t coverStart = std::max(gapStart, newRange.startX);
+                int16_t coverEnd = std::min(gapEnd, newRange.endX);
+                if (coverStart < coverEnd) {
+                    ++nonOverlapCount;
+                }
+            }
+        }
+
+        // 右側の非重複（新エントリが既存より右にはみ出す）
+        if (newRange.endX > lastExEnd) {
+            ++nonOverlapCount;
+        }
+
+        // 条件を満たす場合: 直接ブレンドパス
+        // Phase 1: 非重複領域が0の場合のみ（完全内包ケース）
+        // 将来的にnonOverlapCount == 1のケースも対応予定
+        if (nonOverlapCount == 0) {
+            PixelFormatID newFmt = newEntry->buffer.view().formatID;
+            const PixelAuxInfo* newAuxInfo = &newEntry->buffer.auxInfo();
+
+            // 各既存エントリに対して重複部分をブレンド
+            for (int i = overlapStart; i < overlapEnd; ++i) {
+                Entry* existing = entryPtrs_[i];
+                int16_t exStart = existing->range.startX;
+                int16_t exEnd = existing->range.endX;
+
+                // 重複範囲を計算
+                int16_t oStart = std::max(exStart, newRange.startX);
+                int16_t oEnd = std::min(exEnd, newRange.endX);
+
+                if (oStart < oEnd) {
+                    int width = oEnd - oStart;
+                    int dstOffset = oStart - exStart;
+                    int srcOffset = oStart - newRange.startX;
+
+                    uint8_t* dstPtr = static_cast<uint8_t*>(existing->buffer.view().pixelAt(dstOffset, 0));
+                    size_t srcBpp = newFmt->bytesPerUnit / newFmt->pixelsPerUnit;
+                    const uint8_t* srcPtr = static_cast<const uint8_t*>(
+                        newEntry->buffer.view().pixelAt(0, 0)) + static_cast<size_t>(srcOffset) * srcBpp;
+
+                    // 新エントリをunder合成（既存の下に）
+                    if (newFmt == PixelFormatIDs::RGBA8_Straight) {
+                        if (newFmt->blendUnderStraight) {
+                            newFmt->blendUnderStraight(dstPtr, srcPtr, width, newAuxInfo);
+                        }
+                    } else if (newFmt->blendUnderStraight) {
+                        newFmt->blendUnderStraight(dstPtr, srcPtr, width, newAuxInfo);
+                    } else if (newFmt->toStraight && allocator_) {
+                        // 変換が必要な場合は一時バッファを使用
+                        ImageBuffer tempBuf(width, 1, PixelFormatIDs::RGBA8_Straight,
+                                            InitPolicy::Uninitialized, allocator_);
+                        if (tempBuf.isValid()) {
+                            newFmt->toStraight(tempBuf.view().pixelAt(0, 0), srcPtr, width, newAuxInfo);
+                            PixelFormatIDs::RGBA8_Straight->blendUnderStraight(
+                                dstPtr, tempBuf.view().pixelAt(0, 0), width, nullptr);
+                        }
+                    }
+                }
+            }
+
+            // 非重複領域なし: 新エントリを解放して完了
+            releaseEntry(newEntry);
+            return true;
+        }
+    }
+
+    // ========================================
+    // 通常パス: 新規バッファを確保してマージ
+    // ========================================
 
     // 合成対象の全体範囲を計算
     int16_t mergedStartX = newRange.startX;
