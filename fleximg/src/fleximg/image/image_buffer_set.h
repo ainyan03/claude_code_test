@@ -811,6 +811,19 @@ ImageBuffer ImageBufferSet::consolidate(PixelFormatID format) {
 // ----------------------------------------------------------------------------
 // consolidateInPlace
 // ----------------------------------------------------------------------------
+//
+// 最適化版: ギャップ部分のみゼロ埋め
+//
+// エントリはソート済み・重複なしのため、以下の構造:
+//   [gap?][entry0][gap?][entry1][gap?]...[entryN][gap?]
+//
+// 処理:
+// 1. InitPolicy::Uninitialized でバッファ確保（ゼロ初期化なし）
+// 2. 各エントリをコピーしつつ、ギャップ部分のみゼロ埋め
+//
+// これにより:
+// - ギャップなしの場合: ゼロ初期化が完全に不要
+// - ギャップありの場合: ギャップ部分のみゼロ埋め
 
 void ImageBufferSet::consolidateInPlace() {
     // 空の場合は何もしない
@@ -841,9 +854,9 @@ void ImageBufferSet::consolidateInPlace() {
         return;
     }
 
-    // 統合用バッファを確保（RGBA8_Straight固定）
+    // 統合用バッファを確保（ゼロ初期化なし）
     ImageBuffer merged(totalWidth, 1, PixelFormatIDs::RGBA8_Straight,
-                       InitPolicy::Zero, allocator_);
+                       InitPolicy::Uninitialized, allocator_);
     if (!merged.isValid()) {
         return;
     }
@@ -851,7 +864,10 @@ void ImageBufferSet::consolidateInPlace() {
     uint8_t* dstRow = static_cast<uint8_t*>(merged.view().pixelAt(0, 0));
     constexpr size_t bytesPerPixel = 4;
 
-    // 各エントリを統合バッファにコピー
+    // 現在の書き込み位置（total.startXからの相対オフセット）
+    int cursor = 0;
+
+    // 各エントリを統合バッファにコピー（ギャップをゼロ埋め）
     for (int i = 0; i < entryCount_; ++i) {
         Entry* entry = entryPtrs_[i];
         // 防御的チェック: null エントリや無効なバッファをスキップ
@@ -859,28 +875,46 @@ void ImageBufferSet::consolidateInPlace() {
             continue;
         }
 
-        int dstOffset = entry->range.startX - total.startX;
-        int width = entry->range.endX - entry->range.startX;
+        int entryStart = entry->range.startX - total.startX;
+        int entryEnd = entry->range.endX - total.startX;
+        int width = entryEnd - entryStart;
 
         // 防御的チェック: 不正な範囲をスキップ
-        if (width <= 0 || dstOffset < 0 || dstOffset + width > totalWidth) {
+        if (width <= 0 || entryStart < 0 || entryEnd > totalWidth) {
             continue;
         }
 
+        // ギャップをゼロ埋め（cursor < entryStart の場合）
+        if (cursor < entryStart) {
+            int gapWidth = entryStart - cursor;
+            std::memset(dstRow + static_cast<size_t>(cursor) * bytesPerPixel,
+                        0, static_cast<size_t>(gapWidth) * bytesPerPixel);
+        }
+
+        // エントリをコピー
         PixelFormatID srcFmt = entry->buffer.view().formatID;
         const void* srcRow = entry->buffer.view().pixelAt(0, 0);
-        if (!srcRow) {
-            continue;
-        }
-        void* dstPtr = dstRow + static_cast<size_t>(dstOffset) * bytesPerPixel;
+        if (srcRow) {
+            void* dstPtr = dstRow + static_cast<size_t>(entryStart) * bytesPerPixel;
 
-        if (srcFmt == PixelFormatIDs::RGBA8_Straight) {
-            // 同一フォーマット: 直接コピー
-            std::memcpy(dstPtr, srcRow, static_cast<size_t>(width) * bytesPerPixel);
-        } else if (srcFmt && srcFmt->toStraight) {
-            // RGBA8_Straightへ変換
-            srcFmt->toStraight(dstPtr, srcRow, width, &entry->buffer.auxInfo());
+            if (srcFmt == PixelFormatIDs::RGBA8_Straight) {
+                // 同一フォーマット: 直接コピー
+                std::memcpy(dstPtr, srcRow, static_cast<size_t>(width) * bytesPerPixel);
+            } else if (srcFmt && srcFmt->toStraight) {
+                // RGBA8_Straightへ変換
+                srcFmt->toStraight(dstPtr, srcRow, width, &entry->buffer.auxInfo());
+            }
         }
+
+        // カーソルを更新
+        cursor = entryEnd;
+    }
+
+    // 末尾ギャップをゼロ埋め（cursor < totalWidth の場合）
+    if (cursor < totalWidth) {
+        int gapWidth = totalWidth - cursor;
+        std::memset(dstRow + static_cast<size_t>(cursor) * bytesPerPixel,
+                    0, static_cast<size_t>(gapWidth) * bytesPerPixel);
     }
 
     // 最初のエントリを再利用し、残りを解放
