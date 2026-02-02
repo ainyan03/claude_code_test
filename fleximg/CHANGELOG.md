@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.63.4] - 2026-02-02
+
+### 性能改善
+
+- **ImageBufferSet::consolidateInPlace()**: ギャップ部分のみゼロ埋め
+  - ゼロ初期化（InitPolicy::Zero）を廃止、Uninitializedに変更
+  - エントリ間のギャップ部分のみmemsetでゼロ埋め
+  - ギャップなしの場合はゼロ初期化が完全に不要に
+
+---
+
 ## [2.63.3] - 2026-02-02
 
 ### バグ修正
