@@ -102,12 +102,13 @@ public:
     /// @param entry 返却するエントリ
     /// @note バッファも解放（再取得時のムーブ代入での二重解放を防止）
     void release(Entry* entry) {
-        if (entry && entry >= entries_ && entry < entries_ + POOL_SIZE) {
+        size_t idx = static_cast<size_t>(entry - entries_);
+        if (idx < POOL_SIZE) {
 #ifdef FLEXIMG_DEBUG
             if (!entry->inUse) {
                 printf("DOUBLE RELEASE: entry=%p idx=%d\n",
                        static_cast<void*>(entry),
-                       static_cast<int>(entry - entries_));
+                       static_cast<int>(idx));
                 fflush(stdout);
 #ifdef ARDUINO
                 vTaskDelay(1);
@@ -122,8 +123,10 @@ public:
     /// @brief 全エントリを一括解放（フレーム終了時）
     void releaseAll() {
         for (int i = 0; i < POOL_SIZE; ++i) {
-            entries_[i].inUse = false;
-            entries_[i].buffer.reset();  // 軽量リセット
+            if (entries_[i].inUse) {
+                entries_[i].inUse = false;
+                entries_[i].buffer.reset();  // 軽量リセット
+            }
         }
         nextHint_ = 0;  // ヒントをリセット
     }
