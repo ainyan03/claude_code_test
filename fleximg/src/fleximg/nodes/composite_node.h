@@ -247,7 +247,11 @@ RenderResponse& CompositeNode::onPullProcess(const RenderRequest& request) {
         if (!upstream) continue;
 
         RenderResponse& input = upstream->pullProcess(request);
-        if (!input.isValid()) continue;
+        if (!input.isValid()) {
+            // 空でも上流がacquireしているのでrelease
+            context_->releaseResponse(input);
+            continue;
+        }
 
         FLEXIMG_METRICS_SCOPE(NodeType::Composite);
         // オフセットを適用（借用元を直接変更）
@@ -270,7 +274,11 @@ RenderResponse& CompositeNode::onPullProcess(const RenderRequest& request) {
         if (!upstream) continue;
 
         RenderResponse& input = upstream->pullProcess(request);
-        if (!input.isValid()) continue;
+        if (!input.isValid()) {
+            // 空でも上流がacquireしているのでrelease
+            context_->releaseResponse(input);
+            continue;
+        }
 
         FLEXIMG_METRICS_SCOPE(NodeType::Composite);
 
@@ -279,6 +287,9 @@ RenderResponse& CompositeNode::onPullProcess(const RenderRequest& request) {
 
         // 上流のImageBufferSetの全エントリをバッチ転送
         baseResponse->bufferSet.transferFrom(input.bufferSet, offset);
+
+        // 使い終わったRenderResponseをプールに返却
+        context_->releaseResponse(input);
     }
 
     return *baseResponse;

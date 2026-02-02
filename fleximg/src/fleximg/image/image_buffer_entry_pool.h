@@ -105,7 +105,9 @@ public:
         if (entry && entry >= entries_ && entry < entries_ + POOL_SIZE) {
 #ifdef FLEXIMG_DEBUG
             if (!entry->inUse) {
-                printf("DOUBLE RELEASE: entry=%p\n", static_cast<void*>(entry));
+                printf("DOUBLE RELEASE: entry=%p idx=%d\n",
+                       static_cast<void*>(entry),
+                       static_cast<int>(entry - entries_));
                 fflush(stdout);
 #ifdef ARDUINO
                 vTaskDelay(1);

@@ -36,8 +36,8 @@ namespace core {
 
 class RenderContext {
 public:
-    /// @brief RenderResponseプールサイズ
-    static constexpr int MAX_RESPONSES = 64;
+    /// @brief RenderResponseプールサイズ（ImageBufferEntryPoolと同様の管理）
+    static constexpr int MAX_RESPONSES = 16;
 
     /// @brief エラー種別
     enum class Error {
@@ -69,69 +69,88 @@ public:
     void setEntryPool(ImageBufferEntryPool* pool) { entryPool_ = pool; }
 
     // ========================================
-    // RenderResponse貸出API（参照返し）
+    // RenderResponse貸出API（ImageBufferEntryPool方式）
     // ========================================
 
     /// @brief RenderResponseを取得（借用）
     /// @return 初期化済みRenderResponse参照（pool/allocator設定済み）
-    /// @note プール枯渇時はエラーフラグを設定し、最後のエントリを返す
+    /// @note プール枯渇時はエラーフラグを設定し、フォールバックを返す
+    /// @note ImageBufferEntryPoolと同様のヒント付き循環探索
     RenderResponse& acquireResponse() {
-#ifdef FLEXIMG_DEBUG
-        if (nextResponseIndex_ >= MAX_RESPONSES - 4) {
-            printf("WARN: acquireResponse idx=%d/%d\n", nextResponseIndex_, MAX_RESPONSES);
-            fflush(stdout);
-#ifdef ARDUINO
-            vTaskDelay(1);
-#endif
+        // nextHint_から開始して循環探索
+        for (int i = 0; i < MAX_RESPONSES; ++i) {
+            int idx = (nextHint_ + i) % MAX_RESPONSES;
+            if (!responsePool_[idx].inUse) {
+                responsePool_[idx].inUse = true;
+                nextHint_ = (idx + 1) % MAX_RESPONSES;
+                RenderResponse& resp = responsePool_[idx];
+                resp.bufferSet.setPool(entryPool_);
+                resp.bufferSet.setAllocator(allocator_);
+                resp.bufferSet.clear();
+                return resp;
+            }
         }
-#endif
-        if (nextResponseIndex_ >= MAX_RESPONSES) {
-            // プール枯渇 - エラーフラグを設定、最後のエントリを返す
-            error_ = Error::PoolExhausted;
+        // プール枯渇
+        error_ = Error::PoolExhausted;
 #ifdef FLEXIMG_DEBUG
-            printf("ERROR: RenderResponse pool exhausted! MAX=%d\n", MAX_RESPONSES);
-            fflush(stdout);
+        printf("ERROR: RenderResponse pool exhausted! MAX=%d\n", MAX_RESPONSES);
+        fflush(stdout);
 #ifdef ARDUINO
-            vTaskDelay(1);
+        vTaskDelay(1);
 #endif
 #endif
-            RenderResponse& fallback = responsePool_[MAX_RESPONSES - 1];
-            fallback.bufferSet.setPool(entryPool_);
-            fallback.bufferSet.setAllocator(allocator_);
-            fallback.bufferSet.clear();
-            return fallback;
-        }
-        ++inUseCount_;
-        RenderResponse& resp = responsePool_[nextResponseIndex_++];
-        resp.bufferSet.setPool(entryPool_);
-        resp.bufferSet.setAllocator(allocator_);
-        resp.bufferSet.clear();
-        return resp;
+        // フォールバック: 最後のエントリを強制再利用（エラー状態）
+        RenderResponse& fallback = responsePool_[MAX_RESPONSES - 1];
+        fallback.bufferSet.setPool(entryPool_);
+        fallback.bufferSet.setAllocator(allocator_);
+        fallback.bufferSet.clear();
+        return fallback;
     }
 
     /// @brief RenderResponseを返却
     /// @param resp 返却するResponse参照
+    /// @note ImageBufferEntryPoolと同様の範囲チェック付き
     void releaseResponse(RenderResponse& resp) {
-        (void)resp;  // 参照の検証は省略（信頼ベース）
-        if (inUseCount_ > 0) --inUseCount_;
+        // 範囲チェック（プール内のアドレスか確認）
+        if (&resp >= responsePool_ && &resp < responsePool_ + MAX_RESPONSES) {
+#ifdef FLEXIMG_DEBUG
+            if (!resp.inUse) {
+                printf("WARN: releaseResponse called on non-inUse response idx=%d\n",
+                       static_cast<int>(&resp - responsePool_));
+                fflush(stdout);
+#ifdef ARDUINO
+                vTaskDelay(1);
+#endif
+            }
+#endif
+            resp.bufferSet.clear();  // エントリをプールに返却
+            resp.inUse = false;      // スロットを再利用可能に
+        }
     }
 
-    /// @brief スキャンライン終了時にリソースをリセット（RendererNode用）
-    /// @note 未返却チェックを行い、インデックスをリセット
+    /// @brief 全RenderResponseを一括解放（フレーム終了時）
+    /// @note ImageBufferEntryPool::releaseAll()と同様
     void resetScanlineResources() {
 #ifdef FLEXIMG_DEBUG
-        static int resetCount = 0;
-        if (++resetCount % 100 == 0) {
-            printf("RESET: cnt=%d idx=%d\n", resetCount, nextResponseIndex_);
+        // 未返却チェック
+        int inUseCount = 0;
+        for (int i = 0; i < MAX_RESPONSES; ++i) {
+            if (responsePool_[i].inUse) ++inUseCount;
+        }
+        if (inUseCount > 1) {
+            // 1つは下流に渡されるため、1以下なら正常
+            printf("WARN: resetScanlineResources with %d responses still in use\n", inUseCount);
             fflush(stdout);
+#ifdef ARDUINO
+            vTaskDelay(1);
+#endif
         }
 #endif
-        // 未返却チェック（1つは下流に渡されるため、1以下なら正常）
-        if (inUseCount_ > 1) {
-            error_ = Error::ResponseNotReturned;
+        for (int i = 0; i < MAX_RESPONSES; ++i) {
+            responsePool_[i].bufferSet.clear();
+            responsePool_[i].inUse = false;
         }
-        nextResponseIndex_ = 0;
-        inUseCount_ = 0;
+        nextHint_ = 0;
     }
 
     // ========================================
@@ -151,10 +170,9 @@ private:
     memory::IAllocator* allocator_ = nullptr;
     ImageBufferEntryPool* entryPool_ = nullptr;
 
-    // RenderResponseプール（スキャンライン単位で再利用）
+    // RenderResponseプール（ImageBufferEntryPoolと同様の管理）
     RenderResponse responsePool_[MAX_RESPONSES];
-    int nextResponseIndex_ = 0;
-    int inUseCount_ = 0;  // 貸出中のResponse数
+    int nextHint_ = 0;  // 次回探索開始位置（循環探索用）
     Error error_ = Error::None;
 };
 

@@ -324,6 +324,7 @@ class ImageBufferSet;
 struct RenderResponse {
     ImageBufferSet bufferSet;  // バッファセット（値所有）
     Point origin;              // バッファセット左上のワールド座標（固定小数点 Q16.16）
+    bool inUse = false;        // プール管理用：使用中フラグ
 
 #ifdef FLEXIMG_DEBUG_MOVE_COUNT
     // ムーブ回数カウンタ（ベンチマーク用）
