@@ -116,6 +116,7 @@ void copyRowDDA(
 // copyQuadDDA → フォーマット変換 → bilinearBlend_RGBA8888 のパイプライン
 // copyQuadDDA未対応フォーマットは最近傍にフォールバック
 // edgeFadeMask: EdgeFadeFlagsの値。フェード有効な辺のみ境界ピクセルのアルファを0化
+// srcAux: パレット情報等（Index8のパレット展開に使用）
 void copyRowDDABilinear(
     void* dst,
     const ViewPort& src,
@@ -124,7 +125,8 @@ void copyRowDDABilinear(
     int_fixed srcY,
     int_fixed incrX,
     int_fixed incrY,
-    uint8_t edgeFadeMask = EdgeFade_All  // デフォルト: 全辺フェードアウト有効
+    uint8_t edgeFadeMask = EdgeFade_All,  // デフォルト: 全辺フェードアウト有効
+    const PixelAuxInfo* srcAux = nullptr  // パレット情報等
 );
 
 // アフィン変換転写（DDA方式）
@@ -315,7 +317,8 @@ void copyRowDDABilinear(
     int_fixed srcY,
     int_fixed incrX,
     int_fixed incrY,
-    uint8_t edgeFadeMask
+    uint8_t edgeFadeMask,
+    const PixelAuxInfo* srcAux
 ) {
     if (!src.isValid() || count <= 0) return;
 
@@ -362,12 +365,13 @@ void copyRowDDABilinear(
         src.formatID->copyQuadDDA(quadPtr, srcData, chunk, &param);
 
         // フォーマット変換（必要な場合）
+        // Index8等のパレットフォーマットはsrcAuxにパレット情報が必要
         uint32_t* quadRGBA = quadBuffer;
         if (needsConversion) {
             auto convertedPtr = reinterpret_cast<uint8_t*>(convertedQuad);
             convertFormat(quadPtr, src.formatID,
                           convertedPtr, PixelFormatIDs::RGBA8_Straight,
-                          chunk * 4, nullptr, nullptr);
+                          chunk * 4, srcAux, nullptr);
             quadRGBA = convertedQuad;
         }
 
