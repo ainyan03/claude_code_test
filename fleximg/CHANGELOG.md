@@ -1,5 +1,42 @@
 # Changelog
 
+## [2.63.13] - 2026-02-03
+
+### 性能改善
+
+- **copyQuadDDA最適化**: 安全範囲計算をDDAParam.prepareCopyQuadDDA()に移動
+  - テンプレート関数からの安全範囲計算を排除（バイナリサイズ削減）
+  - 3領域処理（head/safe/tail）で起点側の境界チェックも正確に計算
+
+- **bilinearBlend_RGBA8888最適化**: 境界処理を事前ゼロ埋めに変更
+  - 境界ピクセルの事前ゼロ埋め（head→skip→tail方式で安全領域をスキップ）
+  - ループ内からedgeFlagsチェックを削除してコンパイラ最適化を促進
+  - `noinline`属性で命令キャッシュ効率化
+
+- **edgeFlagsリファクタリング**: エッジベースからピクセルベースに変更
+  - 旧: bit0-3 = 右端/下端/左端/上端（複数ピクセルに影響）
+  - 新: bit0-3 = p00/p10/p01/p11（1ビット=1ピクセル）
+
+- **copyQuadDDA_loop境界チェック最適化**
+  - `static_cast<size_t>()`比較で負値と上限超えを一度にチェック
+  - ポインタ計算の簡素化
+
+### API変更
+
+- **DDAParam構造体**: 安全範囲メンバを追加
+  - `headCount`, `safeCount`, `tailCount` (uint16_t)
+  - `prepareCopyQuadDDA(int count)` メソッド
+  - copyQuadDDA呼び出し前に`prepareCopyQuadDDA()`を呼ぶ必要あり
+
+- **bilinearBlend_RGBA8888**: 引数を`uint32_t*`に変更（アライメント要件明示化）
+
+### 内部改善
+
+- **中間バッファ**: `uint32_t[]`に変更して4バイトアライメント保証
+- **copyQuadPixels**: PixelType<BPP>を使用して統一化
+
+---
+
 ## [2.63.12] - 2026-02-02
 
 ### リファクタリング

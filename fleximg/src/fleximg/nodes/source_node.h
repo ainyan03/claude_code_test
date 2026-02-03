@@ -493,8 +493,8 @@ RenderResponse& SourceNode::pullProcessWithAffine(const RenderRequest& request) 
         // view_ops::copyRowDDA(dstRow, source_, validWidth,
         //     srcX_fixed, srcY_fixed, invA, invC);
 
-        // DDAParam を構築（srcWidth/srcHeight/weightsはcopyRowDDAでは使用しない）
-        DDAParam param = { source_.stride, 0, 0, srcX_fixed, srcY_fixed, invA, invC, nullptr };
+        // DDAParam を構築（srcWidth/srcHeight/weights/safe範囲はcopyRowDDAでは使用しない）
+        DDAParam param = { source_.stride, 0, 0, srcX_fixed, srcY_fixed, invA, invC, nullptr, 0, 0, 0 };
 
         // フォーマットの関数ポインタを呼び出し
        if (source_.formatID && source_.formatID->copyRowDDA) {
