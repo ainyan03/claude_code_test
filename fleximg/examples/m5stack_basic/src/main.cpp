@@ -589,7 +589,7 @@ void loop() {
 
     // 各ソースの更新
     int sourceCount = MODE_SOURCE_COUNTS[static_cast<int>(currentMode)];
-    float baseScale = (currentMode == DemoMode::SingleBilinear) ? 10.0f :
+    float baseScale = (currentMode == DemoMode::SingleBilinear) ? 6.0f :
                       (currentMode == DemoMode::SingleDirect ||
                        currentMode == DemoMode::SingleComposite) ? 2.5f :
                       (currentMode == DemoMode::ThirtyTwoAlpha) ? 1.5f :

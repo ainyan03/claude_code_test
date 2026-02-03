@@ -206,26 +206,31 @@ PrepareResponse SourceNode::onPullPrepare(const PrepareRequest& request) {
                                    && (source_.formatID == PixelFormatIDs::RGBA8_Straight);
 
             if (useBilinear) {
-                // バイリニア: 有効範囲は srcSize - 1 + ε
-                // +1 により端ピクセル（小数部=0）も有効範囲に含める
-                // 端での隣接ピクセルアクセスは copyRowDDABilinear_RGBA8888 側でクランプ
-                fpWidth_ = ((source_.width - 1) << INT_FIXED_SHIFT) + 1;
-                fpHeight_ = ((source_.height - 1) << INT_FIXED_SHIFT) + 1;
+                // バイリニア: 有効範囲はNearest同様 srcSize
+                // 境界外ピクセルは copyQuadDDA の edgeFlags で透明として補間
+                fpWidth_ = source_.width << INT_FIXED_SHIFT;
+                fpHeight_ = source_.height << INT_FIXED_SHIFT;
 
-                xs1_ = invA + (invA < 0 ? fpWidth_ : -1);
-                xs2_ = invA + (invA < 0 ? 0 : (fpWidth_ - 1));
-                ys1_ = invC + (invC < 0 ? fpHeight_ : -1);
-                ys2_ = invC + (invC < 0 ? 0 : (fpHeight_ - 1));
+                // バイリニア: 有効範囲を halfPixel 分拡張（フェードアウト領域用）
+                // srcX_nearest の有効範囲: -0.5 < srcX < srcWidth + 0.5
+                // invA/invC の符号に応じて調整の向きを変える
+                constexpr int32_t halfPixel = 1 << (INT_FIXED_SHIFT - 1);
+                const int32_t hpA = (invA < 0) ? -halfPixel : halfPixel;
+                const int32_t hpC = (invC < 0) ? -halfPixel : halfPixel;
 
-                // バイリニア: pivot の小数部を保持し、0.5 ピクセル減算（ピクセル中心基準）
-                // + prepareOffset でPrepare時のoriginを事前反映
-                constexpr int32_t halfPixel = 1 << (INT_FIXED_SHIFT - 1);  // 0.5 in Q16.16
+                xs1_ = invA + (invA < 0 ? fpWidth_ : -1) - hpA;
+                xs2_ = invA + (invA < 0 ? 0 : (fpWidth_ - 1)) + hpA;
+                ys1_ = invC + (invC < 0 ? fpHeight_ : -1) - hpC;
+                ys2_ = invC + (invC < 0 ? 0 : (fpHeight_ - 1)) + hpC;
+
+                // バイリニア: baseTx は Nearest と同じ計算（クリッピング範囲の互換性維持）
+                // 0.5ピクセル減算は DDA 呼び出し時に適用
                 baseTxWithOffsets_ = affine_.invTxFixed
-                                   + srcPivotXFixed16 - halfPixel
+                                   + srcPivotXFixed16
                                    + affine_.rowOffsetX + affine_.dxOffsetX
                                    + prepareOffsetX;
                 baseTyWithOffsets_ = affine_.invTyFixed
-                                   + srcPivotYFixed16 - halfPixel
+                                   + srcPivotYFixed16
                                    + affine_.rowOffsetY + affine_.dxOffsetY
                                    + prepareOffsetY;
                 useBilinear_ = true;
@@ -479,8 +484,10 @@ RenderResponse& SourceNode::pullProcessWithAffine(const RenderRequest& request) 
 
     if (useBilinear_) {
         // バイリニア補間（RGBA8888専用、他フォーマットは最近傍フォールバック）
+        // 0.5ピクセル減算（ピクセル中心→左上基準への変換）
+        constexpr int32_t halfPixel = 1 << (INT_FIXED_SHIFT - 1);
         view_ops::copyRowDDABilinear(dstRow, source_, validWidth,
-            srcX_fixed, srcY_fixed, invA, invC);
+            srcX_fixed - halfPixel, srcY_fixed - halfPixel, invA, invC);
     } else {
         // 最近傍補間（BPP分岐は関数内部で実施）
         // view_ops::copyRowDDA(dstRow, source_, validWidth,
