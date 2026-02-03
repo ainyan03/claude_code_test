@@ -84,6 +84,12 @@ public:
     void setInterpolationMode(InterpolationMode mode) { interpolationMode_ = mode; }
     InterpolationMode interpolationMode() const { return interpolationMode_; }
 
+    // エッジフェードアウト設定（バイリニア補間時のみ有効）
+    // フェード有効な辺では出力範囲が0.5ピクセル拡張され、境界がなめらかに透明化
+    // フェード無効な辺では出力範囲はNearestと同じ、境界ピクセルはクランプ
+    void setEdgeFade(uint8_t flags) { edgeFadeFlags_ = flags; }
+    uint8_t edgeFade() const { return edgeFadeFlags_; }
+
     const char* name() const override { return "SourceNode"; }
 
     // ========================================
@@ -109,6 +115,7 @@ private:
     int_fixed pivotY_ = 0;  // 画像内の基準点Y（pivot: 回転・配置の中心、固定小数点 Q16.16）
     // 注: 配置位置は localMatrix_.tx/ty で管理（AffineCapability から継承）
     InterpolationMode interpolationMode_ = InterpolationMode::Nearest;
+    uint8_t edgeFadeFlags_ = EdgeFade_All;  // デフォルト: 全辺フェードアウト有効
 
     // アフィン伝播用メンバ変数（事前計算済み）
     AffinePrecomputed affine_;     // 逆行列・ピクセル中心オフセット
@@ -211,17 +218,39 @@ PrepareResponse SourceNode::onPullPrepare(const PrepareRequest& request) {
                 fpWidth_ = source_.width << INT_FIXED_SHIFT;
                 fpHeight_ = source_.height << INT_FIXED_SHIFT;
 
-                // バイリニア: 有効範囲を halfPixel 分拡張（フェードアウト領域用）
-                // srcX_nearest の有効範囲: -0.5 < srcX < srcWidth + 0.5
-                // invA/invC の符号に応じて調整の向きを変える
+                // バイリニア: edgeFadeFlagsに応じて各辺の範囲を拡張
+                // フェード有効な辺のみ halfPixel 分拡張（フェードアウト領域用）
+                // invA/invCの符号によって、どの辺がstart/endに対応するか変わる
                 constexpr int32_t halfPixel = 1 << (INT_FIXED_SHIFT - 1);
-                const int32_t hpA = (invA < 0) ? -halfPixel : halfPixel;
-                const int32_t hpC = (invC < 0) ? -halfPixel : halfPixel;
 
-                xs1_ = invA + (invA < 0 ? fpWidth_ : -1) - hpA;
-                xs2_ = invA + (invA < 0 ? 0 : (fpWidth_ - 1)) + hpA;
-                ys1_ = invC + (invC < 0 ? fpHeight_ : -1) - hpC;
-                ys2_ = invC + (invC < 0 ? 0 : (fpHeight_ - 1)) + hpC;
+                // X方向のフェード拡張
+                int32_t hpAStart = 0, hpAEnd = 0;
+                if (invA >= 0) {
+                    // 非反転: xs1_はLeft側、xs2_はRight側
+                    if (edgeFadeFlags_ & EdgeFade_Left) hpAStart = halfPixel;
+                    if (edgeFadeFlags_ & EdgeFade_Right) hpAEnd = halfPixel;
+                } else {
+                    // 反転: xs1_はRight側、xs2_はLeft側
+                    if (edgeFadeFlags_ & EdgeFade_Right) hpAStart = -halfPixel;
+                    if (edgeFadeFlags_ & EdgeFade_Left) hpAEnd = -halfPixel;
+                }
+
+                // Y方向のフェード拡張
+                int32_t hpCStart = 0, hpCEnd = 0;
+                if (invC >= 0) {
+                    // 非反転: ys1_はTop側、ys2_はBottom側
+                    if (edgeFadeFlags_ & EdgeFade_Top) hpCStart = halfPixel;
+                    if (edgeFadeFlags_ & EdgeFade_Bottom) hpCEnd = halfPixel;
+                } else {
+                    // 反転: ys1_はBottom側、ys2_はTop側
+                    if (edgeFadeFlags_ & EdgeFade_Bottom) hpCStart = -halfPixel;
+                    if (edgeFadeFlags_ & EdgeFade_Top) hpCEnd = -halfPixel;
+                }
+
+                xs1_ = invA + (invA < 0 ? fpWidth_ : -1) - hpAStart;
+                xs2_ = invA + (invA < 0 ? 0 : (fpWidth_ - 1)) + hpAEnd;
+                ys1_ = invC + (invC < 0 ? fpHeight_ : -1) - hpCStart;
+                ys2_ = invC + (invC < 0 ? 0 : (fpHeight_ - 1)) + hpCEnd;
 
                 // バイリニア: baseTx は Nearest と同じ計算（クリッピング範囲の互換性維持）
                 // 0.5ピクセル減算は DDA 呼び出し時に適用
@@ -487,7 +516,7 @@ RenderResponse& SourceNode::pullProcessWithAffine(const RenderRequest& request) 
         // 0.5ピクセル減算（ピクセル中心→左上基準への変換）
         constexpr int32_t halfPixel = 1 << (INT_FIXED_SHIFT - 1);
         view_ops::copyRowDDABilinear(dstRow, source_, validWidth,
-            srcX_fixed - halfPixel, srcY_fixed - halfPixel, invA, invC);
+            srcX_fixed - halfPixel, srcY_fixed - halfPixel, invA, invC, edgeFadeFlags_);
     } else {
         // 最近傍補間（BPP分岐は関数内部で実施）
         // view_ops::copyRowDDA(dstRow, source_, validWidth,

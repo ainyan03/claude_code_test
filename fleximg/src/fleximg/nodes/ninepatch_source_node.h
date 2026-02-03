@@ -362,20 +362,22 @@ RenderResponse& NinePatchSourceNode::onPullProcess(const RenderRequest& request)
     }
 
     // 描画順序: 伸縮パッチ → 固定パッチ
-    // 斜めアフィン時にパッチ継ぎ目のエッジが綺麗に処理される
+    // オーバーラップ領域で固定パッチが伸縮パッチの上に描画される
+    // （バイリニア時のエッジを目立たなくするため）
     constexpr uint8_t drawOrder[9] = {
         4,           // 中央パッチ（両方向伸縮）を最初に
         1, 3, 5, 7,  // 伸縮パッチ（辺）
         0, 2, 6, 8   // 固定パッチ（角）を最後に
     };
 
-    // 各パッチのデータ範囲を収集し、和集合を計算
-    int_fast16_t canvasStartX = request.width;
+    // キャンバス範囲を計算（全パッチのDataRangeを集計）
+    int_fast16_t canvasStartX = INT16_MAX;
     int_fast16_t canvasEndX = 0;
     for (auto i : drawOrder) {
         auto col = static_cast<int_fast16_t>(i % 3);
         auto row = static_cast<int_fast16_t>(i / 3);
-        if (patchWidths_[col] <= 0 || patchHeights_[row] <= 0) {
+        // ソースサイズが0のパッチはスキップ（伸縮パッチはマイナス出力でも描画）
+        if (srcPatchW_[col] <= 0 || srcPatchH_[row] <= 0) {
             continue;
         }
         DataRange range = patches_[i].getDataRange(request);
@@ -385,7 +387,7 @@ RenderResponse& NinePatchSourceNode::onPullProcess(const RenderRequest& request)
         }
     }
 
-    // 有効なデータがない場合は空を返す（originは維持）
+    // 有効なデータがない場合は空を返す
     if (canvasStartX >= canvasEndX) {
         return makeEmptyResponse(request.origin);
     }
@@ -393,7 +395,6 @@ RenderResponse& NinePatchSourceNode::onPullProcess(const RenderRequest& request)
     int_fast16_t canvasWidth = canvasEndX - canvasStartX;
 
     // キャンバス作成（透明で初期化、必要幅のみ確保）
-    // 新座標系: canvasStartX分だけ右にシフト（加算）
     int_fixed canvasOriginX = request.origin.x + to_fixed(canvasStartX);
     int_fixed canvasOriginY = request.origin.y;
 
@@ -402,10 +403,10 @@ RenderResponse& NinePatchSourceNode::onPullProcess(const RenderRequest& request)
 
     // 全9区画を処理
     for (auto i : drawOrder) {
-        // サイズ0の区画はスキップ
+        // ソースサイズが0のパッチはスキップ（伸縮パッチはマイナス出力でも描画）
         auto col = static_cast<int_fast16_t>(i % 3);
         auto row = static_cast<int_fast16_t>(i / 3);
-        if (patchWidths_[col] <= 0 || patchHeights_[row] <= 0) {
+        if (srcPatchW_[col] <= 0 || srcPatchH_[row] <= 0) {
             continue;
         }
 
@@ -414,15 +415,21 @@ RenderResponse& NinePatchSourceNode::onPullProcess(const RenderRequest& request)
         if (!range.hasData()) continue;
 
         RenderResponse& patchResult = patches_[i].pullProcess(request);
-        if (!patchResult.isValid()) continue;
+        if (!patchResult.isValid()) {
+            context_->releaseResponse(patchResult);
+            continue;
+        }
 
         // フォーマット変換
         canvas_utils::ensureBlendableFormat(patchResult);
 
         // キャンバスに配置（全パッチ上書き）
-        // NinePatchではパッチ同士の重なりは単純上書きで良い
+        // NinePatchではパッチ同士の重なりは単純上書きで良い（EdgeFadeFlagsにより内部エッジはフェードアウトしない）
         canvas_utils::placeFirst(canvasView, canvasOriginX, canvasOriginY,
                                  patchResult.view(), patchResult.origin.x, patchResult.origin.y);
+
+        // 使い終わったRenderResponseをプールに返却
+        context_->releaseResponse(patchResult);
     }
 
     return makeResponse(std::move(canvasBuf), Point{canvasOriginX, canvasOriginY});
@@ -445,7 +452,8 @@ DataRange NinePatchSourceNode::getDataRange(const RenderRequest& request) const 
     for (int i = 0; i < 9; i++) {
         auto col = static_cast<int_fast16_t>(i % 3);
         auto row = static_cast<int_fast16_t>(i / 3);
-        if (patchWidths_[col] <= 0 || patchHeights_[row] <= 0) {
+        // ソースサイズが0のパッチはスキップ（伸縮パッチはマイナス出力でも描画）
+        if (srcPatchW_[col] <= 0 || srcPatchH_[row] <= 0) {
             continue;
         }
         DataRange range = patches_[i].getDataRange(request);
@@ -477,22 +485,22 @@ void NinePatchSourceNode::calcSrcPatchSizes() {
 void NinePatchSourceNode::calcAxisClipping(float outputSize, int_fast16_t srcFixed0, int_fast16_t srcFixed2,
                                            float& outWidth0, float& outWidth1, float& outWidth2,
                                            int16_t& effSrc0, int16_t& effSrc2) {
-    // クリッピング時もソースビューは元のサイズを維持し、スケールで縮小
+    // ソースサイズは常に元のまま
+    effSrc0 = static_cast<int16_t>(srcFixed0);
+    effSrc2 = static_cast<int16_t>(srcFixed2);
+
     float totalFixed = static_cast<float>(srcFixed0 + srcFixed2);
     if (outputSize < totalFixed && totalFixed > 0) {
+        // 全体幅が固定部合計より小さい場合：比率で按分（はみ出し防止）
         float ratio = outputSize / totalFixed;
         outWidth0 = static_cast<float>(srcFixed0) * ratio;
-        outWidth1 = 0.0f;
-        outWidth2 = outputSize - outWidth0;
-        // ソースビューは元のサイズを維持（スケールで縮小して滑らかな描画を実現）
-        effSrc0 = static_cast<int16_t>(srcFixed0);
-        effSrc2 = static_cast<int16_t>(srcFixed2);
+        outWidth2 = static_cast<float>(srcFixed2) * ratio;
+        outWidth1 = 0.0f;  // 伸縮部は0（位置は左右固定の境界）
     } else {
-        effSrc0 = static_cast<int16_t>(srcFixed0);
-        effSrc2 = static_cast<int16_t>(srcFixed2);
+        // 通常時：固定部はソースサイズ、伸縮部はマイナスも許容
         outWidth0 = static_cast<float>(srcFixed0);
-        outWidth1 = outputSize - static_cast<float>(srcFixed0) - static_cast<float>(srcFixed2);
         outWidth2 = static_cast<float>(srcFixed2);
+        outWidth1 = outputSize - outWidth0 - outWidth2;
     }
 }
 
@@ -521,12 +529,10 @@ void NinePatchSourceNode::updatePatchGeometry() {
     int16_t srcX[3] = { 0, srcLeft_, static_cast<int16_t>(source_.width - effectiveSrcRight_) };
     int16_t srcY[3] = { 0, srcTop_, static_cast<int16_t>(source_.height - effectiveSrcBottom_) };
 
-    // クリッピング状態を判定（出力サイズが固定部の合計より小さいか）
-    bool hClipping = outputWidth_ < static_cast<float>(srcLeft_ + srcRight_);
-    bool vClipping = outputHeight_ < static_cast<float>(srcTop_ + srcBottom_);
-
-    bool hasHStretch = effW[1] > 0 && !hClipping;  // 横方向伸縮部が存在かつクリッピングなし
-    bool hasVStretch = effH[1] > 0 && !vClipping;  // 縦方向伸縮部が存在かつクリッピングなし
+    // オーバーラップ有効判定（伸縮部の出力サイズが1以上の場合のみ）
+    // 伸縮部が1未満になったらオーバーラップをオフにする
+    bool hasHStretch = effW[1] > 0 && patchWidths_[1] >= 1.0f;
+    bool hasVStretch = effH[1] > 0 && patchHeights_[1] >= 1.0f;
 
     float pivotXf = static_cast<float>(pivotX_) / INT_FIXED_ONE;
     float pivotYf = static_cast<float>(pivotY_) / INT_FIXED_ONE;
@@ -538,26 +544,16 @@ void NinePatchSourceNode::updatePatchGeometry() {
             // オーバーラップ量（固定部→伸縮部方向に拡張）
             int_fast16_t dx = 0, dy = 0, dw = 0, dh = 0;
 
-            // 横方向オーバーラップ
+            // 横方向オーバーラップ（伸縮パッチがある場合、固定部を伸縮部側に拡張）
             if (hasHStretch) {
-                // 通常時: 固定部 → 伸縮部方向の拡張
                 if (col == 0 && effW[0] > 0) { dw = 1; }           // 左固定: 右に拡張
                 else if (col == 2 && effW[2] > 0) { dx = -1; dw = 1; }  // 右固定: 左に拡張
-            } else if (hClipping) {
-                // クリッピング時: 左固定と右固定が直接隣接
-                if (col == 0 && effW[0] > 0 && effW[2] > 0) { dw = 1; }
-                else if (col == 2 && effW[0] > 0 && effW[2] > 0) { dx = -1; dw = 1; }
             }
 
-            // 縦方向オーバーラップ
+            // 縦方向オーバーラップ（伸縮パッチがある場合、固定部を伸縮部側に拡張）
             if (hasVStretch) {
-                // 通常時: 固定部 → 伸縮部方向の拡張
                 if (row == 0 && effH[0] > 0) { dh = 1; }           // 上固定: 下に拡張
                 else if (row == 2 && effH[2] > 0) { dy = -1; dh = 1; }  // 下固定: 上に拡張
-            } else if (vClipping) {
-                // クリッピング時: 上固定と下固定が直接隣接
-                if (row == 0 && effH[0] > 0 && effH[2] > 0) { dh = 1; }
-                else if (row == 2 && effH[0] > 0 && effH[2] > 0) { dy = -1; dh = 1; }
             }
 
             // ソースビュー設定
@@ -566,31 +562,28 @@ void NinePatchSourceNode::updatePatchGeometry() {
                     srcX[col] + dx, srcY[row] + dy, effW[col] + dw, effH[row] + dh);
                 patches_[idx].setSource(subView);
                 patches_[idx].setPivot(0, 0);
+
+                // エッジフェードアウト設定（外周の辺のみフェードアウト有効）
+                // 隣接パッチとの境界（内部の辺）はフェードアウト無効
+                uint8_t edgeFade = EdgeFade_None;
+                if (row == 0) edgeFade |= EdgeFade_Top;     // 上端パッチ: 上辺フェード有効
+                if (row == 2) edgeFade |= EdgeFade_Bottom;  // 下端パッチ: 下辺フェード有効
+                if (col == 0) edgeFade |= EdgeFade_Left;    // 左端パッチ: 左辺フェード有効
+                if (col == 2) edgeFade |= EdgeFade_Right;   // 右端パッチ: 右辺フェード有効
+                patches_[idx].setEdgeFade(edgeFade);
             }
 
-            // スケール計算
+            // スケール計算（出力サイズ / ソースサイズ）
             float scaleX = 1.0f, scaleY = 1.0f;
 
             // 横方向スケール
-            if (col == 1 && srcPatchW_[1] > 0) {
-                // 伸縮部
-                int_fast16_t effSrcW = srcPatchW_[1];
-                if (interpolationMode_ == InterpolationMode::Bilinear && effSrcW > 1) effSrcW -= 1;
-                scaleX = patchWidths_[1] / static_cast<float>(effSrcW);
-            } else if (hClipping && effW[col] > 0) {
-                // クリッピング時の固定部（出力幅/ソース幅）
-                scaleX = patchWidths_[col] / effW[col];
+            if (srcPatchW_[col] > 0) {
+                scaleX = patchWidths_[col] / static_cast<float>(srcPatchW_[col]);
             }
 
             // 縦方向スケール
-            if (row == 1 && srcPatchH_[1] > 0) {
-                // 伸縮部
-                int_fast16_t effSrcH = srcPatchH_[1];
-                if (interpolationMode_ == InterpolationMode::Bilinear && effSrcH > 1) effSrcH -= 1;
-                scaleY = patchHeights_[1] / static_cast<float>(effSrcH);
-            } else if (vClipping && effH[row] > 0) {
-                // クリッピング時の固定部（出力高さ/ソース高さ）
-                scaleY = patchHeights_[row] / effH[row];
+            if (srcPatchH_[row] > 0) {
+                scaleY = patchHeights_[row] / static_cast<float>(srcPatchH_[row]);
             }
 
             // 平行移動量
@@ -598,10 +591,10 @@ void NinePatchSourceNode::updatePatchGeometry() {
             float ty = patchOffsetY_[row] + static_cast<float>(dy) - pivotYf + positionY_;
 
             // バイリニア時の伸縮部位置補正
-            if (interpolationMode_ == InterpolationMode::Bilinear) {
-                if (col == 1 && srcPatchW_[1] > 1) tx -= scaleX * 0.5f;
-                if (row == 1 && srcPatchH_[1] > 1) ty -= scaleY * 0.5f;
-            }
+            // if (interpolationMode_ == InterpolationMode::Bilinear) {
+            //     if (col == 1 && srcPatchW_[1] > 1) tx -= scaleX * 0.5f;
+            //     if (row == 1 && srcPatchH_[1] > 1) ty -= scaleY * 0.5f;
+            // }
 
             patchScales_[idx] = AffineMatrix(scaleX, 0.0f, 0.0f, scaleY, tx, ty);
             patchNeedsAffine_[idx] = true;
