@@ -252,6 +252,27 @@ inline void bilinearBlend_RGBA8888(
         uint32_t q01 = *reinterpret_cast<const uint32_t*>(quadPixels + 8);
         uint32_t q11 = *reinterpret_cast<const uint32_t*>(quadPixels + 12);
 
+        // 境界外ピクセルを透明として扱う
+        uint8_t edgeFlags = weights[i].edgeFlags;
+        if (edgeFlags) {
+            if (edgeFlags & 0x01) {  // 右端: p10, p11が無効
+                q10 = 0;
+                q11 = 0;
+            }
+            if (edgeFlags & 0x02) {  // 下端: p01, p11が無効
+                q01 = 0;
+                q11 = 0;
+            }
+            if (edgeFlags & 0x04) {  // 左端: p00, p01が無効
+                q00 = 0;
+                q01 = 0;
+            }
+            if (edgeFlags & 0x08) {  // 上端: p00, p10が無効
+                q00 = 0;
+                q10 = 0;
+            }
+        }
+
         uint32_t fx = weights[i].fx;
         uint32_t fy = weights[i].fy;
         uint32_t ifx = 256 - fx;

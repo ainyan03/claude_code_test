@@ -14,8 +14,12 @@ namespace FLEXIMG_NAMESPACE {
 // ========================================================================
 
 struct BilinearWeight {
-    uint8_t fx;  // X方向小数部（0-255）
-    uint8_t fy;  // Y方向小数部（0-255）
+    uint8_t fx;         // X方向小数部（0-255）
+    uint8_t fy;         // Y方向小数部（0-255）
+    uint8_t edgeFlags;  // bit0: 右端（sx >= srcLastX）→ p10, p11 無効
+                        // bit1: 下端（sy >= srcLastY）→ p01, p11 無効
+                        // bit2: 左端（sx < 0）→ p00, p01 無効
+                        // bit3: 上端（sy < 0）→ p00, p10 無効
 };
 
 // ========================================================================
@@ -688,6 +692,7 @@ void copyQuadDDA_loop(
 ) {
     constexpr size_t QUAD_SIZE = BPP * 4;
 
+    uint8_t flags = 0;
     for (int i = 0; i < count; ++i) {
         int32_t sx = srcX >> INT_FIXED_SHIFT;
         int32_t sy = srcY >> INT_FIXED_SHIFT;
@@ -695,23 +700,44 @@ void copyQuadDDA_loop(
         weights[weightOffset + i].fx = static_cast<uint8_t>(static_cast<uint32_t>(srcX) >> 8);
         weights[weightOffset + i].fy = static_cast<uint8_t>(static_cast<uint32_t>(srcY) >> 8);
 
-        const uint8_t* p00 = srcData
-            + static_cast<size_t>(sy) * static_cast<size_t>(srcStride)
-            + static_cast<size_t>(sx) * BPP;
-
+        const uint8_t* p00;
         const uint8_t* p10;
         const uint8_t* p01;
         const uint8_t* p11;
 
         if constexpr (CheckBoundary) {
-            p10 = (sx >= srcLastX) ? p00 : p00 + BPP;
-            p01 = (sy >= srcLastY) ? p00 : p00 + srcStride;
-            p11 = (sx >= srcLastX) ? p01 : p01 + BPP;
+            flags = 0;
+
+            // 各ピクセルの座標
+            int32_t x1 = sx + 1;
+            int32_t y1 = sy + 1;
+
+            // 境界フラグ設定
+            if (x1 > srcLastX) flags |= 0x01;  // 右端: p10, p11が無効
+            if (y1 > srcLastY) flags |= 0x02;  // 下端: p01, p11が無効
+            if (sx < 0) flags |= 0x04;          // 左端: p00, p01が無効
+            if (sy < 0) flags |= 0x08;          // 上端: p00, p10が無効
+
+            // 各座標をクランプ（0 <= x <= srcLastX, 0 <= y <= srcLastY）
+            int32_t cx0 = (sx < 0) ? 0 : ((sx > srcLastX) ? srcLastX : sx);
+            int32_t cx1 = (x1 < 0) ? 0 : ((x1 > srcLastX) ? srcLastX : x1);
+            int32_t cy0 = (sy < 0) ? 0 : ((sy > srcLastY) ? srcLastY : sy);
+            int32_t cy1 = (y1 < 0) ? 0 : ((y1 > srcLastY) ? srcLastY : y1);
+
+            // 各ポインタを個別に計算
+            p00 = srcData + static_cast<size_t>(cy0) * static_cast<size_t>(srcStride) + static_cast<size_t>(cx0) * BPP;
+            p10 = srcData + static_cast<size_t>(cy0) * static_cast<size_t>(srcStride) + static_cast<size_t>(cx1) * BPP;
+            p01 = srcData + static_cast<size_t>(cy1) * static_cast<size_t>(srcStride) + static_cast<size_t>(cx0) * BPP;
+            p11 = srcData + static_cast<size_t>(cy1) * static_cast<size_t>(srcStride) + static_cast<size_t>(cx1) * BPP;
         } else {
+            p00 = srcData
+                + static_cast<size_t>(sy) * static_cast<size_t>(srcStride)
+                + static_cast<size_t>(sx) * BPP;
             p10 = p00 + BPP;
             p01 = p00 + srcStride;
             p11 = p01 + BPP;
         }
+        weights[weightOffset + i].edgeFlags = flags;
 
         copyQuadPixels<BPP>(dst, p00, p10, p01, p11);
 
@@ -745,9 +771,18 @@ void copyQuadDDA_bpp(
 
     // X方向の安全範囲を計算
     if (incrX > 0) {
+        // 右端に到達するまで
         int_fixed xLimit = (static_cast<int_fixed>(srcLastX) << INT_FIXED_SHIFT) - srcX;
         if (xLimit > 0) {
             int safeCountX = static_cast<int>(xLimit / incrX);
+            if (safeCountX < safeEnd) safeEnd = safeCountX;
+        } else {
+            safeEnd = 0;
+        }
+    } else if (incrX < 0) {
+        // 左端に到達するまで（srcX が 0 を下回るまで）
+        if (srcX > 0) {
+            int safeCountX = static_cast<int>(srcX / (-incrX));
             if (safeCountX < safeEnd) safeEnd = safeCountX;
         } else {
             safeEnd = 0;
@@ -756,6 +791,7 @@ void copyQuadDDA_bpp(
 
     // Y方向の安全範囲を計算
     if (incrY > 0) {
+        // 下端に到達するまで
         int_fixed yLimit = (static_cast<int_fixed>(srcLastY) << INT_FIXED_SHIFT) - srcY;
         if (yLimit > 0) {
             int safeCountY = static_cast<int>(yLimit / incrY);
@@ -763,12 +799,20 @@ void copyQuadDDA_bpp(
         } else {
             safeEnd = 0;
         }
+    } else if (incrY < 0) {
+        // 上端に到達するまで（srcY が 0 を下回るまで）
+        if (srcY > 0) {
+            int safeCountY = static_cast<int>(srcY / (-incrY));
+            if (safeCountY < safeEnd) safeEnd = safeCountY;
+        } else {
+            safeEnd = 0;
+        }
     }
 
-    // 開始位置が既に境界に近い場合
+    // 開始位置が既に境界に近い場合、または負の座標の場合
     int32_t startSx = srcX >> INT_FIXED_SHIFT;
     int32_t startSy = srcY >> INT_FIXED_SHIFT;
-    if (startSx >= srcLastX || startSy >= srcLastY) {
+    if (startSx < 0 || startSy < 0 || startSx >= srcLastX || startSy >= srcLastY) {
         safeEnd = 0;
     }
 
