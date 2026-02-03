@@ -566,6 +566,15 @@ void NinePatchSourceNode::updatePatchGeometry() {
                     srcX[col] + dx, srcY[row] + dy, effW[col] + dw, effH[row] + dh);
                 patches_[idx].setSource(subView);
                 patches_[idx].setPivot(0, 0);
+
+                // エッジフェードアウト設定（外周の辺のみフェードアウト有効）
+                // 隣接パッチとの境界（内部の辺）はフェードアウト無効
+                uint8_t edgeFade = EdgeFade_None;
+                if (row == 0) edgeFade |= EdgeFade_Top;     // 上端パッチ: 上辺フェード有効
+                if (row == 2) edgeFade |= EdgeFade_Bottom;  // 下端パッチ: 下辺フェード有効
+                if (col == 0) edgeFade |= EdgeFade_Left;    // 左端パッチ: 左辺フェード有効
+                if (col == 2) edgeFade |= EdgeFade_Right;   // 右端パッチ: 右辺フェード有効
+                patches_[idx].setEdgeFade(edgeFade);
             }
 
             // スケール計算

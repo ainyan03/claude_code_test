@@ -115,6 +115,7 @@ void copyRowDDA(
 // DDA行転写（バイリニア補間）
 // copyQuadDDA → フォーマット変換 → bilinearBlend_RGBA8888 のパイプライン
 // copyQuadDDA未対応フォーマットは最近傍にフォールバック
+// edgeFadeMask: EdgeFadeFlagsの値。フェード有効な辺のみ境界ピクセルのアルファを0化
 void copyRowDDABilinear(
     void* dst,
     const ViewPort& src,
@@ -122,7 +123,8 @@ void copyRowDDABilinear(
     int_fixed srcX,
     int_fixed srcY,
     int_fixed incrX,
-    int_fixed incrY
+    int_fixed incrY,
+    uint8_t edgeFadeMask = EdgeFade_All  // デフォルト: 全辺フェードアウト有効
 );
 
 // アフィン変換転写（DDA方式）
@@ -312,7 +314,8 @@ void copyRowDDABilinear(
     int_fixed srcX,
     int_fixed srcY,
     int_fixed incrX,
-    int_fixed incrY
+    int_fixed incrY,
+    uint8_t edgeFadeMask
 ) {
     if (!src.isValid() || count <= 0) return;
 
@@ -367,7 +370,8 @@ void copyRowDDABilinear(
             quadRGBA = convertedQuad;
         }
 
-        // 境界ピクセルの事前ゼロ埋め（edgeFlagsに基づく）
+        // 境界ピクセルの事前ゼロ埋め（edgeFlagsとedgeFadeMaskに基づく）
+        // edgeFadeMaskで有効な方向の境界のみアルファを0化
         if (param.headCount || param.tailCount) {
             auto quad = reinterpret_cast<uint8_t*>(quadRGBA) + 3;
             auto wptr = param.weights;
@@ -376,11 +380,19 @@ void copyRowDDABilinear(
                 for (uint_fast16_t i = 0; i < n; ++i) {
                     uint8_t flags = wptr->edgeFlags;
                     ++wptr;
+
+                    // 境界方向ごとにチェック（両ピクセルが無効な場合のみその境界と判定）
+                    uint8_t maskedFlags = 0;
+                    if ((edgeFadeMask & EdgeFade_Left)   && (flags & 0x05) == 0x05) maskedFlags |= 0x05;
+                    if ((edgeFadeMask & EdgeFade_Right)  && (flags & 0x0A) == 0x0A) maskedFlags |= 0x0A;
+                    if ((edgeFadeMask & EdgeFade_Top)    && (flags & 0x03) == 0x03) maskedFlags |= 0x03;
+                    if ((edgeFadeMask & EdgeFade_Bottom) && (flags & 0x0C) == 0x0C) maskedFlags |= 0x0C;
+
                     // RGBA8888のAチャネル位置に対応
-                    if (flags & 0x01) { quad[0] = 0; }
-                    if (flags & 0x02) { quad[4] = 0; }
-                    if (flags & 0x04) { quad[8] = 0; }
-                    if (flags & 0x08) { quad[12] = 0; }
+                    if (maskedFlags & 0x01) { quad[0] = 0; }
+                    if (maskedFlags & 0x02) { quad[4] = 0; }
+                    if (maskedFlags & 0x04) { quad[8] = 0; }
+                    if (maskedFlags & 0x08) { quad[12] = 0; }
                     quad += 4 * 4;
                 }
                 wptr += param.safeCount;
