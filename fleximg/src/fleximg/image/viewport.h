@@ -352,7 +352,8 @@ void copyRowDDABilinear(
             incrX,
             incrY,
             weights,
-            0, 0, 0  // headCount, safeCount, tailCount（prepareCopyQuadDDAで設定）
+            0, 0, 0,  // headCount, safeCount, tailCount（prepareCopyQuadDDAで設定）
+            edgeFadeMask  // エッジフェードマスク
         };
         param.prepareCopyQuadDDA(chunk);
 
@@ -370,8 +371,8 @@ void copyRowDDABilinear(
             quadRGBA = convertedQuad;
         }
 
-        // 境界ピクセルの事前ゼロ埋め（edgeFlagsとedgeFadeMaskに基づく）
-        // edgeFadeMaskで有効な方向の境界のみアルファを0化
+        // 境界ピクセルの事前ゼロ埋め（edgeFlagsに基づく）
+        // edgeFlagsはcopyQuadDDA_loop内でedgeFadeMaskと照合済み
         if (param.headCount || param.tailCount) {
             auto quad = reinterpret_cast<uint8_t*>(quadRGBA) + 3;
             auto wptr = param.weights;
@@ -381,18 +382,11 @@ void copyRowDDABilinear(
                     uint8_t flags = wptr->edgeFlags;
                     ++wptr;
 
-                    // 境界方向ごとにチェック（両ピクセルが無効な場合のみその境界と判定）
-                    uint8_t maskedFlags = 0;
-                    if ((edgeFadeMask & EdgeFade_Left)   && (flags & 0x05) == 0x05) maskedFlags |= 0x05;
-                    if ((edgeFadeMask & EdgeFade_Right)  && (flags & 0x0A) == 0x0A) maskedFlags |= 0x0A;
-                    if ((edgeFadeMask & EdgeFade_Top)    && (flags & 0x03) == 0x03) maskedFlags |= 0x03;
-                    if ((edgeFadeMask & EdgeFade_Bottom) && (flags & 0x0C) == 0x0C) maskedFlags |= 0x0C;
-
                     // RGBA8888のAチャネル位置に対応
-                    if (maskedFlags & 0x01) { quad[0] = 0; }
-                    if (maskedFlags & 0x02) { quad[4] = 0; }
-                    if (maskedFlags & 0x04) { quad[8] = 0; }
-                    if (maskedFlags & 0x08) { quad[12] = 0; }
+                    if (flags & 0x01) { quad[0] = 0; }
+                    if (flags & 0x02) { quad[4] = 0; }
+                    if (flags & 0x04) { quad[8] = 0; }
+                    if (flags & 0x08) { quad[12] = 0; }
                     quad += 4 * 4;
                 }
                 wptr += param.safeCount;

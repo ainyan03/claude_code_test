@@ -67,6 +67,10 @@ struct DDAParam {
     uint16_t safeCount;   // 中央の安全部分（境界チェック不要）
     uint16_t tailCount;   // 末尾側の境界チェック必要部分
 
+    // エッジフェードアウトマスク（EdgeFadeFlags）
+    // copyQuadDDA_loopで境界方向を判定し、フェードアウト対象のピクセルのみedgeFlagsにセット
+    uint8_t edgeFadeMask = EdgeFade_All;
+
     // copyQuadDDA呼び出し前の準備（安全範囲を計算）
     void prepareCopyQuadDDA(int count) {
         const int32_t srcLastX = srcWidth - 1;
@@ -811,7 +815,8 @@ void copyQuadDDA_loop(
     const int32_t srcLastX,
     const int32_t srcLastY,
     BilinearWeight* weights,
-    int weightOffset
+    int weightOffset,
+    uint8_t edgeFadeMask = EdgeFade_All
 ) {
     constexpr size_t QUAD_SIZE = BPP * 4;
 
@@ -835,23 +840,43 @@ void copyQuadDDA_loop(
             int32_t x1 = sx + 1;
             int32_t y1 = sy + 1;
 
-            // ピクセルごとの無効フラグ設定（2x2グリッド行優先）
-            if (sx < 0 || sy < 0) flags |= 0x01;                      // p00が無効
-            if (x1 > srcLastX || sy < 0) flags |= 0x02;               // p10が無効
-            if (sx < 0 || y1 > srcLastY) flags |= 0x04;               // p01が無効
-            if (x1 > srcLastX || y1 > srcLastY) flags |= 0x08;        // p11が無効
-
-            // 各座標をクランプ（0 <= x <= srcLastX, 0 <= y <= srcLastY）
-            int32_t cx0 = (sx < 0) ? 0 : ((sx > srcLastX) ? srcLastX : sx);
-            int32_t cx1 = (x1 < 0) ? 0 : ((x1 > srcLastX) ? srcLastX : x1);
-            int32_t cy0 = (sy < 0) ? 0 : ((sy > srcLastY) ? srcLastY : sy);
-            int32_t cy1 = (y1 < 0) ? 0 : ((y1 > srcLastY) ? srcLastY : y1);
-
+            // 境界方向ごとにedgeFadeMaskと照合し、フェードアウト対象ピクセルのみセット
+            // 左境界: sx < 0 → p00(0x01), p01(0x04)
+            if (static_cast<uint32_t>(sx) >= static_cast<uint32_t>(srcLastX)) {
+                if (sx < 0) {
+                    sx = 0;
+                    // 左境界: sx < 0 → p00(0x01), p01(0x04)
+                    if (edgeFadeMask & EdgeFade_Left) {
+                        flags = 0x05;  // p00 + p01
+                    }
+                } else {
+                    x1 = sx;
+                    // 右境界: x1 > srcLastX → p10(0x02), p11(0x08)
+                    if (edgeFadeMask & EdgeFade_Right) {
+                        flags = 0x0A;  // p10 + p11
+                    }
+                }
+            }
+            if (static_cast<uint32_t>(sy) >= static_cast<uint32_t>(srcLastY)) {
+                // 上境界: sy < 0 → p00(0x01), p10(0x02)
+                if (sy < 0) {
+                    sy = 0;
+                    if (edgeFadeMask & EdgeFade_Top) {
+                        flags |= 0x03;  // p00 + p10
+                    }
+                } else {
+                    y1 = sy;
+                    // 下境界: y1 > srcLastY → p01(0x04), p11(0x08)
+                    if (edgeFadeMask & EdgeFade_Bottom) {
+                        flags |= 0x0C;  // p01 + p11
+                    }
+                }
+            }
             // 各ポインタを個別に計算
-            p00 = srcData + static_cast<size_t>(cy0) * static_cast<size_t>(srcStride) + static_cast<size_t>(cx0) * BPP;
-            p10 = srcData + static_cast<size_t>(cy0) * static_cast<size_t>(srcStride) + static_cast<size_t>(cx1) * BPP;
-            p01 = srcData + static_cast<size_t>(cy1) * static_cast<size_t>(srcStride) + static_cast<size_t>(cx0) * BPP;
-            p11 = srcData + static_cast<size_t>(cy1) * static_cast<size_t>(srcStride) + static_cast<size_t>(cx1) * BPP;
+            p00 = srcData + static_cast<size_t>(sy) * static_cast<size_t>(srcStride) + static_cast<size_t>(sx) * BPP;
+            p10 = srcData + static_cast<size_t>(sy) * static_cast<size_t>(srcStride) + static_cast<size_t>(x1) * BPP;
+            p01 = srcData + static_cast<size_t>(y1) * static_cast<size_t>(srcStride) + static_cast<size_t>(sx) * BPP;
+            p11 = srcData + static_cast<size_t>(y1) * static_cast<size_t>(srcStride) + static_cast<size_t>(x1) * BPP;
         } else {
             p00 = srcData
                 + static_cast<size_t>(sy) * static_cast<size_t>(srcStride)
@@ -886,6 +911,7 @@ void copyQuadDDA_bpp(
     const int32_t srcLastX = param->srcWidth - 1;
     const int32_t srcLastY = param->srcHeight - 1;
     BilinearWeight* weights = param->weights;
+    const uint8_t edgeFadeMask = param->edgeFadeMask;
 
     constexpr size_t BPP = BytesPerPixel;
     constexpr size_t QUAD_SIZE = BPP * 4;
@@ -899,7 +925,7 @@ void copyQuadDDA_bpp(
             dst, srcData, param->headCount,
             srcX, srcY, incrX, incrY,
             srcStride, srcLastX, srcLastY,
-            weights, offset
+            weights, offset, edgeFadeMask
         );
         dst += static_cast<size_t>(param->headCount) * QUAD_SIZE;
         srcX += incrX * param->headCount;
@@ -913,7 +939,7 @@ void copyQuadDDA_bpp(
             dst, srcData, param->safeCount,
             srcX, srcY, incrX, incrY,
             srcStride, srcLastX, srcLastY,
-            weights, offset
+            weights, offset, edgeFadeMask
         );
         dst += static_cast<size_t>(param->safeCount) * QUAD_SIZE;
         srcX += incrX * param->safeCount;
@@ -927,7 +953,7 @@ void copyQuadDDA_bpp(
             dst, srcData, param->tailCount,
             srcX, srcY, incrX, incrY,
             srcStride, srcLastX, srcLastY,
-            weights, offset
+            weights, offset, edgeFadeMask
         );
     }
 }
