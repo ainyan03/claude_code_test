@@ -369,21 +369,22 @@ void copyRowDDABilinear(
 
         // 境界ピクセルの事前ゼロ埋め（edgeFlagsに基づく）
         if (param.headCount || param.tailCount) {
-            uint32_t* quad = quadRGBA;
+            auto quad = reinterpret_cast<uint8_t*>(quadRGBA) + 3;
             auto wptr = param.weights;
             for (int step = 0; step < 2; ++step) {
                 uint_fast16_t n = step ? param.tailCount : param.headCount;
                 for (uint_fast16_t i = 0; i < n; ++i) {
                     uint8_t flags = wptr->edgeFlags;
                     ++wptr;
-                    if (flags & 0x01) quad[0] = 0;
-                    if (flags & 0x02) quad[1] = 0;
-                    if (flags & 0x04) quad[2] = 0;
-                    if (flags & 0x08) quad[3] = 0;
-                    quad += 4;
+                    // RGBA8888のAチャネル位置に対応
+                    if (flags & 0x01) { quad[0] = 0; }
+                    if (flags & 0x02) { quad[4] = 0; }
+                    if (flags & 0x04) { quad[8] = 0; }
+                    if (flags & 0x08) { quad[12] = 0; }
+                    quad += 4 * 4;
                 }
                 wptr += param.safeCount;
-                quad += (param.safeCount * 4);
+                quad += (param.safeCount * 4 * 4);
             }
         }
 
