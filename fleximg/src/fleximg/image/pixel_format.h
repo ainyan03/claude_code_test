@@ -16,10 +16,11 @@ namespace FLEXIMG_NAMESPACE {
 struct BilinearWeight {
     uint8_t fx;         // X方向小数部（0-255）
     uint8_t fy;         // Y方向小数部（0-255）
-    uint8_t edgeFlags;  // bit0: 右端（sx >= srcLastX）→ p10, p11 無効
-                        // bit1: 下端（sy >= srcLastY）→ p01, p11 無効
-                        // bit2: 左端（sx < 0）→ p00, p01 無効
-                        // bit3: 上端（sy < 0）→ p00, p10 無効
+    uint8_t edgeFlags;  // ピクセルごとの無効フラグ（2x2グリッド行優先）
+                        // bit0: p00が無効（左上）
+                        // bit1: p10が無効（右上）
+                        // bit2: p01が無効（左下）
+                        // bit3: p11が無効（右下）
 };
 
 // ========================================================================
@@ -39,6 +40,110 @@ struct DDAParam {
     int_fixed incrX;      // 1ピクセルあたりのX増分（Q16.16固定小数点）
     int_fixed incrY;      // 1ピクセルあたりのY増分（Q16.16固定小数点）
     BilinearWeight* weights;  // 重み出力先（copyQuadDDA用）
+
+    // 安全範囲（prepareCopyQuadDDAで事前計算）
+    uint16_t headCount;   // 起点側の境界チェック必要部分
+    uint16_t safeCount;   // 中央の安全部分（境界チェック不要）
+    uint16_t tailCount;   // 末尾側の境界チェック必要部分
+
+    // copyQuadDDA呼び出し前の準備（安全範囲を計算）
+    void prepareCopyQuadDDA(int count) {
+        const int32_t srcLastX = srcWidth - 1;
+        const int32_t srcLastY = srcHeight - 1;
+
+        // 安全領域の開始点（境界外→境界内に入る位置）
+        int safeStart = 0;
+
+        // X方向の起点側チェック
+        if (incrX > 0) {
+            if (srcX < 0) {
+                safeStart = static_cast<int>((-srcX + incrX - 1) / incrX);
+            }
+        } else if (incrX < 0) {
+            int_fixed xMax = static_cast<int_fixed>(srcLastX) << INT_FIXED_SHIFT;
+            if (srcX > xMax) {
+                int_fixed excess = srcX - xMax;
+                safeStart = static_cast<int>((excess + (-incrX) - 1) / (-incrX));
+            }
+        }
+
+        // Y方向の起点側チェック
+        if (incrY > 0) {
+            if (srcY < 0) {
+                int headY = static_cast<int>((-srcY + incrY - 1) / incrY);
+                if (headY > safeStart) safeStart = headY;
+            }
+        } else if (incrY < 0) {
+            int_fixed yMax = static_cast<int_fixed>(srcLastY) << INT_FIXED_SHIFT;
+            if (srcY > yMax) {
+                int_fixed excess = srcY - yMax;
+                int headY = static_cast<int>((excess + (-incrY) - 1) / (-incrY));
+                if (headY > safeStart) safeStart = headY;
+            }
+        }
+
+        // safeStartがcountを超える場合は全て境界チェック必要
+        if (safeStart >= count) {
+            headCount = static_cast<uint16_t>(count);
+            safeCount = 0;
+            tailCount = 0;
+            return;
+        }
+
+        // 安全領域開始後の座標を計算
+        int_fixed safeX = srcX + incrX * safeStart;
+        int_fixed safeY = srcY + incrY * safeStart;
+
+        // 安全領域の終了点（境界内→境界外に出る位置）
+        int safeEnd = count;
+
+        // X方向の末尾側チェック
+        if (incrX > 0) {
+            int_fixed xLimit = (static_cast<int_fixed>(srcLastX) << INT_FIXED_SHIFT) - safeX;
+            if (xLimit > 0) {
+                int safeCountX = safeStart + static_cast<int>(xLimit / incrX);
+                if (safeCountX < safeEnd) safeEnd = safeCountX;
+            } else {
+                safeEnd = safeStart;
+            }
+        } else if (incrX < 0) {
+            if (safeX > 0) {
+                int safeCountX = safeStart + static_cast<int>(safeX / (-incrX));
+                if (safeCountX < safeEnd) safeEnd = safeCountX;
+            } else {
+                safeEnd = safeStart;
+            }
+        }
+
+        // Y方向の末尾側チェック
+        if (incrY > 0) {
+            int_fixed yLimit = (static_cast<int_fixed>(srcLastY) << INT_FIXED_SHIFT) - safeY;
+            if (yLimit > 0) {
+                int safeCountY = safeStart + static_cast<int>(yLimit / incrY);
+                if (safeCountY < safeEnd) safeEnd = safeCountY;
+            } else {
+                safeEnd = safeStart;
+            }
+        } else if (incrY < 0) {
+            if (safeY > 0) {
+                int safeCountY = safeStart + static_cast<int>(safeY / (-incrY));
+                if (safeCountY < safeEnd) safeEnd = safeCountY;
+            } else {
+                safeEnd = safeStart;
+            }
+        }
+
+        // 安全領域開始位置が境界に近い場合のチェック
+        int32_t startSx = safeX >> INT_FIXED_SHIFT;
+        int32_t startSy = safeY >> INT_FIXED_SHIFT;
+        if (startSx < 0 || startSy < 0 || startSx >= srcLastX || startSy >= srcLastY) {
+            safeEnd = safeStart;
+        }
+
+        headCount = static_cast<uint16_t>(safeStart);
+        safeCount = static_cast<uint16_t>(safeEnd - safeStart);
+        tailCount = static_cast<uint16_t>(count - safeEnd);
+    }
 };
 
 // DDA行転写関数の型定義
@@ -652,25 +757,22 @@ inline void copyQuadPixels(
     const uint8_t* p01,
     const uint8_t* p11
 ) {
-    if constexpr (BPP == 1) {
-        dst[0] = p00[0]; dst[1] = p10[0]; dst[2] = p01[0]; dst[3] = p11[0];
-    } else if constexpr (BPP == 2) {
-        auto d = reinterpret_cast<uint16_t*>(dst);
-        d[0] = *reinterpret_cast<const uint16_t*>(p00);
-        d[1] = *reinterpret_cast<const uint16_t*>(p10);
-        d[2] = *reinterpret_cast<const uint16_t*>(p01);
-        d[3] = *reinterpret_cast<const uint16_t*>(p11);
-    } else if constexpr (BPP == 3) {
+    if constexpr (BPP == 3) {
         dst[0] = p00[0]; dst[1] = p00[1]; dst[2] = p00[2];
         dst[3] = p10[0]; dst[4] = p10[1]; dst[5] = p10[2];
         dst[6] = p01[0]; dst[7] = p01[1]; dst[8] = p01[2];
         dst[9] = p11[0]; dst[10] = p11[1]; dst[11] = p11[2];
-    } else if constexpr (BPP == 4) {
-        auto d = reinterpret_cast<uint32_t*>(dst);
-        d[0] = *reinterpret_cast<const uint32_t*>(p00);
-        d[1] = *reinterpret_cast<const uint32_t*>(p10);
-        d[2] = *reinterpret_cast<const uint32_t*>(p01);
-        d[3] = *reinterpret_cast<const uint32_t*>(p11);
+    } else {
+        using T = typename PixelType<BPP>::type;
+        auto d = reinterpret_cast<T*>(dst);
+        auto d0 = *reinterpret_cast<const T*>(p00);
+        auto d1 = *reinterpret_cast<const T*>(p10);
+        auto d2 = *reinterpret_cast<const T*>(p01);
+        auto d3 = *reinterpret_cast<const T*>(p11);
+        d[0] = d0;
+        d[1] = d1;
+        d[2] = d2;
+        d[3] = d3;
     }
 }
 
@@ -712,11 +814,11 @@ void copyQuadDDA_loop(
             int32_t x1 = sx + 1;
             int32_t y1 = sy + 1;
 
-            // 境界フラグ設定
-            if (x1 > srcLastX) flags |= 0x01;  // 右端: p10, p11が無効
-            if (y1 > srcLastY) flags |= 0x02;  // 下端: p01, p11が無効
-            if (sx < 0) flags |= 0x04;          // 左端: p00, p01が無効
-            if (sy < 0) flags |= 0x08;          // 上端: p00, p10が無効
+            // ピクセルごとの無効フラグ設定（2x2グリッド行優先）
+            if (sx < 0 || sy < 0) flags |= 0x01;                      // p00が無効
+            if (x1 > srcLastX || sy < 0) flags |= 0x02;               // p10が無効
+            if (sx < 0 || y1 > srcLastY) flags |= 0x04;               // p01が無効
+            if (x1 > srcLastX || y1 > srcLastY) flags |= 0x08;        // p11が無効
 
             // 各座標をクランプ（0 <= x <= srcLastX, 0 <= y <= srcLastY）
             int32_t cx0 = (sx < 0) ? 0 : ((sx > srcLastX) ? srcLastX : sx);
@@ -754,6 +856,7 @@ void copyQuadDDA_bpp(
     int count,
     const DDAParam* param
 ) {
+    (void)count;  // 安全範囲はparam->headCount/safeCount/tailCountで事前計算済み
     int_fixed srcX = param->srcX;
     int_fixed srcY = param->srcY;
     const int_fixed incrX = param->incrX;
@@ -766,77 +869,44 @@ void copyQuadDDA_bpp(
     constexpr size_t BPP = BytesPerPixel;
     constexpr size_t QUAD_SIZE = BPP * 4;
 
-    // 境界に到達するまでの安全なピクセル数を計算
-    int safeEnd = count;
+    // 事前計算された安全範囲を使用
+    int offset = 0;
 
-    // X方向の安全範囲を計算
-    if (incrX > 0) {
-        // 右端に到達するまで
-        int_fixed xLimit = (static_cast<int_fixed>(srcLastX) << INT_FIXED_SHIFT) - srcX;
-        if (xLimit > 0) {
-            int safeCountX = static_cast<int>(xLimit / incrX);
-            if (safeCountX < safeEnd) safeEnd = safeCountX;
-        } else {
-            safeEnd = 0;
-        }
-    } else if (incrX < 0) {
-        // 左端に到達するまで（srcX が 0 を下回るまで）
-        if (srcX > 0) {
-            int safeCountX = static_cast<int>(srcX / (-incrX));
-            if (safeCountX < safeEnd) safeEnd = safeCountX;
-        } else {
-            safeEnd = 0;
-        }
-    }
-
-    // Y方向の安全範囲を計算
-    if (incrY > 0) {
-        // 下端に到達するまで
-        int_fixed yLimit = (static_cast<int_fixed>(srcLastY) << INT_FIXED_SHIFT) - srcY;
-        if (yLimit > 0) {
-            int safeCountY = static_cast<int>(yLimit / incrY);
-            if (safeCountY < safeEnd) safeEnd = safeCountY;
-        } else {
-            safeEnd = 0;
-        }
-    } else if (incrY < 0) {
-        // 上端に到達するまで（srcY が 0 を下回るまで）
-        if (srcY > 0) {
-            int safeCountY = static_cast<int>(srcY / (-incrY));
-            if (safeCountY < safeEnd) safeEnd = safeCountY;
-        } else {
-            safeEnd = 0;
-        }
-    }
-
-    // 開始位置が既に境界に近い場合、または負の座標の場合
-    int32_t startSx = srcX >> INT_FIXED_SHIFT;
-    int32_t startSy = srcY >> INT_FIXED_SHIFT;
-    if (startSx < 0 || startSy < 0 || startSx >= srcLastX || startSy >= srcLastY) {
-        safeEnd = 0;
+    // 起点側の境界チェック必要部分
+    if (param->headCount > 0) {
+        copyQuadDDA_loop<BPP, true>(
+            dst, srcData, param->headCount,
+            srcX, srcY, incrX, incrY,
+            srcStride, srcLastX, srcLastY,
+            weights, offset
+        );
+        dst += static_cast<size_t>(param->headCount) * QUAD_SIZE;
+        srcX += incrX * param->headCount;
+        srcY += incrY * param->headCount;
+        offset += param->headCount;
     }
 
     // 中央の安全な部分（境界チェックなし）
-    if (safeEnd > 0) {
+    if (param->safeCount > 0) {
         copyQuadDDA_loop<BPP, false>(
-            dst, srcData, safeEnd,
+            dst, srcData, param->safeCount,
             srcX, srcY, incrX, incrY,
             srcStride, srcLastX, srcLastY,
-            weights, 0
+            weights, offset
         );
-        dst += static_cast<size_t>(safeEnd) * QUAD_SIZE;
-        srcX += incrX * safeEnd;
-        srcY += incrY * safeEnd;
+        dst += static_cast<size_t>(param->safeCount) * QUAD_SIZE;
+        srcX += incrX * param->safeCount;
+        srcY += incrY * param->safeCount;
+        offset += param->safeCount;
     }
 
-    // 末尾の境界チェック必要部分
-    int tailCount = count - safeEnd;
-    if (tailCount > 0) {
+    // 末尾側の境界チェック必要部分
+    if (param->tailCount > 0) {
         copyQuadDDA_loop<BPP, true>(
-            dst, srcData, tailCount,
+            dst, srcData, param->tailCount,
             srcX, srcY, incrX, incrY,
             srcStride, srcLastX, srcLastY,
-            weights, safeEnd
+            weights, offset
         );
     }
 }
