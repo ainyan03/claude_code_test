@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.63.16] - 2026-02-04
+
+### 改善
+
+- **バイリニア補間のマルチフォーマット対応**: 全フォーマットでバイリニア補間が有効に
+  - `copyQuadDDA` 対応フォーマット（RGB565, RGB888, Grayscale8等）でバイリニア補間が利用可能
+  - **Index8**: パレット展開対応でバイリニア補間が利用可能に
+    - `copyRowDDABilinear` に `PixelAuxInfo*` 引数を追加
+    - `convertFormat` でパレット展開を実施
+  - 入力フォーマットは内部でRGBA8_Straightに変換され、出力もRGBA8_Straight
+
+### バグ修正
+
+- **Index8パレット展開**: CompositeNode経由時のパレット適用が正しく動作するよう修正
+  - `copyLineToStraight` を `convertFormat` を使用するように変更
+  - Index8バッファがマージされる際にパレット情報が正しく使用されるように
+
+---
+
 ## [2.63.15] - 2026-02-03
 
 ### 新機能

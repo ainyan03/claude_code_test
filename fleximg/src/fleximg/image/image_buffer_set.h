@@ -335,7 +335,7 @@ void ImageBufferSet::releaseAllEntries() {
 /// @param width ピクセル数
 /// @param srcFmt ソースのピクセルフォーマット
 /// @param auxInfo ソースの補助情報（パレット等）
-/// @note srcFmtがRGBA8_Straightの場合は直接コピー、それ以外はtoStraightで変換
+/// @note convertFormatを使用し、Index8等のパレット展開にも対応
 inline void copyLineToStraight(
     void* dst,
     const void* src,
@@ -343,12 +343,7 @@ inline void copyLineToStraight(
     PixelFormatID srcFmt,
     const PixelAuxInfo* auxInfo)
 {
-    constexpr size_t bytesPerPixel = 4;
-    if (srcFmt == PixelFormatIDs::RGBA8_Straight) {
-        std::memcpy(dst, src, static_cast<size_t>(width) * bytesPerPixel);
-    } else if (srcFmt && srcFmt->toStraight) {
-        srcFmt->toStraight(dst, src, width, auxInfo);
-    }
+    convertFormat(src, srcFmt, dst, PixelFormatIDs::RGBA8_Straight, width, auxInfo, nullptr);
 }
 
 /// @brief 任意フォーマット間の変換（Straight経由の汎用変換対応）

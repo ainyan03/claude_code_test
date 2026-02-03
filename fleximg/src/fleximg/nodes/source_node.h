@@ -209,8 +209,10 @@ PrepareResponse SourceNode::onPullPrepare(const PrepareRequest& request) {
                + static_cast<int64_t>(prepareOriginY_) * invD) >> INT_FIXED_SHIFT);
 
             // バイリニア補間かどうかで有効範囲とオフセットが異なる
+            // copyQuadDDA対応フォーマットならバイリニア可能（出力はRGBA8_Straight）
             const bool useBilinear = (interpolationMode_ == InterpolationMode::Bilinear)
-                                   && (source_.formatID == PixelFormatIDs::RGBA8_Straight);
+                                   && source_.formatID
+                                   && source_.formatID->copyQuadDDA;
 
             if (useBilinear) {
                 // バイリニア: 有効範囲はNearest同様 srcSize
@@ -491,8 +493,10 @@ RenderResponse& SourceNode::pullProcessWithAffine(const RenderRequest& request) 
     // 空のResponseを取得し、bufferSetに直接バッファを作成（ムーブなし）
     int validWidth = dxEnd - dxStart + 1;
     RenderResponse& resp = makeEmptyResponse(adjustedOrigin);
+    // バイリニア補間時はRGBA8_Straight出力、それ以外はソースフォーマット
+    PixelFormatID outFormat = useBilinear_ ? PixelFormatIDs::RGBA8_Straight : source_.formatID;
     ImageBuffer* output = resp.bufferSet.createBuffer(
-        validWidth, 1, source_.formatID, InitPolicy::Uninitialized, 0);
+        validWidth, 1, outFormat, InitPolicy::Uninitialized, 0);
 
     if (!output) {
         return resp;  // バッファ作成失敗時は空のResponseを返す
@@ -512,11 +516,20 @@ RenderResponse& SourceNode::pullProcessWithAffine(const RenderRequest& request) 
     void* dstRow = output->data();
 
     if (useBilinear_) {
-        // バイリニア補間（RGBA8888専用、他フォーマットは最近傍フォールバック）
+        // バイリニア補間（出力はRGBA8_Straight）
         // 0.5ピクセル減算（ピクセル中心→左上基準への変換）
         constexpr int32_t halfPixel = 1 << (INT_FIXED_SHIFT - 1);
+        // パレット情報をPixelAuxInfoとして渡す（Index8のパレット展開用）
+        PixelAuxInfo auxInfo;
+        const PixelAuxInfo* auxPtr = nullptr;
+        if (palette_) {
+            auxInfo.palette = palette_.data;
+            auxInfo.paletteFormat = palette_.format;
+            auxInfo.paletteColorCount = palette_.colorCount;
+            auxPtr = &auxInfo;
+        }
         view_ops::copyRowDDABilinear(dstRow, source_, validWidth,
-            srcX_fixed - halfPixel, srcY_fixed - halfPixel, invA, invC, edgeFadeFlags_);
+            srcX_fixed - halfPixel, srcY_fixed - halfPixel, invA, invC, edgeFadeFlags_, auxPtr);
     } else {
         // 最近傍補間（BPP分岐は関数内部で実施）
         // view_ops::copyRowDDA(dstRow, source_, validWidth,
