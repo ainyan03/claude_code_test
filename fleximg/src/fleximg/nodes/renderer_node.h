@@ -363,9 +363,11 @@ void RendererNode::execProcess() {
     }
 }
 
-// デバッグ用: DataRange可視化処理
+// デバッグ用: DataRange可視化処理（ImageBufferSet対応版）
 // - getDataRange()の範囲外: マゼンタ（データがないはずの領域）
 // - AABBとgetDataRangeの差分: 青（AABBでは含まれるがgetDataRangeで除外された領域）
+// - バッファ間ギャップ: 暗いグレー（ImageBufferSet内のバッファ間隙間）
+// - バッファ境界: オレンジ（各バッファの開始/終了位置）
 void RendererNode::applyDataRangeDebug(Node* upstream,
                                        const RenderRequest& request,
                                        RenderResponse& result) {
@@ -375,15 +377,17 @@ void RendererNode::applyDataRangeDebug(Node* upstream,
     // AABBベースの範囲を取得（PrepareResponse経由）
     DataRange aabbRange = upstream->lastPrepareResponse().getDataRange(request);
 
-    // フルサイズのバッファを作成
+    // フルサイズのバッファを作成（ゼロ初期化で未定義領域を透明に）
     ImageBuffer debugBuffer(request.width, 1, PixelFormatIDs::RGBA8_Straight,
-                           InitPolicy::Uninitialized, pipelineAllocator_);
+                           InitPolicy::Zero, pipelineAllocator_);
     uint8_t* dst = static_cast<uint8_t*>(debugBuffer.data());
 
     // デバッグ色定義（RGBA）
-    constexpr uint8_t MAGENTA[] = {255, 0, 255, 255};  // 完全に範囲外
-    constexpr uint8_t BLUE[] = {0, 100, 255, 255};     // AABBでは範囲内だがgetDataRangeで範囲外
-    constexpr uint8_t GREEN[] = {0, 255, 100, 128};    // getDataRange境界マーカー（半透明）
+    constexpr uint8_t MAGENTA[] = {255, 0, 255, 255};    // 完全に範囲外
+    constexpr uint8_t BLUE[] = {0, 100, 255, 255};       // AABBでは範囲内だがgetDataRangeで範囲外
+    constexpr uint8_t GREEN[] = {0, 255, 100, 128};      // getDataRange境界マーカー（半透明）
+    constexpr uint8_t DARK_GRAY[] = {60, 60, 60, 255};   // バッファ間ギャップ
+    constexpr uint8_t ORANGE[] = {255, 140, 0, 200};     // バッファ境界マーカー（半透明）
 
     // まず全体をデバッグ色で初期化
     for (int_fast16_t x = 0; x < request.width; ++x) {
@@ -408,29 +412,94 @@ void RendererNode::applyDataRangeDebug(Node* upstream,
         }
     }
 
-    // 実データをコピー
-    if (result.isValid() && result.bufferCount() == 1 && result.single().width() > 0) {
-        // resultのoriginからデータ開始位置を計算
-        // result.origin はバッファ左上のワールド座標
-        // request.origin はリクエスト領域左上のワールド座標
-        int dataStartX = from_fixed(result.origin.x - request.origin.x);
-        int dataWidth = result.single().width();
+    // 実データをコピー（複数バッファ対応・フォーマット変換対応）
+    if (result.isValid()) {
+        int bufCount = result.bufferCount();
 
-        const uint8_t* src = static_cast<const uint8_t*>(result.single().data());
-        for (int i = 0; i < dataWidth; ++i) {
-            int dstX = dataStartX + i;
-            if (dstX >= 0 && dstX < request.width) {
-                uint8_t* p = dst + dstX * 4;
-                const uint8_t* s = src + i * 4;
-                p[0] = s[0];
-                p[1] = s[1];
-                p[2] = s[2];
-                p[3] = s[3];
+        // result.originからベースオフセットを計算
+        int baseOffsetX = from_fixed(result.origin.x - request.origin.x);
+
+        // バッファ間ギャップの可視化用: 前のバッファの終了位置を追跡
+        int prevBufEndX = -1;
+
+        for (int bufIdx = 0; bufIdx < bufCount; ++bufIdx) {
+            const ImageBuffer& buf = result.bufferSet.buffer(bufIdx);
+            DataRange bufRange = result.bufferSet.range(bufIdx);
+
+            if (buf.width() <= 0) continue;
+
+            // バッファの開始/終了位置（request座標系）
+            int bufStartX = baseOffsetX + bufRange.startX;
+            int bufEndX = baseOffsetX + bufRange.endX;
+
+            // バッファ間ギャップを暗いグレーで塗る
+            if (prevBufEndX >= 0 && bufStartX > prevBufEndX) {
+                for (int x = prevBufEndX; x < bufStartX && x < request.width; ++x) {
+                    if (x >= 0) {
+                        uint8_t* p = dst + x * 4;
+                        p[0] = DARK_GRAY[0];
+                        p[1] = DARK_GRAY[1];
+                        p[2] = DARK_GRAY[2];
+                        p[3] = DARK_GRAY[3];
+                    }
+                }
             }
+
+            // フォーマット変換の準備
+            PixelFormatID srcFormat = buf.formatID();
+            FormatConverter converter;
+            bool needConvert = (srcFormat != PixelFormatIDs::RGBA8_Straight);
+            if (needConvert) {
+                converter = resolveConverter(srcFormat, PixelFormatIDs::RGBA8_Straight,
+                                           nullptr, pipelineAllocator_);
+            }
+
+            // バッファの内容をコピー
+            const uint8_t* src = static_cast<const uint8_t*>(buf.data());
+            int srcBpp = getBytesPerPixel(srcFormat);
+
+            for (int i = 0; i < buf.width(); ++i) {
+                int dstX = bufStartX + i;
+                if (dstX >= 0 && dstX < request.width) {
+                    uint8_t* p = dst + dstX * 4;
+
+                    if (needConvert && converter.func) {
+                        // フォーマット変換して1ピクセルコピー
+                        converter.func(p, src + i * srcBpp, 1, &converter.ctx);
+                    } else if (!needConvert) {
+                        // RGBA8_Straight: 直接コピー
+                        const uint8_t* s = src + i * 4;
+                        p[0] = s[0];
+                        p[1] = s[1];
+                        p[2] = s[2];
+                        p[3] = s[3];
+                    }
+                }
+            }
+
+            // バッファ境界マーカーを追加（半透明オレンジ）
+            auto addBufferBoundary = [&](int x) {
+                if (x >= 0 && x < request.width) {
+                    uint8_t* p = dst + x * 4;
+                    // アルファブレンド
+                    int alpha = ORANGE[3];
+                    int invAlpha = 255 - alpha;
+                    p[0] = static_cast<uint8_t>((p[0] * invAlpha + ORANGE[0] * alpha) / 255);
+                    p[1] = static_cast<uint8_t>((p[1] * invAlpha + ORANGE[1] * alpha) / 255);
+                    p[2] = static_cast<uint8_t>((p[2] * invAlpha + ORANGE[2] * alpha) / 255);
+                    p[3] = 255;
+                }
+            };
+            addBufferBoundary(bufStartX);
+            if (bufEndX > bufStartX) {
+                addBufferBoundary(bufEndX - 1);
+            }
+
+            prevBufEndX = bufEndX;
         }
     }
 
-    // 境界マーカーを追加（半透明緑で上書き）
+    // getDataRange境界マーカーを追加（半透明緑で上書き）
     auto addMarker = [&](int16_t x) {
         if (x >= 0 && x < request.width) {
             uint8_t* p = dst + x * 4;
