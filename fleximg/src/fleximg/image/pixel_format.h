@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <cstring>
+#include <climits>
 #include "../core/common.h"
 #include "../core/types.h"
 
@@ -45,6 +46,34 @@ struct BilinearWeight {
 };
 
 // ========================================================================
+// DDA安全範囲計算ヘルパー関数
+// ========================================================================
+
+// 有効範囲 [0, maxLimit] 内に留まれるステップ範囲を計算
+// pos: 現在位置（固定小数点）、incr: 増分、maxLimit: 上限（固定小数点）
+// minStep: 境界内に入る最小ステップ（出力）
+// maxStep: 境界内に留まれる最大ステップ（出力、-1は既に範囲外）
+static inline void calcValidStepRange(
+    int_fixed pos, int_fixed incr, int_fixed maxLimit,
+    int& minStep, int& maxStep
+) {
+    if (incr > 0) {
+        // 正方向移動: 下限(0)違反チェック → 上限(maxLimit)違反チェック
+        minStep = (pos < 0) ? static_cast<int>((-pos + incr - 1) / incr) : 0;
+        maxStep = (pos <= maxLimit) ? static_cast<int>((maxLimit - pos) / incr) : -1;
+    } else if (incr < 0) {
+        // 負方向移動: 上限(maxLimit)違反チェック → 下限(0)違反チェック
+        int_fixed absIncr = -incr;
+        minStep = (pos > maxLimit) ? static_cast<int>((pos - maxLimit + absIncr - 1) / absIncr) : 0;
+        maxStep = (pos >= 0) ? static_cast<int>(pos / absIncr) : -1;
+    } else {
+        // 静止: 範囲内なら無制限、範囲外なら無効
+        minStep = 0;
+        maxStep = (pos >= 0 && pos <= maxLimit) ? INT_MAX : -1;
+    }
+}
+
+// ========================================================================
 // DDA転写パラメータ
 // ========================================================================
 //
@@ -73,97 +102,30 @@ struct DDAParam {
 
     // copyQuadDDA呼び出し前の準備（安全範囲を計算）
     void prepareCopyQuadDDA(int count) {
-        const int32_t srcLastX = srcWidth - 1;
-        const int32_t srcLastY = srcHeight - 1;
+        // 2x2グリッドの右下ピクセルを考慮し、安全範囲は [0, last-1]
+        int_fixed xMax = static_cast<int_fixed>(srcWidth - 2) << INT_FIXED_SHIFT;
+        int_fixed yMax = static_cast<int_fixed>(srcHeight - 2) << INT_FIXED_SHIFT;
 
-        // 安全領域の開始点（境界外→境界内に入る位置）
-        int safeStart = 0;
+        // X/Y方向それぞれの有効ステップ範囲を計算
+        int minX, maxX, minY, maxY;
+        calcValidStepRange(srcX, incrX, xMax, minX, maxX);
+        calcValidStepRange(srcY, incrY, yMax, minY, maxY);
 
-        // X方向の起点側チェック
-        if (incrX > 0) {
-            if (srcX < 0) {
-                safeStart = static_cast<int>((-srcX + incrX - 1) / incrX);
-            }
-        } else if (incrX < 0) {
-            int_fixed xMax = static_cast<int_fixed>(srcLastX) << INT_FIXED_SHIFT;
-            if (srcX > xMax) {
-                int_fixed excess = srcX - xMax;
-                safeStart = static_cast<int>((excess + (-incrX) - 1) / (-incrX));
-            }
-        }
+        // 両方向で有効な範囲の積集合
+        int safeStart = (minX > minY) ? minX : minY;
+        int safeEnd = (maxX < maxY) ? maxX : maxY;
 
-        // Y方向の起点側チェック
-        if (incrY > 0) {
-            if (srcY < 0) {
-                int headY = static_cast<int>((-srcY + incrY - 1) / incrY);
-                if (headY > safeStart) safeStart = headY;
-            }
-        } else if (incrY < 0) {
-            int_fixed yMax = static_cast<int_fixed>(srcLastY) << INT_FIXED_SHIFT;
-            if (srcY > yMax) {
-                int_fixed excess = srcY - yMax;
-                int headY = static_cast<int>((excess + (-incrY) - 1) / (-incrY));
-                if (headY > safeStart) safeStart = headY;
-            }
-        }
-
-        // safeStartがcountを超える場合は全て境界チェック必要
-        if (safeStart >= count) {
+        // 範囲が無効または count を超える場合の調整
+        if (safeEnd < 0 || safeStart > safeEnd || safeStart >= count) {
             headCount = static_cast<uint16_t>(count);
             safeCount = 0;
             tailCount = 0;
             return;
         }
 
-        // 安全領域開始後の座標を計算
-        int_fixed safeX = srcX + incrX * safeStart;
-        int_fixed safeY = srcY + incrY * safeStart;
-
-        // 安全領域の終了点（境界内→境界外に出る位置）
-        int safeEnd = count;
-
-        // X方向の末尾側チェック
-        if (incrX > 0) {
-            int_fixed xLimit = (static_cast<int_fixed>(srcLastX) << INT_FIXED_SHIFT) - safeX;
-            if (xLimit > 0) {
-                int safeCountX = safeStart + static_cast<int>(xLimit / incrX);
-                if (safeCountX < safeEnd) safeEnd = safeCountX;
-            } else {
-                safeEnd = safeStart;
-            }
-        } else if (incrX < 0) {
-            if (safeX > 0) {
-                int safeCountX = safeStart + static_cast<int>(safeX / (-incrX));
-                if (safeCountX < safeEnd) safeEnd = safeCountX;
-            } else {
-                safeEnd = safeStart;
-            }
-        }
-
-        // Y方向の末尾側チェック
-        if (incrY > 0) {
-            int_fixed yLimit = (static_cast<int_fixed>(srcLastY) << INT_FIXED_SHIFT) - safeY;
-            if (yLimit > 0) {
-                int safeCountY = safeStart + static_cast<int>(yLimit / incrY);
-                if (safeCountY < safeEnd) safeEnd = safeCountY;
-            } else {
-                safeEnd = safeStart;
-            }
-        } else if (incrY < 0) {
-            if (safeY > 0) {
-                int safeCountY = safeStart + static_cast<int>(safeY / (-incrY));
-                if (safeCountY < safeEnd) safeEnd = safeCountY;
-            } else {
-                safeEnd = safeStart;
-            }
-        }
-
-        // 安全領域開始位置が境界に近い場合のチェック
-        int32_t startSx = safeX >> INT_FIXED_SHIFT;
-        int32_t startSy = safeY >> INT_FIXED_SHIFT;
-        if (startSx < 0 || startSy < 0 || startSx >= srcLastX || startSy >= srcLastY) {
-            safeEnd = safeStart;
-        }
+        // safeEnd は最大ステップなので +1 して排他的終了位置に変換
+        safeEnd++;
+        if (safeEnd > count) safeEnd = count;
 
         headCount = static_cast<uint16_t>(safeStart);
         safeCount = static_cast<uint16_t>(safeEnd - safeStart);
