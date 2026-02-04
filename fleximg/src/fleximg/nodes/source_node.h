@@ -528,15 +528,17 @@ RenderResponse& SourceNode::pullProcessWithAffine(const RenderRequest& request) 
             auxInfo.paletteColorCount = palette_.colorCount;
             auxPtr = &auxInfo;
         }
+        // edgeFlagsバッファ（スタック上に確保）
+        uint8_t edgeFlagsBuffer[2048];
         view_ops::copyRowDDABilinear(dstRow, source_, validWidth,
-            srcX_fixed - halfPixel, srcY_fixed - halfPixel, invA, invC, edgeFadeFlags_, auxPtr);
+            srcX_fixed - halfPixel, srcY_fixed - halfPixel, invA, invC, edgeFadeFlags_, auxPtr, edgeFlagsBuffer);
     } else {
         // 最近傍補間（BPP分岐は関数内部で実施）
         // view_ops::copyRowDDA(dstRow, source_, validWidth,
         //     srcX_fixed, srcY_fixed, invA, invC);
 
         // DDAParam を構築（srcWidth/srcHeight/weights/safe範囲はcopyRowDDAでは使用しない）
-        DDAParam param = { source_.stride, 0, 0, srcX_fixed, srcY_fixed, invA, invC, nullptr, 0, 0, 0 };
+        DDAParam param = { source_.stride, 0, 0, srcX_fixed, srcY_fixed, invA, invC, nullptr, nullptr, 0, 0, 0, 0, 0, 0, 0, EdgeFade_All };
 
         // フォーマットの関数ポインタを呼び出し
        if (source_.formatID && source_.formatID->copyRowDDA) {

@@ -117,6 +117,7 @@ void copyRowDDA(
 // copyQuadDDA未対応フォーマットは最近傍にフォールバック
 // edgeFadeMask: EdgeFadeFlagsの値。フェード有効な辺のみ境界ピクセルのアルファを0化
 // srcAux: パレット情報等（Index8のパレット展開に使用）
+// edgeFlagsBuffer: 境界フラグ用バッファ（count バイト以上、呼び出し元で確保）
 void copyRowDDABilinear(
     void* dst,
     const ViewPort& src,
@@ -125,8 +126,9 @@ void copyRowDDABilinear(
     int_fixed srcY,
     int_fixed incrX,
     int_fixed incrY,
-    uint8_t edgeFadeMask = EdgeFade_All,  // デフォルト: 全辺フェードアウト有効
-    const PixelAuxInfo* srcAux = nullptr  // パレット情報等
+    uint8_t edgeFadeMask,
+    const PixelAuxInfo* srcAux,
+    uint8_t* edgeFlagsBuffer
 );
 
 // アフィン変換転写（DDA方式）
@@ -219,7 +221,7 @@ void copyRowDDA(
     if (!src.isValid() || count <= 0) return;
 
     // DDAParam を構築（copyRowDDAでは srcWidth/srcHeight/weights/safe範囲 は使用しない）
-    DDAParam param = { src.stride, 0, 0, srcX, srcY, incrX, incrY, nullptr, 0, 0, 0 };
+    DDAParam param = { src.stride, 0, 0, srcX, srcY, incrX, incrY, nullptr, nullptr, 0, 0, 0, 0, 0, 0, 0, EdgeFade_All };
 
     // フォーマットの関数ポインタを呼び出し
     if (src.formatID && src.formatID->copyRowDDA) {
@@ -246,7 +248,7 @@ __attribute__((noinline))
 static void bilinearBlend_RGBA8888(
     uint32_t* __restrict__ dst,
     const uint32_t* __restrict__ quadPixels,
-    const BilinearWeight* __restrict__ weights,
+    const BilinearWeightXY* __restrict__ weightsXY,
     int count
 ) {
     for (int i = 0; i < count; ++i) {
@@ -257,9 +259,9 @@ static void bilinearBlend_RGBA8888(
         uint32_t q11 = quadPixels[3];
         quadPixels += 4;
 
-        uint32_t fx = weights->fx;
-        uint32_t fy = weights->fy;
-        ++weights;
+        uint32_t fx = weightsXY->fx;
+        uint32_t fy = weightsXY->fy;
+        ++weightsXY;
         uint32_t ifx = 256 - fx;
         uint32_t ify = 256 - fy;
 
@@ -304,9 +306,12 @@ static void bilinearBlend_RGBA8888(
 // ============================================================================
 //
 // 処理フロー:
-// 1. copyQuadDDA: 4ピクセル抽出（元フォーマット）
-// 2. convertFormat: フォーマット変換（RGBA8_Straight以外の場合）
-// 3. bilinearBlend_RGBA8888: バイリニア補間
+// 1. prepareCopyQuadDDA: 行全体の境界フラグを一括生成（1回のみ）
+// 2. チャンクループ:
+//    a. prepareChunk: チャンク用の安全範囲計算
+//    b. copyQuadDDA: 4ピクセル抽出（元フォーマット）
+//    c. convertFormat: フォーマット変換（RGBA8_Straight以外の場合）
+//    d. bilinearBlend_RGBA8888: バイリニア補間
 //
 
 void copyRowDDABilinear(
@@ -318,9 +323,10 @@ void copyRowDDABilinear(
     int_fixed incrX,
     int_fixed incrY,
     uint8_t edgeFadeMask,
-    const PixelAuxInfo* srcAux
+    const PixelAuxInfo* srcAux,
+    uint8_t* edgeFlagsBuffer
 ) {
-    if (!src.isValid() || count <= 0) return;
+    if (!src.isValid() || count <= 0 || !edgeFlagsBuffer) return;
 
     // copyQuadDDA未対応フォーマットは最近傍フォールバック
     if (!src.formatID || !src.formatID->copyQuadDDA) {
@@ -333,7 +339,7 @@ void copyRowDDABilinear(
 
     // 一時バッファ（スタック確保、4バイトアライメント保証）
     uint32_t quadBuffer[CHUNK_SIZE * 4];         // 最大1024 bytes（4bpp × 4 × 64）
-    BilinearWeight weights[CHUNK_SIZE];          // 128 bytes
+    BilinearWeightXY weightsXY[CHUNK_SIZE];      // 128 bytes (2 * 64)
     uint32_t convertedQuad[CHUNK_SIZE * 4];      // 変換用（RGBA8888、1024 bytes）
 
     // RGBA8_Straightかどうか判定（変換スキップ用）
@@ -342,23 +348,32 @@ void copyRowDDABilinear(
     uint32_t* dstPtr = static_cast<uint32_t*>(dst);
     const uint8_t* srcData = static_cast<const uint8_t*>(src.data);
 
+    // DDAParam を構築（行全体で共通の部分）
+    DDAParam param = {
+        src.stride,
+        src.width,
+        src.height,
+        srcX,
+        srcY,
+        incrX,
+        incrY,
+        nullptr,           // weightsXY（チャンクごとに設定）
+        edgeFlagsBuffer,   // 行全体用（呼び出し元で確保済み）
+        0,                 // edgeFlagsOffset（チャンクごとに設定）
+        0, 0, 0,           // totalHeadCount, totalSafeStart, totalSafeEnd
+        0, 0, 0,           // headCount, safeCount, tailCount
+        edgeFadeMask
+    };
+
+    // 行全体の準備（境界フラグを一括生成、1回のみ）
+    param.prepareCopyQuadDDA(count);
+    param.weightsXY = weightsXY;
+
     for (int offset = 0; offset < count; offset += CHUNK_SIZE) {
         int chunk = (count - offset < CHUNK_SIZE) ? (count - offset) : CHUNK_SIZE;
 
-        // DDAParam を構築
-        DDAParam param = {
-            src.stride,
-            src.width,
-            src.height,
-            srcX,
-            srcY,
-            incrX,
-            incrY,
-            weights,
-            0, 0, 0,  // headCount, safeCount, tailCount（prepareCopyQuadDDAで設定）
-            edgeFadeMask  // エッジフェードマスク
-        };
-        param.prepareCopyQuadDDA(chunk);
+        // チャンク用パラメータを設定
+        param.prepareChunk(chunk, offset);
 
         // 関数A: 4ピクセル抽出
         auto quadPtr = reinterpret_cast<uint8_t*>(quadBuffer);
@@ -376,15 +391,14 @@ void copyRowDDABilinear(
         }
 
         // 境界ピクセルの事前ゼロ埋め（edgeFlagsに基づく）
-        // edgeFlagsはcopyQuadDDA_loop内でedgeFadeMaskと照合済み
+        // fadeFlags は prepareCopyQuadDDA で事前計算済み
         if (param.headCount || param.tailCount) {
             auto quad = reinterpret_cast<uint8_t*>(quadRGBA) + 3;
-            auto wptr = param.weights;
+            auto flagsPtr = edgeFlagsBuffer + offset;
             for (int step = 0; step < 2; ++step) {
                 uint_fast16_t n = step ? param.tailCount : param.headCount;
                 for (uint_fast16_t i = 0; i < n; ++i) {
-                    uint8_t flags = wptr->edgeFlags;
-                    ++wptr;
+                    uint8_t flags = *flagsPtr++;
 
                     // RGBA8888のAチャネル位置に対応
                     if (flags & 0x01) { quad[0] = 0; }
@@ -393,18 +407,18 @@ void copyRowDDABilinear(
                     if (flags & 0x08) { quad[12] = 0; }
                     quad += 4 * 4;
                 }
-                wptr += param.safeCount;
+                flagsPtr += param.safeCount;
                 quad += (param.safeCount * 4 * 4);
             }
         }
 
         // 関数B: バイリニア補間（edgeFlagsチェック不要）
-        bilinearBlend_RGBA8888(dstPtr, quadRGBA, weights, chunk);
+        bilinearBlend_RGBA8888(dstPtr, quadRGBA, weightsXY, chunk);
 
         // 次のチャンクへ
         dstPtr += chunk;  // 出力は常にRGBA8888（1 uint32_t per pixel）
-        srcX += incrX * chunk;
-        srcY += incrY * chunk;
+        param.srcX += incrX * chunk;
+        param.srcY += incrY * chunk;
     }
 }
 

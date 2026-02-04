@@ -1,5 +1,27 @@
 # Changelog
 
+## [2.63.19] - 2026-02-04
+
+### 改善
+
+- **バイリニア補間の最適化**: チャンク処理を最適化
+  - `BilinearWeightXY` 構造体追加（fx, fy のみ、2バイト/要素）
+  - `edgeFlags[]` を行全体用の別配列として分離（fadeFlags を直接格納）
+  - `prepareCopyQuadDDA`: fadeFlags を一括生成（edgeFadeMask 適用済み）
+  - `prepareChunk`: チャンク用の安全範囲を計算（軽量処理）
+  - `copyQuadDDA_loop` から edgeFlags アクセスを完全削除（座標で境界判定）
+  - `copyRowDDABilinear`: アロケータ引数を外部バッファ直接渡しに変更（オーバーヘッド削減）
+  - チャンクごとの `calcValidStepRange` 重複実行を排除
+  - edgeFlags 生成ループを簡略化（bounds配列・ソート・重複除去を廃止）
+
+### 修正
+
+- **バイリニア補間の境界判定修正**: フェードアウト開始位置が約1ピクセル内側だった問題を修正
+  - `xMax/yMax` の計算を `(srcWidth-2)<<16` から `((srcWidth-1)<<16)-1` に修正
+  - p10/p01/p11 が実際に範囲外になる正確な位置でフェードアウトを開始
+
+---
+
 ## [2.63.18] - 2026-02-04
 
 ### 改善
