@@ -199,7 +199,7 @@ enum class SpeedLevel {
 
 static const float SPEED_MULTIPLIERS[] = { 0.3f, 1.0f, 2.5f };
 static const char* SPEED_NAMES[] = { "Slow", "Normal", "Fast" };
-static const char* MODE_NAMES[] = { "1 Direct", "1 Composite", "1 Bilinear", "4 Sources", "8 Sources", "16 Sources", "32 Alpha" };
+static const char* MODE_NAMES[] = { "1 Direct", "1 Composite", "1 Zoom", "4 Sources", "8 Sources", "16 Sources", "32 Alpha" };
 static const int MODE_SOURCE_COUNTS[] = { 1, 1, 1, 4, 8, 16, 32 };
 
 // ========================================
@@ -209,6 +209,7 @@ static const int MODE_SOURCE_COUNTS[] = { 1, 1, 1, 4, 8, 16, 32 };
 static DemoMode currentMode = DemoMode::SingleDirect;
 static SpeedLevel speedLevel = SpeedLevel::Normal;
 static bool reverseDirection = false;
+static bool bilinearEnabled = false;
 
 // 画像バッファ（16枚: 4フォーマット × 4模様）
 static ImageBuffer srcImages[MAX_SOURCES];
@@ -386,11 +387,14 @@ static void rebuildPipeline() {
     // オフセット更新
     updateOffsets();
 
+    // 補間モードを決定
+    InterpolationMode interpMode = bilinearEnabled ? InterpolationMode::Bilinear : InterpolationMode::Nearest;
+
     // SingleDirectモード: CompositeNodeを使わない
     if (currentMode == DemoMode::SingleDirect) {
         int imgIdx = getImageIndex(0);
         sources[0].setSource(srcImages[imgIdx].view());
-        sources[0].setInterpolationMode(InterpolationMode::Nearest);
+        sources[0].setInterpolationMode(interpMode);
         sources[0].setPivot(
             float_to_fixed(IMAGE_SIZE / 2.0f),
             float_to_fixed(IMAGE_SIZE / 2.0f)
@@ -405,11 +409,11 @@ static void rebuildPipeline() {
         return;
     }
 
-    // SingleBilinearモード: バイリニア補間で拡大表示
+    // SingleBilinearモード: 拡大表示（バイリニアの効果確認用）
     if (currentMode == DemoMode::SingleBilinear) {
         int imgIdx = getImageIndex(0);
         sources[0].setSource(srcImages[imgIdx].view());
-        sources[0].setInterpolationMode(InterpolationMode::Bilinear);
+        sources[0].setInterpolationMode(interpMode);
         sources[0].setPivot(
             float_to_fixed(IMAGE_SIZE / 2.0f),
             float_to_fixed(IMAGE_SIZE / 2.0f)
@@ -431,6 +435,7 @@ static void rebuildPipeline() {
     for (int i = 0; i < sourceCount; ++i) {
         int imgIdx = getImageIndex(i);
         sources[i].setSource(srcImages[imgIdx].view());
+        sources[i].setInterpolationMode(interpMode);
         sources[i].setPivot(
             float_to_fixed(IMAGE_SIZE / 2.0f),
             float_to_fixed(IMAGE_SIZE / 2.0f)
@@ -524,13 +529,14 @@ static void drawUI() {
     M5.Display.printf("Mode: %s", MODE_NAMES[static_cast<int>(currentMode)]);
 
     M5.Display.setCursor(0, 12);
-    M5.Display.printf("Speed: %s  Dir: %s",
+    M5.Display.printf("Speed: %s  Dir: %s  Bilinear: %s",
                       SPEED_NAMES[static_cast<int>(speedLevel)],
-                      reverseDirection ? "REV" : "FWD");
+                      reverseDirection ? "REV" : "FWD",
+                      bilinearEnabled ? "ON" : "OFF");
 
     M5.Display.setCursor(0, 24);
     M5.Display.setTextColor(TFT_DARKGREY);
-    M5.Display.print("A:Mode B:Speed C:Dir");
+    M5.Display.print("A:Mode(2x:Bilinear) B:Speed C:Dir");
 
     needsUIUpdate = false;
 }
@@ -550,6 +556,12 @@ void loop() {
         int mode = static_cast<int>(currentMode);
         mode = (mode + 1) % static_cast<int>(DemoMode::MODE_COUNT);
         currentMode = static_cast<DemoMode>(mode);
+        rebuildPipeline();
+        needsUIUpdate = true;
+    }
+
+    if (M5.BtnA.wasDoubleClicked()) {
+        bilinearEnabled = !bilinearEnabled;
         rebuildPipeline();
         needsUIUpdate = true;
     }
