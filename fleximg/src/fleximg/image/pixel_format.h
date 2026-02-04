@@ -461,21 +461,13 @@ namespace detail {
 
 template<typename T>
 void lut8toN(T* d, const uint8_t* s, int pixelCount, const T* lut) {
-    if (pixelCount & 1) {
+    while (pixelCount & 3) {
         auto v0 = s[0];
         ++s;
-        d[0] = lut[v0];
-        ++d;
-    }
-    if (pixelCount & 2) {
-        auto v0 = s[0];
-        auto v1 = s[1];
-        s += 2;
         auto l0 = lut[v0];
-        auto l1 = lut[v1];
+        --pixelCount;
         d[0] = l0;
-        d[1] = l1;
-        d += 2;
+        ++d;
     }
     pixelCount >>= 2;
     if (pixelCount == 0) return;
