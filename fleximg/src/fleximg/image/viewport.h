@@ -328,14 +328,17 @@ void copyRowDDABilinear(
 
     // チャンク処理用定数
     constexpr int CHUNK_SIZE = 64;
+    constexpr int RGBA8_BPP = 4;
 
     // 一時バッファ（スタック確保、4バイトアライメント保証）
-    uint32_t quadBuffer[CHUNK_SIZE * 4];         // 最大1024 bytes（4bpp × 4 × 64）
+    // copyQuadDDA出力とconvertFormat出力を共有（末尾詰め配置でin-place変換可能）
+    uint32_t quadBuffer[CHUNK_SIZE * 4];         // 1024 bytes（RGBA8888 × 4 × 64）
     BilinearWeightXY weightsXY[CHUNK_SIZE];      // 128 bytes (2 * 64)
-    uint32_t convertedQuad[CHUNK_SIZE * 4];      // 変換用（RGBA8888、1024 bytes）
 
     // RGBA8_Straightかどうか判定（変換スキップ用）
     const bool needsConversion = (src.formatID != PixelFormatIDs::RGBA8_Straight);
+    // 元フォーマットのBPP（末尾詰め配置用）
+    const int srcBpp = (src.formatID->bitsPerPixel + 7) / 8;
 
     uint32_t* dstPtr = static_cast<uint32_t*>(dst);
     const uint8_t* srcData = static_cast<const uint8_t*>(src.data);
@@ -367,20 +370,21 @@ void copyRowDDABilinear(
         // チャンク用パラメータを設定
         param.prepareChunk(chunk, offset);
 
-        // 関数A: 4ピクセル抽出
-        auto quadPtr = reinterpret_cast<uint8_t*>(quadBuffer);
+        // 4ピクセル抽出（末尾詰め配置でin-place変換を可能にする）
+        // 元データを末尾に配置: 変換時に前から処理しても上書きの問題なし
+        int srcQuadSize = srcBpp * 4 * chunk;
+        int dstQuadSize = RGBA8_BPP * 4 * chunk;
+        auto quadPtr = reinterpret_cast<uint8_t*>(quadBuffer) + (dstQuadSize - srcQuadSize);
         src.formatID->copyQuadDDA(quadPtr, srcData, chunk, &param);
 
-        // フォーマット変換（必要な場合）
+        // フォーマット変換（必要な場合、in-place）
         // Index8等のパレットフォーマットはsrcAuxにパレット情報が必要
-        uint32_t* quadRGBA = quadBuffer;
         if (needsConversion) {
-            auto convertedPtr = reinterpret_cast<uint8_t*>(convertedQuad);
             convertFormat(quadPtr, src.formatID,
-                          convertedPtr, PixelFormatIDs::RGBA8_Straight,
+                          quadBuffer, PixelFormatIDs::RGBA8_Straight,
                           chunk * 4, srcAux, nullptr);
-            quadRGBA = convertedQuad;
         }
+        uint32_t* quadRGBA = quadBuffer;
 
         // 境界ピクセルの事前ゼロ埋め（edgeFlagsに基づく）
         // fadeFlags は prepareCopyQuadDDA で事前計算済み
