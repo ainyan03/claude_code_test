@@ -50,6 +50,7 @@
 #define FLEXIMG_DEBUG_MOVE_COUNT  // ムーブ回数カウンタ有効化
 #define FLEXIMG_IMPLEMENTATION
 #include "fleximg/core/common.h"
+#include "fleximg/core/memory/allocator.h"
 #include "fleximg/image/pixel_format.h"
 #include "fleximg/image/viewport.h"
 #include "fleximg/image/image_buffer.h"
@@ -77,7 +78,7 @@ static void benchCopyRowDDA(
     int_fixed incrY
 ) {
     if (!src.isValid() || count <= 0) return;
-    DDAParam param = { src.stride, 0, 0, srcX, srcY, incrX, incrY, nullptr };
+    DDAParam param = { src.stride, 0, 0, srcX, srcY, incrX, incrY, nullptr, nullptr, 0, 0, 0, 0, 0, 0, 0, EdgeFade_All };
     if (src.formatID && src.formatID->copyRowDDA) {
         src.formatID->copyRowDDA(
             static_cast<uint8_t*>(dst),
@@ -98,7 +99,8 @@ static void benchCopyRowDDABilinear(
     int_fixed incrX,
     int_fixed incrY
 ) {
-    view_ops::copyRowDDABilinear(dst, src, count, srcX, srcY, incrX, incrY);
+    static uint8_t edgeFlagsBuffer[1024];  // 静的バッファ（最大1024ピクセル分）
+    view_ops::copyRowDDABilinear(dst, src, count, srcX, srcY, incrX, incrY, EdgeFade_All, nullptr, edgeFlagsBuffer);
 }
 
 // =============================================================================

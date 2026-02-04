@@ -25,7 +25,7 @@ static void testCopyRowDDA(
     int_fixed incrY
 ) {
     if (!src.isValid() || count <= 0) return;
-    DDAParam param = { src.stride, 0, 0, srcX, srcY, incrX, incrY, nullptr, 0, 0, 0 };
+    DDAParam param = { src.stride, 0, 0, srcX, srcY, incrX, incrY, nullptr, nullptr, 0, 0, 0, 0, 0, 0, 0, EdgeFade_All };
     if (src.formatID && src.formatID->copyRowDDA) {
         src.formatID->copyRowDDA(
             static_cast<uint8_t*>(dst),
