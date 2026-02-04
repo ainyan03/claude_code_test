@@ -31,20 +31,6 @@ enum EdgeFadeFlags : uint8_t {
     EdgeFade_All    = 0x0F
 };
 
-// ========================================================================
-// 境界状態フラグ（クランプ処理用）
-// ========================================================================
-//
-// copyQuadDDA_loop でのクランプ処理に使用。
-// edgeFlags の上位4ビットに格納され、先行生成される。
-//
-enum BoundaryFlags : uint8_t {
-    Boundary_None   = 0,
-    Boundary_Left   = 0x10,  // sx < 0
-    Boundary_Right  = 0x20,  // sx >= srcLastX
-    Boundary_Top    = 0x40,  // sy < 0
-    Boundary_Bottom = 0x80   // sy >= srcLastY
-};
 
 // ========================================================================
 // バイリニア補間の重み情報
@@ -57,69 +43,55 @@ struct BilinearWeightXY {
 };
 
 // edgeFlags の説明（行全体用の別配列として管理）
-// bit0-3: ピクセル無効フラグ（2x2グリッド行優先）
+// bit0-3: ピクセル無効フラグ（2x2グリッド行優先、prepareCopyQuadDDA で先行生成）
 //   bit0: p00が無効（左上）
 //   bit1: p10が無効（右上）
 //   bit2: p01が無効（左下）
 //   bit3: p11が無効（右下）
-// bit4-7: 境界状態（BoundaryFlags）- prepareCopyQuadDDA で先行生成
-//   bit4: Left (sx < 0)
-//   bit5: Right (sx >= srcLastX)
-//   bit6: Top (sy < 0)
-//   bit7: Bottom (sy >= srcLastY)
-
-// 後方互換性のためのエイリアス（将来削除予定）
-struct BilinearWeight {
-    uint8_t fx;
-    uint8_t fy;
-    uint8_t edgeFlags;
-};
 
 // ========================================================================
 // DDA安全範囲計算ヘルパー関数
 // ========================================================================
 
-// 有効範囲 [0, maxLimit] 内に留まれるステップ範囲と境界フラグを計算
+// 有効範囲 [0, maxLimit] 内に留まれるステップ範囲とエッジフラグを計算
 // pos: 現在位置（固定小数点）、incr: 増分、maxLimit: 上限（固定小数点）
 // minStep: 境界内に入る最小ステップ（出力）
 // maxStep: 境界内に留まれる最大ステップ（出力、-1は既に範囲外）
-// headBoundary: [0, minStep) の境界フラグ（出力）
-// tailBoundary: [maxStep+1, count) の境界フラグ（出力）
-// boundaryLow: 下限違反時のフラグ（Boundary_Left or Boundary_Top）
-// boundaryHigh: 上限違反時のフラグ（Boundary_Right or Boundary_Bottom）
-static inline void calcValidStepRange(
+// headEdge: [0, minStep) のエッジフラグ（出力、EdgeFadeFlags）
+// tailEdge: [maxStep+1, count) のエッジフラグ（出力、EdgeFadeFlags）
+// edgeLow: 下限違反時のフラグ（EdgeFade_Left or EdgeFade_Top）
+// edgeHigh: 上限違反時のフラグ（EdgeFade_Right or EdgeFade_Bottom）
+static void calcValidStepRange(
     int_fixed pos, int_fixed incr, int_fixed maxLimit,
     int& minStep, int& maxStep,
-    uint8_t& headBoundary, uint8_t& tailBoundary,
-    uint8_t boundaryLow, uint8_t boundaryHigh
+    uint8_t& headEdge, uint8_t& tailEdge,
+    uint8_t edgeLow, uint8_t edgeHigh
 ) {
-    if (incr > 0) {
-        // 正方向移動: 下限(0)違反 → 上限(maxLimit)違反
-        minStep = (pos < 0) ? static_cast<int>((-pos + incr - 1) / incr) : 0;
-        maxStep = (pos <= maxLimit) ? static_cast<int>((maxLimit - pos) / incr) : -1;
-        headBoundary = boundaryLow;   // [0, minStep) は下限違反
-        tailBoundary = boundaryHigh;  // [maxStep+1, count) は上限違反
-    } else if (incr < 0) {
-        // 負方向移動: 上限(maxLimit)違反 → 下限(0)違反
-        int_fixed absIncr = -incr;
-        minStep = (pos > maxLimit) ? static_cast<int>((pos - maxLimit + absIncr - 1) / absIncr) : 0;
-        maxStep = (pos >= 0) ? static_cast<int>(pos / absIncr) : -1;
-        headBoundary = boundaryHigh;  // [0, minStep) は上限違反
-        tailBoundary = boundaryLow;   // [maxStep+1, count) は下限違反
+    if (incr) {
+        if (incr < 0) {
+            // 負方向移動: 上限(maxLimit)違反 → 下限(0)違反
+            int_fixed absIncr = -incr;
+            minStep = (pos > maxLimit) ? static_cast<int>((pos - maxLimit + absIncr - 1) / absIncr) : 0;
+            maxStep = (pos >= 0) ? static_cast<int>(pos / absIncr) : -1;
+            headEdge = edgeHigh;  // [0, minStep) は上限違反
+            tailEdge = edgeLow;   // [maxStep+1, count) は下限違反
+        } else {
+            // 正方向移動: 下限(0)違反 → 上限(maxLimit)違反
+            minStep = (pos < 0) ? static_cast<int>((-pos + incr - 1) / incr) : 0;
+            maxStep = (pos <= maxLimit) ? static_cast<int>((maxLimit - pos) / incr) : -1;
+            headEdge = edgeLow;   // [0, minStep) は下限違反
+            tailEdge = edgeHigh;  // [maxStep+1, count) は上限違反
+        }
     } else {
         // 静止: 範囲内なら無制限、範囲外なら無効
-        if (pos < 0) {
+        if (static_cast<uint32_t>(pos) > static_cast<uint32_t>(maxLimit)) {
             minStep = INT_MAX;
             maxStep = -1;
-            headBoundary = tailBoundary = boundaryLow;
-        } else if (pos > maxLimit) {
-            minStep = INT_MAX;
-            maxStep = -1;
-            headBoundary = tailBoundary = boundaryHigh;
+            headEdge = tailEdge = (pos < 0) ? edgeLow : edgeHigh;
         } else {
             minStep = 0;
             maxStep = INT_MAX;
-            headBoundary = tailBoundary = 0;
+            headEdge = tailEdge = 0;
         }
     }
 }
@@ -168,26 +140,29 @@ struct DDAParam {
         int_fixed xMax = (static_cast<int_fixed>(srcWidth - 1) << INT_FIXED_SHIFT) - 1;
         int_fixed yMax = (static_cast<int_fixed>(srcHeight - 1) << INT_FIXED_SHIFT) - 1;
 
-        // X/Y方向それぞれの有効ステップ範囲と境界フラグを計算
+        // X/Y方向それぞれの有効ステップ範囲とエッジフラグを計算
         int minX, maxX, minY, maxY;
         uint8_t headX, tailX, headY, tailY;
-        calcValidStepRange(srcX, incrX, xMax, minX, maxX, headX, tailX, Boundary_Left, Boundary_Right);
-        calcValidStepRange(srcY, incrY, yMax, minY, maxY, headY, tailY, Boundary_Top, Boundary_Bottom);
-
-        // BoundaryFlags → fadeFlags 変換（edgeFadeMask を考慮）
-        // 左境界: p00(0x01) + p01(0x04) = 0x05
-        // 右境界: p10(0x02) + p11(0x08) = 0x0A
-        // 上境界: p00(0x01) + p10(0x02) = 0x03
-        // 下境界: p01(0x04) + p11(0x08) = 0x0C
-        uint8_t fadeHeadX = (headX == Boundary_Left && (edgeFadeMask & EdgeFade_Left)) ? 0x05 : 0;
-        uint8_t fadeTailX = (tailX == Boundary_Right && (edgeFadeMask & EdgeFade_Right)) ? 0x0A : 0;
-        uint8_t fadeHeadY = (headY == Boundary_Top && (edgeFadeMask & EdgeFade_Top)) ? 0x03 : 0;
-        uint8_t fadeTailY = (tailY == Boundary_Bottom && (edgeFadeMask & EdgeFade_Bottom)) ? 0x0C : 0;
+        calcValidStepRange(srcX, incrX, xMax, minX, maxX, headX, tailX, EdgeFade_Left, EdgeFade_Right);
+        calcValidStepRange(srcY, incrY, yMax, minY, maxY, headY, tailY, EdgeFade_Top, EdgeFade_Bottom);
 
         // fadeFlags の先行生成（境界点を動的に計算）
-        if (edgeFlags) {
+        if (edgeFlags && edgeFadeMask) {
+            // EdgeFadeFlags → fadeFlags 変換
+            // Left(0x01) → 0x05 (p00 + p01), Right(0x02) → 0x0A (p10 + p11)
+            // Top(0x04) → 0x03 (p00 + p10), Bottom(0x08) → 0x0C (p01 + p11)
+            // headX/tailX には EdgeFade_Left または EdgeFade_Right が入る
+            uint8_t maskedHeadX = headX & edgeFadeMask;
+            uint8_t maskedTailX = tailX & edgeFadeMask;
+            uint8_t fadeHeadX = (maskedHeadX & EdgeFade_Left) ? 0x05 : (maskedHeadX & EdgeFade_Right) ? 0x0A : 0;
+            uint8_t fadeTailX = (maskedTailX & EdgeFade_Left) ? 0x05 : (maskedTailX & EdgeFade_Right) ? 0x0A : 0;
+            uint8_t maskedHeadY = headY & edgeFadeMask;
+            uint8_t maskedTailY = tailY & edgeFadeMask;
+            uint8_t fadeHeadY = (maskedHeadY & EdgeFade_Top) ? 0x03 : (maskedHeadY & EdgeFade_Bottom) ? 0x0C : 0;
+            uint8_t fadeTailY = (maskedTailY & EdgeFade_Top) ? 0x03 : (maskedTailY & EdgeFade_Bottom) ? 0x0C : 0;
+
             int pos = 0;
-            while (pos < count) {
+            do {
                 int end = count;
                 uint8_t flags = 0;
 
@@ -216,7 +191,7 @@ struct DDAParam {
 
                 memset(&edgeFlags[pos], flags, static_cast<size_t>(end - pos));
                 pos = end;
-            }
+            } while (pos < count);
         }
 
         // 両方向で有効な範囲の積集合
@@ -912,53 +887,77 @@ void copyQuadDDA_loop(
 
         weightsXY[i].fx = static_cast<uint8_t>(static_cast<uint32_t>(srcX) >> 8);
         weightsXY[i].fy = static_cast<uint8_t>(static_cast<uint32_t>(srcY) >> 8);
-
-        const uint8_t* p00;
-        const uint8_t* p10;
-        const uint8_t* p01;
-        const uint8_t* p11;
+        srcX += incrX;
+        srcY += incrY;
 
         if constexpr (CheckBoundary) {
             // 各ピクセルの座標
-            int32_t x1 = sx + 1;
-            int32_t y1 = sy + 1;
-
             // 座標から境界判定してクランプ
-            if (static_cast<uint32_t>(sx) >= static_cast<uint32_t>(srcLastX)) {
-                if (sx < 0) {
-                    sx = 0;
-                } else {
-                    x1 = sx;
-                }
-            }
-            if (static_cast<uint32_t>(sy) >= static_cast<uint32_t>(srcLastY)) {
-                if (sy < 0) {
-                    sy = 0;
-                } else {
-                    y1 = sy;
-                }
-            }
+            bool x_sub = static_cast<uint32_t>(sx) < static_cast<uint32_t>(srcLastX);
+            bool y_sub = static_cast<uint32_t>(sy) < static_cast<uint32_t>(srcLastY);
+            if (sx < 0) { sx = 0; }
+            if (sy < 0) { sy = 0; }
+            const uint8_t* p = srcData + static_cast<size_t>(sy) * static_cast<size_t>(srcStride) + static_cast<size_t>(sx) * BPP;
 
-            // 各ポインタを個別に計算
-            p00 = srcData + static_cast<size_t>(sy) * static_cast<size_t>(srcStride) + static_cast<size_t>(sx) * BPP;
-            p10 = srcData + static_cast<size_t>(sy) * static_cast<size_t>(srcStride) + static_cast<size_t>(x1) * BPP;
-            p01 = srcData + static_cast<size_t>(y1) * static_cast<size_t>(srcStride) + static_cast<size_t>(sx) * BPP;
-            p11 = srcData + static_cast<size_t>(y1) * static_cast<size_t>(srcStride) + static_cast<size_t>(x1) * BPP;
+            if constexpr (BPP == 3) {
+                auto val0 = p[0]; auto val1 = p[1]; auto val2 = p[2];
+                dst[0] = val0; dst[1] = val1; dst[2] = val2;
+                dst[3] = val0; dst[4] = val1; dst[5] = val2;
+                dst[6] = val0; dst[7] = val1; dst[8] = val2;
+                if (x_sub) {
+                    val0 = p[3]; val1 = p[4]; val2 = p[5];
+                    dst[3] = val0; dst[4] = val1; dst[5] = val2;
+                } else
+                if (y_sub) {
+                    p += srcStride;
+                    val0 = p[0]; val1 = p[1]; val2 = p[2];
+                    dst[6] = val0; dst[7] = val1; dst[8] = val2;
+                }
+                dst[9] = val0; dst[10] = val1; dst[11] = val2;
+            } else {
+                using T = typename PixelType<BPP>::type;
+                auto d = reinterpret_cast<T*>(dst);
+                auto val = reinterpret_cast<const T*>(p)[0];
+                d[0] = val;
+                d[1] = val;
+                d[2] = val;
+                if (x_sub) {
+                    val = reinterpret_cast<const T*>(p)[1];
+                    d[1] = val;
+                } else
+                if (y_sub) {
+                    p += srcStride;
+                    val = reinterpret_cast<const T*>(p)[0];
+                    d[2] = val;
+                }
+                d[3] = val;
+            }
         } else {
             // 安全領域：境界チェック不要
-            p00 = srcData
+            auto p = srcData
                 + static_cast<size_t>(sy) * static_cast<size_t>(srcStride)
                 + static_cast<size_t>(sx) * BPP;
-            p10 = p00 + BPP;
-            p01 = p00 + srcStride;
-            p11 = p01 + BPP;
+            if constexpr (BPP == 3) {
+                dst[0] = p[0]; dst[1] = p[1]; dst[2] = p[2];
+                dst[3] = p[3]; dst[4] = p[4]; dst[5] = p[5];
+                p += srcStride;
+                dst[6] = p[0]; dst[7] = p[1]; dst[8] = p[2];
+                dst[9] = p[3]; dst[10] = p[4]; dst[11] = p[5];
+            } else {
+                using T = typename PixelType<BPP>::type;
+                auto d = reinterpret_cast<T*>(dst);
+                auto d0 = reinterpret_cast<const T*>(p)[0];
+                auto d1 = reinterpret_cast<const T*>(p)[1];
+                p += srcStride;
+                auto d2 = reinterpret_cast<const T*>(p)[0];
+                auto d3 = reinterpret_cast<const T*>(p)[1];
+                d[0] = d0;
+                d[1] = d1;
+                d[2] = d2;
+                d[3] = d3;
+            }
         }
-
-        copyQuadPixels<BPP>(dst, p00, p10, p01, p11);
-
         dst += QUAD_SIZE;
-        srcX += incrX;
-        srcY += incrY;
     }
 }
 
