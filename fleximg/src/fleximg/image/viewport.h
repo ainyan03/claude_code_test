@@ -252,6 +252,16 @@ static void bilinearBlend_RGBA8888(
     int count
 ) {
     for (int i = 0; i < count; ++i) {
+        uint_fast8_t fy = weightsXY->fy;
+        uint_fast8_t fx = weightsXY->fx;
+        ++weightsXY;
+
+        uint32_t f = static_cast<uint32_t>(fx) * ((256 - fy) | (static_cast<uint32_t>(fy) << 16));
+        uint8_t q11f = static_cast<uint8_t>(f >> 24);
+        uint8_t q10f = static_cast<uint8_t>(f >> 8);
+        uint8_t q01f = static_cast<uint8_t>(((256 - fx) * fy) >> 8);
+        uint_fast16_t q00f = 256 - (q11f + q01f + q10f);
+
         // 4点を32bitでロード（境界外ピクセルは事前にゼロ埋め済み）
         uint32_t q00 = quadPixels[0];
         uint32_t q10 = quadPixels[1];
@@ -259,43 +269,25 @@ static void bilinearBlend_RGBA8888(
         uint32_t q11 = quadPixels[3];
         quadPixels += 4;
 
-        uint32_t fx = weightsXY->fx;
-        uint32_t fy = weightsXY->fy;
-        ++weightsXY;
-        uint32_t ifx = 256 - fx;
-        uint32_t ify = 256 - fy;
-
         // R,B（偶数バイト位置）をマスク
-        uint32_t q00_rb = q00 & 0xFF00FF;
-        uint32_t q10_rb = q10 & 0xFF00FF;
-        uint32_t q01_rb = q01 & 0xFF00FF;
-        uint32_t q11_rb = q11 & 0xFF00FF;
-
+        uint32_t result_rb = q00f * (q00 & 0xFF00FF);
         // G,A（奇数バイト位置）をシフト＆マスク
-        uint32_t q00_ga = (q00 >> 8) & 0xFF00FF;
-        uint32_t q10_ga = (q10 >> 8) & 0xFF00FF;
-        uint32_t q01_ga = (q01 >> 8) & 0xFF00FF;
-        uint32_t q11_ga = (q11 >> 8) & 0xFF00FF;
+        uint32_t result_ga = q00f * ((q00 >> 8) & 0xFF00FF);
 
-        // X方向補間（R,B同時）→ 8bit精度に丸める
-        uint32_t top_rb = ((q00_rb * ifx + q10_rb * fx) >> 8) & 0xFF00FF;
-        uint32_t bottom_rb = ((q01_rb * ifx + q11_rb * fx) >> 8) & 0xFF00FF;
+        result_rb += q10f * (q10 & 0xFF00FF);
+        result_ga += q10f * ((q10 >> 8) & 0xFF00FF);
 
-        // X方向補間（G,A同時）→ 8bit精度に丸める
-        uint32_t top_ga = ((q00_ga * ifx + q10_ga * fx) >> 8) & 0xFF00FF;
-        uint32_t bottom_ga = ((q01_ga * ifx + q11_ga * fx) >> 8) & 0xFF00FF;
+        result_rb += q01f * (q01 & 0xFF00FF);
+        result_ga += q01f * ((q01 >> 8) & 0xFF00FF);
 
-        // Y方向補間（R,B同時）
-        uint32_t result_rb = (top_rb * ify + bottom_rb * fy) >> 8;
-
-        // Y方向補間（G,A同時）- 16bit×2形式のまま保持
-        uint32_t result_ga = top_ga * ify + bottom_ga * fy;
+        result_rb += q11f * (q11 & 0xFF00FF);
+        result_ga += q11f * ((q11 >> 8) & 0xFF00FF);
 
         // 結果を出力（リトルエンディアン: G,Aは上位バイトが正しい位置に来る）
         auto dstBytes = reinterpret_cast<uint8_t*>(dst);
         *dst = result_ga;
-        dstBytes[0] = static_cast<uint8_t>(result_rb);        // R
-        dstBytes[2] = static_cast<uint8_t>(result_rb >> 16);  // B
+        dstBytes[0] = static_cast<uint8_t>(result_rb >> 8);   // R
+        dstBytes[2] = static_cast<uint8_t>(result_rb >> 24);  // B
 
         ++dst;
     }
