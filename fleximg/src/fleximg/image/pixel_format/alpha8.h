@@ -34,7 +34,7 @@ namespace FLEXIMG_NAMESPACE {
 // ========================================================================
 
 // Alpha8 → RGBA8_Straight（可視化のため全チャンネルにアルファ値を展開）
-static void alpha8_toStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+static void alpha8_toStraight(void* dst, const void* src, int pixelCount, const PixelAuxInfo*) {
     FLEXIMG_FMT_METRICS(Alpha8, ToStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
     uint8_t* d = static_cast<uint8_t*>(dst);
@@ -48,7 +48,7 @@ static void alpha8_toStraight(void* dst, const void* src, int pixelCount, const 
 }
 
 // RGBA8_Straight → Alpha8（Aチャンネルのみ抽出）
-static void alpha8_fromStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+static void alpha8_fromStraight(void* dst, const void* src, int pixelCount, const PixelAuxInfo*) {
     FLEXIMG_FMT_METRICS(Alpha8, FromStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
     uint8_t* d = static_cast<uint8_t*>(dst);

@@ -144,10 +144,6 @@ struct PixelAuxInfo {
         : useColorKey(use), colorKey(key) {}
 };
 
-// 後方互換性のためエイリアスを残す
-using ConvertParams = PixelAuxInfo;
-using BlendParams = PixelAuxInfo;
-
 // ========================================================================
 // パレットデータ参照（軽量構造体）
 // ========================================================================
@@ -213,12 +209,7 @@ struct ChannelDescriptor {
     constexpr ChannelDescriptor()
         : type(ChannelType::Unused), bits(0), shift(0), mask(0) {}
 
-    // 旧コンストラクタ（後方互換性維持、typeはUnusedに設定）
-    constexpr ChannelDescriptor(uint8_t b, uint8_t s)
-        : type(ChannelType::Unused), bits(b), shift(s)
-        , mask(b > 0 ? static_cast<uint16_t>(((1u << b) - 1) << s) : 0) {}
-
-    // 新コンストラクタ（チャンネル種別を指定）
+    // コンストラクタ（チャンネル種別を指定）
     constexpr ChannelDescriptor(ChannelType t, uint8_t b, uint8_t s = 0)
         : type(t), bits(b), shift(s)
         , mask(b > 0 ? static_cast<uint16_t>(((1u << b) - 1) << s) : 0) {}
