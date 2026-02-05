@@ -129,6 +129,12 @@ public:
     /// @brief バッファを登録（DataRange指定）
     bool addBuffer(ImageBuffer&& buffer, const DataRange& range);
 
+    /// @brief バッファを登録（バッファ自身のoriginを使用、setStartXを呼ばない）
+    /// @param buffer 追加するバッファ（origin設定済み）
+    /// @return 成功時 true
+    /// @note startX()を計算してDataRange版に委譲する。originは保持される。
+    bool addBuffer(ImageBuffer&& buffer);
+
     /// @brief 新しいバッファを直接作成して登録
     /// @param width バッファ幅
     /// @param height バッファ高さ
@@ -406,6 +412,38 @@ bool ImageBufferSet::addBuffer(const ImageBuffer& buffer, int16_t startX) {
     return addBuffer(std::move(copy), startX);
 }
 
+bool ImageBufferSet::addBuffer(ImageBuffer&& buffer) {
+    if (!buffer.isValid()) {
+        return false;
+    }
+
+    // エントリを取得
+    Entry* entry = acquireEntry();
+    if (!entry) {
+        // プール枯渇時: consolidateして空きを作る
+        if (entryCount_ > 0) {
+            mergeAdjacent(0);
+            entry = acquireEntry();
+        }
+        if (!entry) {
+            return false;
+        }
+    }
+
+    // originをそのまま保持（setStartXを呼ばない）
+    entry->buffer = std::move(buffer);
+
+    // 空の場合は直接追加
+    if (entryCount_ == 0) {
+        entryPtrs_[0] = entry;
+        entryCount_ = 1;
+        return true;
+    }
+
+    // 挿入またはマージ
+    return insertOrMerge(entry);
+}
+
 void ImageBufferSet::applyOffset(int16_t offsetX) {
     if (offsetX == 0) return;
     for (int i = 0; i < entryCount_; ++i) {
@@ -612,13 +650,7 @@ bool ImageBufferSet::insertOrMerge(Entry* entry) {
     if (entryCount_ > (MAX_ENTRIES >> 1)) {
         mergeAdjacent(0);
         if (entryCount_ >= MAX_ENTRIES) {
-            // consolidateInPlace前にオフセットを保存
-            int16_t originalStartX = entryPtrs_[0]->buffer.startX();
             consolidateInPlace();
-            // consolidateInPlaceはstartX=0に正規化するのでオフセットを復元
-            if (entryCount_ == 1) {
-                entryPtrs_[0]->buffer.addOffset(originalStartX);
-            }
         }
     }
 
@@ -959,9 +991,10 @@ bool ImageBufferSet::mergeOverlapping(Entry* newEntry,
         }
     }
 
-    // 結果を最初のエントリに格納
+    // 結果を最初のエントリに格納（Y座標を保持）
+    Point savedOrigin = resultEntry->buffer.origin();
     resultEntry->buffer = std::move(mergedBuf);
-    resultEntry->buffer.setStartX(mergedStartX);
+    resultEntry->buffer.setOrigin(Point{to_fixed(mergedStartX), savedOrigin.y});
 
     return true;  // 既にソート位置にあるので insertSorted 不要
 }
@@ -1004,7 +1037,9 @@ void ImageBufferSet::convertFormat(PixelFormatID format, bool doMergeAdjacent) {
         // フォーマット変換（convertLineヘルパー使用）
         convertLine(dstRow, srcRow, width, srcFmt, format, auxInfo, allocator_);
 
+        Point savedOrigin = entry->buffer.origin();
         entry->buffer = std::move(converted);
+        entry->buffer.setOrigin(savedOrigin);
     }
 }
 
@@ -1127,11 +1162,8 @@ void ImageBufferSet::consolidateInPlace() {
         return;
     }
 
-    // 単一エントリの場合: startXのみ正規化（バッファは変更不要）
-    // consolidateIfNeeded() が origin.x += startX を行うため、
-    // startX を 0 に正規化しないと二重加算が発生する
+    // 単一エントリの場合: originをそのまま保持（バッファは変更不要）
     if (entryCount_ == 1) {
-        entryPtrs_[0]->buffer.setStartX(0);
         return;
     }
 
@@ -1207,14 +1239,15 @@ void ImageBufferSet::consolidateInPlace() {
 
     // 最初のエントリを再利用し、残りを解放
     Entry* firstEntry = entryPtrs_[0];
+    Point minOrigin = firstEntry->buffer.origin();  // 統合前の最小originを保存（小数精度+Y座標）
     for (int i = 1; i < entryCount_; ++i) {
         releaseEntry(entryPtrs_[i]);
         entryPtrs_[i] = nullptr;
     }
 
-    // 最初のエントリに統合結果を格納
+    // 最初のエントリに統合結果を格納（統合前のoriginを保持）
     firstEntry->buffer = std::move(merged);
-    firstEntry->buffer.setStartX(0);
+    firstEntry->buffer.setOrigin(minOrigin);
     entryCount_ = 1;
 }
 
@@ -1224,8 +1257,10 @@ void ImageBufferSet::consolidateInPlace() {
 
 void ImageBufferSet::replaceBuffer(int index, ImageBuffer&& buffer) {
     FLEXIMG_ASSERT(index >= 0 && index < entryCount_, "Invalid index");
+    // 元バッファのoriginを保持
+    Point savedOrigin = entryPtrs_[index]->buffer.origin();
     entryPtrs_[index]->buffer = std::move(buffer);
-    entryPtrs_[index]->buffer.setStartX(0);
+    entryPtrs_[index]->buffer.setOrigin(savedOrigin);
 }
 
 // ----------------------------------------------------------------------------
@@ -1292,9 +1327,10 @@ void ImageBufferSet::mergeAdjacent(int16_t gapThreshold) {
                                currWidth, curr->buffer.view().formatID,
                                &curr->buffer.auxInfo());
 
-            // prevを統合結果で置き換え
+            // prevを統合結果で置き換え（originを保持）
+            Point savedOrigin = prev->buffer.origin();
             prev->buffer = std::move(merged);
-            prev->buffer.setStartX(mergedStartX);
+            prev->buffer.setOrigin(savedOrigin);
 
             // currを解放
             releaseEntry(curr);

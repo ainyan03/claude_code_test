@@ -472,6 +472,9 @@ RenderResponse& SourceNode::pullProcessWithAffine(const RenderRequest& request) 
         return resp;  // バッファ作成失敗時は空のResponseを返す
     }
 
+    // バッファにワールド座標originを設定（makeResponseを使わないパス）
+    output->setOrigin(adjustedOrigin);
+
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
     PerfMetrics::instance().nodes[NodeType::Source].recordAlloc(
         output->totalBytes(), output->width(), output->height());

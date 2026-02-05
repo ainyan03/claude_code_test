@@ -60,7 +60,7 @@ public:
     ImageBuffer()
         : view_(), capacity_(0),
           allocator_(&core::memory::DefaultAllocator::instance()),
-          auxInfo_(), startX_(0), initPolicy_(DefaultInitPolicy) {}
+          auxInfo_(), origin_(), initPolicy_(DefaultInitPolicy) {}
 
     // サイズ指定コンストラクタ
     // alloc = nullptr の場合、DefaultAllocator を使用
@@ -70,7 +70,7 @@ public:
         : view_(nullptr, fmt, 0, static_cast<int16_t>(w), static_cast<int16_t>(h))
         , capacity_(0)
         , allocator_(alloc ? alloc : &core::memory::DefaultAllocator::instance())
-        , auxInfo_(), startX_(0), initPolicy_(init) {
+        , auxInfo_(), origin_(), initPolicy_(init) {
         allocate();
     }
 
@@ -80,7 +80,7 @@ public:
         : view_(view)
         , capacity_(0)
         , allocator_(nullptr)  // nullなのでデストラクタで解放しない
-        , auxInfo_(), startX_(0), initPolicy_(InitPolicy::Zero)
+        , auxInfo_(), origin_(), initPolicy_(InitPolicy::Zero)
     {}
 
     // デストラクタ
@@ -100,7 +100,7 @@ public:
         , capacity_(0)
         , allocator_(other.allocator_ ? other.allocator_ : &core::memory::DefaultAllocator::instance())
         , auxInfo_(other.auxInfo_)
-        , startX_(other.startX_)
+        , origin_(other.origin_)
         , initPolicy_(InitPolicy::Uninitialized) {
         if (other.isValid()) {
             allocate();
@@ -119,7 +119,7 @@ public:
             allocator_ = other.allocator_ ? other.allocator_ : &core::memory::DefaultAllocator::instance();
             initPolicy_ = InitPolicy::Uninitialized;
             auxInfo_ = other.auxInfo_;
-            startX_ = other.startX_;
+            origin_ = other.origin_;
             if (other.isValid()) {
                 allocate();
                 copyFrom(other);
@@ -132,13 +132,13 @@ public:
     ImageBuffer(ImageBuffer&& other) noexcept
         : view_(other.view_), capacity_(other.capacity_),
           allocator_(other.allocator_), auxInfo_(other.auxInfo_),
-          startX_(other.startX_), initPolicy_(other.initPolicy_) {
+          origin_(other.origin_), initPolicy_(other.initPolicy_) {
         other.view_.data = nullptr;
         other.view_.width = other.view_.height = 0;
         other.view_.stride = 0;
         other.capacity_ = 0;
         other.auxInfo_ = PixelAuxInfo();
-        other.startX_ = 0;
+        other.origin_ = Point();
     }
 
     // ムーブ代入
@@ -150,14 +150,14 @@ public:
             allocator_ = other.allocator_;
             initPolicy_ = other.initPolicy_;
             auxInfo_ = other.auxInfo_;
-            startX_ = other.startX_;
+            origin_ = other.origin_;
 
             other.view_.data = nullptr;
             other.view_.width = other.view_.height = 0;
             other.view_.stride = 0;
             other.capacity_ = 0;
             other.auxInfo_ = PixelAuxInfo();
-            other.startX_ = 0;
+            other.origin_ = Point();
         }
         return *this;
     }
@@ -176,7 +176,7 @@ public:
         view_.formatID = nullptr;
         allocator_ = nullptr;
         auxInfo_ = PixelAuxInfo();
-        startX_ = 0;
+        origin_ = Point();
     }
 
     // ========================================
@@ -327,27 +327,43 @@ public:
     }
 
     // ========================================
-    // X座標オフセット（ImageBufferSet用）
+    // Origin（Q16.16ワールド座標）
     // ========================================
 
-    /// @brief X座標オフセットを取得
-    int16_t startX() const { return startX_; }
+    /// @brief originを取得（Q16.16精度）
+    Point origin() const { return origin_; }
+
+    /// @brief originを設定（Q16.16精度）
+    void setOrigin(Point p) { origin_ = p; }
+
+    /// @brief originのX座標を取得（Q16.16精度）
+    int_fixed originX() const { return origin_.x; }
+
+    /// @brief originのY座標を取得（Q16.16精度）
+    int_fixed originY() const { return origin_.y; }
+
+    // ========================================
+    // X座標オフセット（互換ラッパー、ImageBufferSet用）
+    // ========================================
+
+    /// @brief X座標オフセットを取得（originの整数部）
+    int16_t startX() const { return static_cast<int16_t>(from_fixed(origin_.x)); }
 
     /// @brief X終端座標を取得（startX + width）
-    int16_t endX() const { return static_cast<int16_t>(startX_ + width()); }
+    int16_t endX() const { return static_cast<int16_t>(startX() + width()); }
 
-    /// @brief X座標オフセットを設定
-    void setStartX(int16_t x) { startX_ = x; }
+    /// @brief X座標オフセットを設定（整数精度）
+    void setStartX(int16_t x) { origin_.x = to_fixed(x); }
 
-    /// @brief X座標オフセットを加算
-    void addOffset(int16_t offset) { startX_ = static_cast<int16_t>(startX_ + offset); }
+    /// @brief X座標オフセットを加算（整数精度）
+    void addOffset(int16_t offset) { origin_.x += to_fixed(offset); }
 
 private:
     ViewPort view_;           // コンポジション: 画像データへのビュー
     size_t capacity_;
     core::memory::IAllocator* allocator_;
     PixelAuxInfo auxInfo_;    // 補助情報（パレット、カラーキー等）
-    int16_t startX_ = 0;      // X座標オフセット（ImageBufferSet用）
+    Point origin_;            // バッファ原点（Q16.16ワールド座標）
     InitPolicy initPolicy_;
 
     void allocate() {

@@ -235,10 +235,8 @@ RenderResponse& CompositeNode::onPullProcess(const RenderRequest& request) {
     auto numInputs = inputCount();
     if (numInputs == 0) return makeEmptyResponse(request.origin);
 
-    // キャンバス左上のワールド座標（固定小数点 Q16.16）
-    int_fixed canvasOriginX = request.origin.x;
-
     // 最初の有効な上流Responseをベースにする
+    // バッファは既にワールド座標originを持つため、オフセット適用は不要
     RenderResponse* baseResponse = nullptr;
     int_fast16_t startIndex = 0;
 
@@ -254,10 +252,6 @@ RenderResponse& CompositeNode::onPullProcess(const RenderRequest& request) {
         }
 
         FLEXIMG_METRICS_SCOPE(NodeType::Composite);
-        // オフセットを適用（借用元を直接変更）
-        int16_t offset = static_cast<int16_t>(from_fixed(input.origin.x - canvasOriginX));
-        input.bufferSet.applyOffset(offset);
-        input.origin = request.origin;
         baseResponse = &input;
         startIndex = static_cast<int_fast16_t>(i + 1);
         break;
@@ -269,6 +263,7 @@ RenderResponse& CompositeNode::onPullProcess(const RenderRequest& request) {
     }
 
     // 残りの上流をtransferFromで統合（under合成）
+    // バッファは既にワールド座標を持つため、オフセットは0
     for (int_fast16_t i = startIndex; i < numInputs; ++i) {
         Node* upstream = upstreamNode(i);
         if (!upstream) continue;
@@ -282,11 +277,8 @@ RenderResponse& CompositeNode::onPullProcess(const RenderRequest& request) {
 
         FLEXIMG_METRICS_SCOPE(NodeType::Composite);
 
-        // X方向オフセット計算（整数ピクセル単位）
-        int16_t offset = static_cast<int16_t>(from_fixed(input.origin.x - canvasOriginX));
-
-        // 上流のImageBufferSetの全エントリをバッチ転送
-        baseResponse->bufferSet.transferFrom(input.bufferSet, offset);
+        // 上流のImageBufferSetの全エントリをバッチ転送（オフセット不要）
+        baseResponse->bufferSet.transferFrom(input.bufferSet, 0);
 
         // 使い終わったRenderResponseをプールに返却
         context_->releaseResponse(input);
