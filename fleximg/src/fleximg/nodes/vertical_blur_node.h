@@ -408,10 +408,10 @@ void VerticalBlurNode::onPushProcess(RenderResponse& input, const RenderRequest&
     if (!input.isValid()) {
         std::memset(stage0.rowCache[static_cast<size_t>(slot0)].view().data, 0, static_cast<size_t>(cacheWidth_) * 4);
     } else {
-        // ImageBufferSetの場合はconsolidate()して単一バッファに変換
+        // バッファ準備
         consolidateIfNeeded(input);
         inputOrigin = input.origin;  // consolidate後のoriginを反映
-        ImageBuffer converted = convertFormat(ImageBuffer(input.single()),
+        ImageBuffer converted = convertFormat(ImageBuffer(input.buffer()),
                                                PixelFormatIDs::RGBA8_Straight);
         int xOffset = from_fixed(inputOrigin.x - baseOriginX_);
         storeInputRowToStageCache(stage0, converted, slot0, xOffset);
@@ -640,7 +640,7 @@ void VerticalBlurNode::fetchRowToStageCache(BlurStage& stage, Node* upstream, co
         return;
     }
 
-    // ImageBufferSetの場合はconsolidate()して単一バッファに変換
+    // バッファ準備
     consolidateIfNeeded(result);
 
     // upstreamOriginX_はpullProcessPipelineで出力のorigin.x計算に使用
@@ -651,7 +651,7 @@ void VerticalBlurNode::fetchRowToStageCache(BlurStage& stage, Node* upstream, co
         upstreamOriginXSet_ = true;
     }
 
-    ImageBuffer converted = convertFormat(ImageBuffer(result.single()),
+    ImageBuffer converted = convertFormat(ImageBuffer(result.buffer()),
                                            PixelFormatIDs::RGBA8_Straight);
     ViewPort srcView = converted.view();
 

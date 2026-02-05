@@ -103,10 +103,10 @@ protected:
 
         if (!lcd_ || !drawEnabled_) return;
 
-        // ImageBufferSetの場合はconsolidate()して単一バッファに変換
+        // バッファ準備
         consolidateIfNeeded(input);
 
-        ViewPort inputView = input.isValid() ? input.singleView() : ViewPort();
+        ViewPort inputView = input.isValid() ? input.view() : ViewPort();
 
         // 配置計算（SinkNodeと同じ座標系）
         // originX_/Y_: 出力バッファ内でのワールド原点の位置（バッファ座標）

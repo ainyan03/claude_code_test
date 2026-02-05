@@ -638,15 +638,15 @@ void Node::consolidateIfNeeded(RenderResponse& input, PixelFormatID format) {
     // フォーマット変換が必要な場合
     // convertFormat()経由でメトリクス記録を維持
     if (format != nullptr) {
-        PixelFormatID srcFormat = input.single().formatID();
+        PixelFormatID srcFormat = input.buffer().formatID();
         if (srcFormat != format) {
-            ImageBuffer converted = convertFormat(std::move(input.single()), format);
+            ImageBuffer converted = convertFormat(std::move(input.buffer()), format);
             input.replaceBuffer(std::move(converted));
         }
     }
 
     // バッファoriginをresponse.originに同期
-    input.origin = input.single().origin();
+    input.origin = input.buffer().origin();
 }
 
 // RenderResponse構築ヘルパー

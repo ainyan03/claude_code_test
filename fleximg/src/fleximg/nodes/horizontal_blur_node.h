@@ -224,7 +224,7 @@ RenderResponse& HorizontalBlurNode::onPullProcess(const RenderRequest& request) 
     RenderResponse& input = upstream->pullProcess(inputReq);
     if (!input.isValid()) return makeEmptyResponse(request.origin);
 
-    // ImageBufferSetの場合はconsolidate()して単一バッファに変換
+    // バッファ準備
     consolidateIfNeeded(input);
 
     FLEXIMG_METRICS_SCOPE(NodeType::HorizontalBlur);
@@ -236,7 +236,7 @@ RenderResponse& HorizontalBlurNode::onPullProcess(const RenderRequest& request) 
 #endif
 
     // RGBA8_Straightに変換
-    ImageBuffer buffer = convertFormat(ImageBuffer(input.single()),
+    ImageBuffer buffer = convertFormat(ImageBuffer(input.buffer()),
                                        PixelFormatIDs::RGBA8_Straight);
 
     // 上流から返されたoriginを保存
@@ -333,13 +333,13 @@ void HorizontalBlurNode::onPushProcess(RenderResponse& input, const RenderReques
         return;
     }
 
-    // ImageBufferSetの場合はconsolidate()して単一バッファに変換
+    // バッファ準備
     consolidateIfNeeded(input);
 
     FLEXIMG_METRICS_SCOPE(NodeType::HorizontalBlur);
 
     // RGBA8_Straightに変換
-    ImageBuffer buffer = convertFormat(ImageBuffer(input.single()),
+    ImageBuffer buffer = convertFormat(ImageBuffer(input.buffer()),
                                        PixelFormatIDs::RGBA8_Straight);
     Point currentOrigin = input.origin;
 

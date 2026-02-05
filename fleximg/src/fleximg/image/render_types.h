@@ -367,22 +367,14 @@ struct RenderResponse {
         return entry_->buffer;
     }
 
-    /// @brief 単一バッファを取得（buffer() の別名、後方互換）
-    ImageBuffer& single() { return buffer(); }
-    const ImageBuffer& single() const { return buffer(); }
-
     /// @brief バッファのビューを取得
-    ViewPort singleView() {
+    ViewPort view() {
         return entry_ ? entry_->buffer.view() : ViewPort();
     }
 
-    ViewPort singleView() const {
+    ViewPort view() const {
         return entry_ ? entry_->buffer.view() : ViewPort();
     }
-
-    /// @brief バッファのビューを取得（後方互換）
-    ViewPort view() { return singleView(); }
-    ViewPort view() const { return singleView(); }
 
     // ========================================
     // バッファ管理

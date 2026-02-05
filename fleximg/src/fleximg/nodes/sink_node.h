@@ -206,7 +206,7 @@ void SinkNode::onPushProcess(RenderResponse& input,
 
     FLEXIMG_METRICS_SCOPE(NodeType::Sink);
 
-    // ImageBufferSetの場合はconsolidate()して単一バッファに変換
+    // フォーマット変換を実行
     consolidateIfNeeded(input, target_.formatID);
 
     // アフィン変換が伝播されている場合はDDA処理
@@ -238,7 +238,7 @@ void SinkNode::onPushProcess(RenderResponse& input,
     // （同一フォーマットは memcpy、異なる場合は解決済み変換関数で処理）
     auto converter = resolveConverter(
         inputView.formatID, target_.formatID,
-        &input.single().auxInfo(), allocator());
+        &input.buffer().auxInfo(), allocator());
 
     if (converter) {
         for (int_fast32_t y = 0; y < copyH; ++y) {
@@ -264,11 +264,11 @@ void SinkNode::pushProcessWithAffine(RenderResponse& input) {
     ImageBuffer convertedBuffer;
     ViewPort inputView;
 
-    if (input.single().formatID() != targetFormat) {
-        convertedBuffer = ImageBuffer(input.single()).toFormat(targetFormat);
+    if (input.buffer().formatID() != targetFormat) {
+        convertedBuffer = ImageBuffer(input.buffer()).toFormat(targetFormat);
         inputView = convertedBuffer.view();
     } else {
-        inputView = input.singleView();
+        inputView = input.view();
     }
 
     // アフィン変換を適用してターゲットに書き込み（pivot は事前計算済み）

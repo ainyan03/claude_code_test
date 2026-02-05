@@ -103,16 +103,16 @@ protected:
 
         if (!lcd_ || !drawEnabled_) return;
 
-        // ImageBufferSetの場合はconsolidate()して単一バッファに変換
+        // バッファ準備
         consolidateIfNeeded(input);
 
         // パレット情報を取得（Index8フォーマット対応）
         const ::fleximg::PixelAuxInfo* srcAux = nullptr;
-        if (input.isValid() && input.single().auxInfo().palette) {
-            srcAux = &input.single().auxInfo();
+        if (input.isValid() && input.buffer().auxInfo().palette) {
+            srcAux = &input.buffer().auxInfo();
         }
 
-        ViewPort inputView = input.isValid() ? input.singleView() : ViewPort();
+        ViewPort inputView = input.isValid() ? input.view() : ViewPort();
 
         // 新座標系: originはバッファ左上のワールド座標
         // Y座標はrequestから取得（inputが無効でも常に正しい値を持つ）
