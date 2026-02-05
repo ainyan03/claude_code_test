@@ -117,7 +117,6 @@ void copyRowDDA(
 // copyQuadDDA未対応フォーマットは最近傍にフォールバック
 // edgeFadeMask: EdgeFadeFlagsの値。フェード有効な辺のみ境界ピクセルのアルファを0化
 // srcAux: パレット情報等（Index8のパレット展開に使用）
-// edgeFlagsBuffer: 境界フラグ用バッファ（count バイト以上、呼び出し元で確保）
 void copyRowDDABilinear(
     void* dst,
     const ViewPort& src,
@@ -127,8 +126,7 @@ void copyRowDDABilinear(
     int_fixed incrX,
     int_fixed incrY,
     uint8_t edgeFadeMask,
-    const PixelAuxInfo* srcAux,
-    uint8_t* edgeFlagsBuffer
+    const PixelAuxInfo* srcAux
 );
 
 // アフィン変換転写（DDA方式）
@@ -220,8 +218,8 @@ void copyRowDDA(
 ) {
     if (!src.isValid() || count <= 0) return;
 
-    // DDAParam を構築（copyRowDDAでは srcWidth/srcHeight/weights/safe範囲 は使用しない）
-    DDAParam param = { src.stride, 0, 0, srcX, srcY, incrX, incrY, nullptr, nullptr, 0, 0, 0, 0, 0, 0, 0, EdgeFade_All };
+    // DDAParam を構築（copyRowDDAでは srcWidth/srcHeight/weights は使用しない）
+    DDAParam param = { src.stride, 0, 0, srcX, srcY, incrX, incrY, nullptr, nullptr };
 
     // フォーマットの関数ポインタを呼び出し
     if (src.formatID && src.formatID->copyRowDDA) {
@@ -294,16 +292,14 @@ static void bilinearBlend_RGBA8888(
 }
 
 // ============================================================================
-// copyRowDDABilinear - 新アーキテクチャ
+// copyRowDDABilinear
 // ============================================================================
 //
-// 処理フロー:
-// 1. prepareCopyQuadDDA: 行全体の境界フラグを一括生成（1回のみ）
-// 2. チャンクループ:
-//    a. prepareChunk: チャンク用の安全範囲計算
-//    b. copyQuadDDA: 4ピクセル抽出（元フォーマット）
-//    c. convertFormat: フォーマット変換（RGBA8_Straight以外の場合）
-//    d. bilinearBlend_RGBA8888: バイリニア補間
+// 処理フロー（チャンクループ）:
+//   a. copyQuadDDA: 4ピクセル抽出 + edgeFlags生成
+//   b. convertFormat: フォーマット変換（RGBA8_Straight以外の場合）
+//   c. edgeFlags適用: 境界ピクセルのアルファを0化
+//   d. bilinearBlend_RGBA8888: バイリニア補間
 //
 
 void copyRowDDABilinear(
@@ -315,10 +311,9 @@ void copyRowDDABilinear(
     int_fixed incrX,
     int_fixed incrY,
     uint8_t edgeFadeMask,
-    const PixelAuxInfo* srcAux,
-    uint8_t* edgeFlagsBuffer
+    const PixelAuxInfo* srcAux
 ) {
-    if (!src.isValid() || count <= 0 || !edgeFlagsBuffer) return;
+    if (!src.isValid() || count <= 0) return;
 
     // copyQuadDDA未対応フォーマットは最近傍フォールバック
     if (!src.formatID || !src.formatID->copyQuadDDA) {
@@ -330,10 +325,11 @@ void copyRowDDABilinear(
     constexpr int CHUNK_SIZE = 64;
     constexpr int RGBA8_BPP = 4;
 
-    // 一時バッファ（スタック確保、4バイトアライメント保証）
+    // 一時バッファ（スタック確保）
     // copyQuadDDA出力とconvertFormat出力を共有（末尾詰め配置でin-place変換可能）
     uint32_t quadBuffer[CHUNK_SIZE * 4];         // 1024 bytes（RGBA8888 × 4 × 64）
     BilinearWeightXY weightsXY[CHUNK_SIZE];      // 128 bytes (2 * 64)
+    uint8_t edgeFlagsChunk[CHUNK_SIZE];          // 64 bytes（チャンク用）
 
     // RGBA8_Straightかどうか判定（変換スキップ用）
     const bool needsConversion = (src.formatID != PixelFormatIDs::RGBA8_Straight);
@@ -343,7 +339,7 @@ void copyRowDDABilinear(
     uint32_t* dstPtr = static_cast<uint32_t*>(dst);
     const uint8_t* srcData = static_cast<const uint8_t*>(src.data);
 
-    // DDAParam を構築（行全体で共通の部分）
+    // DDAParam を構築
     DDAParam param = {
         src.stride,
         src.width,
@@ -352,33 +348,20 @@ void copyRowDDABilinear(
         srcY,
         incrX,
         incrY,
-        nullptr,           // weightsXY（チャンクごとに設定）
-        edgeFlagsBuffer,   // 行全体用（呼び出し元で確保済み）
-        0,                 // edgeFlagsOffset（チャンクごとに設定）
-        0, 0, 0,           // totalHeadCount, totalSafeStart, totalSafeEnd
-        0, 0, 0,           // headCount, safeCount, tailCount
-        edgeFadeMask
+        weightsXY,
+        edgeFlagsChunk
     };
-
-    // 行全体の準備（境界フラグを一括生成、1回のみ）
-    param.prepareCopyQuadDDA(count);
-    param.weightsXY = weightsXY;
 
     for (int offset = 0; offset < count; offset += CHUNK_SIZE) {
         int chunk = (count - offset < CHUNK_SIZE) ? (count - offset) : CHUNK_SIZE;
 
-        // チャンク用パラメータを設定
-        param.prepareChunk(chunk, offset);
-
-        // 4ピクセル抽出（末尾詰め配置でin-place変換を可能にする）
-        // 元データを末尾に配置: 変換時に前から処理しても上書きの問題なし
+        // 4ピクセル抽出 + edgeFlags生成（末尾詰め配置でin-place変換可能）
         int srcQuadSize = srcBpp * 4 * chunk;
         int dstQuadSize = RGBA8_BPP * 4 * chunk;
         auto quadPtr = reinterpret_cast<uint8_t*>(quadBuffer) + (dstQuadSize - srcQuadSize);
         src.formatID->copyQuadDDA(quadPtr, srcData, chunk, &param);
 
         // フォーマット変換（必要な場合、in-place）
-        // Index8等のパレットフォーマットはsrcAuxにパレット情報が必要
         if (needsConversion) {
             convertFormat(quadPtr, src.formatID,
                           quadBuffer, PixelFormatIDs::RGBA8_Straight,
@@ -386,33 +369,26 @@ void copyRowDDABilinear(
         }
         uint32_t* quadRGBA = quadBuffer;
 
-        // 境界ピクセルの事前ゼロ埋め（edgeFlagsに基づく）
-        // fadeFlags は prepareCopyQuadDDA で事前計算済み
-        if (param.headCount || param.tailCount) {
+        // 境界ピクセルのアルファ0化（edgeFlagsに基づく）
+        if (edgeFadeMask) {
             auto quad = reinterpret_cast<uint8_t*>(quadRGBA) + 3;
-            auto flagsPtr = edgeFlagsBuffer + offset;
-            for (int step = 0; step < 2; ++step) {
-                uint_fast16_t n = step ? param.tailCount : param.headCount;
-                for (uint_fast16_t i = 0; i < n; ++i) {
-                    uint8_t flags = *flagsPtr++;
-
-                    // RGBA8888のAチャネル位置に対応
-                    if (flags & 0x01) { quad[0] = 0; }
-                    if (flags & 0x02) { quad[4] = 0; }
-                    if (flags & 0x04) { quad[8] = 0; }
-                    if (flags & 0x08) { quad[12] = 0; }
-                    quad += 4 * 4;
+            for (int i = 0; i < chunk; ++i) {
+                uint8_t flags = edgeFlagsChunk[i] & edgeFadeMask;
+                if (flags) {
+                    if (flags & (EdgeFade_Left | EdgeFade_Top)) { quad[0] = 0; }
+                    if (flags & (EdgeFade_Right | EdgeFade_Top)) { quad[4] = 0; }
+                    if (flags & (EdgeFade_Left | EdgeFade_Bottom)) { quad[8] = 0; }
+                    if (flags & (EdgeFade_Right | EdgeFade_Bottom)) { quad[12] = 0; }
                 }
-                flagsPtr += param.safeCount;
-                quad += (param.safeCount * 4 * 4);
+                quad += 4 * 4;
             }
         }
 
-        // 関数B: バイリニア補間（edgeFlagsチェック不要）
+        // バイリニア補間
         bilinearBlend_RGBA8888(dstPtr, quadRGBA, weightsXY, chunk);
 
         // 次のチャンクへ
-        dstPtr += chunk;  // 出力は常にRGBA8888（1 uint32_t per pixel）
+        dstPtr += chunk;
         param.srcX += incrX * chunk;
         param.srcY += incrY * chunk;
     }

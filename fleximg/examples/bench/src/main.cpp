@@ -78,7 +78,7 @@ static void benchCopyRowDDA(
     int_fixed incrY
 ) {
     if (!src.isValid() || count <= 0) return;
-    DDAParam param = { src.stride, 0, 0, srcX, srcY, incrX, incrY, nullptr, nullptr, 0, 0, 0, 0, 0, 0, 0, EdgeFade_All };
+    DDAParam param = { src.stride, 0, 0, srcX, srcY, incrX, incrY, nullptr, nullptr };
     if (src.formatID && src.formatID->copyRowDDA) {
         src.formatID->copyRowDDA(
             static_cast<uint8_t*>(dst),
@@ -99,8 +99,7 @@ static void benchCopyRowDDABilinear(
     int_fixed incrX,
     int_fixed incrY
 ) {
-    static uint8_t edgeFlagsBuffer[1024];  // 静的バッファ（最大1024ピクセル分）
-    view_ops::copyRowDDABilinear(dst, src, count, srcX, srcY, incrX, incrY, EdgeFade_All, nullptr, edgeFlagsBuffer);
+    view_ops::copyRowDDABilinear(dst, src, count, srcX, srcY, incrX, incrY, EdgeFade_All, nullptr);
 }
 
 // =============================================================================
