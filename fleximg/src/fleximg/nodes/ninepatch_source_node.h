@@ -328,7 +328,7 @@ PrepareResponse NinePatchSourceNode::onPullPrepare(const PrepareRequest& request
 
         // 出力矩形に順変換を適用して出力側のAABBを計算
         calcAffineAABB(
-            static_cast<int>(outputWidth_), static_cast<int>(outputHeight_),
+            static_cast<float>(outputWidth_), static_cast<float>(outputHeight_),
             {pivotX_, pivotY_},
             matrixWithPos,
             result.width, result.height, result.origin);

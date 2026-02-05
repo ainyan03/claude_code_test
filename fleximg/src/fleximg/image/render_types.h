@@ -232,16 +232,16 @@ struct PrepareResponse {
 //   - tx/ty の加算を最後に1回だけ行う（8回→2回）
 //   - std::min/max の initializer_list 版で簡潔に記述
 inline void calcAffineAABB(
-    int inputWidth, int inputHeight,
+    float inputWidth, float inputHeight,
     Point inputOrigin,
     const AffineMatrix& matrix,
     int16_t& outWidth, int16_t& outHeight, Point& outOrigin)
 {
     // 入力矩形の4角（pivot を原点とした相対座標）
     const float left = -fixed_to_float(inputOrigin.x);
-    const float right = left + static_cast<float>(inputWidth);
+    const float right = left + inputWidth;
     const float top = -fixed_to_float(inputOrigin.y);
-    const float bottom = top + static_cast<float>(inputHeight);
+    const float bottom = top + inputHeight;
 
     // X座標: 4角をアフィン変換してAABBを計算
     // x' = a*x + b*y + tx  (tx は最後に加算)
@@ -304,8 +304,8 @@ inline void calcInverseAffineAABB(
     );
 
     // 逆行列で変換
-    calcAffineAABB(outputWidth, outputHeight, outputOrigin, inv,
-                   outWidth, outHeight, outOrigin);
+    calcAffineAABB(static_cast<float>(outputWidth), static_cast<float>(outputHeight),
+                   outputOrigin, inv, outWidth, outHeight, outOrigin);
 }
 
 // ========================================================================
