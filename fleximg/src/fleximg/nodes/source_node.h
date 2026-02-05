@@ -502,12 +502,12 @@ RenderResponse& SourceNode::pullProcessWithAffine(const RenderRequest& request) 
         request.origin.y
     };
 
-    // 空のResponseを取得し、bufferSetに直接バッファを作成（ムーブなし）
+    // 空のResponseを取得し、バッファを直接作成（ムーブなし）
     int validWidth = dxEnd - dxStart + 1;
     RenderResponse& resp = makeEmptyResponse(adjustedOrigin);
     // バイリニア補間時はRGBA8_Straight出力、それ以外はソースフォーマット
     PixelFormatID outFormat = useBilinear_ ? PixelFormatIDs::RGBA8_Straight : source_.formatID;
-    ImageBuffer* output = resp.bufferSet.createBuffer(
+    ImageBuffer* output = resp.createBuffer(
         validWidth, 1, outFormat, InitPolicy::Uninitialized);
 
     if (!output) {

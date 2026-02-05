@@ -4,7 +4,6 @@
 #include "../core/node.h"
 #include "../core/perf_metrics.h"
 #include "../image/image_buffer.h"
-#include "../image/image_buffer_set.h"
 #include <algorithm>  // for std::min, std::max
 #include <cstring>    // for std::memcpy
 

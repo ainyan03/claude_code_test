@@ -4,7 +4,6 @@
 #include "../core/node.h"
 #include "../core/perf_metrics.h"
 #include "../image/image_buffer.h"
-#include "../image/image_buffer_set.h"
 #include "../image/pixel_format.h"
 #include "../operations/canvas_utils.h"
 
@@ -354,9 +353,9 @@ RenderResponse& MatteNode::onPullProcess(const RenderRequest& request) {
     // ImageBufferSetの場合はconsolidate()して単一バッファに変換
     consolidateIfNeeded(maskResult);
 
-    // Alpha8に変換（bufferSet内で直接変換）
+    // Alpha8に変換
     if (maskResult.single().formatID() != PixelFormatIDs::Alpha8) {
-        maskResult.bufferSet.convertFormat(PixelFormatIDs::Alpha8);
+        maskResult.convertFormat(PixelFormatIDs::Alpha8);
     }
 
     // 全面0判定（行スキャン）+ 有効範囲へのcrop
@@ -479,9 +478,9 @@ RenderResponse& MatteNode::onPullProcess(const RenderRequest& request) {
         if (fgResult.isValid()) {
             // ImageBufferSetの場合はconsolidate()して単一バッファに変換
             consolidateIfNeeded(fgResult);
-            // RGBA8_Straightに変換（bufferSet内で直接変換）
+            // RGBA8_Straightに変換
             if (fgResult.single().formatID() != PixelFormatIDs::RGBA8_Straight) {
-                fgResult.bufferSet.convertFormat(PixelFormatIDs::RGBA8_Straight);
+                fgResult.convertFormat(PixelFormatIDs::RGBA8_Straight);
             }
             fgResultPtr = &fgResult;
         }

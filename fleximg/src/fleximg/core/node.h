@@ -9,7 +9,6 @@
 #include "render_context.h"
 #include "../image/render_types.h"
 #include "../image/image_buffer.h"
-#include "../image/image_buffer_set.h"
 
 namespace FLEXIMG_NAMESPACE {
 namespace core {
@@ -390,11 +389,10 @@ public:
     }
 
     // ========================================
-    // ImageBufferSet統合ヘルパー
+    // バッファ整理ヘルパー
     // ========================================
 
-    // RenderResponseがImageBufferSetを持つ場合、consolidateして単一バッファに変換
-    // 変換後は bufferSet 内に単一バッファが残り、input.origin.x が調整される
+    // RenderResponseのバッファを整理（validSegments処理 + フォーマット変換）
     // format: 変換先フォーマット（デフォルト: RGBA8_Straight）
     void consolidateIfNeeded(RenderResponse& input,
                              PixelFormatID format = PixelFormatIDs::RGBA8_Straight);
@@ -626,38 +624,29 @@ void Node::initPorts(int inputCount, int outputCount) {
     }
 }
 
-// ImageBufferSet統合ヘルパー
-// 複数エントリがある場合はconsolidateInPlaceして単一バッファに変換
-// 変換後はbufferSet内に単一バッファが残り、origin.xが調整される
+// バッファ整理ヘルパー
+// validSegmentsのゼロ埋め + フォーマット変換を行う
 void Node::consolidateIfNeeded(RenderResponse& input, PixelFormatID format) {
-    if (input.bufferSet.empty()) {
+    if (input.empty()) {
         return;
     }
 
-    // validSegmentsを持つ単一バッファの場合: ギャップをゼロ埋めして全体有効化
+    // validSegmentsを持つバッファの場合: ギャップをゼロ埋めして全体有効化
     // これにより下流FilterNode等はバッファ全体を安全に処理できる
-    if (input.bufferSet.bufferCount() == 1) {
-        input.bufferSet.buffer(0).finalizeValidSegments();
-    }
-
-    // その場統合（フォーマット変換なし、最初のエントリを再利用）
-    // consolidateInPlaceはstartXを保持するため、統合後にバッファから取得する
-    input.bufferSet.consolidateInPlace();
+    input.buffer().finalizeValidSegments();
 
     // フォーマット変換が必要な場合
     // convertFormat()経由でメトリクス記録を維持
-    if (format != nullptr && input.bufferSet.bufferCount() == 1) {
+    if (format != nullptr) {
         PixelFormatID srcFormat = input.single().formatID();
         if (srcFormat != format) {
             ImageBuffer converted = convertFormat(std::move(input.single()), format);
-            input.bufferSet.replaceBuffer(0, std::move(converted));
+            input.replaceBuffer(std::move(converted));
         }
     }
 
     // バッファoriginをresponse.originに同期
-    if (input.bufferSet.bufferCount() == 1) {
-        input.origin = input.single().origin();
-    }
+    input.origin = input.single().origin();
 }
 
 // RenderResponse構築ヘルパー
@@ -667,7 +656,7 @@ RenderResponse& Node::makeResponse(ImageBuffer&& buf, Point origin) {
     RenderResponse& resp = context_->acquireResponse();
     if (buf.isValid()) {
         buf.setOrigin(origin);
-        resp.bufferSet.addBuffer(std::move(buf));
+        resp.addBuffer(std::move(buf));
     }
     resp.origin = origin;
     return resp;

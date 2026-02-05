@@ -5,7 +5,6 @@
 #include "../core/affine_capability.h"
 #include "../core/perf_metrics.h"
 #include "../image/image_buffer.h"
-#include "../image/image_buffer_set.h"
 
 namespace FLEXIMG_NAMESPACE {
 
