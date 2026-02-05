@@ -363,11 +363,10 @@ void RendererNode::execProcess() {
     }
 }
 
-// デバッグ用: DataRange可視化処理（ImageBufferSet対応版）
+// デバッグ用: DataRange可視化処理
 // - getDataRange()の範囲外: マゼンタ（データがないはずの領域）
 // - AABBとgetDataRangeの差分: 青（AABBでは含まれるがgetDataRangeで除外された領域）
-// - バッファ間ギャップ: 暗いグレー（ImageBufferSet内のバッファ間隙間）
-// - バッファ境界: オレンジ（各バッファの開始/終了位置）
+// - バッファ境界: オレンジ（バッファの開始/終了位置）
 void RendererNode::applyDataRangeDebug(Node* upstream,
                                        const RenderRequest& request,
                                        RenderResponse& result) {
@@ -386,7 +385,6 @@ void RendererNode::applyDataRangeDebug(Node* upstream,
     constexpr uint8_t MAGENTA[] = {255, 0, 255, 255};    // 完全に範囲外
     constexpr uint8_t BLUE[] = {0, 100, 255, 255};       // AABBでは範囲内だがgetDataRangeで範囲外
     constexpr uint8_t GREEN[] = {0, 255, 100, 128};      // getDataRange境界マーカー（半透明）
-    constexpr uint8_t DARK_GRAY[] = {60, 60, 60, 255};   // バッファ間ギャップ
     constexpr uint8_t ORANGE[] = {255, 140, 0, 200};     // バッファ境界マーカー（半透明）
 
     // まず全体をデバッグ色で初期化
@@ -412,39 +410,17 @@ void RendererNode::applyDataRangeDebug(Node* upstream,
         }
     }
 
-    // 実データをコピー（複数バッファ対応・フォーマット変換対応）
+    // 実データをコピー（単一バッファ・フォーマット変換対応）
     if (result.isValid()) {
-        int bufCount = result.bufferCount();
+        const ImageBuffer& buf = result.buffer();
 
-        // request.originのピクセル位置（バッファのワールド座標startXからの変換用）
-        int requestOriginPixelX = from_fixed(request.origin.x);
-
-        // バッファ間ギャップの可視化用: 前のバッファの終了位置を追跡
-        int prevBufEndX = -1;
-
-        for (int bufIdx = 0; bufIdx < bufCount; ++bufIdx) {
-            const ImageBuffer& buf = result.bufferSet.buffer(bufIdx);
-            DataRange bufRange = result.bufferSet.range(bufIdx);
-
-            if (buf.width() <= 0) continue;
+        if (buf.width() > 0) {
+            // request.originのピクセル位置
+            int requestOriginPixelX = from_fixed(request.origin.x);
 
             // バッファの開始/終了位置（request座標系）
-            // バッファのstartX()はワールド座標ピクセルなので、request.originを引く
-            int bufStartX = bufRange.startX - requestOriginPixelX;
-            int bufEndX = bufRange.endX - requestOriginPixelX;
-
-            // バッファ間ギャップを暗いグレーで塗る
-            if (prevBufEndX >= 0 && bufStartX > prevBufEndX) {
-                for (int x = prevBufEndX; x < bufStartX && x < request.width; ++x) {
-                    if (x >= 0) {
-                        uint8_t* p = dst + x * 4;
-                        p[0] = DARK_GRAY[0];
-                        p[1] = DARK_GRAY[1];
-                        p[2] = DARK_GRAY[2];
-                        p[3] = DARK_GRAY[3];
-                    }
-                }
-            }
+            int bufStartX = buf.startX() - requestOriginPixelX;
+            int bufEndX = buf.endX() - requestOriginPixelX;
 
             // フォーマット変換の準備
             PixelFormatID srcFormat = buf.formatID();
@@ -465,10 +441,8 @@ void RendererNode::applyDataRangeDebug(Node* upstream,
                     uint8_t* p = dst + dstX * 4;
 
                     if (needConvert && converter.func) {
-                        // フォーマット変換して1ピクセルコピー
                         converter.func(p, src + i * srcBpp, 1, &converter.ctx);
                     } else if (!needConvert) {
-                        // RGBA8_Straight: 直接コピー
                         const uint8_t* s = src + i * 4;
                         p[0] = s[0];
                         p[1] = s[1];
@@ -482,7 +456,6 @@ void RendererNode::applyDataRangeDebug(Node* upstream,
             auto addBufferBoundary = [&](int x) {
                 if (x >= 0 && x < request.width) {
                     uint8_t* p = dst + x * 4;
-                    // アルファブレンド
                     int alpha = ORANGE[3];
                     int invAlpha = 255 - alpha;
                     p[0] = static_cast<uint8_t>((p[0] * invAlpha + ORANGE[0] * alpha) / 255);
@@ -495,8 +468,6 @@ void RendererNode::applyDataRangeDebug(Node* upstream,
             if (bufEndX > bufStartX) {
                 addBufferBoundary(bufEndX - 1);
             }
-
-            prevBufEndX = bufEndX;
         }
     }
 
@@ -514,10 +485,10 @@ void RendererNode::applyDataRangeDebug(Node* upstream,
     addMarker(exactRange.startX);
     if (exactRange.endX > 0) addMarker(static_cast<int16_t>(exactRange.endX - 1));
 
-    // resultのbufferSetをクリアして新しいデバッグバッファを設定
-    result.bufferSet.clear();
+    // resultをクリアして新しいデバッグバッファを設定
+    result.clear();
     debugBuffer.setOrigin(request.origin);
-    result.bufferSet.addBuffer(std::move(debugBuffer));
+    result.addBuffer(std::move(debugBuffer));
     result.origin = request.origin;
 }
 

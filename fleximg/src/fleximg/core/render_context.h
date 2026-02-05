@@ -71,8 +71,8 @@ public:
         allocator_ = alloc;
         entryPool_ = pool;
         for (uint_fast8_t i = 0; i < MAX_RESPONSES; ++i) {
-            responsePool_[i].bufferSet.setAllocator(allocator_);
-            responsePool_[i].bufferSet.setPool(entryPool_);
+            responsePool_[i].setAllocator(allocator_);
+            responsePool_[i].setPool(entryPool_);
         }
     }
 
@@ -121,9 +121,9 @@ public:
 #endif
         // フォールバック: 最後のエントリを強制再利用（エラー状態）
         RenderResponse& fallback = responsePool_[MAX_RESPONSES - 1];
-        fallback.bufferSet.setPool(entryPool_);
-        fallback.bufferSet.setAllocator(allocator_);
-        fallback.bufferSet.clear();
+        fallback.setPool(entryPool_);
+        fallback.setAllocator(allocator_);
+        fallback.clear();
         return fallback;
     }
 
@@ -144,7 +144,7 @@ public:
 #endif
             }
 #endif
-            resp.bufferSet.clear();  // エントリをプールに返却
+            resp.clear();            // エントリをプールに返却
             resp.inUse = false;      // スロットを再利用可能に
         }
     }
@@ -169,7 +169,7 @@ public:
 #endif
         for (int i = 0; i < MAX_RESPONSES; ++i) {
             if (responsePool_[i].inUse) {
-                responsePool_[i].bufferSet.clear();
+                responsePool_[i].clear();
                 responsePool_[i].inUse = false;
             }
         }

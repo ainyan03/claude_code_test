@@ -96,8 +96,8 @@ inline void ensureBlendableFormat(RenderResponse& input) {
         return;
     }
 
-    // RGBA8_Straight に変換（bufferSet内で直接変換）
-    input.bufferSet.convertFormat(PixelFormatIDs::RGBA8_Straight);
+    // RGBA8_Straight に変換
+    input.convertFormat(PixelFormatIDs::RGBA8_Straight);
 }
 
 } // namespace canvas_utils

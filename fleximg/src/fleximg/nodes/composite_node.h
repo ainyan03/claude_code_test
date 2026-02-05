@@ -5,7 +5,6 @@
 #include "../core/affine_capability.h"
 #include "../core/perf_metrics.h"
 #include "../image/image_buffer.h"
-#include "../image/image_buffer_set.h"
 #include "../image/pixel_format.h"
 #include "../operations/canvas_utils.h"
 
@@ -275,7 +274,7 @@ RenderResponse& CompositeNode::onPullProcess(const RenderRequest& request) {
     compositeOrigin.x += to_fixed(hintRange.startX);
 
     RenderResponse& resp = context_->acquireResponse();
-    ImageBuffer* compositeBuf = resp.bufferSet.createBuffer(
+    ImageBuffer* compositeBuf = resp.createBuffer(
         hintWidth, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero);
 
     if (!compositeBuf || !compositeBuf->isValid()) {
@@ -296,11 +295,9 @@ RenderResponse& CompositeNode::onPullProcess(const RenderRequest& request) {
 
         FLEXIMG_METRICS_SCOPE(NodeType::Composite);
 
-        // 上流のbufferSet内の各バッファをblendFrom
-        int bufCount = input.bufferSet.bufferCount();
-        for (int bufIdx = 0; bufIdx < bufCount; ++bufIdx) {
-            const ImageBuffer& srcBuf = input.bufferSet.buffer(bufIdx);
-            compositeBuf->blendFrom(srcBuf);
+        // 上流のバッファをblendFrom
+        if (input.hasBuffer()) {
+            compositeBuf->blendFrom(input.buffer());
         }
 
         context_->releaseResponse(input);

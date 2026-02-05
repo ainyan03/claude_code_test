@@ -1839,9 +1839,13 @@ static void runImageBufferSetBenchmark() {
         if (dummyBuf) {
             ViewPort srcView(dummyBuf, PixelFormatIDs::RGBA8_Straight, IBS_WIDTH * 4, IBS_WIDTH, 1);
             Point origin{0, 0};
-            // Pre-create responses
+            // Pre-create responses with pool
+            ImageBufferEntryPool pool0;
+            RenderResponse resp1;
+            resp1.setPool(&pool0);
             ImageBuffer buf(srcView);
-            RenderResponse resp1(std::move(buf), origin);
+            resp1.addBuffer(std::move(buf));
+            resp1.origin = origin;
 
             uint32_t start = benchMicros();
             for (int i = 0; i < IBS_ITERATIONS; i++) {
@@ -1897,19 +1901,22 @@ static void runImageBufferSetBenchmark() {
         benchPrintf("ImageBufferSet+addBuffer:         %7.1f ns/op\n", static_cast<double>(nsPerOp));
     }
 
-    // Benchmark 3: RenderResponse construction with ImageBuffer
+    // Benchmark 3: RenderResponse with pool + addBuffer
     {
         ViewPort srcView(testBuf, PixelFormatIDs::RGBA8_Straight, IBS_WIDTH * 4, IBS_WIDTH, 1);
         Point origin{0, 0};
         uint32_t start = benchMicros();
         for (int i = 0; i < IBS_ITERATIONS; i++) {
+            RenderResponse resp;
+            resp.setPool(&pool);
             ImageBuffer buf(srcView);
-            RenderResponse resp(std::move(buf), origin);
+            resp.addBuffer(std::move(buf));
+            resp.origin = origin;
             (void)resp;
         }
         uint32_t elapsed = benchMicros() - start;
         float nsPerOp = static_cast<float>(elapsed) * 1000.0f / IBS_ITERATIONS;
-        benchPrintf("RenderResponse(ImageBuffer):      %7.1f ns/op\n", static_cast<double>(nsPerOp));
+        benchPrintf("RenderResponse+addBuffer:         %7.1f ns/op\n", static_cast<double>(nsPerOp));
     }
 
     // Benchmark 4: RenderResponse move (simulating return from function)
@@ -1918,8 +1925,11 @@ static void runImageBufferSetBenchmark() {
         Point origin{0, 0};
         uint32_t start = benchMicros();
         for (int i = 0; i < IBS_ITERATIONS; i++) {
+            RenderResponse resp1;
+            resp1.setPool(&pool);
             ImageBuffer buf(srcView);
-            RenderResponse resp1(std::move(buf), origin);
+            resp1.addBuffer(std::move(buf));
+            resp1.origin = origin;
             RenderResponse resp2(std::move(resp1));  // Move
             (void)resp2;
         }
@@ -1951,8 +1961,11 @@ static void runImageBufferSetBenchmark() {
         uint32_t start = benchMicros();
         for (int i = 0; i < IBS_ITERATIONS; i++) {
             // Simulate: SourceNode creates response
+            RenderResponse resp;
+            resp.setPool(&pool);
             ImageBuffer buf(srcView);
-            RenderResponse resp(std::move(buf), origin);
+            resp.addBuffer(std::move(buf));
+            resp.origin = origin;
             // Simulate: Response is moved (returned)
             RenderResponse resp2(std::move(resp));
             // Simulate: SinkNode accesses view
@@ -2029,34 +2042,18 @@ static void runMoveCountBenchmark() {
     // Warm up
     renderer.exec();
 
-    // Reset counter and run
-    RenderResponse::resetMoveCount();
+    // Run and measure time
     uint32_t start = benchMicros();
     renderer.exec();
     uint32_t elapsed = benchMicros() - start;
-    int moveCount = RenderResponse::getMoveCount();
-
-    int totalScanlines = MATTE_RENDER_HEIGHT;
-    float movesPerScanline = static_cast<float>(moveCount) / totalScanlines;
 
     benchPrintf("Pipeline: 3x SourceNode -> MatteNode -> RendererNode -> SinkNode\n");
     benchPrintf("Output: %dx%d (%.1fx scale)\n", MATTE_RENDER_WIDTH, MATTE_RENDER_HEIGHT,
                 static_cast<double>(scaleX));
     benchPrintln();
     benchPrintf("exec() time:        %u us\n", elapsed);
-    benchPrintf("Total moves:        %d\n", moveCount);
-    benchPrintf("Moves per scanline: %.1f\n", static_cast<double>(movesPerScanline));
-    benchPrintln();
-
-    // Estimate move overhead using pure move cost from 's' benchmark
-    // Assume ~50-200ns per move (typical range)
-    float estimatedMoveOverheadUs = static_cast<float>(moveCount) * 0.1f;  // 100ns per move
-    float overheadPercent = (estimatedMoveOverheadUs / static_cast<float>(elapsed)) * 100.0f;
-    benchPrintf("Estimated move overhead: ~%.0f us (%.1f%% of exec time, assuming 100ns/move)\n",
-                static_cast<double>(estimatedMoveOverheadUs),
-                static_cast<double>(overheadPercent));
-    benchPrintln();
-    benchPrintln("Note: Use 's' command to measure actual ns/move on this platform.");
+    benchPrintf("us per scanline:    %.2f\n",
+                static_cast<double>(elapsed) / MATTE_RENDER_HEIGHT);
     benchPrintln();
 }
 

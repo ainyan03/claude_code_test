@@ -14,13 +14,11 @@
 // 前方宣言（循環参照回避）
 namespace FLEXIMG_NAMESPACE {
 class ImageBufferEntryPool;
-class ImageBufferSet;
 namespace core { class RenderContext; }
 using core::RenderContext;
 }
 
-// ImageBufferSetの完全定義をインクルード（RenderResponseで値として使用）
-#include "image_buffer_set.h"
+#include "image_buffer_entry_pool.h"
 
 namespace FLEXIMG_NAMESPACE {
 
@@ -312,108 +310,157 @@ inline void calcInverseAffineAABB(
 // RenderResponse - レンダリング応答
 // ========================================================================
 //
-// 単純化されたRenderResponse:
-// - 全てのバッファはImageBufferSet経由で管理
-// - 単一バッファもImageBufferSetにラップして返す
-// - ノード間でImageBufferSetをムーブで受け渡し
+// 単一バッファ直接管理のRenderResponse:
+// - ImageBufferEntryPool::Entry*を1つ直接保持
+// - 全ノードが常に単一バッファのみ返却する実態に合わせた軽量設計
+// - pool_/allocator_はRenderContext::setup()で設定済み
 //
 
-// 前方宣言
-class ImageBufferSet;
-
 struct RenderResponse {
-    ImageBufferSet bufferSet;  // バッファセット（値所有）
-    Point origin;              // バッファセット左上のワールド座標（固定小数点 Q16.16）
+    Point origin;              // バッファ左上のワールド座標（固定小数点 Q16.16）
     bool inUse = false;        // プール管理用：使用中フラグ
-
-#ifdef FLEXIMG_DEBUG_MOVE_COUNT
-    // ムーブ回数カウンタ（ベンチマーク用）
-    static inline int moveCount = 0;
-    static void resetMoveCount() { moveCount = 0; }
-    static int getMoveCount() { return moveCount; }
-#endif
 
     // デフォルトコンストラクタ
     RenderResponse() = default;
 
-    // ImageBufferSetムーブコンストラクタ
-    RenderResponse(ImageBufferSet&& set, Point org)
-        : bufferSet(std::move(set)), origin(org) {}
-
-    // ImageBufferコンストラクタ（単一バッファをImageBufferSetにラップ）
-    RenderResponse(ImageBuffer&& buf, Point org)
-        : bufferSet(), origin(org) {
-        if (buf.isValid()) {
-            bufferSet.addBuffer(std::move(buf));
-        }
-    }
-
     // ムーブのみ（コピー禁止）
     RenderResponse(const RenderResponse&) = delete;
     RenderResponse& operator=(const RenderResponse&) = delete;
-
-#ifdef FLEXIMG_DEBUG_MOVE_COUNT
-    // カスタムムーブコンストラクタ（カウンタ付き）
-    RenderResponse(RenderResponse&& other) noexcept
-        : bufferSet(std::move(other.bufferSet)), origin(other.origin) {
-        ++moveCount;
-    }
-
-    // カスタムムーブ代入演算子（カウンタ付き）
-    RenderResponse& operator=(RenderResponse&& other) noexcept {
-        if (this != &other) {
-            bufferSet = std::move(other.bufferSet);
-            origin = other.origin;
-            ++moveCount;
-        }
-        return *this;
-    }
-#else
     RenderResponse(RenderResponse&&) = default;
     RenderResponse& operator=(RenderResponse&&) = default;
-#endif
+
+    // ========================================
+    // 設定（RenderContext::setup から呼ばれる）
+    // ========================================
+
+    void setPool(ImageBufferEntryPool* p) { pool_ = p; }
+    void setAllocator(core::memory::IAllocator* a) { allocator_ = a; }
 
     // ========================================
     // 有効性判定
     // ========================================
 
     /// @brief 有効なバッファを持っているか
-    bool isValid() const { return !bufferSet.empty(); }
+    bool isValid() const { return entry_ != nullptr; }
+
+    /// @brief バッファを持っているか
+    bool hasBuffer() const { return entry_ != nullptr; }
 
     /// @brief 空かどうか
-    bool empty() const { return bufferSet.empty(); }
+    bool empty() const { return entry_ == nullptr; }
 
-    /// @brief バッファ数を取得
-    int bufferCount() const { return bufferSet.bufferCount(); }
+    /// @brief バッファ数を取得（常に 0 or 1）
+    int bufferCount() const { return entry_ ? 1 : 0; }
 
     // ========================================
-    // 単一バッファアクセス
+    // バッファアクセス
     // ========================================
 
-    /// @brief 単一バッファを取得（bufferCount()==1 前提）
-    /// @note consolidate()後または単一エントリの場合に使用
-    ImageBuffer& single() {
-        FLEXIMG_ASSERT(bufferSet.bufferCount() == 1, "Expected single buffer");
-        return bufferSet.buffer(0);
+    /// @brief バッファを取得
+    ImageBuffer& buffer() {
+        FLEXIMG_ASSERT(entry_ != nullptr, "No buffer in RenderResponse");
+        return entry_->buffer;
     }
 
-    const ImageBuffer& single() const {
-        FLEXIMG_ASSERT(bufferSet.bufferCount() == 1, "Expected single buffer");
-        return bufferSet.buffer(0);
+    const ImageBuffer& buffer() const {
+        FLEXIMG_ASSERT(entry_ != nullptr, "No buffer in RenderResponse");
+        return entry_->buffer;
     }
 
-    /// @brief 単一バッファのビューを取得
+    /// @brief 単一バッファを取得（buffer() の別名、後方互換）
+    ImageBuffer& single() { return buffer(); }
+    const ImageBuffer& single() const { return buffer(); }
+
+    /// @brief バッファのビューを取得
     ViewPort singleView() {
-        return bufferSet.bufferCount() == 1 ? bufferSet.buffer(0).view() : ViewPort();
+        return entry_ ? entry_->buffer.view() : ViewPort();
     }
 
     ViewPort singleView() const {
-        return bufferSet.bufferCount() == 1 ? bufferSet.buffer(0).view() : ViewPort();
+        return entry_ ? entry_->buffer.view() : ViewPort();
     }
 
-    /// @brief 単一バッファのビューを取得（後方互換）
+    /// @brief バッファのビューを取得（後方互換）
     ViewPort view() { return singleView(); }
     ViewPort view() const { return singleView(); }
+
+    // ========================================
+    // バッファ管理
+    // ========================================
+
+    /// @brief 新しいバッファを直接作成
+    /// @return 作成されたバッファへのポインタ（失敗時はnullptr）
+    ImageBuffer* createBuffer(int width, int height, PixelFormatID format,
+                              InitPolicy policy) {
+        if (width <= 0 || height <= 0 || !format) return nullptr;
+        // 既存エントリがあれば解放
+        releaseEntry();
+        // プールから取得
+        entry_ = pool_ ? pool_->acquire() : nullptr;
+        if (!entry_) return nullptr;
+        entry_->buffer = ImageBuffer(width, height, format, policy, allocator_);
+        if (!entry_->buffer.isValid()) {
+            releaseEntry();
+            return nullptr;
+        }
+        return &entry_->buffer;
+    }
+
+    /// @brief バッファを追加（ムーブ）
+    void addBuffer(ImageBuffer&& buf) {
+        if (!buf.isValid()) return;
+        // 既存エントリがあれば解放
+        releaseEntry();
+        entry_ = pool_ ? pool_->acquire() : nullptr;
+        if (entry_) {
+            entry_->buffer = std::move(buf);
+        }
+    }
+
+    /// @brief バッファを入れ替え（originを保持）
+    void replaceBuffer(ImageBuffer&& buf) {
+        if (!entry_) return;
+        Point savedOrigin = entry_->buffer.origin();
+        entry_->buffer = std::move(buf);
+        entry_->buffer.setOrigin(savedOrigin);
+    }
+
+    /// @brief バッファをクリア（エントリをプールに返却）
+    void clear() {
+        releaseEntry();
+    }
+
+    /// @brief バッファのフォーマットを変換
+    void convertFormat(PixelFormatID format) {
+        if (!entry_ || !allocator_ || !format) return;
+        PixelFormatID srcFmt = entry_->buffer.view().formatID;
+        if (srcFmt == format) return;
+
+        int width = entry_->buffer.width();
+        ImageBuffer converted(width, 1, format, InitPolicy::Uninitialized, allocator_);
+        if (!converted.isValid()) return;
+
+        const void* srcRow = entry_->buffer.view().pixelAt(0, 0);
+        void* dstRow = converted.view().pixelAt(0, 0);
+        const PixelAuxInfo* auxInfo = &entry_->buffer.auxInfo();
+        FLEXIMG_NAMESPACE::convertFormat(srcRow, srcFmt, dstRow, format, width, auxInfo);
+
+        Point savedOrigin = entry_->buffer.origin();
+        entry_->buffer = std::move(converted);
+        entry_->buffer.setOrigin(savedOrigin);
+    }
+
+private:
+    ImageBufferEntryPool::Entry* entry_ = nullptr;
+    ImageBufferEntryPool* pool_ = nullptr;
+    core::memory::IAllocator* allocator_ = nullptr;
+
+    void releaseEntry() {
+        if (entry_ && pool_) {
+            pool_->release(entry_);
+        }
+        entry_ = nullptr;
+    }
 };
 
 } // namespace FLEXIMG_NAMESPACE
