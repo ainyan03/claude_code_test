@@ -90,6 +90,15 @@ public:
 
 protected:
     int nodeTypeForMetrics() const override { return NodeType::Composite; }
+
+private:
+    // getDataRangeキャッシュ（同一スキャンラインでの重複計算を回避）
+    mutable struct {
+        Point origin = {0, 0};
+        int16_t width = 0;
+        DataRange range = {0, 0};
+        bool valid = false;
+    } dataRangeCache_;
 };
 
 } // namespace FLEXIMG_NAMESPACE
@@ -189,6 +198,9 @@ PrepareResponse CompositeNode::onPullPrepare(const PrepareRequest& request) {
     screenInfo.origin = request.origin;
     prepare(screenInfo);
 
+    // getDataRangeキャッシュを無効化（アフィン行列が変わる可能性があるため）
+    dataRangeCache_.valid = false;
+
     return merged;
 }
 
@@ -203,9 +215,17 @@ void CompositeNode::onPullFinalize() {
     }
 }
 
-// getDataRange: 全上流のgetDataRange和集合を返す（軽量版）
-// キャッシュなし、単純にイテレートして和集合を計算
+// getDataRange: 全上流のgetDataRange和集合を返す
+// 同一スキャンラインでの重複呼び出しはキャッシュで高速化
 DataRange CompositeNode::getDataRange(const RenderRequest& request) const {
+    // キャッシュヒットチェック
+    if (dataRangeCache_.valid
+        && dataRangeCache_.origin.x == request.origin.x
+        && dataRangeCache_.origin.y == request.origin.y
+        && dataRangeCache_.width == request.width) {
+        return dataRangeCache_.range;
+    }
+
     auto numInputs = inputCount();
     int_fast16_t startX = request.width;  // 右端で初期化
     int_fast16_t endX = 0;                // 左端で初期化
@@ -223,68 +243,71 @@ DataRange CompositeNode::getDataRange(const RenderRequest& request) const {
     }
 
     // startX >= endX はデータなし
-    return (startX < endX) ? DataRange{static_cast<int16_t>(startX), static_cast<int16_t>(endX)}
-                           : DataRange{0, 0};
+    DataRange result = (startX < endX)
+        ? DataRange{static_cast<int16_t>(startX), static_cast<int16_t>(endX)}
+        : DataRange{0, 0};
+
+    // キャッシュ更新
+    dataRangeCache_.origin = request.origin;
+    dataRangeCache_.width = request.width;
+    dataRangeCache_.range = result;
+    dataRangeCache_.valid = true;
+
+    return result;
 }
 
 // onPullProcess: 複数の上流から画像を取得してunder合成
-// 直接イテレート方式:
-// - 全上流を順にpullProcess
-// - 最初の有効なResponseをベースに、残りをtransferFromで統合
+// 単一バッファ事前確保方式:
+// - getDataRangeで合成範囲を事前計算
+// - hintRangeサイズの合成バッファをゼロ初期化で確保
+// - 各上流の結果をblendFromで直接書き込み
 RenderResponse& CompositeNode::onPullProcess(const RenderRequest& request) {
     auto numInputs = inputCount();
     if (numInputs == 0) return makeEmptyResponse(request.origin);
 
-    // 最初の有効な上流Responseをベースにする
-    // バッファは既にワールド座標originを持つため、オフセット適用は不要
-    RenderResponse* baseResponse = nullptr;
-    int_fast16_t startIndex = 0;
+    // 1. hintRange取得（キャッシュ付き）
+    DataRange hintRange = getDataRange(request);
+    if (!hintRange.hasData()) return makeEmptyResponse(request.origin);
 
+    // 2. 合成バッファ確保（ゼロ初期化）
+    int16_t hintWidth = static_cast<int16_t>(hintRange.endX - hintRange.startX);
+    Point compositeOrigin = request.origin;
+    compositeOrigin.x += to_fixed(hintRange.startX);
+
+    RenderResponse& resp = context_->acquireResponse();
+    ImageBuffer* compositeBuf = resp.bufferSet.createBuffer(
+        hintWidth, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero);
+
+    if (!compositeBuf || !compositeBuf->isValid()) {
+        return resp;  // alloc失敗
+    }
+    compositeBuf->setOrigin(compositeOrigin);
+
+    // 3. 各上流を処理
     for (int_fast16_t i = 0; i < numInputs; ++i) {
         Node* upstream = upstreamNode(i);
         if (!upstream) continue;
 
         RenderResponse& input = upstream->pullProcess(request);
         if (!input.isValid()) {
-            // 空でも上流がacquireしているのでrelease
-            context_->releaseResponse(input);
-            continue;
-        }
-
-        FLEXIMG_METRICS_SCOPE(NodeType::Composite);
-        baseResponse = &input;
-        startIndex = static_cast<int_fast16_t>(i + 1);
-        break;
-    }
-
-    // 有効な上流がなかった場合
-    if (!baseResponse) {
-        return makeEmptyResponse(request.origin);
-    }
-
-    // 残りの上流をtransferFromで統合（under合成）
-    // バッファは既にワールド座標を持つため、オフセットは0
-    for (int_fast16_t i = startIndex; i < numInputs; ++i) {
-        Node* upstream = upstreamNode(i);
-        if (!upstream) continue;
-
-        RenderResponse& input = upstream->pullProcess(request);
-        if (!input.isValid()) {
-            // 空でも上流がacquireしているのでrelease
             context_->releaseResponse(input);
             continue;
         }
 
         FLEXIMG_METRICS_SCOPE(NodeType::Composite);
 
-        // 上流のImageBufferSetの全エントリをバッチ転送
-        baseResponse->bufferSet.transferFrom(input.bufferSet);
+        // 上流のbufferSet内の各バッファをblendFrom
+        int bufCount = input.bufferSet.bufferCount();
+        for (int bufIdx = 0; bufIdx < bufCount; ++bufIdx) {
+            const ImageBuffer& srcBuf = input.bufferSet.buffer(bufIdx);
+            compositeBuf->blendFrom(srcBuf);
+        }
 
-        // 使い終わったRenderResponseをプールに返却
         context_->releaseResponse(input);
     }
 
-    return *baseResponse;
+    resp.origin = compositeOrigin;
+    return resp;
 }
 
 } // namespace FLEXIMG_NAMESPACE

@@ -9,6 +9,7 @@
 #include "common.h"
 #include "memory/allocator.h"
 #include "../image/render_types.h"
+#include "../image/data_range.h"
 
 // 前方宣言（循環参照回避）
 namespace FLEXIMG_NAMESPACE {
@@ -73,6 +74,21 @@ public:
             responsePool_[i].bufferSet.setAllocator(allocator_);
             responsePool_[i].bufferSet.setPool(entryPool_);
         }
+    }
+
+    // ========================================
+    // ValidSegmentsプール（バンプアロケータ）
+    // ========================================
+
+    /// @brief セグメント領域を確保
+    /// @param count 必要なDataRangeスロット数
+    /// @return 確保した領域の先頭ポインタ（枯渇時はnullptr）
+    /// @note スキャンラインスコープ。resetScanlineResources()で一括解放
+    DataRange* acquireSegments(int count) {
+        if (segmentOffset_ + count > SEGMENT_POOL_SIZE) return nullptr;
+        DataRange* result = &segmentStorage_[segmentOffset_];
+        segmentOffset_ += count;
+        return result;
     }
 
     // ========================================
@@ -158,6 +174,7 @@ public:
             }
         }
         nextHint_ = 0;
+        segmentOffset_ = 0;
     }
 
     // ========================================
@@ -181,6 +198,13 @@ private:
     RenderResponse responsePool_[MAX_RESPONSES];
     Error error_ = Error::None;
     uint_fast8_t nextHint_ = 0;  // 次回探索開始位置（循環探索用）
+
+    // ValidSegmentsプール（バンプアロケータ）
+    // CompositeNode等がImageBufferのvalidSegments追跡用に借用する
+    // スキャンラインスコープで一括解放（resetScanlineResources）
+    static constexpr int SEGMENT_POOL_SIZE = 256;
+    DataRange segmentStorage_[SEGMENT_POOL_SIZE];
+    int_fast16_t segmentOffset_ = 0;
 };
 
 } // namespace core
