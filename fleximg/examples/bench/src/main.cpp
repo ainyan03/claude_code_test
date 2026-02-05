@@ -15,6 +15,7 @@
  *   t [grp] [bpp] : copyRowDDA benchmark (DDA scanline transform)
  *   m [pat]  : Matte composite benchmark (direct, no pipeline)
  *   p [pat]  : Matte pipeline benchmark (full node pipeline)
+ *   o [N]    : Composite pipeline benchmark (N upstream nodes)
  *   d        : Analyze alpha distribution of test data
  *   s        : ImageBufferSet/RenderResponse move cost benchmark
  *   r        : RenderResponse move count in pipeline
@@ -51,12 +52,14 @@
 #define FLEXIMG_IMPLEMENTATION
 #include "fleximg/core/common.h"
 #include "fleximg/core/memory/allocator.h"
+#include "fleximg/core/memory/pool_allocator.h"
 #include "fleximg/image/pixel_format.h"
 #include "fleximg/image/viewport.h"
 #include "fleximg/image/image_buffer.h"
 #include "fleximg/image/image_buffer_set.h"
 #include "fleximg/image/image_buffer_entry_pool.h"
 #include "fleximg/nodes/source_node.h"
+#include "fleximg/nodes/composite_node.h"
 #include "fleximg/nodes/matte_node.h"
 #include "fleximg/nodes/renderer_node.h"
 #include "fleximg/nodes/sink_node.h"
@@ -222,6 +225,10 @@ static inline uint32_t getCpuFreqMHz() {
     static constexpr int MATTE_RENDER_WIDTH = 128;
     static constexpr int MATTE_RENDER_HEIGHT = 128;
     static constexpr int MATTE_ITERATIONS = 100;
+    // Composite pipeline benchmark (m5stack_basic相当: 320x200)
+    static constexpr int COMPOSITE_RENDER_WIDTH = 320;
+    static constexpr int COMPOSITE_RENDER_HEIGHT = 200;
+    static constexpr int COMPOSITE_ITERATIONS = 20;
 #else
     // PC is much faster, use larger pixel count for accurate measurement
     static constexpr int BENCH_PIXELS = 65536;
@@ -233,7 +240,15 @@ static inline uint32_t getCpuFreqMHz() {
     static constexpr int MATTE_RENDER_WIDTH = 512;
     static constexpr int MATTE_RENDER_HEIGHT = 512;
     static constexpr int MATTE_ITERATIONS = 100;
+    // Composite pipeline benchmark (m5stack_basic相当: 320x200)
+    static constexpr int COMPOSITE_RENDER_WIDTH = 320;
+    static constexpr int COMPOSITE_RENDER_HEIGHT = 200;
+    static constexpr int COMPOSITE_ITERATIONS = 50;
 #endif
+
+static constexpr int COMPOSITE_SRC_SIZE = 32;
+static constexpr int MAX_COMPOSITE_SOURCES = 32;
+static constexpr float COMPOSITE_SCALE = 1.5f;  // m5stack_basic ThirtyTwoAlpha相当
 
 // =============================================================================
 // Buffer Management
@@ -1534,6 +1549,207 @@ static void runMattePipelineBenchmarks(const char* patternArg) {
 }
 
 // =============================================================================
+// NullSinkNode - ベンチマーク用軽量シンク
+// =============================================================================
+// データを受け取り、consolidateIfNeeded を呼んで捨てるだけ。
+// SinkNode と違い出力バッファを持たない。
+
+class NullSinkNode : public Node {
+public:
+    NullSinkNode(int16_t w, int16_t h, int_fixed pivotX, int_fixed pivotY)
+        : width_(w), height_(h), pivotX_(pivotX), pivotY_(pivotY) {
+        initPorts(1, 0);
+    }
+
+    const char* name() const override { return "NullSinkNode"; }
+
+protected:
+    PrepareResponse onPushPrepare(const PrepareRequest& /*request*/) override {
+        PrepareResponse result;
+        result.status = PrepareStatus::Prepared;
+        result.preferredFormat = PixelFormatIDs::RGBA8_Straight;
+        result.width = width_;
+        result.height = height_;
+        result.origin = { -pivotX_, -pivotY_ };
+        return result;
+    }
+
+    void onPushProcess(RenderResponse& input,
+                       const RenderRequest& /*request*/) override {
+        if (!input.isValid()) return;
+        // consolidateIfNeeded で統合（現実のパイプラインと同等のコスト計測）
+        consolidateIfNeeded(input, PixelFormatIDs::RGBA8_Straight);
+        // 書き込みは行わない
+    }
+
+private:
+    int16_t width_;
+    int16_t height_;
+    int_fixed pivotX_;
+    int_fixed pivotY_;
+};
+
+// =============================================================================
+// Composite Pipeline Benchmark
+// =============================================================================
+
+static uint8_t* compositeSourceBufs[MAX_COMPOSITE_SOURCES] = {};
+
+static bool allocateCompositeSourceBuffers() {
+    static constexpr size_t bufSize =
+        static_cast<size_t>(COMPOSITE_SRC_SIZE) * COMPOSITE_SRC_SIZE * 4;
+    for (int i = 0; i < MAX_COMPOSITE_SOURCES; ++i) {
+        if (compositeSourceBufs[i]) continue;
+        compositeSourceBufs[i] = static_cast<uint8_t*>(BENCH_MALLOC(bufSize));
+        if (!compositeSourceBufs[i]) {
+            benchPrintf("ERROR: Composite source buffer %d allocation failed!\n", i);
+            return false;
+        }
+    }
+    return true;
+}
+
+static void initCompositeSourceBuffers() {
+    static constexpr int W = COMPOSITE_SRC_SIZE;
+    static constexpr int H = COMPOSITE_SRC_SIZE;
+    for (int idx = 0; idx < MAX_COMPOSITE_SOURCES; ++idx) {
+        uint8_t* buf = compositeSourceBufs[idx];
+        // 各画像に異なる色のチェッカーパターン（半透明）
+        uint8_t r = static_cast<uint8_t>((idx * 83 + 40) & 0xFF);
+        uint8_t g = static_cast<uint8_t>((idx * 157 + 80) & 0xFF);
+        uint8_t b = static_cast<uint8_t>((idx * 211 + 120) & 0xFF);
+        for (int y = 0; y < H; ++y) {
+            for (int x = 0; x < W; ++x) {
+                int i = (y * W + x) * 4;
+                bool checker = ((x >> 2) ^ (y >> 2)) & 1;
+                buf[i + 0] = r;
+                buf[i + 1] = g;
+                buf[i + 2] = b;
+                buf[i + 3] = checker ? static_cast<uint8_t>(180)
+                                     : static_cast<uint8_t>(80);
+            }
+        }
+    }
+}
+
+static void runCompositeBenchmark(int count) {
+    static constexpr int W = COMPOSITE_SRC_SIZE;
+    static constexpr int H = COMPOSITE_SRC_SIZE;
+    static constexpr int RW = COMPOSITE_RENDER_WIDTH;
+    static constexpr int RH = COMPOSITE_RENDER_HEIGHT;
+
+    // PoolAllocator（m5stack_basic相当: 512B×32ブロック）
+    static constexpr size_t POOL_BLOCK_SIZE = 512;
+    static constexpr size_t POOL_BLOCK_COUNT = 32;
+    static uint8_t poolMemory[POOL_BLOCK_SIZE * POOL_BLOCK_COUNT];
+    core::memory::PoolAllocator pool;
+    pool.initialize(poolMemory, POOL_BLOCK_SIZE, POOL_BLOCK_COUNT, false);
+    core::memory::PoolAllocatorAdapter poolAdapter(pool);
+
+    // ヒープ確保（M5Stackのスタック制限対策）
+    auto* sources = new SourceNode[static_cast<size_t>(count)];
+
+    int_fixed pivotX = float_to_fixed(W / 2.0f);
+    int_fixed pivotY = float_to_fixed(H / 2.0f);
+
+    // ソースノード初期化（AffineNodeを使わず直接アフィン指定）
+    for (int i = 0; i < count; ++i) {
+        ViewPort vp(compositeSourceBufs[i], PixelFormatIDs::RGBA8_Straight,
+                    W * 4, W, H);
+        sources[i] = SourceNode(vp, pivotX, pivotY);
+
+        // 円周配置 + スケール拡大 + 回転（m5stack_basic相当）
+        float angle = static_cast<float>(i) * 6.2832f
+                    / static_cast<float>(count);
+        float radius = static_cast<float>(RW) * 0.25f;
+        sources[i].setScale(COMPOSITE_SCALE, COMPOSITE_SCALE);
+        sources[i].setRotation(angle);
+        sources[i].setTranslation(radius * std::cos(angle),
+                                  radius * std::sin(angle));
+    }
+
+    // パイプライン構築
+    CompositeNode composite(static_cast<int_fast16_t>(count));
+    for (int i = 0; i < count; ++i) {
+        sources[i].connectTo(composite, i);
+    }
+
+    RendererNode renderer;
+    renderer.setAllocator(&poolAdapter);
+    NullSinkNode sink(static_cast<int16_t>(RW), static_cast<int16_t>(RH),
+                      float_to_fixed(RW / 2.0f),
+                      float_to_fixed(RH / 2.0f));
+
+    composite >> renderer >> sink;
+    renderer.setVirtualScreen(RW, RH);
+    renderer.setPivotCenter();
+
+    // ウォームアップ
+    renderer.exec();
+
+    // 計測（フレームごとに回転を更新し常時回転を模倣）
+    uint32_t start = benchMicros();
+    for (int i = 0; i < COMPOSITE_ITERATIONS; ++i) {
+        for (int j = 0; j < count; ++j) {
+            float angle = static_cast<float>(j) * 6.2832f
+                        / static_cast<float>(count)
+                        + static_cast<float>(i) * 0.1f;
+            sources[j].setRotation(angle);
+        }
+        renderer.exec();
+    }
+    uint32_t us = (benchMicros() - start)
+               / static_cast<uint32_t>(COMPOSITE_ITERATIONS);
+
+    delete[] sources;
+
+    int pixelsPerIteration = RW * RH;
+    float nsPerPx = static_cast<float>(us) * 1000.0f
+                  / static_cast<float>(pixelsPerIteration);
+    float mpps = static_cast<float>(pixelsPerIteration)
+               / static_cast<float>(us);
+
+    benchPrintf("  N=%2d  %6u us  %5.1f ns/px  %5.2f Mpix/s\n",
+                count, us, static_cast<double>(nsPerPx),
+                static_cast<double>(mpps));
+}
+
+static void runCompositeBenchmarks(const char* arg) {
+    if (!allocateCompositeSourceBuffers()) return;
+    initCompositeSourceBuffers();
+
+    benchPrintln();
+    benchPrintln("=== Composite Pipeline Benchmark ===");
+    benchPrintf("Source: %dx%d RGBA8 (x%.1f, rotated), Output: %dx%d, Itr: %d\n",
+                COMPOSITE_SRC_SIZE, COMPOSITE_SRC_SIZE,
+                static_cast<double>(COMPOSITE_SCALE),
+                COMPOSITE_RENDER_WIDTH, COMPOSITE_RENDER_HEIGHT,
+                COMPOSITE_ITERATIONS);
+    benchPrintln();
+    benchPrintln("Pipeline: N x SourceNode(rotated)");
+    benchPrintln("          -> CompositeNode -> RendererNode -> NullSinkNode");
+    benchPrintln();
+
+    static const int counts[] = {4, 8, 16, 32};
+
+    if (strcmp(arg, "all") == 0) {
+        for (int c : counts) {
+            runCompositeBenchmark(c);
+        }
+    } else {
+        int n = atoi(arg);
+        if (n >= 1 && n <= MAX_COMPOSITE_SOURCES) {
+            runCompositeBenchmark(n);
+        } else {
+            benchPrintf("Unknown count: %s\n", arg);
+            benchPrintln("Available: all | 4 | 8 | 16 | 32");
+        }
+    }
+
+    benchPrintln();
+}
+
+// =============================================================================
 // Command Interface
 // =============================================================================
 
@@ -1548,6 +1764,7 @@ static void printHelp() {
     benchPrintln("  t [grp] [bpp] : copyRowDDA benchmark (DDA scanline transform)");
     benchPrintln("  m [pat]  : Matte composite benchmark (direct, no pipeline)");
     benchPrintln("  p [pat]  : Matte pipeline benchmark (full node pipeline)");
+    benchPrintln("  o [N]    : Composite pipeline benchmark (N upstream nodes)");
     benchPrintln("  d        : Analyze alpha distribution of test data");
     benchPrintln("  s        : ImageBufferSet/RenderResponse move cost benchmark");
     benchPrintln("  r        : RenderResponse move count in pipeline");
@@ -1588,6 +1805,8 @@ static void printHelp() {
     benchPrintln("  m grad    - Matte composite with gradient pattern");
     benchPrintln("  p all     - Matte pipeline with all mask patterns");
     benchPrintln("  p grad    - Matte pipeline with gradient mask");
+    benchPrintln("  o all     - Composite pipeline with N=4,8,16,32");
+    benchPrintln("  o 16      - Composite pipeline with 16 upstream nodes");
     benchPrintln("  d         - Show alpha distribution analysis");
     benchPrintln();
 }
@@ -1879,6 +2098,10 @@ static void processCommand(const char* cmd) {
         case 'P':
             runMattePipelineBenchmarks(arg);
             break;
+        case 'o':
+        case 'O':
+            runCompositeBenchmarks(arg);
+            break;
         case 'd':
         case 'D':
             runAlphaDistributionAnalysis();
@@ -1891,6 +2114,7 @@ static void processCommand(const char* cmd) {
             runDDABenchmark("all");
             runMatteCompositeBenchmarks("all");
             runMattePipelineBenchmarks("all");
+            runCompositeBenchmarks("all");
             break;
         case 'l':
         case 'L':
