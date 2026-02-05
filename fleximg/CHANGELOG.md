@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.63.25] - 2026-02-05
+
+### 改善
+
+- **CompositeNode 合成処理の最適化**: 上流ノード群のgetDataRangeを事前集計し、単一バッファを事前確保して直接ブレンドする方式に変更
+  - 旧方式: transferFromでバッファポインタを収集 → 下流のconsolidateInPlaceで一括確保・ブレンド
+  - 新方式: getDataRangeで合成範囲を事前計算 → 単一バッファをゼロ初期化で確保 → blendFromで直接ブレンド
+  - ベンチマーク N=32（32個のSourceNode合成）で約27%の性能改善
+  - CompositeNode::getDataRange()にキャッシュを追加（同一スキャンラインでの重複計算回避）
+
+### API追加
+
+- **ImageBuffer::blendFrom()**: ソースバッファのデータをunder合成で書き込むメソッドを追加
+  - フォーマット変換対応（RGBA8_Straight以外のソースはチャンク単位で変換してブレンド）
+  - validSegments追跡に対応（未初期化領域への上書き最適化、将来のスパース配置向け）
+- **ImageBuffer::finalizeValidSegments()**: validSegmentsのギャップをゼロ埋めして全体有効化
+- **RenderContext::acquireSegments()**: validSegments追跡用のバンプアロケータ（スキャンラインスコープ）
+
+---
+
 ## [2.63.24] - 2026-02-05
 
 ### 改善

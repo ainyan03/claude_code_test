@@ -30,6 +30,7 @@
 | Grayscale8 / Index8 フォーマット | グレースケールとパレットインデックスフォーマット、ImageBufferパレットサポート | v2.56.0 |
 | AffineNodeシンプル化 | DEPRECATEDコード削除、行列保持・伝播のみに | - |
 | NinePatchオーバーラップ対応 | パッチ区間のオーバーラップ設定でアフィン変換時の隙間を防止 | - |
+| CompositeNode単一バッファ事前確保 | getDataRangeで合成範囲を事前計算し、単一バッファに直接ブレンド（N=32で27%改善） | v2.63.25 |
 | FormatConverter 変換パス事前解決 | resolveConverter で最適な変換関数を事前解決し分岐排除、thread_local 排除 | v2.57.0 |
 | SinkNode toFormat 直接書き込み最適化 | FormatConverter による直接変換書き込み（中間バッファ排除） | v2.57.0 |
 
