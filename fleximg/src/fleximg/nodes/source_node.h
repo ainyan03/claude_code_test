@@ -170,195 +170,152 @@ PrepareResponse SourceNode::onPullPrepare(const PrepareRequest& request) {
     prepareOriginX_ = request.origin.x;
     prepareOriginY_ = request.origin.y;
 
-    // AABB計算用の行列（合成済み）
+    // 常に合成行列を計算し、アフィン事前計算を実行
+    // request.affineMatrix経由の平行移動も含めて一貫した座標計算を行う
     AffineMatrix combinedMatrix;
-    bool hasTransform = false;
-
-    // アフィン情報を受け取り、事前計算を行う
-    // localMatrix_ が設定されている場合も、アフィン行列に合成して処理
-    if (request.hasAffine || hasLocalTransform()) {
-        // 行列合成: request.affineMatrix * localMatrix_
-        // AffineNode直列接続と同じ解釈順序（自身の変換が先、下流の変換が後）
-        if (request.hasAffine) {
-            combinedMatrix = request.affineMatrix * localMatrix_;
-        } else {
-            combinedMatrix = localMatrix_;
-        }
-        hasTransform = true;
-
-        // 逆行列とピクセル中心オフセットを計算（共通処理）
-        affine_ = precomputeInverseAffine(combinedMatrix);
-
-        if (affine_.isValid()) {
-            const int32_t invA = affine_.invMatrix.a;
-            const int32_t invB = affine_.invMatrix.b;
-            const int32_t invC = affine_.invMatrix.c;
-            const int32_t invD = affine_.invMatrix.d;
-
-            // pivot は既に Q16.16 なのでそのまま使用
-            const int32_t srcPivotXFixed16 = pivotX_;
-            const int32_t srcPivotYFixed16 = pivotY_;
-
-            // prepareOrigin を逆行列で変換（Prepare時に1回だけ計算）
-            // Q16.16 × Q16.16 = Q32.32、右シフトで Q16.16 に戻す
-            const int32_t prepareOffsetX = static_cast<int32_t>(
-                (static_cast<int64_t>(prepareOriginX_) * invA
-               + static_cast<int64_t>(prepareOriginY_) * invB) >> INT_FIXED_SHIFT);
-            const int32_t prepareOffsetY = static_cast<int32_t>(
-                (static_cast<int64_t>(prepareOriginX_) * invC
-               + static_cast<int64_t>(prepareOriginY_) * invD) >> INT_FIXED_SHIFT);
-
-            // バイリニア補間かどうかで有効範囲とオフセットが異なる
-            // copyQuadDDA対応フォーマットならバイリニア可能（出力はRGBA8_Straight）
-            const bool useBilinear = (interpolationMode_ == InterpolationMode::Bilinear)
-                                   && source_.formatID
-                                   && source_.formatID->copyQuadDDA;
-
-            if (useBilinear) {
-                // バイリニア: 有効範囲はNearest同様 srcSize
-                // 境界外ピクセルは copyQuadDDA の edgeFlags で透明として補間
-                fpWidth_ = source_.width << INT_FIXED_SHIFT;
-                fpHeight_ = source_.height << INT_FIXED_SHIFT;
-
-                // バイリニア: edgeFadeFlagsに応じて各辺の範囲を拡張
-                // フェード有効な辺のみ halfPixel 分拡張（フェードアウト領域用）
-                // invA/invCの符号によって、どの辺がstart/endに対応するか変わる
-                constexpr int32_t halfPixel = 1 << (INT_FIXED_SHIFT - 1);
-
-                // X方向のフェード拡張
-                int32_t hpAStart = 0, hpAEnd = 0;
-                if (invA >= 0) {
-                    // 非反転: xs1_はLeft側、xs2_はRight側
-                    if (edgeFadeFlags_ & EdgeFade_Left) hpAStart = halfPixel;
-                    if (edgeFadeFlags_ & EdgeFade_Right) hpAEnd = halfPixel;
-                } else {
-                    // 反転: xs1_はRight側、xs2_はLeft側
-                    if (edgeFadeFlags_ & EdgeFade_Right) hpAStart = -halfPixel;
-                    if (edgeFadeFlags_ & EdgeFade_Left) hpAEnd = -halfPixel;
-                }
-
-                // Y方向のフェード拡張
-                int32_t hpCStart = 0, hpCEnd = 0;
-                if (invC >= 0) {
-                    // 非反転: ys1_はTop側、ys2_はBottom側
-                    if (edgeFadeFlags_ & EdgeFade_Top) hpCStart = halfPixel;
-                    if (edgeFadeFlags_ & EdgeFade_Bottom) hpCEnd = halfPixel;
-                } else {
-                    // 反転: ys1_はBottom側、ys2_はTop側
-                    if (edgeFadeFlags_ & EdgeFade_Bottom) hpCStart = -halfPixel;
-                    if (edgeFadeFlags_ & EdgeFade_Top) hpCEnd = -halfPixel;
-                }
-
-                xs1_ = invA + (invA < 0 ? fpWidth_ : -1) - hpAStart;
-                xs2_ = invA + (invA < 0 ? 0 : (fpWidth_ - 1)) + hpAEnd;
-                ys1_ = invC + (invC < 0 ? fpHeight_ : -1) - hpCStart;
-                ys2_ = invC + (invC < 0 ? 0 : (fpHeight_ - 1)) + hpCEnd;
-
-                // バイリニア: baseTx は Nearest と同じ計算（クリッピング範囲の互換性維持）
-                // 0.5ピクセル減算は DDA 呼び出し時に適用
-                baseTxWithOffsets_ = affine_.invTxFixed
-                                   + srcPivotXFixed16
-                                   + affine_.rowOffsetX + affine_.dxOffsetX
-                                   + prepareOffsetX;
-                baseTyWithOffsets_ = affine_.invTyFixed
-                                   + srcPivotYFixed16
-                                   + affine_.rowOffsetY + affine_.dxOffsetY
-                                   + prepareOffsetY;
-                useBilinear_ = true;
-            } else {
-                // 最近傍: pivot の小数部を保持
-                fpWidth_ = source_.width << INT_FIXED_SHIFT;
-                fpHeight_ = source_.height << INT_FIXED_SHIFT;
-
-                xs1_ = invA + (invA < 0 ? fpWidth_ : -1);
-                xs2_ = invA + (invA < 0 ? 0 : (fpWidth_ - 1));
-                ys1_ = invC + (invC < 0 ? fpHeight_ : -1);
-                ys2_ = invC + (invC < 0 ? 0 : (fpHeight_ - 1));
-
-                // dxOffset を含める（半ピクセルオフセット）
-                // + prepareOffset でPrepare時のoriginを事前反映
-                baseTxWithOffsets_ = affine_.invTxFixed
-                                   + srcPivotXFixed16
-                                   + affine_.rowOffsetX + affine_.dxOffsetX
-                                   + prepareOffsetX;
-                baseTyWithOffsets_ = affine_.invTyFixed
-                                   + srcPivotYFixed16
-                                   + affine_.rowOffsetY + affine_.dxOffsetY
-                                   + prepareOffsetY;
-                useBilinear_ = false;
-            }
-
-            // 平行移動のみ判定（逆行列の2x2部分が単位行列かどうか）
-            // 単位行列の場合は DDA をスキップし、高速な非アフィンパスを使用
-            // 非アフィンパスではピクセル中心モデルにより、平行移動・小数pivot も正しく処理
-            // 注: a == -one や d == -one（反転）の場合は非アフィンパスでは処理できない
-            constexpr int32_t one = 1 << INT_FIXED_SHIFT;  // 65536 (Q16.16)
-            bool isTranslationOnly =
-                affine_.invMatrix.a == one &&          // a == 1 のみ（-1は反転なので不可）
-                affine_.invMatrix.d == one &&          // d == 1 のみ（-1は反転なので不可）
-                affine_.invMatrix.b == 0 &&
-                affine_.invMatrix.c == 0;
-
-            if (isTranslationOnly) {
-                hasAffine_ = false;
-                // 非アフィンパスでピクセル中心モデルにより座標計算
-            } else {
-                hasAffine_ = true;
-            }
-
-// Note: 詳細デバッグ出力は実機では負荷が高いためコメントアウト
-// #ifdef FLEXIMG_DEBUG_PERF_METRICS
-//             printf("[SourceNode] isTranslationOnly=%s (invA=%d, invD=%d, invB=%d, invC=%d)\n",
-//                    isTranslationOnly ? "true" : "false",
-//                    affine_.invMatrix.a, affine_.invMatrix.d,
-//                    affine_.invMatrix.b, affine_.invMatrix.c);
-// #endif
-        } else {
-            // 逆行列が無効（特異行列）
-            hasAffine_ = true;
-        }
+    if (request.hasAffine) {
+        combinedMatrix = request.affineMatrix * localMatrix_;
     } else {
-        hasAffine_ = false;
+        combinedMatrix = localMatrix_;  // 無変換時は単位行列
+    }
+
+    // 逆行列とピクセル中心オフセットを計算
+    affine_ = precomputeInverseAffine(combinedMatrix);
+
+    if (affine_.isValid()) {
+        const int32_t invA = affine_.invMatrix.a;
+        const int32_t invB = affine_.invMatrix.b;
+        const int32_t invC = affine_.invMatrix.c;
+        const int32_t invD = affine_.invMatrix.d;
+
+        // pivot は既に Q16.16 なのでそのまま使用
+        const int32_t srcPivotXFixed16 = pivotX_;
+        const int32_t srcPivotYFixed16 = pivotY_;
+
+        // prepareOrigin を逆行列で変換（Prepare時に1回だけ計算）
+        // Q16.16 × Q16.16 = Q32.32、右シフトで Q16.16 に戻す
+        const int32_t prepareOffsetX = static_cast<int32_t>(
+            (static_cast<int64_t>(prepareOriginX_) * invA
+           + static_cast<int64_t>(prepareOriginY_) * invB) >> INT_FIXED_SHIFT);
+        const int32_t prepareOffsetY = static_cast<int32_t>(
+            (static_cast<int64_t>(prepareOriginX_) * invC
+           + static_cast<int64_t>(prepareOriginY_) * invD) >> INT_FIXED_SHIFT);
+
+        // バイリニア補間かどうかで有効範囲とオフセットが異なる
+        // copyQuadDDA対応フォーマットならバイリニア可能（出力はRGBA8_Straight）
+        const bool useBilinear = (interpolationMode_ == InterpolationMode::Bilinear)
+                               && source_.formatID
+                               && source_.formatID->copyQuadDDA;
+
+        if (useBilinear) {
+            // バイリニア: 有効範囲はNearest同様 srcSize
+            // 境界外ピクセルは copyQuadDDA の edgeFlags で透明として補間
+            fpWidth_ = source_.width << INT_FIXED_SHIFT;
+            fpHeight_ = source_.height << INT_FIXED_SHIFT;
+
+            // バイリニア: edgeFadeFlagsに応じて各辺の範囲を拡張
+            // フェード有効な辺のみ halfPixel 分拡張（フェードアウト領域用）
+            // invA/invCの符号によって、どの辺がstart/endに対応するか変わる
+            constexpr int32_t halfPixel = 1 << (INT_FIXED_SHIFT - 1);
+
+            // X方向のフェード拡張
+            int32_t hpAStart = 0, hpAEnd = 0;
+            if (invA >= 0) {
+                // 非反転: xs1_はLeft側、xs2_はRight側
+                if (edgeFadeFlags_ & EdgeFade_Left) hpAStart = halfPixel;
+                if (edgeFadeFlags_ & EdgeFade_Right) hpAEnd = halfPixel;
+            } else {
+                // 反転: xs1_はRight側、xs2_はLeft側
+                if (edgeFadeFlags_ & EdgeFade_Right) hpAStart = -halfPixel;
+                if (edgeFadeFlags_ & EdgeFade_Left) hpAEnd = -halfPixel;
+            }
+
+            // Y方向のフェード拡張
+            int32_t hpCStart = 0, hpCEnd = 0;
+            if (invC >= 0) {
+                // 非反転: ys1_はTop側、ys2_はBottom側
+                if (edgeFadeFlags_ & EdgeFade_Top) hpCStart = halfPixel;
+                if (edgeFadeFlags_ & EdgeFade_Bottom) hpCEnd = halfPixel;
+            } else {
+                // 反転: ys1_はBottom側、ys2_はTop側
+                if (edgeFadeFlags_ & EdgeFade_Bottom) hpCStart = -halfPixel;
+                if (edgeFadeFlags_ & EdgeFade_Top) hpCEnd = -halfPixel;
+            }
+
+            xs1_ = invA + (invA < 0 ? fpWidth_ : -1) - hpAStart;
+            xs2_ = invA + (invA < 0 ? 0 : (fpWidth_ - 1)) + hpAEnd;
+            ys1_ = invC + (invC < 0 ? fpHeight_ : -1) - hpCStart;
+            ys2_ = invC + (invC < 0 ? 0 : (fpHeight_ - 1)) + hpCEnd;
+
+            useBilinear_ = true;
+        } else {
+            // 最近傍: pivot の小数部を保持
+            fpWidth_ = source_.width << INT_FIXED_SHIFT;
+            fpHeight_ = source_.height << INT_FIXED_SHIFT;
+
+            xs1_ = invA + (invA < 0 ? fpWidth_ : -1);
+            xs2_ = invA + (invA < 0 ? 0 : (fpWidth_ - 1));
+            ys1_ = invC + (invC < 0 ? fpHeight_ : -1);
+            ys2_ = invC + (invC < 0 ? 0 : (fpHeight_ - 1));
+
+            useBilinear_ = false;
+        }
+
+        // baseTx/Ty は バイリニア・最近傍共通の計算式
+        baseTxWithOffsets_ = affine_.invTxFixed
+                           + srcPivotXFixed16
+                           + affine_.rowOffsetX + affine_.dxOffsetX
+                           + prepareOffsetX;
+        baseTyWithOffsets_ = affine_.invTyFixed
+                           + srcPivotYFixed16
+                           + affine_.rowOffsetY + affine_.dxOffsetY
+                           + prepareOffsetY;
+
+        // DDA増分に基づく最適化判定
+        // 等倍表示相当（逆行列2x2部分が単位行列）かつ最近傍の場合、
+        // DDA をスキップし、高速な非アフィンパス（subView参照）を使用
+        // バイリニア補間時はedgeFade等の処理にDDAが必要なためスキップしない
+        constexpr int32_t one = 1 << INT_FIXED_SHIFT;
+        bool isTranslationOnly =
+            !useBilinear_ &&
+            invA == one &&
+            invD == one &&
+            invB == 0 &&
+            invC == 0;
+
+        hasAffine_ = !isTranslationOnly;
+    } else {
+        // 逆行列が無効（特異行列）
+        hasAffine_ = true;
     }
 
     // SourceNodeは終端なので上流への伝播なし
-    // プルアフィン変換がある場合、出力側で必要なAABBを計算
+    // 出力側で必要なAABBを計算（常にcalcAffineAABBを使用）
     PrepareResponse result;
     result.status = PrepareStatus::Prepared;
     result.preferredFormat = source_.formatID;
 
-    if (hasTransform) {
-        // バイリニア補間のフェード領域分を考慮した入力矩形
-        // フェード有効な辺は0.5ピクセル拡張される
-        float aabbWidth = static_cast<float>(source_.width);
-        float aabbHeight = static_cast<float>(source_.height);
-        int_fixed aabbPivotX = pivotX_;
-        int_fixed aabbPivotY = pivotY_;
-        if (useBilinear_) {
-            constexpr float half = 0.5f;
-            constexpr int_fixed halfFixed = 1 << (INT_FIXED_SHIFT - 1);
-            if (edgeFadeFlags_ & EdgeFade_Left)   { aabbWidth += half; aabbPivotX += halfFixed; }
-            if (edgeFadeFlags_ & EdgeFade_Right)   { aabbWidth += half; }
-            if (edgeFadeFlags_ & EdgeFade_Top)    { aabbHeight += half; aabbPivotY += halfFixed; }
-            if (edgeFadeFlags_ & EdgeFade_Bottom) { aabbHeight += half; }
-        }
-
-        // ソース矩形に順変換を適用して出力側のAABBを計算
-        calcAffineAABB(
-            aabbWidth, aabbHeight,
-            {aabbPivotX, aabbPivotY},
-            combinedMatrix,
-            result.width, result.height, result.origin);
-    } else {
-        // アフィンなしの場合
-        // positionを考慮してAABBの原点を計算（pullProcessと同じ座標系）
-        int_fixed posOffsetX = float_to_fixed(localMatrix_.tx);
-        int_fixed posOffsetY = float_to_fixed(localMatrix_.ty);
-        result.width = static_cast<int16_t>(source_.width);
-        result.height = static_cast<int16_t>(source_.height);
-        // origin = position - pivot（画像左上隅のワールド座標）
-        result.origin = {posOffsetX - pivotX_, posOffsetY - pivotY_};
+    // バイリニア補間のフェード領域分を考慮した入力矩形
+    // フェード有効な辺は0.5ピクセル拡張される
+    float aabbWidth = static_cast<float>(source_.width);
+    float aabbHeight = static_cast<float>(source_.height);
+    int_fixed aabbPivotX = pivotX_;
+    int_fixed aabbPivotY = pivotY_;
+    if (useBilinear_) {
+        constexpr float half = 0.5f;
+        constexpr int_fixed halfFixed = 1 << (INT_FIXED_SHIFT - 1);
+        if (edgeFadeFlags_ & EdgeFade_Left)   { aabbWidth += half; aabbPivotX += halfFixed; }
+        if (edgeFadeFlags_ & EdgeFade_Right)   { aabbWidth += half; }
+        if (edgeFadeFlags_ & EdgeFade_Top)    { aabbHeight += half; aabbPivotY += halfFixed; }
+        if (edgeFadeFlags_ & EdgeFade_Bottom) { aabbHeight += half; }
     }
+
+    calcAffineAABB(
+        aabbWidth, aabbHeight,
+        {aabbPivotX, aabbPivotY},
+        combinedMatrix,
+        result.width, result.height, result.origin);
+
     return result;
 }
 
@@ -374,19 +331,17 @@ RenderResponse& SourceNode::onPullProcess(const RenderRequest& request) {
         return pullProcessWithAffine(request);
     }
 
-    // ピクセル中心モデルによる座標計算（アフィンパスとの一貫性確保）
-    // 出力ピクセル dx の中心座標 = request.origin.x + to_fixed(dx) + HALF
-    // ソースピクセル = floor((中心座標 - imgLeft) / pixel_size)
-    //               = from_fixed_floor(request.origin.x + HALF - imgLeft) + dx
-    //               = srcBaseX + dx
-    int_fixed posOffsetX = float_to_fixed(localMatrix_.tx);
-    int_fixed posOffsetY = float_to_fixed(localMatrix_.ty);
-    int_fixed imgLeft = posOffsetX - pivotX_;   // 画像左端のワールドX座標
-    int_fixed imgTop = posOffsetY - pivotY_;    // 画像上端のワールドY座標
+    // アフィン事前計算値から座標を導出（DDAパスと同一の情報源）
+    // baseTxWithOffsets_ はPrepare時に合成行列から計算済みで、
+    // request.affineMatrix経由の平行移動も含まれている
+    const int32_t deltaX = from_fixed(request.origin.x - prepareOriginX_);
+    const int32_t deltaY = from_fixed(request.origin.y - prepareOriginY_);
+    const int32_t baseX = baseTxWithOffsets_ + deltaX * affine_.invMatrix.a + deltaY * affine_.invMatrix.b;
+    const int32_t baseY = baseTyWithOffsets_ + deltaX * affine_.invMatrix.c + deltaY * affine_.invMatrix.d;
 
     // srcBase: 出力dx=0に対応するソースピクセルインデックス
-    int32_t srcBaseX = from_fixed_floor(request.origin.x + INT_FIXED_HALF - imgLeft);
-    int32_t srcBaseY = from_fixed_floor(request.origin.y + INT_FIXED_HALF - imgTop);
+    int32_t srcBaseX = from_fixed_floor(baseX);
+    int32_t srcBaseY = from_fixed_floor(baseY);
 
     // 有効範囲: srcBase + dx が [0, srcSize) に収まる dx の範囲
     // srcBase + dxStart >= 0  →  dxStart >= -srcBaseX
