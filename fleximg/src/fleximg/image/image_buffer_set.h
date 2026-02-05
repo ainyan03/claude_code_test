@@ -46,8 +46,10 @@ namespace FLEXIMG_NAMESPACE {
 // 使用例:
 //   ImageBufferEntryPool pool;
 //   ImageBufferSet set(&pool, allocator);
-//   set.addBuffer(buffer1, 0);
-//   set.addBuffer(buffer2, 50);  // 重複があれば自動合成
+//   buffer1.setOrigin({to_fixed(0), 0});
+//   set.addBuffer(std::move(buffer1));
+//   buffer2.setOrigin({to_fixed(50), 0});
+//   set.addBuffer(std::move(buffer2));  // 重複があれば自動合成
 //   ImageBuffer result = set.consolidate();
 //
 
@@ -116,23 +118,10 @@ public:
     // バッファ登録
     // ========================================
 
-    /// @brief バッファを登録
-    /// @param buffer 追加するバッファ
-    /// @param startX バッファの開始X座標（整数ピクセル単位）
-    /// @return 成功時 true
-    /// @note 重複があれば即座に合成処理を実行
-    bool addBuffer(ImageBuffer&& buffer, int16_t startX);
-
-    /// @brief バッファを登録（const参照版、コピーが発生）
-    bool addBuffer(const ImageBuffer& buffer, int16_t startX);
-
-    /// @brief バッファを登録（DataRange指定）
-    bool addBuffer(ImageBuffer&& buffer, const DataRange& range);
-
-    /// @brief バッファを登録（バッファ自身のoriginを使用、setStartXを呼ばない）
+    /// @brief バッファを登録（バッファ自身のoriginを使用）
     /// @param buffer 追加するバッファ（origin設定済み）
     /// @return 成功時 true
-    /// @note startX()を計算してDataRange版に委譲する。originは保持される。
+    /// @note 重複があれば即座に合成処理を実行。originは保持される。
     bool addBuffer(ImageBuffer&& buffer);
 
     /// @brief 新しいバッファを直接作成して登録
@@ -140,22 +129,16 @@ public:
     /// @param height バッファ高さ
     /// @param format ピクセルフォーマット
     /// @param policy 初期化ポリシー
-    /// @param startX 開始X座標
     /// @return 作成されたバッファへの参照（失敗時はnullバッファ）
-    /// @note ムーブ操作なしでEntry内に直接構築
+    /// @note ムーブ操作なしでEntry内に直接構築。originは呼び出し元で設定する。
     ImageBuffer* createBuffer(int width, int height, PixelFormatID format,
-                              InitPolicy policy, int16_t startX);
+                              InitPolicy policy);
 
     /// @brief 他のImageBufferSetからエントリをバッチ転送
     /// @param source 転送元（転送後は空になる）
-    /// @param offsetX 各エントリに加算するXオフセット
     /// @return 成功時 true
     /// @note プール操作なしでエントリポインタを直接移動
-    bool transferFrom(ImageBufferSet& source, int16_t offsetX);
-
-    /// @brief 全エントリにXオフセットを適用
-    /// @param offsetX 各エントリに加算するXオフセット
-    void applyOffset(int16_t offsetX);
+    bool transferFrom(ImageBufferSet& source);
 
     // ========================================
     // 変換・統合
@@ -401,17 +384,6 @@ inline void convertLine(
 // addBuffer
 // ----------------------------------------------------------------------------
 
-bool ImageBufferSet::addBuffer(ImageBuffer&& buffer, int16_t startX) {
-    // isValid()チェックはDataRange版で行うため省略
-    DataRange range{startX, static_cast<int16_t>(startX + buffer.width())};
-    return addBuffer(std::move(buffer), range);
-}
-
-bool ImageBufferSet::addBuffer(const ImageBuffer& buffer, int16_t startX) {
-    ImageBuffer copy = buffer;  // コピー
-    return addBuffer(std::move(copy), startX);
-}
-
 bool ImageBufferSet::addBuffer(ImageBuffer&& buffer) {
     if (!buffer.isValid()) {
         return false;
@@ -444,16 +416,7 @@ bool ImageBufferSet::addBuffer(ImageBuffer&& buffer) {
     return insertOrMerge(entry);
 }
 
-void ImageBufferSet::applyOffset(int16_t offsetX) {
-    if (offsetX == 0) return;
-    for (int i = 0; i < entryCount_; ++i) {
-        Entry* entry = entryPtrs_[i];
-        if (!entry) continue;  // 防御的チェック
-        entry->buffer.addOffset(offsetX);
-    }
-}
-
-bool ImageBufferSet::transferFrom(ImageBufferSet& source, int16_t offsetX) {
+bool ImageBufferSet::transferFrom(ImageBufferSet& source) {
 #ifdef FLEXIMG_DEBUG
     // デバッグ: thisとsourceの整合性チェック
     if (entryCount_ < 0 || entryCount_ > MAX_ENTRIES) {
@@ -492,9 +455,6 @@ bool ImageBufferSet::transferFrom(ImageBufferSet& source, int16_t offsetX) {
         return true;  // 空なら何もしない
     }
 
-    // オフセット適用
-    source.applyOffset(offsetX);
-
     // 空の場合: 直接コピー
     if (entryCount_ == 0) {
         for (int i = 0; i < source.entryCount_; ++i) {
@@ -522,47 +482,11 @@ bool ImageBufferSet::transferFrom(ImageBufferSet& source, int16_t offsetX) {
 }
 
 // ----------------------------------------------------------------------------
-// addBuffer
-// ----------------------------------------------------------------------------
-
-bool ImageBufferSet::addBuffer(ImageBuffer&& buffer, const DataRange& range) {
-    if (!buffer.isValid()) {
-        return false;
-    }
-
-    // エントリを取得
-    Entry* entry = acquireEntry();
-    if (!entry) {
-        // プール枯渇時: consolidateして空きを作る
-        if (entryCount_ > 0) {
-            mergeAdjacent(0);  // 隣接を強制統合
-            entry = acquireEntry();
-        }
-        if (!entry) {
-            return false;  // それでもダメなら失敗
-        }
-    }
-
-    entry->buffer = std::move(buffer);
-    entry->buffer.setStartX(range.startX);
-
-    // 空の場合は直接追加
-    if (entryCount_ == 0) {
-        entryPtrs_[0] = entry;
-        entryCount_ = 1;
-        return true;
-    }
-
-    // 挿入またはマージ
-    return insertOrMerge(entry);
-}
-
-// ----------------------------------------------------------------------------
 // createBuffer
 // ----------------------------------------------------------------------------
 
 ImageBuffer* ImageBufferSet::createBuffer(int width, int height, PixelFormatID format,
-                                          InitPolicy policy, int16_t startX) {
+                                          InitPolicy policy) {
     if (width <= 0 || height <= 0 || !format) {
         return nullptr;
     }
@@ -586,8 +510,6 @@ ImageBuffer* ImageBufferSet::createBuffer(int width, int height, PixelFormatID f
         releaseEntry(entry);
         return nullptr;
     }
-
-    entry->buffer.setStartX(startX);
 
     // 空の場合は直接追加
     if (entryCount_ == 0) {

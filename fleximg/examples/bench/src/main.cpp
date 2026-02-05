@@ -1890,7 +1890,7 @@ static void runImageBufferSetBenchmark() {
         for (int i = 0; i < IBS_ITERATIONS; i++) {
             ImageBufferSet set(&pool, nullptr);
             ImageBuffer buf(srcView);
-            set.addBuffer(std::move(buf), 0);
+            set.addBuffer(std::move(buf));
         }
         uint32_t elapsed = benchMicros() - start;
         float nsPerOp = static_cast<float>(elapsed) * 1000.0f / IBS_ITERATIONS;
@@ -1935,7 +1935,7 @@ static void runImageBufferSetBenchmark() {
         for (int i = 0; i < IBS_ITERATIONS; i++) {
             ImageBufferSet set1(&pool, nullptr);
             ImageBuffer buf(srcView);
-            set1.addBuffer(std::move(buf), 0);
+            set1.addBuffer(std::move(buf));
             ImageBufferSet set2(std::move(set1));  // Move
             (void)set2;
         }

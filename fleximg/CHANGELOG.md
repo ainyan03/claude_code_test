@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.63.23] - 2026-02-05
+
+### リファクタリング
+
+- **ImageBufferSet のオフセットパラメータ削除**: origin_ 統一に伴い不要になった外部オフセット指定APIを整理
+  - `addBuffer(buf, startX)`, `addBuffer(buf, DataRange)`, `addBuffer(const&, startX)` を削除
+  - `transferFrom(source, offsetX)` → `transferFrom(source)` にシグネチャ変更
+  - `createBuffer(..., startX)` → `createBuffer(...)` にシグネチャ変更
+  - `applyOffset()` を削除
+  - バッファ自身の origin を使う `addBuffer(ImageBuffer&&)` に統一
+
+---
+
 ## [2.63.22] - 2026-02-05
 
 ### リファクタリング

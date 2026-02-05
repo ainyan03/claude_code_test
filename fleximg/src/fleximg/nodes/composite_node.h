@@ -277,8 +277,8 @@ RenderResponse& CompositeNode::onPullProcess(const RenderRequest& request) {
 
         FLEXIMG_METRICS_SCOPE(NodeType::Composite);
 
-        // 上流のImageBufferSetの全エントリをバッチ転送（オフセット不要）
-        baseResponse->bufferSet.transferFrom(input.bufferSet, 0);
+        // 上流のImageBufferSetの全エントリをバッチ転送
+        baseResponse->bufferSet.transferFrom(input.bufferSet);
 
         // 使い終わったRenderResponseをプールに返却
         context_->releaseResponse(input);

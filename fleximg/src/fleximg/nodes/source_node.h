@@ -466,7 +466,7 @@ RenderResponse& SourceNode::pullProcessWithAffine(const RenderRequest& request) 
     // バイリニア補間時はRGBA8_Straight出力、それ以外はソースフォーマット
     PixelFormatID outFormat = useBilinear_ ? PixelFormatIDs::RGBA8_Straight : source_.formatID;
     ImageBuffer* output = resp.bufferSet.createBuffer(
-        validWidth, 1, outFormat, InitPolicy::Uninitialized, 0);
+        validWidth, 1, outFormat, InitPolicy::Uninitialized);
 
     if (!output) {
         return resp;  // バッファ作成失敗時は空のResponseを返す
