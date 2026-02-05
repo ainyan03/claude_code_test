@@ -328,10 +328,25 @@ PrepareResponse SourceNode::onPullPrepare(const PrepareRequest& request) {
     result.preferredFormat = source_.formatID;
 
     if (hasTransform) {
+        // バイリニア補間のフェード領域分を考慮した入力矩形
+        // フェード有効な辺は0.5ピクセル拡張される
+        float aabbWidth = static_cast<float>(source_.width);
+        float aabbHeight = static_cast<float>(source_.height);
+        int_fixed aabbPivotX = pivotX_;
+        int_fixed aabbPivotY = pivotY_;
+        if (useBilinear_) {
+            constexpr float half = 0.5f;
+            constexpr int_fixed halfFixed = 1 << (INT_FIXED_SHIFT - 1);
+            if (edgeFadeFlags_ & EdgeFade_Left)   { aabbWidth += half; aabbPivotX += halfFixed; }
+            if (edgeFadeFlags_ & EdgeFade_Right)   { aabbWidth += half; }
+            if (edgeFadeFlags_ & EdgeFade_Top)    { aabbHeight += half; aabbPivotY += halfFixed; }
+            if (edgeFadeFlags_ & EdgeFade_Bottom) { aabbHeight += half; }
+        }
+
         // ソース矩形に順変換を適用して出力側のAABBを計算
         calcAffineAABB(
-            source_.width, source_.height,
-            {pivotX_, pivotY_},
+            aabbWidth, aabbHeight,
+            {aabbPivotX, aabbPivotY},
             combinedMatrix,
             result.width, result.height, result.origin);
     } else {
