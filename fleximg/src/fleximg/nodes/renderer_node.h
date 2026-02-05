@@ -205,7 +205,7 @@ private:
     bool debugCheckerboard_ = false;
     bool debugDataRange_ = false;
     core::memory::IAllocator* pipelineAllocator_ = nullptr;  // パイプライン用アロケータ
-    ImageBufferEntryPool entryPool_;  // ImageBufferSet用エントリプール
+    ImageBufferEntryPool entryPool_;  // RenderResponse用エントリプール
     RenderContext context_;  // レンダリングコンテキスト（allocator + entryPool を統合）
 
     // タイルサイズ取得

@@ -17,7 +17,7 @@
  *   p [pat]  : Matte pipeline benchmark (full node pipeline)
  *   o [N]    : Composite pipeline benchmark (N upstream nodes)
  *   d        : Analyze alpha distribution of test data
- *   s        : ImageBufferSet/RenderResponse move cost benchmark
+ *   s        : RenderResponse move cost benchmark
  *   r        : RenderResponse move count in pipeline
  *   a        : All benchmarks
  *   l        : List available formats
@@ -56,7 +56,6 @@
 #include "fleximg/image/pixel_format.h"
 #include "fleximg/image/viewport.h"
 #include "fleximg/image/image_buffer.h"
-#include "fleximg/image/image_buffer_set.h"
 #include "fleximg/image/image_buffer_entry_pool.h"
 #include "fleximg/nodes/source_node.h"
 #include "fleximg/nodes/composite_node.h"
@@ -1766,7 +1765,7 @@ static void printHelp() {
     benchPrintln("  p [pat]  : Matte pipeline benchmark (full node pipeline)");
     benchPrintln("  o [N]    : Composite pipeline benchmark (N upstream nodes)");
     benchPrintln("  d        : Analyze alpha distribution of test data");
-    benchPrintln("  s        : ImageBufferSet/RenderResponse move cost benchmark");
+    benchPrintln("  s        : RenderResponse move cost benchmark");
     benchPrintln("  r        : RenderResponse move count in pipeline");
     benchPrintln("  a        : All benchmarks");
     benchPrintln("  l        : List formats");
@@ -1821,15 +1820,15 @@ static void listFormats() {
 }
 
 // =============================================================================
-// ImageBufferSet Benchmark
+// RenderResponse Move Cost Benchmark
 // =============================================================================
 
 static constexpr int IBS_ITERATIONS = 1000;
 static constexpr int IBS_WIDTH = 320;  // Typical scanline width
 
-static void runImageBufferSetBenchmark() {
+static void runRenderResponseBenchmark() {
     benchPrintln();
-    benchPrintln("=== RenderResponse/ImageBufferSet Move Cost Benchmark ===");
+    benchPrintln("=== RenderResponse Move Cost Benchmark ===");
     benchPrintf("Width: %d, Iterations: %d\n", IBS_WIDTH, IBS_ITERATIONS);
     benchPrintln();
 
@@ -1887,21 +1886,7 @@ static void runImageBufferSetBenchmark() {
         benchPrintf("ImageBuffer(ViewPort) ref:        %7.1f ns/op\n", static_cast<double>(nsPerOp));
     }
 
-    // Benchmark 2: ImageBufferSet with pool + addBuffer
-    {
-        ViewPort srcView(testBuf, PixelFormatIDs::RGBA8_Straight, IBS_WIDTH * 4, IBS_WIDTH, 1);
-        uint32_t start = benchMicros();
-        for (int i = 0; i < IBS_ITERATIONS; i++) {
-            ImageBufferSet set(&pool, nullptr);
-            ImageBuffer buf(srcView);
-            set.addBuffer(std::move(buf));
-        }
-        uint32_t elapsed = benchMicros() - start;
-        float nsPerOp = static_cast<float>(elapsed) * 1000.0f / IBS_ITERATIONS;
-        benchPrintf("ImageBufferSet+addBuffer:         %7.1f ns/op\n", static_cast<double>(nsPerOp));
-    }
-
-    // Benchmark 3: RenderResponse with pool + addBuffer
+    // Benchmark 2: RenderResponse with pool + addBuffer
     {
         ViewPort srcView(testBuf, PixelFormatIDs::RGBA8_Straight, IBS_WIDTH * 4, IBS_WIDTH, 1);
         Point origin{0, 0};
@@ -1919,7 +1904,7 @@ static void runImageBufferSetBenchmark() {
         benchPrintf("RenderResponse+addBuffer:         %7.1f ns/op\n", static_cast<double>(nsPerOp));
     }
 
-    // Benchmark 4: RenderResponse move (simulating return from function)
+    // Benchmark 3: RenderResponse move (simulating return from function)
     {
         ViewPort srcView(testBuf, PixelFormatIDs::RGBA8_Straight, IBS_WIDTH * 4, IBS_WIDTH, 1);
         Point origin{0, 0};
@@ -1938,23 +1923,7 @@ static void runImageBufferSetBenchmark() {
         benchPrintf("RenderResponse construct+move:    %7.1f ns/op\n", static_cast<double>(nsPerOp));
     }
 
-    // Benchmark 5: ImageBufferSet move (with pool)
-    {
-        ViewPort srcView(testBuf, PixelFormatIDs::RGBA8_Straight, IBS_WIDTH * 4, IBS_WIDTH, 1);
-        uint32_t start = benchMicros();
-        for (int i = 0; i < IBS_ITERATIONS; i++) {
-            ImageBufferSet set1(&pool, nullptr);
-            ImageBuffer buf(srcView);
-            set1.addBuffer(std::move(buf));
-            ImageBufferSet set2(std::move(set1));  // Move
-            (void)set2;
-        }
-        uint32_t elapsed = benchMicros() - start;
-        float nsPerOp = static_cast<float>(elapsed) * 1000.0f / IBS_ITERATIONS;
-        benchPrintf("ImageBufferSet move:              %7.1f ns/op\n", static_cast<double>(nsPerOp));
-    }
-
-    // Benchmark 6: Full pipeline simulation (construct + move + view)
+    // Benchmark 4: Full pipeline simulation (construct + move + view)
     {
         ViewPort srcView(testBuf, PixelFormatIDs::RGBA8_Straight, IBS_WIDTH * 4, IBS_WIDTH, 1);
         Point origin{0, 0};
@@ -2123,7 +2092,7 @@ static void processCommand(const char* cmd) {
             break;
         case 's':
         case 'S':
-            runImageBufferSetBenchmark();
+            runRenderResponseBenchmark();
             break;
         case 'r':
         case 'R':
@@ -2169,7 +2138,6 @@ void setup() {
     benchPrintf("  ViewPort:          %u bytes\n", sizeof(ViewPort));
     benchPrintf("  PixelAuxInfo:      %u bytes\n", sizeof(PixelAuxInfo));
     benchPrintf("  IAllocator*:       %u bytes\n", sizeof(core::memory::IAllocator*));
-    benchPrintf("ImageBufferSet:      %u bytes\n", sizeof(ImageBufferSet));
     benchPrintf("Entry:               %u bytes\n", sizeof(ImageBufferEntryPool::Entry));
     benchPrintf("ImageBufferEntryPool:%u bytes\n", sizeof(ImageBufferEntryPool));
     benchPrintln();
@@ -2228,7 +2196,6 @@ int main(int argc, char* argv[]) {
     benchPrintf("  ViewPort:          %zu bytes\n", sizeof(ViewPort));
     benchPrintf("  PixelAuxInfo:      %zu bytes\n", sizeof(PixelAuxInfo));
     benchPrintf("  IAllocator*:       %zu bytes\n", sizeof(core::memory::IAllocator*));
-    benchPrintf("ImageBufferSet:      %zu bytes\n", sizeof(ImageBufferSet));
     benchPrintf("Entry:               %zu bytes\n", sizeof(ImageBufferEntryPool::Entry));
     benchPrintf("ImageBufferEntryPool:%zu bytes\n", sizeof(ImageBufferEntryPool));
     benchPrintln();
