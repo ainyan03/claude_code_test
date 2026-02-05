@@ -4,7 +4,6 @@
 // fleximg core
 #include "fleximg/core/node.h"
 #include "fleximg/image/pixel_format.h"
-#include "fleximg/image/image_buffer_set.h"
 
 // M5Unified
 #include <M5Unified.h>
