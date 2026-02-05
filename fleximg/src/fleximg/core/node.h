@@ -634,6 +634,12 @@ void Node::consolidateIfNeeded(RenderResponse& input, PixelFormatID format) {
         return;
     }
 
+    // validSegmentsを持つ単一バッファの場合: ギャップをゼロ埋めして全体有効化
+    // これにより下流FilterNode等はバッファ全体を安全に処理できる
+    if (input.bufferSet.bufferCount() == 1) {
+        input.bufferSet.buffer(0).finalizeValidSegments();
+    }
+
     // その場統合（フォーマット変換なし、最初のエントリを再利用）
     // consolidateInPlaceはstartXを保持するため、統合後にバッファから取得する
     input.bufferSet.consolidateInPlace();
