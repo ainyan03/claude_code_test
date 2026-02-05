@@ -104,8 +104,9 @@ public:
     // SourceNodeは入力がないため、上流を呼び出さずに直接処理
     RenderResponse& onPullProcess(const RenderRequest& request) override;
 
-    // getDataRange: アフィン変換を考慮した正確なデータ範囲を返す
-    // アフィン変換がある場合、AABB ではなくスキャンラインごとの正確な範囲を計算
+    // getDataRange: スキャンライン単位の正確なデータ範囲を返す
+    // アフィン変換がある場合、calcScanlineRangeで厳密な有効範囲を計算
+    // AABB上限が必要な場合は getDataRangeBounds() を使用
     DataRange getDataRange(const RenderRequest& request) const override;
 
 private:
@@ -137,6 +138,15 @@ private:
     int_fixed prepareOriginX_ = 0;
     int_fixed prepareOriginY_ = 0;
 
+    // getDataRangeキャッシュ（同一スキャンラインでの重複計算を回避）
+    // NinePatchSourceNode等から同一requestで複数回呼ばれるケースに対応
+    mutable struct {
+        Point origin = {0, 0};
+        int16_t width = 0;
+        DataRange range = {0, 0};
+        bool valid = false;
+    } dataRangeCache_;
+
     // スキャンライン有効範囲を計算（pullProcessWithAffineで使用）
     // 戻り値: true=有効範囲あり, false=有効範囲なし
     // baseXWithHalf/baseYWithHalf はオプショナル出力（nullptrなら出力しない）
@@ -165,6 +175,9 @@ namespace FLEXIMG_NAMESPACE {
 PrepareResponse SourceNode::onPullPrepare(const PrepareRequest& request) {
     // 下流からの希望フォーマットを保存（将来のフォーマット最適化用）
     preferredFormat_ = request.preferredFormat;
+
+    // getDataRangeキャッシュを無効化（アフィン行列が変わる可能性があるため）
+    dataRangeCache_.valid = false;
 
     // Prepare時のoriginを保存（Process時の差分計算用）
     prepareOriginX_ = request.origin.x;
@@ -436,11 +449,40 @@ bool SourceNode::calcScanlineRange(const RenderRequest& request,
     return dxStart <= dxEnd;
 }
 
-// getDataRange: バウンディングボックスベースの概算範囲を返す
-// アフィン変換時も厳密なDDA計算は行わず、AABBで近似
-// 実際の有効範囲はpullProcess時に確定する
+// getDataRange: スキャンライン単位の正確なデータ範囲を返す
+// アフィン変換時はcalcScanlineRangeで厳密な有効範囲を計算
+// 同一リクエストの重複呼び出しはキャッシュで高速化
 DataRange SourceNode::getDataRange(const RenderRequest& request) const {
-    return prepareResponse_.getDataRange(request);
+    // アフィン変換がない場合はAABBベースで十分（正確）
+    if (!hasAffine_) {
+        return prepareResponse_.getDataRange(request);
+    }
+
+    // キャッシュヒットチェック（同一スキャンラインの重複呼び出し対応）
+    if (dataRangeCache_.valid
+        && dataRangeCache_.origin.x == request.origin.x
+        && dataRangeCache_.origin.y == request.origin.y
+        && dataRangeCache_.width == request.width) {
+        return dataRangeCache_.range;
+    }
+
+    // calcScanlineRangeで正確な有効範囲を計算
+    int32_t dxStart = 0, dxEnd = 0;
+    DataRange result;
+    if (calcScanlineRange(request, dxStart, dxEnd, nullptr, nullptr)) {
+        result = DataRange{static_cast<int16_t>(dxStart),
+                           static_cast<int16_t>(dxEnd + 1)};
+    } else {
+        result = DataRange{0, 0};
+    }
+
+    // キャッシュ更新
+    dataRangeCache_.origin = request.origin;
+    dataRangeCache_.width = request.width;
+    dataRangeCache_.range = result;
+    dataRangeCache_.valid = true;
+
+    return result;
 }
 
 // アフィン変換付きプル処理（スキャンライン専用）

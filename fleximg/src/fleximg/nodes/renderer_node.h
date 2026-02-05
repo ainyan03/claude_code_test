@@ -371,11 +371,11 @@ void RendererNode::execProcess() {
 void RendererNode::applyDataRangeDebug(Node* upstream,
                                        const RenderRequest& request,
                                        RenderResponse& result) {
-    // 正確な範囲を取得
+    // 正確な範囲を取得（スキャンライン単位）
     DataRange exactRange = upstream->getDataRange(request);
 
-    // AABBベースの範囲を取得（PrepareResponse経由）
-    DataRange aabbRange = upstream->lastPrepareResponse().getDataRange(request);
+    // AABBベースの範囲上限を取得
+    DataRange aabbRange = upstream->getDataRangeBounds(request);
 
     // フルサイズのバッファを作成（ゼロ初期化で未定義領域を透明に）
     ImageBuffer debugBuffer(request.width, 1, PixelFormatIDs::RGBA8_Straight,

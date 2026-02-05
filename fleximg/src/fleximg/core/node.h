@@ -327,7 +327,8 @@ public:
     // 範囲判定（最適化用）
     // ========================================
 
-    // このノードがrequestに対して提供できるデータ範囲を取得
+    // このノードがrequestに対して提供できるデータ範囲を取得（スキャンライン単位）
+    // スキャンラインごとの正確な有効ピクセル範囲を返す
     // デフォルト: 上流があればパススルー、なければ空（データなし）
     // 派生クラス: 範囲を変更するノード（CompositeNode等）はオーバーライド
     virtual DataRange getDataRange(const RenderRequest& request) const {
@@ -336,6 +337,13 @@ public:
             return upstream->getDataRange(request);  // 上流パススルー
         }
         return DataRange{0, 0};  // 上流なしはデータなし
+    }
+
+    // このノードの出力データ範囲の上限（AABB由来）を取得
+    // 全スキャンラインに共通する最大範囲を返す（バッファサイズ見積もり用）
+    // Prepare段階で計算済みのAABBを使用するため、計算コストはほぼゼロ
+    DataRange getDataRangeBounds(const RenderRequest& request) const {
+        return prepareResponse_.getDataRange(request);
     }
 
     // prepare応答を取得（派生クラスでの判定用）
