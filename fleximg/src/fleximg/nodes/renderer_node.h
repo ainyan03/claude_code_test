@@ -416,8 +416,8 @@ void RendererNode::applyDataRangeDebug(Node* upstream,
     if (result.isValid()) {
         int bufCount = result.bufferCount();
 
-        // result.originからベースオフセットを計算
-        int baseOffsetX = from_fixed(result.origin.x - request.origin.x);
+        // request.originのピクセル位置（バッファのワールド座標startXからの変換用）
+        int requestOriginPixelX = from_fixed(request.origin.x);
 
         // バッファ間ギャップの可視化用: 前のバッファの終了位置を追跡
         int prevBufEndX = -1;
@@ -429,8 +429,9 @@ void RendererNode::applyDataRangeDebug(Node* upstream,
             if (buf.width() <= 0) continue;
 
             // バッファの開始/終了位置（request座標系）
-            int bufStartX = baseOffsetX + bufRange.startX;
-            int bufEndX = baseOffsetX + bufRange.endX;
+            // バッファのstartX()はワールド座標ピクセルなので、request.originを引く
+            int bufStartX = bufRange.startX - requestOriginPixelX;
+            int bufEndX = bufRange.endX - requestOriginPixelX;
 
             // バッファ間ギャップを暗いグレーで塗る
             if (prevBufEndX >= 0 && bufStartX > prevBufEndX) {
@@ -515,7 +516,8 @@ void RendererNode::applyDataRangeDebug(Node* upstream,
 
     // resultのbufferSetをクリアして新しいデバッグバッファを設定
     result.bufferSet.clear();
-    result.bufferSet.addBuffer(std::move(debugBuffer), 0);
+    debugBuffer.setOrigin(request.origin);
+    result.bufferSet.addBuffer(std::move(debugBuffer));
     result.origin = request.origin;
 }
 

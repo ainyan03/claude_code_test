@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.63.22] - 2026-02-05
+
+### リファクタリング
+
+- **ImageBuffer `startX_` を `Point origin_` に統一**: X座標のみだったバッファ原点をXY両軸の固定小数点座標に拡張
+  - `startX_` (int16_t) → `origin_` (Point, Q16.16固定小数点) に置換
+  - `startX()` は `from_fixed(origin_.x)` 経由で後方互換を維持
+  - ImageBufferSet の merge/consolidate 操作で Y 座標を正しく保持
+  - convertFormat で origin を保持するよう修正
+  - PR#283で発生したM5Stackでの性能退行（スケール拡大時+40%）を解消
+
+### 機能追加
+
+- **CompositeNode パイプラインベンチマーク** (`o` コマンド): bench に合成パイプラインの性能計測を追加
+  - N x SourceNode(rotated, scaled) → CompositeNode → RendererNode → NullSinkNode
+  - N=4/8/16/32 で上流ノード数を切り替え可能
+  - m5stack_basic 相当の条件（320×200出力、1.5倍スケール、PoolAllocator）
+  - NullSinkNode: 出力バッファ不要の軽量シンク（consolidateIfNeeded のみ実行）
+
+---
+
 ## [2.63.21] - 2026-02-05
 
 ### 修正

@@ -626,10 +626,8 @@ void Node::consolidateIfNeeded(RenderResponse& input, PixelFormatID format) {
         return;
     }
 
-    // オフセットを取得（統合前に取得）
-    DataRange range = input.bufferSet.totalRange();
-
     // その場統合（フォーマット変換なし、最初のエントリを再利用）
+    // consolidateInPlaceはstartXを保持するため、統合後にバッファから取得する
     input.bufferSet.consolidateInPlace();
 
     // フォーマット変換が必要な場合
@@ -642,17 +640,20 @@ void Node::consolidateIfNeeded(RenderResponse& input, PixelFormatID format) {
         }
     }
 
-    // origin調整
-    input.origin.x += to_fixed(range.startX);
+    // バッファoriginをresponse.originに同期
+    if (input.bufferSet.bufferCount() == 1) {
+        input.origin = input.single().origin();
+    }
 }
 
 // RenderResponse構築ヘルパー
-// RenderContext経由でResponseを取得し、バッファを追加して返す
+// RenderContext経由でResponseを取得し、バッファにワールド座標originを設定して追加
 RenderResponse& Node::makeResponse(ImageBuffer&& buf, Point origin) {
     FLEXIMG_ASSERT(context_ != nullptr, "RenderContext required for makeResponse");
     RenderResponse& resp = context_->acquireResponse();
     if (buf.isValid()) {
-        resp.bufferSet.addBuffer(std::move(buf), 0);
+        buf.setOrigin(origin);
+        resp.bufferSet.addBuffer(std::move(buf));
     }
     resp.origin = origin;
     return resp;
