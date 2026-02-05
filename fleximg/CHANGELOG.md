@@ -1,35 +1,21 @@
 # Changelog
 
-## [2.63.19] - 2026-02-04
+## [2.63.19] - 2026-02-05
 
-### 改善
+### リファクタリング
 
-- **バイリニア補間の最適化**: チャンク処理を最適化
-  - `BilinearWeightXY` 構造体追加（fx, fy のみ、2バイト/要素）
-  - `edgeFlags[]` を行全体用の別配列として分離（fadeFlags を直接格納）
-  - `prepareCopyQuadDDA`: fadeFlags を一括生成（edgeFadeMask 適用済み）
-  - `prepareChunk`: チャンク用の安全範囲を計算（軽量処理）
-  - `copyQuadDDA_loop` から edgeFlags アクセスを完全削除（座標で境界判定）
-  - `copyRowDDABilinear`: アロケータ引数を外部バッファ直接渡しに変更（オーバーヘッド削減）
-  - チャンクごとの `calcValidStepRange` 重複実行を排除
-  - edgeFlags 生成ループを簡略化（bounds配列・ソート・重複除去を廃止）
+- **copyQuadDDA_bpp 簡素化**: 複雑な3層構造を単一関数に整理（-234行）
+  - `copyQuadDDA_loop` テンプレート関数を `copyQuadDDA_bpp` にインライン化
+  - DDAParam から `prepareChunk()` / `prepareCopyQuadDDA()` / 安全範囲フィールドを除去
+  - `calcValidStepRange` ヘルパー関数を削除
+  - head/safe/tail 3分割ループ → `if (x_sub && y_sub)` による安全/境界の自然な分岐
 
-### 修正
-
-- **バイリニア補間の境界判定修正**: フェードアウト開始位置が約1ピクセル内側だった問題を修正
-  - `xMax/yMax` の計算を `(srcWidth-2)<<16` から `((srcWidth-1)<<16)-1` に修正
-  - p10/p01/p11 が実際に範囲外になる正確な位置でフェードアウトを開始
-
----
-
-## [2.63.18] - 2026-02-04
-
-### 改善
-
-- **prepareCopyQuadDDA リファクタリング**: 安全範囲計算の統合
-  - 起点側チェックと末尾側チェックを `calcValidStepRange` で統一
-  - X/Y方向のmin/maxを1回の関数呼び出しで同時に取得
-  - コード量38行削減（97行→30行）、可読性向上
+- **edgeFlags エンコーディング刷新**: ピクセル無効フラグから方向ベースに変更
+  - edgeFlags に EdgeFadeFlags と同じビット配置（Left/Right/Top/Bottom）で境界方向を格納
+  - edgeFadeMask の適用を生成側から消費側（viewport.h）に移動し責務分離
+  - DDAParam から `edgeFadeMask` フィールドを削除
+  - edgeFlags バッファを行サイズからチャンクサイズ（64バイト）に縮小
+  - `copyQuadDDA_bpp` 内でインライン生成（`prepareCopyQuadDDA` 廃止）
 
 ---
 

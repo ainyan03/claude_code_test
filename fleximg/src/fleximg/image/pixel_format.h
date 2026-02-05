@@ -42,59 +42,13 @@ struct BilinearWeightXY {
     uint8_t fy;         // Y方向小数部（0-255）
 };
 
-// edgeFlags の説明（行全体用の別配列として管理）
-// bit0-3: ピクセル無効フラグ（2x2グリッド行優先、prepareCopyQuadDDA で先行生成）
-//   bit0: p00が無効（左上）
-//   bit1: p10が無効（右上）
-//   bit2: p01が無効（左下）
-//   bit3: p11が無効（右下）
-
-// ========================================================================
-// DDA安全範囲計算ヘルパー関数
-// ========================================================================
-
-// 有効範囲 [0, maxLimit] 内に留まれるステップ範囲とエッジフラグを計算
-// pos: 現在位置（固定小数点）、incr: 増分、maxLimit: 上限（固定小数点）
-// minStep: 境界内に入る最小ステップ（出力）
-// maxStep: 境界内に留まれる最大ステップ（出力、-1は既に範囲外）
-// headEdge: [0, minStep) のエッジフラグ（出力、EdgeFadeFlags）
-// tailEdge: [maxStep+1, count) のエッジフラグ（出力、EdgeFadeFlags）
-// edgeLow: 下限違反時のフラグ（EdgeFade_Left or EdgeFade_Top）
-// edgeHigh: 上限違反時のフラグ（EdgeFade_Right or EdgeFade_Bottom）
-static void calcValidStepRange(
-    int_fixed pos, int_fixed incr, int_fixed maxLimit,
-    int& minStep, int& maxStep,
-    uint8_t& headEdge, uint8_t& tailEdge,
-    uint8_t edgeLow, uint8_t edgeHigh
-) {
-    if (incr) {
-        if (incr < 0) {
-            // 負方向移動: 上限(maxLimit)違反 → 下限(0)違反
-            int_fixed absIncr = -incr;
-            minStep = (pos > maxLimit) ? static_cast<int>((pos - maxLimit + absIncr - 1) / absIncr) : 0;
-            maxStep = (pos >= 0) ? static_cast<int>(pos / absIncr) : -1;
-            headEdge = edgeHigh;  // [0, minStep) は上限違反
-            tailEdge = edgeLow;   // [maxStep+1, count) は下限違反
-        } else {
-            // 正方向移動: 下限(0)違反 → 上限(maxLimit)違反
-            minStep = (pos < 0) ? static_cast<int>((-pos + incr - 1) / incr) : 0;
-            maxStep = (pos <= maxLimit) ? static_cast<int>((maxLimit - pos) / incr) : -1;
-            headEdge = edgeLow;   // [0, minStep) は下限違反
-            tailEdge = edgeHigh;  // [maxStep+1, count) は上限違反
-        }
-    } else {
-        // 静止: 範囲内なら無制限、範囲外なら無効
-        if (static_cast<uint32_t>(pos) > static_cast<uint32_t>(maxLimit)) {
-            minStep = INT_MAX;
-            maxStep = -1;
-            headEdge = tailEdge = (pos < 0) ? edgeLow : edgeHigh;
-        } else {
-            minStep = 0;
-            maxStep = INT_MAX;
-            headEdge = tailEdge = 0;
-        }
-    }
-}
+// edgeFlags の説明（チャンク用の別配列として管理、copyQuadDDA 内で生成）
+// EdgeFadeFlags と同じビット配置で境界方向を格納する。
+// 消費側で edgeFadeMask と AND してから、各ピクセルの無効判定に使用する。
+//   p00（左上）: flags & (EdgeFade_Left  | EdgeFade_Top)
+//   p10（右上）: flags & (EdgeFade_Right | EdgeFade_Top)
+//   p01（左下）: flags & (EdgeFade_Left  | EdgeFade_Bottom)
+//   p11（右下）: flags & (EdgeFade_Right | EdgeFade_Bottom)
 
 // ========================================================================
 // DDA転写パラメータ
@@ -113,130 +67,9 @@ struct DDAParam {
     int_fixed incrX;      // 1ピクセルあたりのX増分（Q16.16固定小数点）
     int_fixed incrY;      // 1ピクセルあたりのY増分（Q16.16固定小数点）
 
-    // バイリニア補間用（分離配列方式）
+    // バイリニア補間用
     BilinearWeightXY* weightsXY;  // 重み出力先（チャンク用）
-    uint8_t* edgeFlags;           // 境界フラグ（行全体用、prepareCopyQuadDDAで一括生成）
-    int edgeFlagsOffset;          // 現在のチャンクオフセット
-
-    // 安全範囲（prepareCopyQuadDDAで事前計算、行全体基準）
-    int totalHeadCount;   // 行全体の起点側境界チェック必要部分
-    int totalSafeStart;   // 行全体の安全領域開始位置
-    int totalSafeEnd;     // 行全体の安全領域終了位置（排他）
-
-    // チャンク用安全範囲（prepareChunkで計算）
-    uint16_t headCount;   // 起点側の境界チェック必要部分
-    uint16_t safeCount;   // 中央の安全部分（境界チェック不要）
-    uint16_t tailCount;   // 末尾側の境界チェック必要部分
-
-    // エッジフェードアウトマスク（EdgeFadeFlags）
-    uint8_t edgeFadeMask = EdgeFade_All;
-
-    // 行全体の準備（fadeFlags を一括生成、1回だけ呼び出す）
-    void prepareCopyQuadDDA(int count) {
-        // 2x2グリッドの右下ピクセルを考慮
-        // p10 は (sx+1, sy) を参照するので、sx >= srcWidth-1 で範囲外
-        // つまり srcX >= (srcWidth-1) << 16 で範囲外
-        // 有効範囲の最大値は (srcWidth-1) << 16 - 1
-        int_fixed xMax = (static_cast<int_fixed>(srcWidth - 1) << INT_FIXED_SHIFT) - 1;
-        int_fixed yMax = (static_cast<int_fixed>(srcHeight - 1) << INT_FIXED_SHIFT) - 1;
-
-        // X/Y方向それぞれの有効ステップ範囲とエッジフラグを計算
-        int minX, maxX, minY, maxY;
-        uint8_t headX, tailX, headY, tailY;
-        calcValidStepRange(srcX, incrX, xMax, minX, maxX, headX, tailX, EdgeFade_Left, EdgeFade_Right);
-        calcValidStepRange(srcY, incrY, yMax, minY, maxY, headY, tailY, EdgeFade_Top, EdgeFade_Bottom);
-
-        // fadeFlags の先行生成（境界点を動的に計算）
-        if (edgeFlags && edgeFadeMask) {
-            // EdgeFadeFlags → fadeFlags 変換
-            // Left(0x01) → 0x05 (p00 + p01), Right(0x02) → 0x0A (p10 + p11)
-            // Top(0x04) → 0x03 (p00 + p10), Bottom(0x08) → 0x0C (p01 + p11)
-            // headX/tailX には EdgeFade_Left または EdgeFade_Right が入る
-            uint8_t maskedHeadX = headX & edgeFadeMask;
-            uint8_t maskedTailX = tailX & edgeFadeMask;
-            uint8_t fadeHeadX = (maskedHeadX & EdgeFade_Left) ? 0x05 : (maskedHeadX & EdgeFade_Right) ? 0x0A : 0;
-            uint8_t fadeTailX = (maskedTailX & EdgeFade_Left) ? 0x05 : (maskedTailX & EdgeFade_Right) ? 0x0A : 0;
-            uint8_t maskedHeadY = headY & edgeFadeMask;
-            uint8_t maskedTailY = tailY & edgeFadeMask;
-            uint8_t fadeHeadY = (maskedHeadY & EdgeFade_Top) ? 0x03 : (maskedHeadY & EdgeFade_Bottom) ? 0x0C : 0;
-            uint8_t fadeTailY = (maskedTailY & EdgeFade_Top) ? 0x03 : (maskedTailY & EdgeFade_Bottom) ? 0x0C : 0;
-
-            int pos = 0;
-            do {
-                int end = count;
-                uint8_t flags = 0;
-
-                // X方向
-                if (pos < minX) {
-                    flags = fadeHeadX;
-                    if (minX > 0 && minX < end) end = minX;
-                } else if (pos > maxX) {
-                    flags = fadeTailX;
-                } else if (maxX < count - 1) {
-                    // maxX + 1 は count 以下であることが保証される
-                    int nextX = maxX + 1;
-                    if (nextX < end) end = nextX;
-                }
-
-                // Y方向（end は X方向で設定された値以下にのみ更新）
-                if (pos < minY) {
-                    flags |= fadeHeadY;
-                    if (minY > 0 && minY < end) end = minY;
-                } else if (pos > maxY) {
-                    flags |= fadeTailY;
-                } else if (maxY < count - 1) {
-                    int nextY = maxY + 1;
-                    if (nextY < end) end = nextY;
-                }
-
-                memset(&edgeFlags[pos], flags, static_cast<size_t>(end - pos));
-                pos = end;
-            } while (pos < count);
-        }
-
-        // 両方向で有効な範囲の積集合
-        int safeStart = (minX > minY) ? minX : minY;
-        int safeEnd = (maxX < maxY) ? maxX : maxY;
-
-        // 範囲が無効または count を超える場合の調整
-        if (safeEnd < 0 || safeStart > safeEnd || safeStart >= count) {
-            totalHeadCount = count;
-            totalSafeStart = count;
-            totalSafeEnd = count;
-            return;
-        }
-
-        // safeEnd は最大ステップなので +1 して排他的終了位置に変換
-        safeEnd++;
-        if (safeEnd > count) safeEnd = count;
-
-        totalHeadCount = safeStart;
-        totalSafeStart = safeStart;
-        totalSafeEnd = safeEnd;
-    }
-
-    // チャンク単位の準備（headCount/safeCount/tailCountを計算）
-    void prepareChunk(int chunkCount, int offset) {
-        edgeFlagsOffset = offset;
-
-        // チャンク範囲 [offset, offset + chunkCount) と安全領域 [totalSafeStart, totalSafeEnd) の交差
-        int chunkEnd = offset + chunkCount;
-
-        // チャンク内の安全領域開始・終了位置（チャンクローカル座標）
-        int localSafeStart = (totalSafeStart > offset) ? (totalSafeStart - offset) : 0;
-        int localSafeEnd = (totalSafeEnd < chunkEnd) ? (totalSafeEnd - offset) : chunkCount;
-
-        if (localSafeStart >= localSafeEnd || localSafeStart >= chunkCount) {
-            // 安全領域なし：全てhead扱い
-            headCount = static_cast<uint16_t>(chunkCount);
-            safeCount = 0;
-            tailCount = 0;
-        } else {
-            headCount = static_cast<uint16_t>(localSafeStart);
-            safeCount = static_cast<uint16_t>(localSafeEnd - localSafeStart);
-            tailCount = static_cast<uint16_t>(chunkCount - localSafeEnd);
-        }
-    }
+    uint8_t* edgeFlags;           // 境界フラグ出力先（チャンク用、copyQuadDDA内で生成、必須）
 };
 
 // DDA行転写関数の型定義
@@ -861,82 +694,45 @@ inline void copyQuadPixels(
     }
 }
 
-// 4ピクセル抽出ループ（境界チェック有無をテンプレートで制御）
-// weightsXY: チャンク用の重み出力先
-// fadeFlags は prepareCopyQuadDDA で事前生成済み、このループでは参照・更新しない
-// CheckBoundary=true時は座標から境界判定してクランプ
-template<size_t BPP, bool CheckBoundary>
-void copyQuadDDA_loop(
+// 4ピクセル抽出（DDAベース、バイリニア補間用）
+// 境界領域と安全領域の2ブロック構成:
+//   boundary [0, safeStart) → safe [safeStart, safeEnd) → boundary [safeEnd, count)
+// fadeFlags は prepareCopyQuadDDA で事前生成済み、この関数では参照・更新しない
+template<size_t BytesPerPixel>
+void copyQuadDDA_bpp(
     uint8_t* __restrict__ dst,
     const uint8_t* __restrict__ srcData,
     int count,
-    int_fixed srcX,
-    int_fixed srcY,
-    const int_fixed incrX,
-    const int_fixed incrY,
-    const int32_t srcStride,
-    const int32_t srcLastX,
-    const int32_t srcLastY,
-    BilinearWeightXY* weightsXY
+    const DDAParam* param
 ) {
+    constexpr size_t BPP = BytesPerPixel;
     constexpr size_t QUAD_SIZE = BPP * 4;
 
+    int_fixed srcX = param->srcX;
+    int_fixed srcY = param->srcY;
+    const int_fixed incrX = param->incrX;
+    const int_fixed incrY = param->incrY;
+    const int32_t srcStride = param->srcStride;
+    const int32_t srcLastX = param->srcWidth - 1;
+    const int32_t srcLastY = param->srcHeight - 1;
+    BilinearWeightXY* weightsXY = param->weightsXY;
+    uint8_t* edgeFlags = param->edgeFlags;
+
+    // 全ピクセル境界チェック版（事前範囲チェックなし）
     for (int i = 0; i < count; ++i) {
         int32_t sx = srcX >> INT_FIXED_SHIFT;
         int32_t sy = srcY >> INT_FIXED_SHIFT;
-
-        weightsXY[i].fx = static_cast<uint8_t>(static_cast<uint32_t>(srcX) >> 8);
-        weightsXY[i].fy = static_cast<uint8_t>(static_cast<uint32_t>(srcY) >> 8);
+        weightsXY[i].fx = static_cast<uint8_t>(static_cast<uint32_t>(srcX) >> (INT_FIXED_SHIFT - 8));
+        weightsXY[i].fy = static_cast<uint8_t>(static_cast<uint32_t>(srcY) >> (INT_FIXED_SHIFT - 8));
         srcX += incrX;
         srcY += incrY;
+        bool x_sub = static_cast<uint32_t>(sx) < static_cast<uint32_t>(srcLastX);
+        bool y_sub = static_cast<uint32_t>(sy) < static_cast<uint32_t>(srcLastY);
 
-        if constexpr (CheckBoundary) {
-            // 各ピクセルの座標
-            // 座標から境界判定してクランプ
-            bool x_sub = static_cast<uint32_t>(sx) < static_cast<uint32_t>(srcLastX);
-            bool y_sub = static_cast<uint32_t>(sy) < static_cast<uint32_t>(srcLastY);
-            if (sx < 0) { sx = 0; }
-            if (sy < 0) { sy = 0; }
+        if (x_sub && y_sub) {
             const uint8_t* p = srcData + static_cast<size_t>(sy) * static_cast<size_t>(srcStride) + static_cast<size_t>(sx) * BPP;
-
-            if constexpr (BPP == 3) {
-                auto val0 = p[0]; auto val1 = p[1]; auto val2 = p[2];
-                dst[0] = val0; dst[1] = val1; dst[2] = val2;
-                dst[3] = val0; dst[4] = val1; dst[5] = val2;
-                dst[6] = val0; dst[7] = val1; dst[8] = val2;
-                if (x_sub) {
-                    val0 = p[3]; val1 = p[4]; val2 = p[5];
-                    dst[3] = val0; dst[4] = val1; dst[5] = val2;
-                } else
-                if (y_sub) {
-                    p += srcStride;
-                    val0 = p[0]; val1 = p[1]; val2 = p[2];
-                    dst[6] = val0; dst[7] = val1; dst[8] = val2;
-                }
-                dst[9] = val0; dst[10] = val1; dst[11] = val2;
-            } else {
-                using T = typename PixelType<BPP>::type;
-                auto d = reinterpret_cast<T*>(dst);
-                auto val = reinterpret_cast<const T*>(p)[0];
-                d[0] = val;
-                d[1] = val;
-                d[2] = val;
-                if (x_sub) {
-                    val = reinterpret_cast<const T*>(p)[1];
-                    d[1] = val;
-                } else
-                if (y_sub) {
-                    p += srcStride;
-                    val = reinterpret_cast<const T*>(p)[0];
-                    d[2] = val;
-                }
-                d[3] = val;
-            }
-        } else {
-            // 安全領域：境界チェック不要
-            auto p = srcData
-                + static_cast<size_t>(sy) * static_cast<size_t>(srcStride)
-                + static_cast<size_t>(sx) * BPP;
+            edgeFlags[i] = 0;
+    
             if constexpr (BPP == 3) {
                 dst[0] = p[0]; dst[1] = p[1]; dst[2] = p[2];
                 dst[3] = p[3]; dst[4] = p[4]; dst[5] = p[5];
@@ -946,77 +742,74 @@ void copyQuadDDA_loop(
             } else {
                 using T = typename PixelType<BPP>::type;
                 auto d = reinterpret_cast<T*>(dst);
-                auto d0 = reinterpret_cast<const T*>(p)[0];
-                auto d1 = reinterpret_cast<const T*>(p)[1];
+                auto val0 = reinterpret_cast<const T*>(p)[0];
+                auto val1 = reinterpret_cast<const T*>(p)[1];
+                d[0] = val0;
+                d[1] = val1;
                 p += srcStride;
-                auto d2 = reinterpret_cast<const T*>(p)[0];
-                auto d3 = reinterpret_cast<const T*>(p)[1];
-                d[0] = d0;
-                d[1] = d1;
-                d[2] = d2;
-                d[3] = d3;
+                val0 = reinterpret_cast<const T*>(p)[0];
+                val1 = reinterpret_cast<const T*>(p)[1];
+                d[2] = val0;
+                d[3] = val1;
             }
+            dst += QUAD_SIZE;
+        } else {
+            // edgeFlags生成: 境界座標からフェードフラグを導出
+            uint8_t flag_x = EdgeFade_Right;
+            uint8_t flag_y = EdgeFade_Bottom;
+            if (!x_sub) {
+                if (sx < 0) {
+                    sx = 0;
+                    flag_x = EdgeFade_Left;
+                }
+            }
+            if (!y_sub) {
+                if (sy < 0) {
+                    sy = 0;
+                    flag_y = EdgeFade_Top;
+                }
+            }
+
+            const uint8_t* p = srcData + static_cast<size_t>(sy) * static_cast<size_t>(srcStride) + static_cast<size_t>(sx) * BPP;
+    
+            if constexpr (BPP == 3) {
+                auto val0 = p[0]; auto val1 = p[1]; auto val2 = p[2];
+                dst[0] = val0; dst[1] = val1; dst[2] = val2;
+                dst[3] = val0; dst[4] = val1; dst[5] = val2;
+                dst[6] = val0; dst[7] = val1; dst[8] = val2;
+                if (x_sub) {
+                    val0 = p[3]; val1 = p[4]; val2 = p[5];
+                    flag_x = 0;
+                    dst[3] = val0; dst[4] = val1; dst[5] = val2;
+                } else if (y_sub) {
+                    p += srcStride;
+                    val0 = p[0]; val1 = p[1]; val2 = p[2];
+                    flag_y = 0;
+                    dst[6] = val0; dst[7] = val1; dst[8] = val2;
+                }
+                dst[9] = val0; dst[10] = val1; dst[11] = val2;
+            } else {
+                using T = typename PixelType<BPP>::type;
+                auto d = reinterpret_cast<T*>(dst);
+                auto val = reinterpret_cast<const T*>(p)[0];
+                d[0] = val; d[1] = val; d[2] = val;
+                if (x_sub) {
+                    val = reinterpret_cast<const T*>(p)[1];
+                    flag_x = 0;
+                    d[1] = val;
+                } else if (y_sub) {
+                    p += srcStride;
+                    val = reinterpret_cast<const T*>(p)[0];
+                    flag_y = 0;
+                    d[2] = val;
+                }
+                d[3] = val;
+            }
+            edgeFlags[i] = flag_x + flag_y;
+            dst += QUAD_SIZE;
         }
-        dst += QUAD_SIZE;
     }
 }
-
-template<size_t BytesPerPixel>
-void copyQuadDDA_bpp(
-    uint8_t* __restrict__ dst,
-    const uint8_t* __restrict__ srcData,
-    int count,
-    const DDAParam* param
-) {
-    (void)count;  // 安全範囲はparam->headCount/safeCount/tailCountで事前計算済み
-    int_fixed srcX = param->srcX;
-    int_fixed srcY = param->srcY;
-    const int_fixed incrX = param->incrX;
-    const int_fixed incrY = param->incrY;
-    const int32_t srcStride = param->srcStride;
-    const int32_t srcLastX = param->srcWidth - 1;
-    const int32_t srcLastY = param->srcHeight - 1;
-    BilinearWeightXY* weightsXY = param->weightsXY;
-
-    constexpr size_t BPP = BytesPerPixel;
-    constexpr size_t QUAD_SIZE = BPP * 4;
-
-    // 起点側の境界チェック必要部分
-    if (param->headCount > 0) {
-        copyQuadDDA_loop<BPP, true>(
-            dst, srcData, param->headCount,
-            srcX, srcY, incrX, incrY,
-            srcStride, srcLastX, srcLastY, weightsXY
-        );
-        dst += static_cast<size_t>(param->headCount) * QUAD_SIZE;
-        srcX += incrX * param->headCount;
-        srcY += incrY * param->headCount;
-        weightsXY += param->headCount;
-    }
-
-    // 中央の安全な部分（境界チェックなし）
-    if (param->safeCount > 0) {
-        copyQuadDDA_loop<BPP, false>(
-            dst, srcData, param->safeCount,
-            srcX, srcY, incrX, incrY,
-            srcStride, srcLastX, srcLastY, weightsXY
-        );
-        dst += static_cast<size_t>(param->safeCount) * QUAD_SIZE;
-        srcX += incrX * param->safeCount;
-        srcY += incrY * param->safeCount;
-        weightsXY += param->safeCount;
-    }
-
-    // 末尾側の境界チェック必要部分
-    if (param->tailCount > 0) {
-        copyQuadDDA_loop<BPP, true>(
-            dst, srcData, param->tailCount,
-            srcX, srcY, incrX, incrY,
-            srcStride, srcLastX, srcLastY, weightsXY
-        );
-    }
-}
-
 // 明示的インスタンス化
 template void copyQuadDDA_bpp<1>(uint8_t*, const uint8_t*, int, const DDAParam*);
 template void copyQuadDDA_bpp<2>(uint8_t*, const uint8_t*, int, const DDAParam*);
