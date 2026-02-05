@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.63.21] - 2026-02-05
+
+### 修正
+
+- **NinePatch角パッチの描画位置修正**: 単位行列表示時に角パッチが全て同じ位置に重なる問題を修正
+  - SourceNodeの平行移動のみ最適化パスが `request.affineMatrix` 経由の位置情報を無視していた
+
+### リファクタリング
+
+- **SourceNodeアフィン/非アフィンパスの一本化**: 座標計算の情報源を統一
+  - 常に `precomputeInverseAffine` を実行し、`baseTxWithOffsets_` に座標情報を一元化
+  - `effectivePosX_/Y_` メンバ変数を除去（-49行）
+  - Prepare側のAABB計算分岐を除去（常に `calcAffineAABB` を使用）
+  - バイリニア補間時はtranslation-onlyでもDDAパスを維持（edgeFade対応）
+
+---
+
 ## [2.63.20] - 2026-02-05
 
 ### 修正
