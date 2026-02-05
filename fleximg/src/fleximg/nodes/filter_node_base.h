@@ -130,11 +130,11 @@ RenderResponse& FilterNodeBase::process(RenderResponse& input,
     (void)request;  // スキャンライン必須仕様では未使用
     FLEXIMG_METRICS_SCOPE(nodeTypeForMetrics());
 
-    // 統合 + フォーマット変換を一括実行（メトリクス記録付き）
+    // フォーマット変換を実行（メトリクス記録付き）
     consolidateIfNeeded(input, PixelFormatIDs::RGBA8_Straight);
 
-    // input.single() を直接加工
-    ImageBuffer& working = input.single();
+    // input.buffer() を直接加工
+    ImageBuffer& working = input.buffer();
     ViewPort workingView = working.view();
 
     // ラインフィルタを適用（height=1前提）

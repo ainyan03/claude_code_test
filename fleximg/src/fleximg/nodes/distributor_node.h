@@ -202,7 +202,7 @@ void DistributorNode::onPushProcess(RenderResponse& input,
         return;
     }
 
-    // ImageBufferSetの場合はconsolidate()して単一バッファに変換
+    // バッファ準備
     consolidateIfNeeded(input);
 
     FLEXIMG_METRICS_SCOPE(NodeType::Distributor);
@@ -233,7 +233,7 @@ void DistributorNode::onPushProcess(RenderResponse& input,
         // 最後の出力には元のバッファの参照をそのまま渡す
         if (processed < validOutputs) {
             // 参照モード: ViewPortから新しいImageBufferを作成
-            RenderResponse& ref = makeResponse(ImageBuffer(input.single().view()), input.origin);
+            RenderResponse& ref = makeResponse(ImageBuffer(input.buffer().view()), input.origin);
             downstream->pushProcess(ref, request);
         } else {
             // 最後: 元のバッファ参照をそのまま渡す

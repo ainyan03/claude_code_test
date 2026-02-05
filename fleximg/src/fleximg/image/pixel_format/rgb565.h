@@ -134,7 +134,7 @@ alignas(64) static const uint16_t rgb565LowTable[256] = {
         d[d_off + 7] = 255; \
     } while(0)
 
-static void rgb565le_toStraight(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
+static void rgb565le_toStraight(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const PixelAuxInfo*) {
     FLEXIMG_FMT_METRICS(RGB565_LE, ToStraight, pixelCount);
     const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
     uint8_t* __restrict__ d = static_cast<uint8_t*>(dst);
@@ -163,7 +163,7 @@ static void rgb565le_toStraight(void* __restrict__ dst, const void* __restrict__
     (((((rgba) >> 3) << 6) + (((rgba) >> 10) & 0x3F)) << 5) + (((rgba) >> 19) & 0x1F)
 
 
-static void rgb565le_fromStraight(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
+static void rgb565le_fromStraight(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const PixelAuxInfo*) {
     FLEXIMG_FMT_METRICS(RGB565_LE, FromStraight, pixelCount);
     uint16_t* __restrict__ d = static_cast<uint16_t*>(dst);
     const uint32_t* __restrict__ s = static_cast<const uint32_t*>(src);
@@ -222,7 +222,7 @@ static void rgb565le_fromStraight(void* __restrict__ dst, const void* __restrict
         d[d_off + 7] = 255; \
     } while(0)
 
-static void rgb565be_toStraight(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
+static void rgb565be_toStraight(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const PixelAuxInfo*) {
     FLEXIMG_FMT_METRICS(RGB565_BE, ToStraight, pixelCount);
     const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
     uint8_t* __restrict__ d = static_cast<uint8_t*>(dst);
@@ -246,7 +246,7 @@ static void rgb565be_toStraight(void* __restrict__ dst, const void* __restrict__
 #undef RGB565BE_TO_STRAIGHT_PIXEL_x2
 
 
-static void rgb565be_fromStraight(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
+static void rgb565be_fromStraight(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const PixelAuxInfo*) {
     FLEXIMG_FMT_METRICS(RGB565_BE, FromStraight, pixelCount);
     uint8_t* __restrict__ d = static_cast<uint8_t*>(dst);
     const uint32_t* __restrict__ s = static_cast<const uint32_t*>(src);
@@ -279,7 +279,7 @@ static void rgb565be_fromStraight(void* __restrict__ dst, const void* __restrict
 // 16bit用バイトスワップ（RGB565_LE ↔ RGB565_BE）
 // ========================================================================
 
-static void swap16(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+static void swap16(void* dst, const void* src, int pixelCount, const PixelAuxInfo*) {
     const uint16_t* srcPtr = static_cast<const uint16_t*>(src);
     uint16_t* dstPtr = static_cast<uint16_t*>(dst);
     for (int i = 0; i < pixelCount; ++i) {

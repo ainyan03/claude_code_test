@@ -35,7 +35,7 @@ namespace FLEXIMG_NAMESPACE {
 // RGB888: 24bit RGB (mem[0]=R, mem[1]=G, mem[2]=B)
 // ========================================================================
 
-static void rgb888_toStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+static void rgb888_toStraight(void* dst, const void* src, int pixelCount, const PixelAuxInfo*) {
     FLEXIMG_FMT_METRICS(RGB888, ToStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
     uint8_t* d = static_cast<uint8_t*>(dst);
@@ -63,7 +63,7 @@ static void rgb888_toStraight(void* dst, const void* src, int pixelCount, const 
     }
 }
 
-static void rgb888_fromStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+static void rgb888_fromStraight(void* dst, const void* src, int pixelCount, const PixelAuxInfo*) {
     FLEXIMG_FMT_METRICS(RGB888, FromStraight, pixelCount);
     uint8_t* d = static_cast<uint8_t*>(dst);
     const uint8_t* s = static_cast<const uint8_t*>(src);
@@ -94,7 +94,7 @@ static void rgb888_fromStraight(void* dst, const void* src, int pixelCount, cons
 // BGR888: 24bit BGR (mem[0]=B, mem[1]=G, mem[2]=R)
 // ========================================================================
 
-static void bgr888_toStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+static void bgr888_toStraight(void* dst, const void* src, int pixelCount, const PixelAuxInfo*) {
     FLEXIMG_FMT_METRICS(BGR888, ToStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
     uint8_t* d = static_cast<uint8_t*>(dst);
@@ -122,7 +122,7 @@ static void bgr888_toStraight(void* dst, const void* src, int pixelCount, const 
     }
 }
 
-static void bgr888_fromStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+static void bgr888_fromStraight(void* dst, const void* src, int pixelCount, const PixelAuxInfo*) {
     FLEXIMG_FMT_METRICS(BGR888, FromStraight, pixelCount);
     uint8_t* d = static_cast<uint8_t*>(dst);
     const uint8_t* s = static_cast<const uint8_t*>(src);
@@ -154,7 +154,7 @@ static void bgr888_fromStraight(void* dst, const void* src, int pixelCount, cons
 // ========================================================================
 
 // 24bit用チャンネルスワップ（RGB888 ↔ BGR888）
-static void swap24(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+static void swap24(void* dst, const void* src, int pixelCount, const PixelAuxInfo*) {
     const uint8_t* srcPtr = static_cast<const uint8_t*>(src);
     uint8_t* dstPtr = static_cast<uint8_t*>(dst);
     for (int i = 0; i < pixelCount; ++i) {

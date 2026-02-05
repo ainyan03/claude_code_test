@@ -35,12 +35,12 @@ namespace FLEXIMG_NAMESPACE {
 // ========================================================================
 
 // RGBA8_Straight: Straight形式なのでコピー
-static void rgba8Straight_toStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+static void rgba8Straight_toStraight(void* dst, const void* src, int pixelCount, const PixelAuxInfo*) {
     FLEXIMG_FMT_METRICS(RGBA8_Straight, ToStraight, pixelCount);
     std::memcpy(dst, src, static_cast<size_t>(pixelCount) * 4);
 }
 
-static void rgba8Straight_fromStraight(void* dst, const void* src, int pixelCount, const ConvertParams*) {
+static void rgba8Straight_fromStraight(void* dst, const void* src, int pixelCount, const PixelAuxInfo*) {
     FLEXIMG_FMT_METRICS(RGBA8_Straight, FromStraight, pixelCount);
     std::memcpy(dst, src, static_cast<size_t>(pixelCount) * 4);
 }
@@ -65,7 +65,7 @@ static void rgba8Straight_fromStraight(void* dst, const void* src, int pixelCoun
 //    - dstW = (dstA * 255 * 256) / total, srcW = 256 - dstW
 //    - 色計算: (d * dstW + s * srcW) >> 8
 //    - R,Bチャンネルを32ビット演算でまとめて処理
-static void rgba8Straight_blendUnderStraight(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const ConvertParams*) {
+static void rgba8Straight_blendUnderStraight(void* __restrict__ dst, const void* __restrict__ src, int pixelCount, const PixelAuxInfo*) {
     FLEXIMG_FMT_METRICS(RGBA8_Straight, BlendUnder, pixelCount);
     if (pixelCount <= 0) return;
 

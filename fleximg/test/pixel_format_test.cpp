@@ -148,27 +148,27 @@ TEST_CASE("ChannelDescriptor") {
     }
 
     SUBCASE("8-bit channel at shift 0") {
-        ChannelDescriptor ch(8, 0);
+        ChannelDescriptor ch(ChannelType::Red, 8, 0);
         CHECK(ch.bits == 8);
         CHECK(ch.shift == 0);
         CHECK(ch.mask == 0x00FF);
     }
 
     SUBCASE("8-bit channel at shift 8") {
-        ChannelDescriptor ch(8, 8);
+        ChannelDescriptor ch(ChannelType::Green, 8, 8);
         CHECK(ch.bits == 8);
         CHECK(ch.shift == 8);
         CHECK(ch.mask == 0xFF00);
     }
 
     SUBCASE("5-bit channel (RGB565 style)") {
-        ChannelDescriptor ch(5, 11);  // R in RGB565
+        ChannelDescriptor ch(ChannelType::Red, 5, 11);  // R in RGB565
         CHECK(ch.bits == 5);
         CHECK(ch.shift == 11);
         CHECK(ch.mask == 0xF800);
     }
 
-    SUBCASE("ChannelType construction") {
+    SUBCASE("ChannelType Alpha") {
         ChannelDescriptor ch(ChannelType::Alpha, 8, 0);
         CHECK(ch.type == ChannelType::Alpha);
         CHECK(ch.bits == 8);
@@ -176,9 +176,10 @@ TEST_CASE("ChannelDescriptor") {
         CHECK(ch.mask == 0x00FF);
     }
 
-    SUBCASE("default ChannelType is Unused") {
-        ChannelDescriptor ch(8, 0);  // 旧コンストラクタ
+    SUBCASE("default constructor creates Unused") {
+        ChannelDescriptor ch;
         CHECK(ch.type == ChannelType::Unused);
+        CHECK(ch.bits == 0);
     }
 }
 

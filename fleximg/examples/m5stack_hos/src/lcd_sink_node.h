@@ -4,7 +4,6 @@
 // fleximg core
 #include "fleximg/core/node.h"
 #include "fleximg/image/pixel_format.h"
-#include "fleximg/image/image_buffer_set.h"
 
 // M5Unified
 #include <M5Unified.h>
@@ -103,10 +102,10 @@ protected:
 
         if (!lcd_ || !drawEnabled_) return;
 
-        // ImageBufferSetの場合はconsolidate()して単一バッファに変換
+        // バッファ準備
         consolidateIfNeeded(input);
 
-        ViewPort inputView = input.isValid() ? input.singleView() : ViewPort();
+        ViewPort inputView = input.isValid() ? input.view() : ViewPort();
 
         // 新座標系: originはバッファ左上のワールド座標
         // Y座標はrequestから取得（inputが無効でも常に正しい値を持つ）
