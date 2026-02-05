@@ -344,7 +344,7 @@ struct RenderResponse {
     RenderResponse(ImageBuffer&& buf, Point org)
         : bufferSet(), origin(org) {
         if (buf.isValid()) {
-            bufferSet.addBuffer(std::move(buf), 0);
+            bufferSet.addBuffer(std::move(buf));
         }
     }
 

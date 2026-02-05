@@ -1,5 +1,35 @@
 # Changelog
 
+## [2.63.24] - 2026-02-05
+
+### 改善
+
+- **SourceNode::getDataRange() の正確化**: アフィン変換時にAABBベースの概算ではなく、スキャンライン単位の正確な有効ピクセル範囲を返すように変更
+  - `calcScanlineRange()` を使用したDDAベースの厳密計算
+  - 同一リクエストの重複呼び出しをキャッシュで高速化（NinePatchSourceNode対応）
+  - NinePatchSourceNodeのキャンバスサイズが自動的にタイトになり、余白バッファ生成を解消
+
+### API追加
+
+- **Node::getDataRangeBounds()**: AABB由来の最大範囲上限を返す非virtualメソッドを追加
+  - PrepareResponse経由で計算済みのAABBを使用（計算コストほぼゼロ）
+  - フィルタノードでのバッファサイズ見積もりや、全スキャンライン共通の最大幅取得に使用
+
+---
+
+## [2.63.23] - 2026-02-05
+
+### リファクタリング
+
+- **ImageBufferSet のオフセットパラメータ削除**: origin_ 統一に伴い不要になった外部オフセット指定APIを整理
+  - `addBuffer(buf, startX)`, `addBuffer(buf, DataRange)`, `addBuffer(const&, startX)` を削除
+  - `transferFrom(source, offsetX)` → `transferFrom(source)` にシグネチャ変更
+  - `createBuffer(..., startX)` → `createBuffer(...)` にシグネチャ変更
+  - `applyOffset()` を削除
+  - バッファ自身の origin を使う `addBuffer(ImageBuffer&&)` に統一
+
+---
+
 ## [2.63.22] - 2026-02-05
 
 ### リファクタリング

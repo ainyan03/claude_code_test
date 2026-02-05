@@ -51,7 +51,7 @@ TEST_CASE("ImageBufferSet move semantics") {
 
     ImageBufferSet set1(&pool, &alloc);
     ImageBuffer buf(10, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero, &alloc);
-    set1.addBuffer(std::move(buf), 0);
+    set1.addBuffer(std::move(buf));
     CHECK(set1.bufferCount() == 1);
 
     SUBCASE("move constructor") {
@@ -79,7 +79,7 @@ TEST_CASE("ImageBufferSet addBuffer no overlap") {
 
     SUBCASE("single buffer") {
         ImageBuffer buf(10, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero, &alloc);
-        CHECK(set.addBuffer(std::move(buf), 0));
+        CHECK(set.addBuffer(std::move(buf)));
         CHECK(set.bufferCount() == 1);
         CHECK(set.range(0).startX == 0);
         CHECK(set.range(0).endX == 10);
@@ -90,9 +90,11 @@ TEST_CASE("ImageBufferSet addBuffer no overlap") {
         ImageBuffer buf2(10, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero, &alloc);
         ImageBuffer buf3(10, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero, &alloc);
 
-        CHECK(set.addBuffer(std::move(buf1), 0));
-        CHECK(set.addBuffer(std::move(buf2), 20));
-        CHECK(set.addBuffer(std::move(buf3), 40));
+        buf2.setStartX(20);
+        buf3.setStartX(40);
+        CHECK(set.addBuffer(std::move(buf1)));
+        CHECK(set.addBuffer(std::move(buf2)));
+        CHECK(set.addBuffer(std::move(buf3)));
 
         CHECK(set.bufferCount() == 3);
         // ソート順を確認
@@ -106,9 +108,11 @@ TEST_CASE("ImageBufferSet addBuffer no overlap") {
         ImageBuffer buf2(10, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero, &alloc);
         ImageBuffer buf3(10, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero, &alloc);
 
-        CHECK(set.addBuffer(std::move(buf1), 40));
-        CHECK(set.addBuffer(std::move(buf2), 20));
-        CHECK(set.addBuffer(std::move(buf3), 0));
+        buf1.setStartX(40);
+        buf2.setStartX(20);
+        CHECK(set.addBuffer(std::move(buf1)));
+        CHECK(set.addBuffer(std::move(buf2)));
+        CHECK(set.addBuffer(std::move(buf3)));
 
         CHECK(set.bufferCount() == 3);
         // ソート済みを確認
@@ -121,8 +125,9 @@ TEST_CASE("ImageBufferSet addBuffer no overlap") {
         ImageBuffer buf1(10, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero, &alloc);
         ImageBuffer buf2(10, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero, &alloc);
 
-        CHECK(set.addBuffer(std::move(buf1), 0));   // [0, 10)
-        CHECK(set.addBuffer(std::move(buf2), 10));  // [10, 20)
+        buf2.setStartX(10);
+        CHECK(set.addBuffer(std::move(buf1)));   // [0, 10)
+        CHECK(set.addBuffer(std::move(buf2)));   // [10, 20)
 
         CHECK(set.bufferCount() == 2);
         CHECK(set.range(0).endX == 10);
@@ -143,7 +148,8 @@ TEST_CASE("ImageBufferSet totalRange") {
 
     SUBCASE("single buffer") {
         ImageBuffer buf(10, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero, &alloc);
-        set.addBuffer(std::move(buf), 5);
+        buf.setStartX(5);
+        set.addBuffer(std::move(buf));
         DataRange r = set.totalRange();
         CHECK(r.startX == 5);
         CHECK(r.endX == 15);
@@ -152,8 +158,9 @@ TEST_CASE("ImageBufferSet totalRange") {
     SUBCASE("multiple buffers with gap") {
         ImageBuffer buf1(10, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero, &alloc);
         ImageBuffer buf2(10, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero, &alloc);
-        set.addBuffer(std::move(buf1), 0);
-        set.addBuffer(std::move(buf2), 50);
+        buf2.setStartX(50);
+        set.addBuffer(std::move(buf1));
+        set.addBuffer(std::move(buf2));
         DataRange r = set.totalRange();
         CHECK(r.startX == 0);
         CHECK(r.endX == 60);
@@ -166,7 +173,7 @@ TEST_CASE("ImageBufferSet clear") {
     ImageBufferSet set(&pool, &alloc);
 
     ImageBuffer buf(10, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero, &alloc);
-    set.addBuffer(std::move(buf), 0);
+    set.addBuffer(std::move(buf));
     CHECK(set.bufferCount() == 1);
 
     set.clear();
@@ -179,7 +186,7 @@ TEST_CASE("ImageBufferSet invalid buffer rejected") {
     ImageBufferSet set(&pool);
 
     ImageBuffer invalidBuf;  // 無効なバッファ
-    CHECK_FALSE(set.addBuffer(std::move(invalidBuf), 0));
+    CHECK_FALSE(set.addBuffer(std::move(invalidBuf)));
     CHECK(set.empty());
 }
 
@@ -196,8 +203,9 @@ TEST_CASE("ImageBufferSet overlap merging") {
         ImageBuffer buf1(10, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero, &alloc);
         ImageBuffer buf2(10, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero, &alloc);
 
-        set.addBuffer(std::move(buf1), 0);   // [0, 10)
-        set.addBuffer(std::move(buf2), 5);   // [5, 15) - 重複
+        buf2.setStartX(5);
+        set.addBuffer(std::move(buf1));   // [0, 10)
+        set.addBuffer(std::move(buf2));   // [5, 15) - 重複
 
         // 重複があるので1つのバッファに合成される
         CHECK(set.bufferCount() == 1);
@@ -209,8 +217,9 @@ TEST_CASE("ImageBufferSet overlap merging") {
         ImageBuffer buf1(20, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero, &alloc);
         ImageBuffer buf2(10, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero, &alloc);
 
-        set.addBuffer(std::move(buf1), 0);   // [0, 20)
-        set.addBuffer(std::move(buf2), 5);   // [5, 15) - 完全に内包
+        buf2.setStartX(5);
+        set.addBuffer(std::move(buf1));   // [0, 20)
+        set.addBuffer(std::move(buf2));   // [5, 15) - 完全に内包
 
         CHECK(set.bufferCount() == 1);
         CHECK(set.range(0).startX == 0);
@@ -222,11 +231,13 @@ TEST_CASE("ImageBufferSet overlap merging") {
         ImageBuffer buf2(10, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero, &alloc);
         ImageBuffer buf3(20, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero, &alloc);
 
-        set.addBuffer(std::move(buf1), 0);    // [0, 10)
-        set.addBuffer(std::move(buf2), 15);   // [15, 25) - ギャップあり
+        buf2.setStartX(15);
+        buf3.setStartX(5);
+        set.addBuffer(std::move(buf1));    // [0, 10)
+        set.addBuffer(std::move(buf2));    // [15, 25) - ギャップあり
         CHECK(set.bufferCount() == 2);
 
-        set.addBuffer(std::move(buf3), 5);    // [5, 25) - 両方と重複
+        set.addBuffer(std::move(buf3));    // [5, 25) - 両方と重複
 
         CHECK(set.bufferCount() == 1);
         CHECK(set.range(0).startX == 0);
@@ -259,8 +270,9 @@ TEST_CASE("ImageBufferSet overlap with pixel data") {
         blueRow[i * 4 + 3] = 128;  // A (半透明)
     }
 
-    set.addBuffer(std::move(redBuf), 0);   // [0, 10) 赤（前面）
-    set.addBuffer(std::move(blueBuf), 5);  // [5, 15) 青（背面、under合成）
+    blueBuf.setStartX(5);
+    set.addBuffer(std::move(redBuf));    // [0, 10) 赤（前面）
+    set.addBuffer(std::move(blueBuf));   // [5, 15) 青（背面、under合成）
 
     CHECK(set.bufferCount() == 1);
     CHECK(set.range(0).startX == 0);
@@ -292,7 +304,7 @@ TEST_CASE("ImageBufferSet consolidate single buffer") {
     ImageBufferSet set(&pool, &alloc);
 
     ImageBuffer buf(10, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero, &alloc);
-    set.addBuffer(std::move(buf), 0);
+    set.addBuffer(std::move(buf));
 
     ImageBuffer result = set.consolidate();
     CHECK(result.isValid());
@@ -327,8 +339,9 @@ TEST_CASE("ImageBufferSet consolidate multiple buffers") {
         blueRow[i * 4 + 3] = 255;
     }
 
-    set.addBuffer(std::move(redBuf), 0);   // [0, 10)
-    set.addBuffer(std::move(blueBuf), 20); // [20, 30) - ギャップあり
+    blueBuf.setStartX(20);
+    set.addBuffer(std::move(redBuf));    // [0, 10)
+    set.addBuffer(std::move(blueBuf));   // [20, 30) - ギャップあり
 
     CHECK(set.bufferCount() == 2);
 
@@ -353,8 +366,9 @@ TEST_CASE("ImageBufferSet mergeAdjacent") {
         ImageBuffer buf1(10, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero, &alloc);
         ImageBuffer buf2(10, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero, &alloc);
 
-        set.addBuffer(std::move(buf1), 0);    // [0, 10)
-        set.addBuffer(std::move(buf2), 10);   // [10, 20) - 隣接
+        buf2.setStartX(10);
+        set.addBuffer(std::move(buf1));    // [0, 10)
+        set.addBuffer(std::move(buf2));    // [10, 20) - 隣接
 
         CHECK(set.bufferCount() == 2);
 
@@ -369,8 +383,9 @@ TEST_CASE("ImageBufferSet mergeAdjacent") {
         ImageBuffer buf1(10, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero, &alloc);
         ImageBuffer buf2(10, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero, &alloc);
 
-        set.addBuffer(std::move(buf1), 0);    // [0, 10)
-        set.addBuffer(std::move(buf2), 15);   // [15, 25) - 5ピクセルギャップ
+        buf2.setStartX(15);
+        set.addBuffer(std::move(buf1));    // [0, 10)
+        set.addBuffer(std::move(buf2));    // [15, 25) - 5ピクセルギャップ
 
         CHECK(set.bufferCount() == 2);
 
@@ -385,8 +400,9 @@ TEST_CASE("ImageBufferSet mergeAdjacent") {
         ImageBuffer buf1(10, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero, &alloc);
         ImageBuffer buf2(10, 1, PixelFormatIDs::RGBA8_Straight, InitPolicy::Zero, &alloc);
 
-        set.addBuffer(std::move(buf1), 0);    // [0, 10)
-        set.addBuffer(std::move(buf2), 50);   // [50, 60) - 40ピクセルギャップ
+        buf2.setStartX(50);
+        set.addBuffer(std::move(buf1));    // [0, 10)
+        set.addBuffer(std::move(buf2));    // [50, 60) - 40ピクセルギャップ
 
         CHECK(set.bufferCount() == 2);
 
