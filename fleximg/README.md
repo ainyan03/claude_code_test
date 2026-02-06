@@ -115,7 +115,7 @@ fleximg/
 ├── src/fleximg/                  # C++コアライブラリ
 │   ├── common.h                  # 共通定義
 │   ├── render_types.h            # レンダリング型
-│   ├── viewport.h/cpp            # 画像バッファ
+│   ├── viewport.h                # 画像バッファ
 │   ├── node.h                    # ノード基底クラス
 │   ├── nodes/                    # ノード定義
 │   │   ├── source_node.h         # 画像ソース
@@ -124,7 +124,8 @@ fleximg/
 │   │   ├── filter_node_base.h    # フィルタ共通基底
 │   │   ├── brightness_node.h     # 明るさ調整
 │   │   ├── grayscale_node.h      # グレースケール
-│   │   ├── box_blur_node.h       # ぼかし
+│   │   ├── horizontal_blur_node.h # 水平ぼかし
+│   │   ├── vertical_blur_node.h  # 垂直ぼかし
 │   │   ├── alpha_node.h          # アルファ調整
 │   │   ├── composite_node.h      # 合成
 │   │   └── renderer_node.h       # パイプライン実行（発火点）
