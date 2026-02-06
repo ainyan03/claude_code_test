@@ -78,6 +78,17 @@ static uint16_t toRGB565(uint8_t r, uint8_t g, uint8_t b) {
     return static_cast<uint16_t>(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
 }
 
+// RGB値を指定フォーマット経由でRGBA8に変換するユーティリティ
+// フォーマットの量子化を経由した正確な比較値を生成
+static uint32_t colorToRGBA8(PixelFormatID format, uint8_t r, uint8_t g, uint8_t b) {
+    uint32_t srcPixel = r | (static_cast<uint32_t>(g) << 8) | (static_cast<uint32_t>(b) << 16) | (static_cast<uint32_t>(255) << 24);
+    uint8_t tmp[4] = {};
+    format->fromStraight(tmp, &srcPixel, 1, nullptr);
+    uint32_t rgba8;
+    format->toStraight(&rgba8, tmp, 1, nullptr);
+    return rgba8;
+}
+
 // 模様生成（座標から色とアルファを決定）
 static void getPatternColor(PatternType pattern, int x, int y, int width, int height,
                             uint32_t color1, uint32_t color2,
@@ -210,6 +221,8 @@ static DemoMode currentMode = DemoMode::SingleDirect;
 static SpeedLevel speedLevel = SpeedLevel::Normal;
 static bool reverseDirection = false;
 static bool bilinearEnabled = false;
+static bool colorKeyEnabled = false;
+static uint32_t colorKeyValues[16];  // 各画像のcolorKey RGBA8値
 
 // 画像バッファ（16枚: 4フォーマット × 4模様）
 static ImageBuffer srcImages[MAX_SOURCES];
@@ -395,6 +408,11 @@ static void rebuildPipeline() {
         int imgIdx = getImageIndex(0);
         sources[0].setSource(srcImages[imgIdx].view());
         sources[0].setInterpolationMode(interpMode);
+        if (colorKeyEnabled) {
+            sources[0].setColorKey(colorKeyValues[imgIdx]);
+        } else {
+            sources[0].clearColorKey();
+        }
         sources[0].setPivot(
             float_to_fixed(IMAGE_SIZE / 2.0f),
             float_to_fixed(IMAGE_SIZE / 2.0f)
@@ -414,6 +432,11 @@ static void rebuildPipeline() {
         int imgIdx = getImageIndex(0);
         sources[0].setSource(srcImages[imgIdx].view());
         sources[0].setInterpolationMode(interpMode);
+        if (colorKeyEnabled) {
+            sources[0].setColorKey(colorKeyValues[imgIdx]);
+        } else {
+            sources[0].clearColorKey();
+        }
         sources[0].setPivot(
             float_to_fixed(IMAGE_SIZE / 2.0f),
             float_to_fixed(IMAGE_SIZE / 2.0f)
@@ -436,6 +459,11 @@ static void rebuildPipeline() {
         int imgIdx = getImageIndex(i);
         sources[i].setSource(srcImages[imgIdx].view());
         sources[i].setInterpolationMode(interpMode);
+        if (colorKeyEnabled) {
+            sources[i].setColorKey(colorKeyValues[imgIdx]);
+        } else {
+            sources[i].clearColorKey();
+        }
         sources[i].setPivot(
             float_to_fixed(IMAGE_SIZE / 2.0f),
             float_to_fixed(IMAGE_SIZE / 2.0f)
@@ -498,6 +526,18 @@ void setup() {
         }
     }
 
+    // 各画像のcolorKey値を事前計算（暗い方の色をフォーマット経由でRGBA8に変換）
+    for (int pattern = 0; pattern < 4; ++pattern) {
+        for (int format = 0; format < 4; ++format) {
+            int idx = pattern * 4 + format;
+            uint32_t color2 = PATTERN_COLORS[pattern][1];
+            uint8_t r = static_cast<uint8_t>((color2 >> 16) & 0xFF);
+            uint8_t g = static_cast<uint8_t>((color2 >> 8) & 0xFF);
+            uint8_t b = static_cast<uint8_t>(color2 & 0xFF);
+            colorKeyValues[idx] = colorToRGBA8(FORMATS[format], r, g, b);
+        }
+    }
+
     // レンダラー設定
     renderer.setVirtualScreen(drawW, drawH);
     renderer.setPivotCenter();
@@ -529,14 +569,15 @@ static void drawUI() {
     M5.Display.printf("Mode: %s", MODE_NAMES[static_cast<int>(currentMode)]);
 
     M5.Display.setCursor(0, 12);
-    M5.Display.printf("Speed: %s  Dir: %s  Bilinear: %s",
+    M5.Display.printf("Speed: %s  Dir: %s  Bilinear: %s  CKey: %s",
                       SPEED_NAMES[static_cast<int>(speedLevel)],
                       reverseDirection ? "REV" : "FWD",
-                      bilinearEnabled ? "ON" : "OFF");
+                      bilinearEnabled ? "ON" : "OFF",
+                      colorKeyEnabled ? "ON" : "OFF");
 
     M5.Display.setCursor(0, 24);
     M5.Display.setTextColor(TFT_DARKGREY);
-    M5.Display.print("A:Mode(2x:Bilinear) B:Speed C:Dir");
+    M5.Display.print("A:Mode(2x:Bil,Hold:CKey) B:Spd C:Dir");
 
     needsUIUpdate = false;
 }
@@ -562,6 +603,12 @@ void loop() {
 
     if (M5.BtnA.wasDoubleClicked()) {
         bilinearEnabled = !bilinearEnabled;
+        rebuildPipeline();
+        needsUIUpdate = true;
+    }
+
+    if (M5.BtnA.wasHold()) {
+        colorKeyEnabled = !colorKeyEnabled;
         rebuildPipeline();
         needsUIUpdate = true;
     }

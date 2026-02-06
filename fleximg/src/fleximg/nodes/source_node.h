@@ -80,6 +80,16 @@ public:
         return {localMatrix_.tx, localMatrix_.ty};
     }
 
+    // カラーキー設定（アルファなしフォーマットで特定色を透明化）
+    void setColorKey(uint32_t colorKeyRGBA8, uint32_t replaceRGBA8 = 0) {
+        colorKeyRGBA8_ = colorKeyRGBA8;
+        colorKeyReplace_ = replaceRGBA8;
+    }
+    void clearColorKey() {
+        colorKeyRGBA8_ = 0;
+        colorKeyReplace_ = 0;
+    }
+
     // 補間モード設定
     void setInterpolationMode(InterpolationMode mode) { interpolationMode_ = mode; }
     InterpolationMode interpolationMode() const { return interpolationMode_; }
@@ -117,6 +127,8 @@ private:
     // 注: 配置位置は localMatrix_.tx/ty で管理（AffineCapability から継承）
     InterpolationMode interpolationMode_ = InterpolationMode::Nearest;
     uint8_t edgeFadeFlags_ = EdgeFade_All;  // デフォルト: 全辺フェードアウト有効
+    uint32_t colorKeyRGBA8_ = 0;    // カラーキー比較値（RGBA8、alpha込み）
+    uint32_t colorKeyReplace_ = 0;  // カラーキー差し替え値（通常は透明黒0）
 
     // アフィン伝播用メンバ変数（事前計算済み）
     AffinePrecomputed affine_;     // 逆行列・ピクセル中心オフセット
@@ -381,6 +393,11 @@ RenderResponse& SourceNode::onPullProcess(const RenderRequest& request) {
     if (palette_) {
         result.setPalette(palette_);
     }
+    // カラーキー情報を出力ImageBufferに設定
+    if (colorKeyRGBA8_ != colorKeyReplace_) {
+        result.auxInfo().colorKeyRGBA8 = colorKeyRGBA8_;
+        result.auxInfo().colorKeyReplace = colorKeyReplace_;
+    }
 
     // origin = リクエストグリッドに整列（アフィンパスと同形式）
     Point adjustedOrigin = {
@@ -536,13 +553,17 @@ RenderResponse& SourceNode::pullProcessWithAffine(const RenderRequest& request) 
         constexpr int32_t halfPixel = 1 << (INT_FIXED_SHIFT - 1);
         // パレット情報をPixelAuxInfoとして渡す（Index8のパレット展開用）
         PixelAuxInfo auxInfo;
-        const PixelAuxInfo* auxPtr = nullptr;
         if (palette_) {
             auxInfo.palette = palette_.data;
             auxInfo.paletteFormat = palette_.format;
             auxInfo.paletteColorCount = palette_.colorCount;
-            auxPtr = &auxInfo;
         }
+        if (colorKeyRGBA8_ != colorKeyReplace_) {
+            auxInfo.colorKeyRGBA8 = colorKeyRGBA8_;
+            auxInfo.colorKeyReplace = colorKeyReplace_;
+        }
+        const PixelAuxInfo* auxPtr = (auxInfo.palette || auxInfo.colorKeyRGBA8 != auxInfo.colorKeyReplace)
+                                   ? &auxInfo : nullptr;
         view_ops::copyRowDDABilinear(dstRow, source_, validWidth,
             srcX_fixed - halfPixel, srcY_fixed - halfPixel, invA, invC, edgeFadeFlags_, auxPtr);
     } else {
@@ -567,6 +588,11 @@ RenderResponse& SourceNode::pullProcessWithAffine(const RenderRequest& request) 
     // パレット情報を出力ImageBufferに設定
     if (palette_) {
         output->setPalette(palette_);
+    }
+    // カラーキー情報を出力ImageBufferに設定
+    if (colorKeyRGBA8_ != colorKeyReplace_) {
+        output->auxInfo().colorKeyRGBA8 = colorKeyRGBA8_;
+        output->auxInfo().colorKeyReplace = colorKeyReplace_;
     }
 
     return resp;

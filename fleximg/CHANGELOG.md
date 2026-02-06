@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.63.27] - 2026-02-06
+
+### 追加
+
+- **カラーキー透過機能**: アルファチャンネルを持たないフォーマット（RGB332, RGB565, RGB888等）で特定色を透明として扱える機能を追加
+  - FormatConverter の RGBA8 変換行程内で、toStraight 後に in-place でカラーキーマッチしたピクセルを差し替え
+  - `PixelAuxInfo`: `useColorKey`/`colorKey` を `colorKeyRGBA8`/`colorKeyReplace` に変更（RGBA8形式の完全比較、フラグ不要）
+  - `FormatConverter::Context` に `colorKeyRGBA8`/`colorKeyReplace` を追加
+  - `SourceNode`: `setColorKey()`/`clearColorKey()` API を追加（非アフィン・バイリニア・最近傍の全パスで対応）
+  - m5stack_basic サンプル: BtnA長押しで colorKey トグルデモを追加
+
+---
+
 ## [2.63.26] - 2026-02-06
 
 ### 改善
