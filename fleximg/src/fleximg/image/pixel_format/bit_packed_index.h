@@ -103,7 +103,6 @@ inline void packIndexBits(uint8_t* dst, const uint8_t* src, int pixelCount) {
 // 指定座標のピクセルを bit-packed データから直接読み取り
 template<int BitsPerPixel, BitOrder Order>
 inline uint8_t readPixelDirect(const uint8_t* srcData, int32_t x, int32_t y, int32_t stride) {
-    constexpr int PixelsPerByte = 8 / BitsPerPixel;
     constexpr uint8_t Mask = (1 << BitsPerPixel) - 1;
 
     // ビット単位のオフセット計算
@@ -208,25 +207,46 @@ static void indexN_copyQuadDDA(
             dst[3] = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(srcData, sx + 1, sy + 1, srcStride);
             if (edgeFlags) edgeFlags[i] = 0;
         } else {
-            // 境界外を含む: edgeFlags 生成とピクセル単位チェック
-            uint8_t flags = 0;
+            // 境界外を含む: copyQuadDDA_bpp と同じロジック
+            uint8_t flag_x = EdgeFade_Right;
+            uint8_t flag_y = EdgeFade_Bottom;
 
-            // 各ピクセルの境界チェック
-            auto readSafe = [&](int32_t x, int32_t y, uint8_t edgeFlag) -> uint8_t {
-                if (x >= 0 && x < srcWidth && y >= 0 && y < srcHeight) {
-                    return bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(srcData, x, y, srcStride);
-                } else {
-                    flags |= edgeFlag;
-                    return 0;
-                }
-            };
+            // 座標をクランプ
+            if (sx < 0) {
+                sx = 0;
+                flag_x = EdgeFade_Left;
+            }
+            if (sy < 0) {
+                sy = 0;
+                flag_y = EdgeFade_Top;
+            }
 
-            dst[0] = readSafe(sx,     sy,     EdgeFade_Left | EdgeFade_Top);
-            dst[1] = readSafe(sx + 1, sy,     EdgeFade_Right | EdgeFade_Top);
-            dst[2] = readSafe(sx,     sy + 1, EdgeFade_Left | EdgeFade_Bottom);
-            dst[3] = readSafe(sx + 1, sy + 1, EdgeFade_Right | EdgeFade_Bottom);
+            // 基準ピクセル（クランプした座標）を読む
+            uint8_t val = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(
+                srcData, sx, sy, srcStride);
 
-            if (edgeFlags) edgeFlags[i] = flags;
+            // 全て基準値で初期化
+            dst[0] = val;
+            dst[1] = val;
+            dst[2] = val;
+
+            // x方向が有効なら右隣を読む
+            if (x_valid) {
+                val = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(
+                    srcData, sx + 1, sy, srcStride);
+                dst[1] = val;
+                flag_x = 0;
+            } else if (y_valid) {
+                // x方向無効でy方向有効なら下隣を読む
+                val = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(
+                    srcData, sx, sy + 1, srcStride);
+                dst[2] = val;
+                flag_y = 0;
+            }
+
+            dst[3] = val;  // 最後に読んだ値
+
+            if (edgeFlags) edgeFlags[i] = flag_x + flag_y;
         }
 
         dst += 4;
