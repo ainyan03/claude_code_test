@@ -331,10 +331,14 @@ void copyRowDDABilinear(
     BilinearWeightXY weightsXY[CHUNK_SIZE];      // 128 bytes (2 * 64)
     uint8_t edgeFlagsChunk[CHUNK_SIZE];          // 64 bytes（チャンク用）
 
-    // RGBA8_Straightかどうか判定（変換スキップ用）
-    const bool needsConversion = (src.formatID != PixelFormatIDs::RGBA8_Straight);
     // 元フォーマットのBPP（末尾詰め配置用）
     const int srcBpp = (src.formatID->bitsPerPixel + 7) / 8;
+
+    // フォーマット変換が必要な場合、ループ外で一度だけresolveConverter呼び出し
+    FormatConverter converter;
+    if (src.formatID != PixelFormatIDs::RGBA8_Straight) {
+        converter = resolveConverter(src.formatID, PixelFormatIDs::RGBA8_Straight, srcAux);
+    }
 
     uint32_t* dstPtr = static_cast<uint32_t*>(dst);
     const uint8_t* srcData = static_cast<const uint8_t*>(src.data);
@@ -362,10 +366,8 @@ void copyRowDDABilinear(
         src.formatID->copyQuadDDA(quadPtr, srcData, chunk, &param);
 
         // フォーマット変換（必要な場合、in-place）
-        if (needsConversion) {
-            convertFormat(quadPtr, src.formatID,
-                          quadBuffer, PixelFormatIDs::RGBA8_Straight,
-                          chunk * 4, srcAux, nullptr);
+        if (converter) {
+            converter(quadBuffer, quadPtr, chunk * 4);
         }
         uint32_t* quadRGBA = quadBuffer;
 
