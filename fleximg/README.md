@@ -58,6 +58,13 @@ PC・スマートフォン両方から直接アクセス可能です。C++で実
 
 全てのドキュメントは [docs/README.md](docs/README.md) から参照できます。
 
+### 変更履歴
+
+| ドキュメント | 内容 |
+|-------------|------|
+| [CHANGELOG.md](CHANGELOG.md) | 最新の変更履歴（v2.62以降の要約） |
+| [docs/CHANGELOG_v2_detailed.md](docs/CHANGELOG_v2_detailed.md) | v2.0～v2.61の詳細な変更履歴 |
+
 ## 必要要件
 
 ### 開発環境
@@ -115,7 +122,7 @@ fleximg/
 ├── src/fleximg/                  # C++コアライブラリ
 │   ├── common.h                  # 共通定義
 │   ├── render_types.h            # レンダリング型
-│   ├── viewport.h/cpp            # 画像バッファ
+│   ├── viewport.h                # 画像バッファ
 │   ├── node.h                    # ノード基底クラス
 │   ├── nodes/                    # ノード定義
 │   │   ├── source_node.h         # 画像ソース
@@ -124,7 +131,8 @@ fleximg/
 │   │   ├── filter_node_base.h    # フィルタ共通基底
 │   │   ├── brightness_node.h     # 明るさ調整
 │   │   ├── grayscale_node.h      # グレースケール
-│   │   ├── box_blur_node.h       # ぼかし
+│   │   ├── horizontal_blur_node.h # 水平ぼかし
+│   │   ├── vertical_blur_node.h  # 垂直ぼかし
 │   │   ├── alpha_node.h          # アルファ調整
 │   │   ├── composite_node.h      # 合成
 │   │   └── renderer_node.h       # パイプライン実行（発火点）
