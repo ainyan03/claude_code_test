@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.63.26] - 2026-02-06
+
+### 改善
+
+- **ImageBuffer の簡素化**: validSegments 複数セグメント追跡を廃止し、シンプルな「ゼロ初期化 + 常にブレンド」方式に変更
+  - 検証の結果、範囲追跡のオーバーヘッドより memset + ブレンドの方が高速であることが判明
+  - 265行削減（288削除、25追加）
+  - 削除: `numValidSegments_`, `validSegments_[]`, `maxValidSegments_`
+  - 削除: `isFullyValid()`, `validSegmentCount()`, `validSegment()`, `initValidSegments()`, `markFullyValid()`, `finalizeValidSegments()`, `addValidSegment()`, `compactValidSegments()`
+
+- **blendFrom() / copyRowDDABilinear() の最適化**: フォールバックパスで resolveConverter をループ外で一度だけ呼び出すように変更
+  - ループ内での毎回の変換パス解決を回避
+
+---
+
 ## [2.63.25] - 2026-02-05
 
 ### 改善
@@ -10,13 +25,11 @@
   - ベンチマーク N=32（32個のSourceNode合成）で約27%の性能改善
   - CompositeNode::getDataRange()にキャッシュを追加（同一スキャンラインでの重複計算回避）
 
-### API追加
+### API変更
 
-- **ImageBuffer::blendFrom()**: ソースバッファのデータをunder合成で書き込むメソッドを追加
+- **ImageBuffer::blendFrom()**: under合成メソッドを簡素化
   - フォーマット変換対応（RGBA8_Straight以外のソースはチャンク単位で変換してブレンド）
-  - validSegments追跡に対応（未初期化領域への上書き最適化、将来のスパース配置向け）
-- **ImageBuffer::finalizeValidSegments()**: validSegmentsのギャップをゼロ埋めして全体有効化
-- **RenderContext::acquireSegments()**: validSegments追跡用のバンプアロケータ（スキャンラインスコープ）
+  - ゼロ初期化されたバッファに対して常にブレンドを実行
 
 ---
 

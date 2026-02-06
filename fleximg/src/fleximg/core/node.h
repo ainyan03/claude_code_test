@@ -625,15 +625,11 @@ void Node::initPorts(int inputCount, int outputCount) {
 }
 
 // バッファ整理ヘルパー
-// validSegmentsのゼロ埋め + フォーマット変換を行う
+// フォーマット変換を行う
 void Node::consolidateIfNeeded(RenderResponse& input, PixelFormatID format) {
     if (input.empty()) {
         return;
     }
-
-    // validSegmentsを持つバッファの場合: ギャップをゼロ埋めして全体有効化
-    // これにより下流FilterNode等はバッファ全体を安全に処理できる
-    input.buffer().finalizeValidSegments();
 
     // フォーマット変換が必要な場合
     // convertFormat()経由でメトリクス記録を維持
