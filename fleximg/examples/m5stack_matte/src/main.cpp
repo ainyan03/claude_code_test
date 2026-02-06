@@ -181,6 +181,7 @@ static LcdSinkNode lcdSink;
 
 // アニメーション用
 static float animationTime = 0.0f;
+static bool useBilinear = false;
 
 void setup() {
     auto cfg = M5.config();
@@ -283,7 +284,16 @@ void loop() {
 #endif
     M5.update();
 
-    // ボタン処理: ダブルクリックで描画トグル
+    // ボタン処理: BtnAでバイリニア補間トグル
+    if (M5.BtnA.wasClicked()) {
+        useBilinear = !useBilinear;
+        auto mode = useBilinear ? InterpolationMode::Bilinear : InterpolationMode::Nearest;
+        // foregroundSource.setInterpolationMode(mode);
+        // backgroundSource.setInterpolationMode(mode);
+        maskSource.setInterpolationMode(mode);
+    }
+
+    // ボタン処理: BtnCダブルクリックで描画トグル
     if (M5.BtnC.wasDoubleClicked()) {
         lcdSink.setDrawEnabled(!lcdSink.getDrawEnabled());
     }
@@ -332,11 +342,14 @@ void loop() {
         frameCount = 0;
         lastTime = now;
 
-        // FPS・アロケータ統計表示更新
-        int16_t dispH = static_cast<int16_t>(M5.Display.height());
-        M5.Display.fillRect(0, dispH - 60, 250, 60, TFT_BLACK);
-        M5.Display.setCursor(0, dispH - 60);
-        M5.Display.printf("FPS:%.1f", static_cast<double>(fps));
+        // FPS・モード表示更新（右上）
+        int16_t dispW = static_cast<int16_t>(M5.Display.width());
+        M5.Display.setTextDatum(top_right);
+        M5.Display.fillRect(dispW - 150, 0, 150, 15, TFT_BLACK);
+        M5.Display.setCursor(dispW - 1, 0);
+        M5.Display.printf("FPS:%.1f %s", static_cast<double>(fps),
+                          useBilinear ? "Bilinear" : "Nearest");
+        M5.Display.setTextDatum(top_left);
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         // 統計取得（デバッグビルド時のみ）
