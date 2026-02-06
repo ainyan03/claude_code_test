@@ -892,14 +892,11 @@ inline const char* getFormatName(PixelFormatID formatID) {
 // Prepare 時に最適な変換関数を解決する仕組み。
 //
 // 使用例:
-//   auto converter = resolveConverter(srcFormat, dstFormat, &srcAux, allocator);
+//   auto converter = resolveConverter(srcFormat, dstFormat, &srcAux);
 //   if (converter) {
 //       converter(dstRow, srcRow, width);  // 分岐なし
 //   }
 //
-
-// IAllocator の前方宣言（ポインタのみ使用）
-namespace core { namespace memory { class IAllocator; } }
 
 struct FormatConverter {
     // 解決済み変換関数（分岐なし）
@@ -923,11 +920,12 @@ struct FormatConverter {
         PixelFormatDescriptor::ToStraightFunc toStraight = nullptr;
         PixelFormatDescriptor::FromStraightFunc fromStraight = nullptr;
 
-        // 中間バッファ情報（合計バイト数/ピクセル、0 なら中間バッファ不要）
-        int_fast8_t intermediateBpp = 0;
+        // BPP情報（チャンク処理のポインタ進行用）
+        int_fast8_t srcBpp = 0;
+        int_fast8_t dstBpp = 0;
 
-        // アロケータ（中間バッファ確保用）
-        core::memory::IAllocator* allocator = nullptr;
+        // パレット展開時のBPP（中間バッファ用）
+        int_fast8_t paletteBpp = 0;
     } ctx;
 
     // 行変換実行（分岐なし）
@@ -940,12 +938,11 @@ struct FormatConverter {
 
 // 変換パス解決関数
 // srcFormat/dstFormat 間の最適な変換関数を事前解決し、FormatConverter を返す。
-// allocator が nullptr の場合は DefaultAllocator を使用。
+// チャンク処理により中間バッファはスタック上に確保されるため、アロケータ不要。
 FormatConverter resolveConverter(
     PixelFormatID srcFormat,
     PixelFormatID dstFormat,
-    const PixelAuxInfo* srcAux = nullptr,
-    core::memory::IAllocator* allocator = nullptr);
+    const PixelAuxInfo* srcAux = nullptr);
 
 // ========================================================================
 // フォーマット変換

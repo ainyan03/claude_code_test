@@ -1290,21 +1290,5 @@ TEST_CASE("resolveConverter: large pixel count") {
     CHECK(dst_conv == dst_ref);
 }
 
-TEST_CASE("resolveConverter: custom allocator") {
-    // カスタムアロケータを渡しても正しく動作すること
-    core::memory::DefaultAllocator alloc;
-
-    auto conv = resolveConverter(PixelFormatIDs::RGB565_LE,
-                                 PixelFormatIDs::RGB332,
-                                 nullptr, &alloc);
-    REQUIRE(conv);
-    CHECK(conv.ctx.allocator == &alloc);
-
-    uint8_t src[4] = {0x00, 0xF8, 0xFF, 0xFF};
-    uint8_t dst[2] = {0};
-    uint8_t ref[2] = {0};
-    conv(dst, src, 2);
-    convertFormat(src, PixelFormatIDs::RGB565_LE,
-                  ref, PixelFormatIDs::RGB332, 2);
-    CHECK(std::memcmp(dst, ref, 2) == 0);
-}
+// NOTE: "resolveConverter: custom allocator" テストは削除
+// 内部チャンク処理によりアロケータ引数が不要になったため

@@ -363,7 +363,7 @@ public:
             // FormatConverterで変換
             auto converter = resolveConverter(view.formatID,
                                               PixelFormatIDs::RGBA8_Straight,
-                                              &aux, nullptr);
+                                              &aux);
             if (converter) {
                 converter(rgba8.data(), view.data, pixelCount);
             } else {

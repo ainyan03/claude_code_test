@@ -291,7 +291,7 @@ public:
                 resolved = *converter;
             } else {
                 const PixelAuxInfo* auxPtr = auxInfo_.palette ? &auxInfo_ : nullptr;
-                resolved = resolveConverter(view_.formatID, target, auxPtr, newAlloc);
+                resolved = resolveConverter(view_.formatID, target, auxPtr);
             }
             if (resolved) {
                 for (int y = 0; y < view_.height; ++y) {

@@ -9,9 +9,14 @@
 // =============================================================================
 #ifdef FLEXIMG_IMPLEMENTATION
 
-#include "../../core/memory/allocator.h"
-
 namespace FLEXIMG_NAMESPACE {
+
+// チャンクサイズ（スタック上の中間バッファ用）
+static constexpr int FCV_CHUNK_SIZE = 64;
+
+// 対応フォーマットの最大バイト/ピクセル（RGBA8 = 4）
+// 将来RGBA16等を追加する場合は更新が必要
+static constexpr int MAX_BYTES_PER_PIXEL = 4;
 
 // ========================================================================
 // 解決済み変換関数群（FormatConverter::func に設定される static 関数）
@@ -46,52 +51,84 @@ static void fcv_expandIndex_direct(void* dst, const void* src,
 }
 
 // Index展開 + fromStraight（パレットフォーマット == RGBA8）
+// チャンク処理でアロケーション不要
 static void fcv_expandIndex_fromStraight(void* dst, const void* src,
                                          int pixelCount, const void* ctx) {
     auto* c = static_cast<const FormatConverter::Context*>(ctx);
-    size_t bufSize = static_cast<size_t>(pixelCount) * 4;
-    uint8_t* buf = static_cast<uint8_t*>(c->allocator->allocate(bufSize));
+    uint8_t straightBuf[FCV_CHUNK_SIZE * MAX_BYTES_PER_PIXEL];
+
     PixelAuxInfo aux;
     aux.palette = c->palette;
     aux.paletteFormat = c->paletteFormat;
     aux.paletteColorCount = c->paletteColorCount;
-    c->expandIndex(buf, src, pixelCount, &aux);
-    c->fromStraight(dst, buf, pixelCount, nullptr);
-    c->allocator->deallocate(buf);
+
+    auto* dstPtr = static_cast<uint8_t*>(dst);
+    auto* srcPtr = static_cast<const uint8_t*>(src);
+    int remaining = pixelCount;
+
+    while (remaining > 0) {
+        int chunk = (remaining < FCV_CHUNK_SIZE) ? remaining : FCV_CHUNK_SIZE;
+        c->expandIndex(straightBuf, srcPtr, chunk, &aux);
+        c->fromStraight(dstPtr, straightBuf, chunk, nullptr);
+        srcPtr += chunk * c->srcBpp;
+        dstPtr += chunk * c->dstBpp;
+        remaining -= chunk;
+    }
 }
 
 // Index展開 + toStraight + fromStraight（パレットフォーマット != RGBA8, 一般）
+// 単一バッファでin-place処理（expandIndex出力を末尾詰めし、toStraightで先頭から上書き）
 static void fcv_expandIndex_toStraight_fromStraight(
     void* dst, const void* src, int pixelCount, const void* ctx) {
     auto* c = static_cast<const FormatConverter::Context*>(ctx);
-    // intermediateBpp = palBpp + 4 (expand用 + RGBA8変換用)
-    int_fast8_t expandBpp = static_cast<int_fast8_t>(c->intermediateBpp - 4);
-    size_t totalBufSize = static_cast<size_t>(pixelCount)
-                        * static_cast<size_t>(c->intermediateBpp);
-    uint8_t* buf = static_cast<uint8_t*>(c->allocator->allocate(totalBufSize));
-    uint8_t* expandBuf = buf;
-    uint8_t* straightBuf = buf
-        + static_cast<size_t>(pixelCount) * static_cast<size_t>(expandBpp);
+    FLEXIMG_ASSERT(c->paletteBpp <= MAX_BYTES_PER_PIXEL,
+                   "paletteBpp exceeds MAX_BYTES_PER_PIXEL");
+
+    // 単一バッファ: expandIndex出力を末尾に配置し、toStraightで先頭から上書き
+    uint8_t buf[FCV_CHUNK_SIZE * MAX_BYTES_PER_PIXEL];
 
     PixelAuxInfo aux;
     aux.palette = c->palette;
     aux.paletteFormat = c->paletteFormat;
     aux.paletteColorCount = c->paletteColorCount;
-    c->expandIndex(expandBuf, src, pixelCount, &aux);
-    c->toStraight(straightBuf, expandBuf, pixelCount, nullptr);
-    c->fromStraight(dst, straightBuf, pixelCount, nullptr);
-    c->allocator->deallocate(buf);
+
+    auto* dstPtr = static_cast<uint8_t*>(dst);
+    auto* srcPtr = static_cast<const uint8_t*>(src);
+    int remaining = pixelCount;
+
+    // 末尾詰めオフセット: toStraightが前から処理する際に上書きが発生しない位置（固定）
+    uint8_t* expandPtr = buf + (MAX_BYTES_PER_PIXEL - c->paletteBpp) * FCV_CHUNK_SIZE;
+
+    while (remaining > 0) {
+        int chunk = (remaining < FCV_CHUNK_SIZE) ? remaining : FCV_CHUNK_SIZE;
+        c->expandIndex(expandPtr, srcPtr, chunk, &aux);
+        c->toStraight(buf, expandPtr, chunk, nullptr);
+        c->fromStraight(dstPtr, buf, chunk, nullptr);
+        srcPtr += chunk * c->srcBpp;
+        dstPtr += chunk * c->dstBpp;
+        remaining -= chunk;
+    }
 }
 
 // 一般: toStraight + fromStraight（RGBA8 経由 2段階変換）
+// チャンク処理でアロケーション不要
 static void fcv_toStraight_fromStraight(void* dst, const void* src,
                                         int pixelCount, const void* ctx) {
     auto* c = static_cast<const FormatConverter::Context*>(ctx);
-    size_t bufSize = static_cast<size_t>(pixelCount) * 4;
-    uint8_t* buf = static_cast<uint8_t*>(c->allocator->allocate(bufSize));
-    c->toStraight(buf, src, pixelCount, nullptr);
-    c->fromStraight(dst, buf, pixelCount, nullptr);
-    c->allocator->deallocate(buf);
+    uint8_t straightBuf[FCV_CHUNK_SIZE * MAX_BYTES_PER_PIXEL];
+
+    auto* dstPtr = static_cast<uint8_t*>(dst);
+    auto* srcPtr = static_cast<const uint8_t*>(src);
+    int remaining = pixelCount;
+
+    while (remaining > 0) {
+        int chunk = (remaining < FCV_CHUNK_SIZE) ? remaining : FCV_CHUNK_SIZE;
+        c->toStraight(straightBuf, srcPtr, chunk, nullptr);
+        c->fromStraight(dstPtr, straightBuf, chunk, nullptr);
+        srcPtr += chunk * c->srcBpp;
+        dstPtr += chunk * c->dstBpp;
+        remaining -= chunk;
+    }
 }
 
 // ========================================================================
@@ -101,16 +138,15 @@ static void fcv_toStraight_fromStraight(void* dst, const void* src,
 FormatConverter resolveConverter(
     PixelFormatID srcFormat,
     PixelFormatID dstFormat,
-    const PixelAuxInfo* srcAux,
-    core::memory::IAllocator* allocator)
+    const PixelAuxInfo* srcAux)
 {
     FormatConverter result;
 
     if (!srcFormat || !dstFormat) return result;
 
-    // デフォルトアロケータ設定
-    result.ctx.allocator = allocator
-        ? allocator : &core::memory::DefaultAllocator::instance();
+    // BPP情報を設定（チャンク処理のポインタ進行用）
+    result.ctx.srcBpp = static_cast<int_fast8_t>(getBytesPerPixel(srcFormat));
+    result.ctx.dstBpp = static_cast<int_fast8_t>(getBytesPerPixel(dstFormat));
 
     // 同一フォーマット → memcpy
     if (srcFormat == dstFormat) {
@@ -145,7 +181,6 @@ FormatConverter resolveConverter(
             // expandIndex → fromStraight
             if (dstFormat->fromStraight) {
                 result.ctx.fromStraight = dstFormat->fromStraight;
-                result.ctx.intermediateBpp = 4;
                 result.func = fcv_expandIndex_fromStraight;
             }
             return result;
@@ -153,11 +188,9 @@ FormatConverter resolveConverter(
 
         // expandIndex → toStraight → fromStraight
         if (palFmt && palFmt->toStraight && dstFormat->fromStraight) {
-            auto palBpp = getBytesPerPixel(palFmt);
             result.ctx.toStraight = palFmt->toStraight;
             result.ctx.fromStraight = dstFormat->fromStraight;
-            result.ctx.intermediateBpp =
-                static_cast<int_fast8_t>(palBpp + 4);
+            result.ctx.paletteBpp = static_cast<int_fast8_t>(getBytesPerPixel(palFmt));
             result.func = fcv_expandIndex_toStraight_fromStraight;
         }
         return result;
@@ -185,7 +218,6 @@ FormatConverter resolveConverter(
     if (srcFormat->toStraight && dstFormat->fromStraight) {
         result.ctx.toStraight = srcFormat->toStraight;
         result.ctx.fromStraight = dstFormat->fromStraight;
-        result.ctx.intermediateBpp = 4;
         result.func = fcv_toStraight_fromStraight;
     }
 

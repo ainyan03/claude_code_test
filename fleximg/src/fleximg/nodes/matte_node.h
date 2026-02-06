@@ -439,7 +439,7 @@ RenderResponse& MatteNode::onPullProcess(const RenderRequest& request) {
 
         auto converter = resolveConverter(bgResultPtr->buffer().formatID(),
                                           PixelFormatIDs::RGBA8_Straight,
-                                          &bgResultPtr->buffer().auxInfo(), allocator());
+                                          &bgResultPtr->buffer().auxInfo());
         if (converter) {
             ViewPort bgViewPort = bgResultPtr->view();
             ViewPort outView = outputBuf.view();

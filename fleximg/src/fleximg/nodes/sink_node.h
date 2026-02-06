@@ -238,7 +238,7 @@ void SinkNode::onPushProcess(RenderResponse& input,
     // （同一フォーマットは memcpy、異なる場合は解決済み変換関数で処理）
     auto converter = resolveConverter(
         inputView.formatID, target_.formatID,
-        &input.buffer().auxInfo(), allocator());
+        &input.buffer().auxInfo());
 
     if (converter) {
         for (int_fast32_t y = 0; y < copyH; ++y) {
