@@ -128,9 +128,10 @@ struct PixelAuxInfo {
     PixelFormatID paletteFormat = nullptr;   // パレットエントリのフォーマット
     uint16_t paletteColorCount = 0;          // パレットエントリ数
 
-    uint8_t alphaMultiplier = 255;  // アルファ係数（1 byte）
-    bool useColorKey = false;       // カラーキー有効フラグ（1 byte）
-    uint32_t colorKey = 0;          // 透過カラー（4 bytes）
+    uint8_t alphaMultiplier = 255;  // アルファ係数（1 byte）AlphaNodeで使用
+    uint32_t colorKeyRGBA8 = 0;    // カラーキー比較値（RGBA8、alpha込み）
+    uint32_t colorKeyReplace = 0;  // カラーキー差し替え値（通常は透明黒0）
+    // colorKeyRGBA8 == colorKeyReplace の場合は無効
 
     // デフォルトコンストラクタ
     constexpr PixelAuxInfo() = default;
@@ -140,8 +141,8 @@ struct PixelAuxInfo {
         : alphaMultiplier(alpha) {}
 
     // カラーキー指定
-    constexpr PixelAuxInfo(uint32_t key, bool use)
-        : useColorKey(use), colorKey(key) {}
+    constexpr PixelAuxInfo(uint32_t keyRGBA8, uint32_t replaceRGBA8)
+        : colorKeyRGBA8(keyRGBA8), colorKeyReplace(replaceRGBA8) {}
 };
 
 // ========================================================================
@@ -926,6 +927,10 @@ struct FormatConverter {
 
         // パレット展開時のBPP（中間バッファ用）
         int_fast8_t paletteBpp = 0;
+
+        // カラーキー情報（toStraight後にin-placeで適用）
+        uint32_t colorKeyRGBA8 = 0;
+        uint32_t colorKeyReplace = 0;
     } ctx;
 
     // 行変換実行（分岐なし）

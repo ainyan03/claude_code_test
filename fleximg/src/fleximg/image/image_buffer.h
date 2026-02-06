@@ -290,7 +290,9 @@ public:
             if (converter) {
                 resolved = *converter;
             } else {
-                const PixelAuxInfo* auxPtr = auxInfo_.palette ? &auxInfo_ : nullptr;
+                bool hasAuxData = (auxInfo_.palette != nullptr)
+                              || (auxInfo_.colorKeyRGBA8 != auxInfo_.colorKeyReplace);
+                const PixelAuxInfo* auxPtr = hasAuxData ? &auxInfo_ : nullptr;
                 resolved = resolveConverter(view_.formatID, target, auxPtr);
             }
             if (resolved) {

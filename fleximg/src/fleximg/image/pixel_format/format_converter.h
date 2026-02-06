@@ -19,6 +19,32 @@ static constexpr int FCV_CHUNK_SIZE = 64;
 static constexpr int MAX_BYTES_PER_PIXEL = 4;
 
 // ========================================================================
+// カラーキー適用ヘルパー（toStraight後のRGBA8バッファにin-placeで適用）
+// ========================================================================
+
+static inline void applyColorKey(uint32_t* rgba8, int pixelCount,
+                                  uint32_t colorKey, uint32_t replace) {
+    if (colorKey == replace) return;
+    while (pixelCount & 3) {
+        --pixelCount;
+        if (rgba8[0] == colorKey) { rgba8[0] = replace; }
+        ++rgba8;
+    }
+    pixelCount >>= 2;
+    while (pixelCount--) {
+        auto c0 = rgba8[0];
+        auto c1 = rgba8[1];
+        auto c2 = rgba8[2];
+        auto c3 = rgba8[3];
+        if (c0 == colorKey) { rgba8[0] = replace; }
+        if (c1 == colorKey) { rgba8[1] = replace; }
+        if (c2 == colorKey) { rgba8[2] = replace; }
+        if (c3 == colorKey) { rgba8[3] = replace; }
+        rgba8 += 4;
+    }
+}
+
+// ========================================================================
 // 解決済み変換関数群（FormatConverter::func に設定される static 関数）
 // ========================================================================
 
@@ -37,6 +63,8 @@ static void fcv_single(void* dst, const void* src,
                        int pixelCount, const void* ctx) {
     auto* c = static_cast<const FormatConverter::Context*>(ctx);
     c->toStraight(dst, src, pixelCount, nullptr);
+    applyColorKey(static_cast<uint32_t*>(dst), pixelCount,
+                  c->colorKeyRGBA8, c->colorKeyReplace);
 }
 
 // Index展開: パレットフォーマット == 出力フォーマット（直接展開）
@@ -69,6 +97,8 @@ static void fcv_expandIndex_fromStraight(void* dst, const void* src,
     while (remaining > 0) {
         int chunk = (remaining < FCV_CHUNK_SIZE) ? remaining : FCV_CHUNK_SIZE;
         c->expandIndex(straightBuf, srcPtr, chunk, &aux);
+        applyColorKey(reinterpret_cast<uint32_t*>(straightBuf), chunk,
+                      c->colorKeyRGBA8, c->colorKeyReplace);
         c->fromStraight(dstPtr, straightBuf, chunk, nullptr);
         srcPtr += chunk * c->srcBpp;
         dstPtr += chunk * c->dstBpp;
@@ -103,6 +133,8 @@ static void fcv_expandIndex_toStraight_fromStraight(
         int chunk = (remaining < FCV_CHUNK_SIZE) ? remaining : FCV_CHUNK_SIZE;
         c->expandIndex(expandPtr, srcPtr, chunk, &aux);
         c->toStraight(buf, expandPtr, chunk, nullptr);
+        applyColorKey(reinterpret_cast<uint32_t*>(buf), chunk,
+                      c->colorKeyRGBA8, c->colorKeyReplace);
         c->fromStraight(dstPtr, buf, chunk, nullptr);
         srcPtr += chunk * c->srcBpp;
         dstPtr += chunk * c->dstBpp;
@@ -124,6 +156,8 @@ static void fcv_toStraight_fromStraight(void* dst, const void* src,
     while (remaining > 0) {
         int chunk = (remaining < FCV_CHUNK_SIZE) ? remaining : FCV_CHUNK_SIZE;
         c->toStraight(straightBuf, srcPtr, chunk, nullptr);
+        applyColorKey(reinterpret_cast<uint32_t*>(straightBuf), chunk,
+                      c->colorKeyRGBA8, c->colorKeyReplace);
         c->fromStraight(dstPtr, straightBuf, chunk, nullptr);
         srcPtr += chunk * c->srcBpp;
         dstPtr += chunk * c->dstBpp;
@@ -177,6 +211,12 @@ FormatConverter resolveConverter(
             return result;
         }
 
+        // インデックスフォーマットのcolorKey設定（共通）
+        if (srcAux->colorKeyRGBA8 != srcAux->colorKeyReplace) {
+            result.ctx.colorKeyRGBA8 = srcAux->colorKeyRGBA8;
+            result.ctx.colorKeyReplace = srcAux->colorKeyReplace;
+        }
+
         if (palFmt == PixelFormatIDs::RGBA8_Straight) {
             // expandIndex → fromStraight
             if (dstFormat->fromStraight) {
@@ -209,6 +249,11 @@ FormatConverter resolveConverter(
     if (dstFormat == PixelFormatIDs::RGBA8_Straight) {
         if (srcFormat->toStraight) {
             result.ctx.toStraight = srcFormat->toStraight;
+            if (srcAux && !srcFormat->hasAlpha
+                && srcAux->colorKeyRGBA8 != srcAux->colorKeyReplace) {
+                result.ctx.colorKeyRGBA8 = srcAux->colorKeyRGBA8;
+                result.ctx.colorKeyReplace = srcAux->colorKeyReplace;
+            }
             result.func = fcv_single;
         }
         return result;
@@ -218,6 +263,11 @@ FormatConverter resolveConverter(
     if (srcFormat->toStraight && dstFormat->fromStraight) {
         result.ctx.toStraight = srcFormat->toStraight;
         result.ctx.fromStraight = dstFormat->fromStraight;
+        if (srcAux && !srcFormat->hasAlpha
+            && srcAux->colorKeyRGBA8 != srcAux->colorKeyReplace) {
+            result.ctx.colorKeyRGBA8 = srcAux->colorKeyRGBA8;
+            result.ctx.colorKeyReplace = srcAux->colorKeyReplace;
+        }
         result.func = fcv_toStraight_fromStraight;
     }
 
