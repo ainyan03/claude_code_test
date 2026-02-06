@@ -427,8 +427,7 @@ void RendererNode::applyDataRangeDebug(Node* upstream,
             FormatConverter converter;
             bool needConvert = (srcFormat != PixelFormatIDs::RGBA8_Straight);
             if (needConvert) {
-                converter = resolveConverter(srcFormat, PixelFormatIDs::RGBA8_Straight,
-                                           nullptr, pipelineAllocator_);
+                converter = resolveConverter(srcFormat, PixelFormatIDs::RGBA8_Straight);
             }
 
             // バッファの内容をコピー

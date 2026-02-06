@@ -13,6 +13,13 @@
 - **blendFrom() / copyRowDDABilinear() の最適化**: フォールバックパスで resolveConverter をループ外で一度だけ呼び出すように変更
   - ループ内での毎回の変換パス解決を回避
 
+- **resolveConverter の内部チャンク処理化**: 中間バッファをスタック上に確保し、アロケータ引数を削除
+  - 64ピクセル単位のチャンク処理でヒープアロケーション不要に
+  - シグネチャ変更: `resolveConverter(src, dst, srcAux, allocator)` → `resolveConverter(src, dst, srcAux)`
+  - `FormatConverter::Context` から `allocator`, `intermediateBpp` を削除、`srcBpp`, `dstBpp`, `paletteBpp` を追加
+  - `MAX_BYTES_PER_PIXEL` 定数を追加（現在4、将来のフォーマット追加時に更新）
+  - Index展開パスでin-placeバッファ処理を採用（末尾詰め配置で512→256バイトに削減）
+
 ---
 
 ## [2.63.25] - 2026-02-05
