@@ -522,8 +522,17 @@ RenderResponse& SourceNode::pullProcessWithAffine(const RenderRequest& request) 
     // 空のResponseを取得し、バッファを直接作成（ムーブなし）
     int validWidth = dxEnd - dxStart + 1;
     RenderResponse& resp = makeEmptyResponse(adjustedOrigin);
-    // バイリニア補間時はRGBA8_Straight出力、それ以外はソースフォーマット
-    PixelFormatID outFormat = useBilinear_ ? PixelFormatIDs::RGBA8_Straight : source_.formatID;
+    // 出力フォーマット決定:
+    // - 1chバイリニア対応フォーマット（Alpha8等）: ソースフォーマット直接出力
+    // - その他のバイリニア: RGBA8_Straight出力
+    // - 最近傍: ソースフォーマット出力
+    PixelFormatID outFormat;
+    if (useBilinear_) {
+        outFormat = view_ops::canUseSingleChannelBilinear(source_.formatID, edgeFadeFlags_)
+                  ? source_.formatID : PixelFormatIDs::RGBA8_Straight;
+    } else {
+        outFormat = source_.formatID;
+    }
     ImageBuffer* output = resp.createBuffer(
         validWidth, 1, outFormat, InitPolicy::Uninitialized);
 

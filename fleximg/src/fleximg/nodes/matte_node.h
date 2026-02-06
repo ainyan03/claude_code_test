@@ -323,32 +323,43 @@ RenderResponse& MatteNode::onPullProcess(const RenderRequest& request) {
         calcUpstreamRanges(request);
     }
 
-    // maskデータなし → bg直接返却
-    if (!rangeCache_.maskRange.hasData()) {
+    {
+    // maskデータなし or maskNodeなし → bg fallback
+    if (!rangeCache_.maskRange.hasData()) goto fallback_bg;
+    if (!maskNode) goto fallback_bg;
+
+    // mask要求範囲をfg∪bgの有効X範囲に制限
+    // fg/bgが存在しない領域のマスクは取得しても無駄
+    int16_t fgBgStart = request.width;
+    int16_t fgBgEnd = 0;
+    if (rangeCache_.fgRange.hasData()) {
+        if (rangeCache_.fgRange.startX < fgBgStart) fgBgStart = rangeCache_.fgRange.startX;
+        if (rangeCache_.fgRange.endX > fgBgEnd) fgBgEnd = rangeCache_.fgRange.endX;
+    }
+    if (rangeCache_.bgRange.hasData()) {
+        if (rangeCache_.bgRange.startX < fgBgStart) fgBgStart = rangeCache_.bgRange.startX;
+        if (rangeCache_.bgRange.endX > fgBgEnd) fgBgEnd = rangeCache_.bgRange.endX;
+    }
+
+    // fg∪bgが空 → マスク値に関わらず出力は透明
+    if (fgBgStart >= fgBgEnd) {
         rangeCache_.valid = false;
-        if (bgNode) {
-            return bgNode->pullProcess(request);
-        }
         return makeEmptyResponse(request.origin);
     }
 
-    // mask取得
-    if (!maskNode) {
-        rangeCache_.valid = false;
-        if (bgNode) {
-            return bgNode->pullProcess(request);
+    // fg∪bgとmaskの交差範囲でmask要求を絞る
+    RenderRequest maskRequest = request;
+    {
+        int16_t clampStart = std::max(fgBgStart, rangeCache_.maskRange.startX);
+        int16_t clampEnd = std::min(fgBgEnd, rangeCache_.maskRange.endX);
+        if (clampStart < clampEnd) {
+            maskRequest.origin.x = request.origin.x + to_fixed(clampStart);
+            maskRequest.width = clampEnd - clampStart;
         }
-        return makeEmptyResponse(request.origin);
     }
 
-    RenderResponse& maskResult = maskNode->pullProcess(request);
-    if (!maskResult.isValid()) {
-        rangeCache_.valid = false;
-        if (bgNode) {
-            return bgNode->pullProcess(request);
-        }
-        return makeEmptyResponse(request.origin);
-    }
+    RenderResponse& maskResult = maskNode->pullProcess(maskRequest);
+    if (!maskResult.isValid()) goto fallback_bg;
 
     // バッファ準備
     consolidateIfNeeded(maskResult);
@@ -365,14 +376,8 @@ RenderResponse& MatteNode::onPullProcess(const RenderRequest& request) {
     int maskEffectiveWidth = scanMaskZeroRanges(maskData, maskView.width,
                                                  maskLeftSkip, maskRightSkip);
 
-    // 全面0 → bg直接返却
-    if (maskEffectiveWidth == 0) {
-        rangeCache_.valid = false;
-        if (bgNode) {
-            return bgNode->pullProcess(request);
-        }
-        return makeEmptyResponse(request.origin);
-    }
+    // 全面0 → bg fallback
+    if (maskEffectiveWidth == 0) goto fallback_bg;
 
     // マスクを有効範囲にcrop（左右の0領域をスキップ）
     if (maskLeftSkip > 0 || maskRightSkip > 0) {
@@ -503,6 +508,15 @@ RenderResponse& MatteNode::onPullProcess(const RenderRequest& request) {
     rangeCache_.valid = false;
 
     return makeResponse(std::move(outputBuf), Point{unionMinX, unionMinY});
+    }
+
+    // bgフォールバック: mask無効時はbgを直接返却
+fallback_bg:
+    rangeCache_.valid = false;
+    if (bgNode) {
+        return bgNode->pullProcess(request);
+    }
+    return makeEmptyResponse(request.origin);
 }
 
 // ============================================================================

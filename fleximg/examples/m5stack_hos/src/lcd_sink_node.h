@@ -4,6 +4,7 @@
 // fleximg core
 #include "fleximg/core/node.h"
 #include "fleximg/image/pixel_format.h"
+#include "fleximg/image/data_range.h"
 
 // M5Unified
 #include <M5Unified.h>
@@ -24,6 +25,7 @@ namespace fleximg {
 // - 出力ポート: 0
 // - RGBA8_Straight → RGB565_BE (swap565_t) 変換
 // - スキャンライン単位でLCD転送
+// - 前回描画範囲を記憶し、和集合範囲のみを転送（差分更新最適化）
 //
 
 class LcdSinkNode : public Node {
@@ -45,6 +47,16 @@ public:
         windowY_ = y;
         windowW_ = w;
         windowH_ = h;
+        // 前回描画範囲の配列を初期化
+        prevRanges_.resize(static_cast<size_t>(h));
+        clearPrevRanges();
+    }
+
+    // 前回描画範囲をクリア（全画面再描画が必要な場合に呼ぶ）
+    void clearPrevRanges() {
+        for (auto& range : prevRanges_) {
+            range = DataRange{0, 0};  // 無効範囲
+        }
     }
 
     // 基準点設定（固定小数点）
@@ -95,7 +107,7 @@ protected:
         return result;
     }
 
-    // onPushProcess: 画像転送
+    // onPushProcess: 画像転送（差分更新最適化）
     void onPushProcess(RenderResponse& input,
                        const RenderRequest& request) override {
         (void)request;
@@ -107,9 +119,7 @@ protected:
 
         ViewPort inputView = input.isValid() ? input.view() : ViewPort();
 
-        // 新座標系: originはバッファ左上のワールド座標
-        // Y座標はrequestから取得（inputが無効でも常に正しい値を持つ）
-        // offset = 入力左上 - 出力左上
+        // 座標計算
         int dstX = from_fixed(originX_ + input.origin.x);
         int dstY = from_fixed(originY_ + input.origin.y);
 
@@ -123,63 +133,85 @@ protected:
         if (copyW < 0) copyW = 0;
         if (copyH < 0) copyH = 0;
 
-        // 予定領域の配置計算（新座標系）
-        int expectedDstX = from_fixed(expectedOriginX_ - originX_);
-
-        // 描画高さ（有効範囲がなくても1ライン分描画）
+        // 描画高さ（有効範囲がなくても1ライン分処理）
         int fillH = (copyH > 0) ? copyH : 1;
         int fillY = dstY;
 
         // ダブルバッファ: 現在のバッファを選択
         auto& currentBuffer = imageBuffers_[currentBufferIndex_];
-        currentBufferIndex_ = 1 - currentBufferIndex_;  // 次回用に切り替え
+        currentBufferIndex_ = 1 - currentBufferIndex_;
 
-        // バッファをexpectedWidth幅で確保（余白含む）
-        size_t rowWidth = static_cast<size_t>(expectedWidth_);
-        size_t bufferSize = rowWidth * static_cast<size_t>(fillH);
-        if (currentBuffer.size() < bufferSize) {
-            currentBuffer.resize(bufferSize);
-        }
+        // 行ごとに差分更新処理
+        for (int y = 0; y < fillH; ++y) {
+            int screenY = fillY + y;
+            if (screenY < 0 || screenY >= windowH_) continue;
 
-        // バッファ全体をゼロクリア（余白を黒に）
-        std::fill(currentBuffer.begin(), currentBuffer.begin() + static_cast<ptrdiff_t>(bufferSize), 0);
-
-        // 有効な描画範囲がある場合、画像部分のみ変換して配置
-        if (copyW > 0 && copyH > 0) {
-            int offsetInRow = dstX - expectedDstX;
-
-            // パレット情報を取得（Index8フォーマット対応）
-            const ::fleximg::PixelAuxInfo* srcAux = nullptr;
-            if (input.buffer.auxInfo().palette) {
-                srcAux = &input.buffer.auxInfo();
+            // 今回の描画範囲を計算
+            DataRange currRange{0, 0};  // 無効範囲
+            if (copyW > 0 && y < copyH) {
+                currRange.startX = static_cast<int16_t>(dstX);
+                currRange.endX = static_cast<int16_t>(dstX + copyW);
             }
 
-            // スキャンライン単位でRGB565_BEに変換
-            for (int y = 0; y < copyH; ++y) {
+            // 前回の描画範囲を取得
+            DataRange& prevRange = prevRanges_[static_cast<size_t>(screenY)];
+
+            // 和集合範囲を計算
+            DataRange unionRange{0, 0};
+            if (currRange.hasData() && prevRange.hasData()) {
+                // 両方有効: 和集合
+                unionRange.startX = std::min(currRange.startX, prevRange.startX);
+                unionRange.endX = std::max(currRange.endX, prevRange.endX);
+            } else if (currRange.hasData()) {
+                // 今回のみ有効
+                unionRange = currRange;
+            } else if (prevRange.hasData()) {
+                // 前回のみ有効（クリアが必要）
+                unionRange = prevRange;
+            }
+
+            // 前回範囲を更新
+            prevRange = currRange;
+
+            // 和集合範囲がなければスキップ
+            if (!unionRange.hasData()) continue;
+
+            int unionWidth = unionRange.width();
+
+            // バッファを和集合幅で確保
+            size_t bufferSize = static_cast<size_t>(unionWidth);
+            if (currentBuffer.size() < bufferSize) {
+                currentBuffer.resize(bufferSize);
+            }
+
+            // バッファをゼロクリア（前回範囲で今回範囲外の部分を黒に）
+            std::fill(currentBuffer.begin(),
+                      currentBuffer.begin() + static_cast<ptrdiff_t>(bufferSize), 0);
+
+            // 今回の有効範囲がある場合、画像データを変換して配置
+            if (currRange.hasData() && y < copyH) {
+                int offsetInBuffer = currRange.startX - unionRange.startX;
                 const void* srcRow = inputView.pixelAt(srcX, srcY + y);
-                uint16_t* dstRow = currentBuffer.data()
-                    + static_cast<size_t>(y) * rowWidth
-                    + static_cast<size_t>(offsetInRow);
+                uint16_t* dstRow = currentBuffer.data() + offsetInBuffer;
 
                 ::fleximg::convertFormat(
                     srcRow,
                     inputView.formatID,
                     dstRow,
                     ::fleximg::PixelFormatIDs::RGB565_BE,
-                    copyW,
-                    srcAux
+                    copyW
                 );
             }
-        }
 
-        // 余白含めて一括転送
-        lcd_->pushImageDMA(
-            windowX_ + expectedDstX,
-            windowY_ + fillY,
-            expectedWidth_,
-            fillH,
-            reinterpret_cast<const lgfx::swap565_t*>(currentBuffer.data())
-        );
+            // 和集合範囲のみをLCD転送
+            lcd_->pushImageDMA(
+                windowX_ + unionRange.startX,
+                windowY_ + screenY,
+                unionWidth,
+                1,
+                reinterpret_cast<const lgfx::swap565_t*>(currentBuffer.data())
+            );
+        }
     }
 
     // onPushFinalize: LCD終了処理
@@ -203,6 +235,9 @@ private:
     // RGB565変換ダブルバッファ（DMA転送中の上書き防止）
     std::vector<uint16_t> imageBuffers_[2];
     int currentBufferIndex_ = 0;
+
+    // 前回描画範囲（Y座標別）
+    std::vector<DataRange> prevRanges_;
 };
 
 } // namespace fleximg

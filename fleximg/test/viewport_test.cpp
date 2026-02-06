@@ -3,6 +3,9 @@
 
 #include "doctest.h"
 
+#include <cmath>
+#include <cstring>
+
 #define FLEXIMG_NAMESPACE fleximg
 #include "fleximg/image/viewport.h"
 #include "fleximg/image/image_buffer.h"
@@ -602,5 +605,261 @@ TEST_CASE("copyRowDDA: relaxed ConstX condition (small incrX, same column)") {
         for (int i = 0; i < COUNT * BPP; i++) {
             CHECK(dstActual[i] == dstExpected[i]);
         }
+    }
+}
+
+// =============================================================================
+// canUseSingleChannelBilinear Tests
+// =============================================================================
+
+TEST_CASE("canUseSingleChannelBilinear: format classification") {
+    SUBCASE("Alpha8 with edgeFade is single-channel eligible") {
+        CHECK(view_ops::canUseSingleChannelBilinear(
+            PixelFormatIDs::Alpha8, EdgeFade_All));
+    }
+
+    SUBCASE("Alpha8 without edgeFade is single-channel eligible") {
+        CHECK(view_ops::canUseSingleChannelBilinear(
+            PixelFormatIDs::Alpha8, EdgeFade_None));
+    }
+
+    SUBCASE("Grayscale8 without edgeFade is single-channel eligible") {
+        CHECK(view_ops::canUseSingleChannelBilinear(
+            PixelFormatIDs::Grayscale8, EdgeFade_None));
+    }
+
+    SUBCASE("Grayscale8 with edgeFade is NOT eligible (Luminance != Alpha)") {
+        CHECK_FALSE(view_ops::canUseSingleChannelBilinear(
+            PixelFormatIDs::Grayscale8, EdgeFade_All));
+    }
+
+    SUBCASE("RGBA8 is NOT single-channel eligible") {
+        CHECK_FALSE(view_ops::canUseSingleChannelBilinear(
+            PixelFormatIDs::RGBA8_Straight, EdgeFade_None));
+    }
+
+    SUBCASE("nullptr format returns false") {
+        CHECK_FALSE(view_ops::canUseSingleChannelBilinear(nullptr, EdgeFade_None));
+    }
+}
+
+// =============================================================================
+// copyRowDDABilinear 1ch Tests
+// =============================================================================
+
+// バイリニア補間のリファレンス実装（1チャンネル版）
+// 浮動小数点で素朴に計算する
+static uint8_t bilinearRef_1ch(
+    const uint8_t* srcData,
+    int srcStride,
+    int srcW, int srcH,
+    float sx, float sy
+) {
+    // ピクセル中心座標から左上ピクセルのインデックスを算出
+    int x0 = static_cast<int>(std::floor(sx));
+    int y0 = static_cast<int>(std::floor(sy));
+    float fx = sx - static_cast<float>(x0);
+    float fy = sy - static_cast<float>(y0);
+
+    // 4点取得（範囲外は0）
+    auto getPixel = [&](int x, int y) -> float {
+        if (x < 0 || x >= srcW || y < 0 || y >= srcH) return 0.0f;
+        return static_cast<float>(srcData[y * srcStride + x]);
+    };
+
+    float q00 = getPixel(x0, y0);
+    float q10 = getPixel(x0 + 1, y0);
+    float q01 = getPixel(x0, y0 + 1);
+    float q11 = getPixel(x0 + 1, y0 + 1);
+
+    // バイリニア補間
+    float result = q00 * (1 - fx) * (1 - fy)
+                 + q10 * fx * (1 - fy)
+                 + q01 * (1 - fx) * fy
+                 + q11 * fx * fy;
+
+    return static_cast<uint8_t>(std::min(255.0f, std::max(0.0f, result + 0.5f)));
+}
+
+TEST_CASE("copyRowDDABilinear: Alpha8 single-channel path") {
+    // 4x4 Alpha8 ソース画像
+    constexpr int SRC_W = 4;
+    constexpr int SRC_H = 4;
+    uint8_t srcBuf[SRC_W * SRC_H];
+    // グラデーションパターン
+    for (int y = 0; y < SRC_H; y++) {
+        for (int x = 0; x < SRC_W; x++) {
+            srcBuf[y * SRC_W + x] = static_cast<uint8_t>(x * 60 + y * 40);
+        }
+    }
+    ViewPort src(srcBuf, PixelFormatIDs::Alpha8, SRC_W, SRC_W, SRC_H);
+
+    SUBCASE("1:1 with half-pixel offset (interpolation test)") {
+        // 0.5ピクセルずらし → 4点の平均値になるはず
+        constexpr int COUNT = 2;
+        uint8_t dst[COUNT] = {};
+
+        // srcX=0.5, srcY=0.5 → ピクセル(0,0),(1,0),(0,1),(1,1)の補間
+        int_fixed srcX = INT_FIXED_ONE / 2;  // 0.5
+        int_fixed srcY = INT_FIXED_ONE / 2;  // 0.5
+        int_fixed incrX = INT_FIXED_ONE;
+        int_fixed incrY = 0;
+
+        view_ops::copyRowDDABilinear(dst, src, COUNT, srcX, srcY, incrX, incrY,
+                                      EdgeFade_None, nullptr);
+
+        for (int i = 0; i < COUNT; i++) {
+            float sx = static_cast<float>(i) + 0.5f;
+            float sy = 0.5f;
+            uint8_t expected = bilinearRef_1ch(srcBuf, SRC_W, SRC_W, SRC_H, sx, sy);
+            CHECK(std::abs(static_cast<int>(dst[i]) - static_cast<int>(expected)) <= 1);
+        }
+    }
+
+    SUBCASE("integer position (no interpolation)") {
+        // 整数座標 → 元のピクセル値がそのまま出る
+        constexpr int COUNT = 3;
+        uint8_t dst[COUNT] = {};
+
+        int_fixed srcX = 0;
+        int_fixed srcY = to_fixed(1);
+        int_fixed incrX = INT_FIXED_ONE;
+        int_fixed incrY = 0;
+
+        view_ops::copyRowDDABilinear(dst, src, COUNT, srcX, srcY, incrX, incrY,
+                                      EdgeFade_None, nullptr);
+
+        // 整数座標では weight fx=fy=0 なので q00 の値のみ
+        for (int i = 0; i < COUNT; i++) {
+            CHECK(dst[i] == srcBuf[1 * SRC_W + i]);
+        }
+    }
+
+    SUBCASE("output is 1 byte per pixel (not 4)") {
+        // 1chパスの出力がAlpha8（1byte/pixel）であることを確認
+        constexpr int COUNT = 4;
+        uint8_t dst[COUNT + 4] = {};  // 余分に確保
+        // 番兵値を設定
+        dst[COUNT] = 0xAA;
+        dst[COUNT + 1] = 0xBB;
+        dst[COUNT + 2] = 0xCC;
+        dst[COUNT + 3] = 0xDD;
+
+        int_fixed srcX = 0;
+        int_fixed srcY = 0;
+        int_fixed incrX = INT_FIXED_ONE;
+        int_fixed incrY = 0;
+
+        view_ops::copyRowDDABilinear(dst, src, COUNT, srcX, srcY, incrX, incrY,
+                                      EdgeFade_None, nullptr);
+
+        // 番兵値が上書きされていないことを確認（4byte出力なら上書きされる）
+        CHECK(dst[COUNT] == 0xAA);
+        CHECK(dst[COUNT + 1] == 0xBB);
+        CHECK(dst[COUNT + 2] == 0xCC);
+        CHECK(dst[COUNT + 3] == 0xDD);
+    }
+}
+
+TEST_CASE("copyRowDDABilinear: Alpha8 edge fade") {
+    // 3x3 Alpha8 ソース（全ピクセル255）
+    constexpr int SRC_W = 3;
+    constexpr int SRC_H = 3;
+    uint8_t srcBuf[SRC_W * SRC_H];
+    std::memset(srcBuf, 255, sizeof(srcBuf));
+    ViewPort src(srcBuf, PixelFormatIDs::Alpha8, SRC_W, SRC_W, SRC_H);
+
+    SUBCASE("left edge fade produces zero at boundary") {
+        // srcX=-0.5 → 左境界外に0.5ピクセルはみ出し
+        // edgeFlagでLeft辺がフェード対象 → 境界外ピクセルは0
+        constexpr int COUNT = 1;
+        uint8_t dst[COUNT] = {255};
+
+        int_fixed srcX = -(INT_FIXED_ONE / 2);  // -0.5
+        int_fixed srcY = to_fixed(1);
+        int_fixed incrX = INT_FIXED_ONE;
+        int_fixed incrY = 0;
+
+        view_ops::copyRowDDABilinear(dst, src, COUNT, srcX, srcY, incrX, incrY,
+                                      EdgeFade_Left, nullptr);
+
+        // 左側が境界外（0）、右側が255 → 約128前後の値になるはず（完全255ではない）
+        CHECK(dst[0] < 200);
+    }
+}
+
+TEST_CASE("copyRowDDABilinear: Grayscale8 single-channel path (no edge fade)") {
+    // Grayscale8もedgeFadeなしなら1chパスを使用
+    constexpr int SRC_W = 4;
+    constexpr int SRC_H = 4;
+    uint8_t srcBuf[SRC_W * SRC_H];
+    for (int y = 0; y < SRC_H; y++) {
+        for (int x = 0; x < SRC_W; x++) {
+            srcBuf[y * SRC_W + x] = static_cast<uint8_t>(x * 50 + y * 30);
+        }
+    }
+    ViewPort src(srcBuf, PixelFormatIDs::Grayscale8, SRC_W, SRC_W, SRC_H);
+
+    constexpr int COUNT = 3;
+    uint8_t dst[COUNT + 4] = {};
+    // 番兵値
+    dst[COUNT] = 0xAA;
+    dst[COUNT + 1] = 0xBB;
+
+    int_fixed srcX = INT_FIXED_ONE / 2;
+    int_fixed srcY = INT_FIXED_ONE / 2;
+    int_fixed incrX = INT_FIXED_ONE;
+    int_fixed incrY = 0;
+
+    view_ops::copyRowDDABilinear(dst, src, COUNT, srcX, srcY, incrX, incrY,
+                                  EdgeFade_None, nullptr);
+
+    // 1byteずつの出力であることを確認
+    CHECK(dst[COUNT] == 0xAA);
+    CHECK(dst[COUNT + 1] == 0xBB);
+
+    // 補間値の検証
+    for (int i = 0; i < COUNT; i++) {
+        float sx = static_cast<float>(i) + 0.5f;
+        float sy = 0.5f;
+        uint8_t expected = bilinearRef_1ch(srcBuf, SRC_W, SRC_W, SRC_H, sx, sy);
+        CHECK(std::abs(static_cast<int>(dst[i]) - static_cast<int>(expected)) <= 1);
+    }
+}
+
+TEST_CASE("copyRowDDABilinear: RGBA8 path unchanged (regression)") {
+    // RGBA8のバイリニア補間が既存どおり4byte/pixel出力であることを確認
+    constexpr int SRC_W = 4;
+    constexpr int SRC_H = 4;
+    constexpr int BPP = 4;
+    uint8_t srcBuf[SRC_W * SRC_H * BPP];
+    for (int y = 0; y < SRC_H; y++) {
+        for (int x = 0; x < SRC_W; x++) {
+            int idx = (y * SRC_W + x) * BPP;
+            srcBuf[idx + 0] = static_cast<uint8_t>(x * 60);    // R
+            srcBuf[idx + 1] = static_cast<uint8_t>(y * 60);    // G
+            srcBuf[idx + 2] = static_cast<uint8_t>((x+y) * 30);// B
+            srcBuf[idx + 3] = 255;                               // A
+        }
+    }
+    ViewPort src(srcBuf, SRC_W, SRC_H, PixelFormatIDs::RGBA8_Straight);
+
+    constexpr int COUNT = 3;
+    uint32_t dst[COUNT] = {};
+
+    int_fixed srcX = INT_FIXED_ONE / 2;
+    int_fixed srcY = INT_FIXED_ONE / 2;
+    int_fixed incrX = INT_FIXED_ONE;
+    int_fixed incrY = 0;
+
+    view_ops::copyRowDDABilinear(dst, src, COUNT, srcX, srcY, incrX, incrY,
+                                  EdgeFade_None, nullptr);
+
+    // RGBA8出力: 各ピクセルが非ゼロの4byte値であることを確認
+    for (int i = 0; i < COUNT; i++) {
+        CHECK(dst[i] != 0);
+        // アルファチャンネルが255であることを確認（全ソースがA=255）
+        auto* pixel = reinterpret_cast<uint8_t*>(&dst[i]);
+        CHECK(pixel[3] == 255);
     }
 }

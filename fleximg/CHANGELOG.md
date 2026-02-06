@@ -1,5 +1,31 @@
 # Changelog
 
+## [2.63.28] - 2026-02-06
+
+### 追加
+
+- **Alpha8/Grayscale8 単一チャンネル バイリニア補間**: 1チャンネルフォーマットのバイリニア補間を直接処理する最適化
+  - Alpha8マスク画像のバイリニア補間で、従来の `Alpha8→RGBA8(4ch補間)→Alpha8` の往復変換を排除
+  - `viewport.h`: `canUseSingleChannelBilinear()` 判定ヘルパー、`bilinearBlend_1ch()` 32bit一括ロード補間関数、`copyRowDDABilinear()` 1chパスを追加
+  - `source_node.h`: 出力フォーマット決定を1ch対応に修正（1chフォーマットはそのまま出力）
+  - メモリ4倍削減、演算量約1/4削減
+
+### 改善
+
+- **MatteNode マスク取得範囲の最適化**: マスクのpullProcess要求範囲をfg∪bgの有効X範囲に制限
+  - fg/bgが存在しない領域のマスクを取得しないことで不要な演算を削減
+  - fg∪bgが空の場合の早期リターンを追加
+
+- **MatteNode bgフォールバック集約**: 4箇所の重複bgフォールバックコードをgotoで1箇所に集約
+  - wasmバイナリサイズ -144 bytes
+
+### サンプル
+
+- **m5stack_matte**: BtnAでマスクのバイリニア補間トグル、FPS表示を右上に移動
+- **m5stack_hos/m5stack_matte**: LcdSinkNodeをm5stack_basicと同期
+
+---
+
 ## [2.63.27] - 2026-02-06
 
 ### 追加

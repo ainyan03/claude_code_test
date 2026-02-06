@@ -143,6 +143,19 @@ void affineTransform(
     int_fixed dxOffsetY
 );
 
+// 1chバイリニア補間が使用可能かを判定するヘルパー
+// Alpha8, Grayscale8 等の単一チャンネル非インデックスフォーマットに適用
+// edgeFadeMask != 0 の場合、Alphaチャンネルのみ対応（値を直接0にできるため）
+inline bool canUseSingleChannelBilinear(PixelFormatID formatID, uint8_t edgeFadeMask) {
+    if (!formatID) return false;
+    const int bpp = (formatID->bitsPerPixel + 7) / 8;
+    return (bpp == 1)
+        && (formatID->channelCount == 1)
+        && !formatID->isIndexed
+        && (edgeFadeMask == 0
+            || formatID->channels[0].type == ChannelType::Alpha);
+}
+
 } // namespace view_ops
 
 } // namespace FLEXIMG_NAMESPACE
@@ -292,6 +305,40 @@ static void bilinearBlend_RGBA8888(
 }
 
 // ============================================================================
+// バイリニア補間関数（1チャンネル固定: Alpha8/Grayscale8用）
+// ============================================================================
+//
+// copyQuadDDAで抽出した4ピクセルデータからバイリニア補間を実行する。
+// 入力: quadPixels = [p00,p10,p01,p11] × count（各ピクセル1byte）
+//       境界外ピクセルは呼び出し前にゼロ埋めされていること
+// 出力: dst = 補間結果 × count（各1byte）
+
+__attribute__((noinline))
+static void bilinearBlend_1ch(
+    uint8_t* __restrict__ dst,
+    const uint8_t* __restrict__ quadPixels,
+    const BilinearWeightXY* __restrict__ weightsXY,
+    int count
+) {
+    for (int i = 0; i < count; ++i) {
+        // 重み計算
+        uint32_t q4 = *reinterpret_cast<const uint32_t*>(quadPixels);
+        uint_fast32_t fy = weightsXY->fy;
+        uint_fast32_t fx = weightsXY->fx;
+        ++weightsXY;
+        uint32_t left = (q4 & 0x00FF00FF); // 左側ピクセルの抽出
+        uint32_t right = (q4 >> 8) & 0x00FF00FF; // 右側ピクセルの抽出
+        uint32_t tb = left * (256-fx) + right * fx; // 左右補間
+        uint32_t top = (tb & 0x0000FFFF) * (256-fy);
+        uint32_t bottom = (tb >> 16) * fy;
+        uint32_t combined = top + bottom;
+        uint16_t result = static_cast<uint16_t>(combined >> 16);
+        quadPixels += 4;
+        dst[i] = static_cast<uint8_t>(result);
+    }
+}
+
+// ============================================================================
 // copyRowDDABilinear
 // ============================================================================
 //
@@ -320,6 +367,61 @@ void copyRowDDABilinear(
         copyRowDDA(dst, src, count, srcX, srcY, incrX, incrY);
         return;
     }
+
+    // ========================================================================
+    // 1chパス: Alpha8/Grayscale8等の単一チャンネルフォーマット向け高速パス
+    // フォーマット変換不要、メモリ使用量1/4、演算量約1/4
+    // ========================================================================
+    if (canUseSingleChannelBilinear(src.formatID, edgeFadeMask)) {
+        constexpr int CHUNK_SIZE = 64;
+
+        // 1ch用一時バッファ（RGBA8パスの1/4サイズ）
+        uint8_t quadBuffer1ch[CHUNK_SIZE * 4];       // 256 bytes（1byte × 4 × 64）
+        BilinearWeightXY weightsXY[CHUNK_SIZE];      // 128 bytes
+        uint8_t edgeFlagsChunk[CHUNK_SIZE];          // 64 bytes
+
+        uint8_t* dstPtr = static_cast<uint8_t*>(dst);
+        const uint8_t* srcData = static_cast<const uint8_t*>(src.data);
+
+        DDAParam param = {
+            src.stride, src.width, src.height,
+            srcX, srcY, incrX, incrY,
+            weightsXY, edgeFlagsChunk
+        };
+
+        for (int offset = 0; offset < count; offset += CHUNK_SIZE) {
+            int chunk = (count - offset < CHUNK_SIZE) ? (count - offset) : CHUNK_SIZE;
+
+            // 4ピクセル抽出（1bpp: copyQuadDDA出力がそのまま使える）
+            src.formatID->copyQuadDDA(quadBuffer1ch, srcData, chunk, &param);
+
+            // 境界ピクセルの値を0化（Alpha8のエッジフェード）
+            if (edgeFadeMask) {
+                for (int i = 0; i < chunk; ++i) {
+                    uint8_t flags = edgeFlagsChunk[i] & edgeFadeMask;
+                    if (flags) {
+                        uint8_t* q = &quadBuffer1ch[i * 4];
+                        if (flags & (EdgeFade_Left | EdgeFade_Top))    { q[0] = 0; }
+                        if (flags & (EdgeFade_Right | EdgeFade_Top))   { q[1] = 0; }
+                        if (flags & (EdgeFade_Left | EdgeFade_Bottom)) { q[2] = 0; }
+                        if (flags & (EdgeFade_Right | EdgeFade_Bottom)){ q[3] = 0; }
+                    }
+                }
+            }
+
+            // 1chバイリニア補間
+            bilinearBlend_1ch(dstPtr, quadBuffer1ch, weightsXY, chunk);
+
+            dstPtr += chunk;
+            param.srcX += incrX * chunk;
+            param.srcY += incrY * chunk;
+        }
+        return;
+    }
+
+    // ========================================================================
+    // RGBA8パス: 通常のマルチチャンネルフォーマット
+    // ========================================================================
 
     // チャンク処理用定数
     constexpr int CHUNK_SIZE = 64;
