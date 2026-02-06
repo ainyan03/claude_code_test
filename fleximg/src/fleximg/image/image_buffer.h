@@ -375,8 +375,16 @@ private:
     InitPolicy initPolicy_;
 
     void allocate() {
-        auto bpp = getBytesPerPixel(view_.formatID);
-        view_.stride = static_cast<int32_t>(view_.width * bpp);
+        // bit-packed形式に対応したstride計算
+        if (view_.formatID && view_.formatID->pixelsPerUnit > 1) {
+            // bit-packed形式: 必要なユニット数 × bytesPerUnit
+            int units = (view_.width + view_.formatID->pixelsPerUnit - 1) / view_.formatID->pixelsPerUnit;
+            view_.stride = static_cast<int32_t>(units * view_.formatID->bytesPerUnit);
+        } else {
+            // 通常形式: width × bytesPerPixel
+            auto bpp = getBytesPerPixel(view_.formatID);
+            view_.stride = static_cast<int32_t>(view_.width * bpp);
+        }
         capacity_ = static_cast<size_t>(view_.stride) * static_cast<size_t>(view_.height);
         if (capacity_ > 0 && allocator_) {
             view_.data = allocator_->allocate(capacity_);

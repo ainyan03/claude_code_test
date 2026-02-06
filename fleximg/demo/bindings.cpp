@@ -57,7 +57,16 @@ public:
         auto bpp = getBytesPerPixel(fmt);
         auto size = static_cast<size_t>(w * h * bpp);
         storage_[id].assign(data, data + size);
-        return ViewPort(storage_[id].data(), fmt, w * bpp, w, h);
+
+        // bit-packed形式に対応したstride計算
+        int32_t stride;
+        if (fmt && fmt->pixelsPerUnit > 1) {
+            int units = (w + fmt->pixelsPerUnit - 1) / fmt->pixelsPerUnit;
+            stride = units * fmt->bytesPerUnit;
+        } else {
+            stride = w * bpp;
+        }
+        return ViewPort(storage_[id].data(), fmt, stride, w, h);
     }
 
     // バッファを確保（出力用）
@@ -65,7 +74,16 @@ public:
         auto bpp = getBytesPerPixel(fmt);
         auto size = static_cast<size_t>(w * h * bpp);
         storage_[id].resize(size, 0);
-        return ViewPort(storage_[id].data(), fmt, w * bpp, w, h);
+
+        // bit-packed形式に対応したstride計算
+        int32_t stride;
+        if (fmt && fmt->pixelsPerUnit > 1) {
+            int units = (w + fmt->pixelsPerUnit - 1) / fmt->pixelsPerUnit;
+            stride = units * fmt->bytesPerUnit;
+        } else {
+            stride = w * bpp;
+        }
+        return ViewPort(storage_[id].data(), fmt, stride, w, h);
     }
 
     // データ取得（JSへ返す用）
@@ -293,13 +311,25 @@ public:
             FormatOpEntry snapshot[FormatIdx::Count][OpType::Count];
             FormatMetrics::instance().saveSnapshot(snapshot);
 
-            auto targetBpp = getBytesPerPixel(targetFormat);
-            std::vector<uint8_t> converted(static_cast<size_t>(width) * static_cast<size_t>(height) * static_cast<size_t>(targetBpp));
+            // bit-packed形式に対応したバッファサイズ計算
+            int totalPixels = width * height;
+            size_t bufferSize;
+            if (targetFormat->pixelsPerUnit > 1) {
+                // bit-packed形式: 必要なユニット数 × bytesPerUnit
+                int units = (totalPixels + targetFormat->pixelsPerUnit - 1) / targetFormat->pixelsPerUnit;
+                bufferSize = static_cast<size_t>(units) * static_cast<size_t>(targetFormat->bytesPerUnit);
+            } else {
+                // 通常形式: ピクセル数 × getBytesPerPixel
+                auto targetBpp = getBytesPerPixel(targetFormat);
+                bufferSize = static_cast<size_t>(totalPixels) * static_cast<size_t>(targetBpp);
+            }
+
+            std::vector<uint8_t> converted(bufferSize);
 
             convertFormat(
                 rgba8Data.data(), PixelFormatIDs::RGBA8_Straight,
                 converted.data(), targetFormat,
-                static_cast<int>(static_cast<size_t>(width) * static_cast<size_t>(height))
+                totalPixels
             );
 
             FormatMetrics::instance().restoreSnapshot(snapshot);

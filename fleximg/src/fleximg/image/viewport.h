@@ -434,12 +434,16 @@ void copyRowDDABilinear(
     uint8_t edgeFlagsChunk[CHUNK_SIZE];          // 64 bytes（チャンク用）
 
     // 元フォーマットのBPP（末尾詰め配置用）
-    const int srcBpp = (src.formatID->bitsPerPixel + 7) / 8;
+    // bit-packedの場合、copyQuadDDAはIndex8形式で出力するため、bpp=1とする
+    const int srcBpp = 1;
 
     // フォーマット変換が必要な場合、ループ外で一度だけresolveConverter呼び出し
+    // bit-packedの場合、copyQuadDDAの出力はIndex8形式なので、Index8→RGBA8の変換を使う
     FormatConverter converter;
-    if (src.formatID != PixelFormatIDs::RGBA8_Straight) {
-        converter = resolveConverter(src.formatID, PixelFormatIDs::RGBA8_Straight, srcAux);
+    PixelFormatID converterSrcFormat = (src.formatID->pixelsPerUnit > 1)
+                                     ? PixelFormatIDs::Index8 : src.formatID;
+    if (converterSrcFormat != PixelFormatIDs::RGBA8_Straight) {
+        converter = resolveConverter(converterSrcFormat, PixelFormatIDs::RGBA8_Straight, srcAux);
     }
 
     uint32_t* dstPtr = static_cast<uint32_t*>(dst);

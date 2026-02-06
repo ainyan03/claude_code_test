@@ -525,13 +525,18 @@ RenderResponse& SourceNode::pullProcessWithAffine(const RenderRequest& request) 
     // 出力フォーマット決定:
     // - 1chバイリニア対応フォーマット（Alpha8等）: ソースフォーマット直接出力
     // - その他のバイリニア: RGBA8_Straight出力
-    // - 最近傍: ソースフォーマット出力
+    // - 最近傍: ソースフォーマット出力（ただしbit-packedはIndex8に展開）
     PixelFormatID outFormat;
     if (useBilinear_) {
         outFormat = view_ops::canUseSingleChannelBilinear(source_.formatID, edgeFadeFlags_)
                   ? source_.formatID : PixelFormatIDs::RGBA8_Straight;
     } else {
-        outFormat = source_.formatID;
+        // bit-packed形式の場合、DDAはIndex8形式で出力するため出力フォーマットをIndex8に
+        if (source_.formatID && source_.formatID->pixelsPerUnit > 1) {
+            outFormat = PixelFormatIDs::Index8;
+        } else {
+            outFormat = source_.formatID;
+        }
     }
     ImageBuffer* output = resp.createBuffer(
         validWidth, 1, outFormat, InitPolicy::Uninitialized);
