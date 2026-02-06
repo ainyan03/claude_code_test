@@ -58,6 +58,13 @@ PC・スマートフォン両方から直接アクセス可能です。C++で実
 
 全てのドキュメントは [docs/README.md](docs/README.md) から参照できます。
 
+### 変更履歴
+
+| ドキュメント | 内容 |
+|-------------|------|
+| [CHANGELOG.md](CHANGELOG.md) | 最新の変更履歴（v2.62以降の要約） |
+| [docs/CHANGELOG_v2_detailed.md](docs/CHANGELOG_v2_detailed.md) | v2.0～v2.61の詳細な変更履歴 |
+
 ## 必要要件
 
 ### 開発環境
