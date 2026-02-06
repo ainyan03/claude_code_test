@@ -96,13 +96,39 @@ inline void packIndexBits(uint8_t* dst, const uint8_t* src, int pixelCount) {
     }
 }
 
+// ========================================================================
+// ビット単位アクセスヘルパー（LovyanGFXスタイル）
+// ========================================================================
+
+// 指定座標のピクセルを bit-packed データから直接読み取り
+template<int BitsPerPixel, BitOrder Order>
+inline uint8_t readPixelDirect(const uint8_t* srcData, int32_t x, int32_t y, int32_t stride) {
+    constexpr int PixelsPerByte = 8 / BitsPerPixel;
+    constexpr uint8_t Mask = (1 << BitsPerPixel) - 1;
+
+    // ビット単位のオフセット計算
+    int32_t bitOffset = (y * stride * 8) + (x * BitsPerPixel);
+    int32_t byteIdx = bitOffset >> 3;
+    int32_t bitPos = bitOffset & 7;
+
+    uint8_t byte = srcData[byteIdx];
+
+    if constexpr (Order == BitOrder::MSBFirst) {
+        // MSBFirst: 上位ビットから読む
+        return (byte >> (8 - bitPos - BitsPerPixel)) & Mask;
+    } else {
+        // LSBFirst: 下位ビットから読む
+        return (byte >> bitPos) & Mask;
+    }
+}
+
 } // namespace bit_packed_detail
 
 // ========================================================================
-// DDA転写関数（bit-packed専用）
+// DDA転写関数（bit-packed専用、ピクセル単位直接アクセス）
 // ========================================================================
 
-// copyRowDDA: bit-packed → アンパック → 既存1bpp DDA
+// copyRowDDA: ピクセル単位で bit-packed から直接読み取り
 template<int BitsPerPixel, BitOrder Order>
 static void indexN_copyRowDDA(
     uint8_t* dst,
@@ -110,87 +136,35 @@ static void indexN_copyRowDDA(
     int count,
     const DDAParam* param
 ) {
-    // srcDataの必要範囲を計算
-    // DDAでアクセスされる最大座標を求める
+    // LovyanGFXスタイル: ピクセル単位で直接読み取り
+    // 境界チェックは呼び出し側が保証（calcScanlineRange）
     int_fixed srcX = param->srcX;
-    int_fixed incrX = param->incrX;
     int_fixed srcY = param->srcY;
-    int_fixed incrY = param->incrY;
+    const int_fixed incrX = param->incrX;
+    const int_fixed incrY = param->incrY;
+    const int32_t srcStride = param->srcStride;
 
-    // 開始座標と終了座標（ピクセル単位）
-    int32_t minX = (srcX >> INT_FIXED_SHIFT);
-    int32_t maxX = ((srcX + incrX * (count - 1)) >> INT_FIXED_SHIFT);
-    int32_t minY = (srcY >> INT_FIXED_SHIFT);
-    int32_t maxY = ((srcY + incrY * (count - 1)) >> INT_FIXED_SHIFT);
+    for (int i = 0; i < count; ++i) {
+        int32_t sx = srcX >> INT_FIXED_SHIFT;
+        int32_t sy = srcY >> INT_FIXED_SHIFT;
+        srcX += incrX;
+        srcY += incrY;
 
-    if (minX > maxX) { int32_t tmp = minX; minX = maxX; maxX = tmp; }
-    if (minY > maxY) { int32_t tmp = minY; minY = maxY; maxY = tmp; }
-
-    // バイト境界に合わせて範囲を拡張
-    // minXをバイト境界に切り下げ、maxXを切り上げ
-    constexpr int PixelsPerUnit = 8 / BitsPerPixel;
-    int32_t alignedMinX = (minX / PixelsPerUnit) * PixelsPerUnit;
-    int32_t alignedMaxX = ((maxX + PixelsPerUnit) / PixelsPerUnit) * PixelsPerUnit - 1;
-
-    // 必要なソース範囲のサイズ（バイト境界に合わせた）
-    int32_t srcWidth = alignedMaxX - alignedMinX + 1;
-    int32_t srcHeight = maxY - minY + 1;
-
-    // アンパックバッファ（スタック）
-    // 最大サイズを制限（例: 256x256ピクセル = 64KB）
-    constexpr int MaxBufferPixels = 256 * 256;
-    if (srcWidth * srcHeight > MaxBufferPixels) {
-        // バッファサイズ超過: ピクセルごとにアンパック（遅いが安全）
-        // PixelsPerUnitは既に定義済み
-        uint8_t pixelBuf[PixelsPerUnit];
-
-        for (int i = 0; i < count; ++i) {
-            int32_t sx = (srcX >> INT_FIXED_SHIFT);
-            int32_t sy = (srcY >> INT_FIXED_SHIFT);
-            srcX += incrX;
-            srcY += incrY;
-
-            // ピクセルを含むバイトをアンパック
-            int32_t byteIdx = sx / PixelsPerUnit;
-            int32_t pixelInByte = sx % PixelsPerUnit;
-            const uint8_t* srcRow = srcData + sy * param->srcStride;
-
-            bit_packed_detail::unpackIndexBits<BitsPerPixel, Order>(
-                pixelBuf, srcRow + byteIdx, PixelsPerUnit);
-
-            dst[i] = pixelBuf[pixelInByte];
+#ifdef FLEXIMG_DEBUG
+        // デバッグビルドのみ: width/heightが設定されている場合は境界チェック
+        if (param->srcWidth > 0 && param->srcHeight > 0) {
+            FLEXIMG_REQUIRE(sx >= 0 && sx < param->srcWidth &&
+                          sy >= 0 && sy < param->srcHeight,
+                          "DDA out of bounds access");
         }
-        return;
+#endif
+
+        dst[i] = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(
+            srcData, sx, sy, srcStride);
     }
-
-    // 小さい範囲: アンパック → 既存DDA
-    uint8_t* unpackBuf = new uint8_t[static_cast<size_t>(srcWidth * srcHeight)];
-
-    // 行ごとにアンパック（バイト境界から、PixelsPerUnitは既に定義済み）
-    for (int32_t y = 0; y < srcHeight; ++y) {
-        int32_t srcY_abs = minY + y;
-        const uint8_t* srcRow = srcData + srcY_abs * param->srcStride;
-        uint8_t* dstRow = unpackBuf + y * srcWidth;
-
-        // alignedMinXからのバイトオフセット
-        int32_t byteOffset = alignedMinX / PixelsPerUnit;
-        bit_packed_detail::unpackIndexBits<BitsPerPixel, Order>(
-            dstRow, srcRow + byteOffset, srcWidth);
-    }
-
-    // DDAパラメータを調整（アンパックバッファ座標系、alignedMinXを基準に）
-    DDAParam adjustedParam = *param;
-    adjustedParam.srcX = (param->srcX - (alignedMinX << INT_FIXED_SHIFT));
-    adjustedParam.srcY = (param->srcY - (minY << INT_FIXED_SHIFT));
-    adjustedParam.srcStride = srcWidth;
-
-    // 既存の1bpp DDA関数を使用
-    pixel_format::detail::copyRowDDA_1bpp(dst, unpackBuf, count, &adjustedParam);
-
-    delete[] unpackBuf;
 }
 
-// copyQuadDDA: bit-packed → アンパック → 既存1bpp DDA
+// copyQuadDDA: 2x2グリッドをピクセル単位で直接読み取り
 template<int BitsPerPixel, BitOrder Order>
 static void indexN_copyQuadDDA(
     uint8_t* dst,
@@ -198,92 +172,65 @@ static void indexN_copyQuadDDA(
     int count,
     const DDAParam* param
 ) {
-    // copyRowDDAと同様のアプローチ
+    // LovyanGFXスタイル: 2x2グリッドを直接読み取り
     int_fixed srcX = param->srcX;
-    int_fixed incrX = param->incrX;
     int_fixed srcY = param->srcY;
-    int_fixed incrY = param->incrY;
+    const int_fixed incrX = param->incrX;
+    const int_fixed incrY = param->incrY;
+    const int32_t srcWidth = param->srcWidth;
+    const int32_t srcHeight = param->srcHeight;
+    const int32_t srcStride = param->srcStride;
+    BilinearWeightXY* weightsXY = param->weightsXY;
+    uint8_t* edgeFlags = param->edgeFlags;
 
-    // copyQuadDDAは2x2グリッドが必要なので+1
-    int32_t minX = (srcX >> INT_FIXED_SHIFT);
-    int32_t maxX = ((srcX + incrX * (count - 1)) >> INT_FIXED_SHIFT) + 1;
-    int32_t minY = (srcY >> INT_FIXED_SHIFT);
-    int32_t maxY = ((srcY + incrY * (count - 1)) >> INT_FIXED_SHIFT) + 1;
+    for (int i = 0; i < count; ++i) {
+        int32_t sx = srcX >> INT_FIXED_SHIFT;
+        int32_t sy = srcY >> INT_FIXED_SHIFT;
 
-    if (minX > maxX) { int32_t tmp = minX; minX = maxX; maxX = tmp; }
-    if (minY > maxY) { int32_t tmp = minY; minY = maxY; maxY = tmp; }
-
-    // バイト境界に合わせて範囲を拡張（PixelsPerUnitは既に定義済み）
-    constexpr int PixelsPerUnit = 8 / BitsPerPixel;
-    int32_t alignedMinX = (minX / PixelsPerUnit) * PixelsPerUnit;
-    int32_t alignedMaxX = ((maxX + PixelsPerUnit) / PixelsPerUnit) * PixelsPerUnit - 1;
-
-    int32_t srcWidth = alignedMaxX - alignedMinX + 1;
-    int32_t srcHeight = maxY - minY + 1;
-
-    // バッファサイズ制限
-    constexpr int MaxBufferPixels = 256 * 256;
-    if (srcWidth * srcHeight > MaxBufferPixels) {
-        // 大きすぎる: エラー処理またはフォールバック
-        std::memset(dst, 0, static_cast<size_t>(count * 4));
-        return;
-    }
-
-    // アンパックバッファ
-    uint8_t* unpackBuf = new uint8_t[static_cast<size_t>(srcWidth * srcHeight)];
-
-    // 行ごとにアンパック（バイト境界から）
-    for (int32_t y = 0; y < srcHeight; ++y) {
-        int32_t srcY_abs = minY + y;
-        uint8_t* dstRow = unpackBuf + y * srcWidth;
-
-        // 範囲外チェック（画像境界外の場合はゼロ埋め）
-        if (srcY_abs < 0 || srcY_abs >= param->srcHeight) {
-            std::memset(dstRow, 0, static_cast<size_t>(srcWidth));
-            continue;
+        // バイリニア補間用の重み計算
+        if (weightsXY) {
+            weightsXY[i].fx = static_cast<uint8_t>(static_cast<uint32_t>(srcX) >> (INT_FIXED_SHIFT - 8));
+            weightsXY[i].fy = static_cast<uint8_t>(static_cast<uint32_t>(srcY) >> (INT_FIXED_SHIFT - 8));
         }
 
-        const uint8_t* srcRow = srcData + srcY_abs * param->srcStride;
-        int32_t byteOffset = alignedMinX / PixelsPerUnit;
+        srcX += incrX;
+        srcY += incrY;
 
-        // X方向の範囲チェック
-        int32_t srcXStart = alignedMinX;
-        int32_t srcXEnd = alignedMaxX;
-        if (srcXStart < 0 || srcXEnd >= param->srcWidth) {
-            // 境界外を含む場合、部分的にアンパック
-            for (int32_t x = 0; x < srcWidth; ++x) {
-                int32_t srcX_abs = alignedMinX + x;
-                if (srcX_abs >= 0 && srcX_abs < param->srcWidth) {
-                    int32_t srcByteIdx = srcX_abs / PixelsPerUnit;
-                    int32_t pixelInByte = srcX_abs % PixelsPerUnit;
-                    uint8_t pixelBuf[PixelsPerUnit];
-                    bit_packed_detail::unpackIndexBits<BitsPerPixel, Order>(
-                        pixelBuf, srcRow + srcByteIdx, PixelsPerUnit);
-                    dstRow[x] = pixelBuf[pixelInByte];
-                } else {
-                    dstRow[x] = 0;
-                }
-            }
+        // 境界チェック（2x2グリッドが全て範囲内か）
+        bool x_valid = (sx >= 0 && sx + 1 < srcWidth);
+        bool y_valid = (sy >= 0 && sy + 1 < srcHeight);
+
+        if (x_valid && y_valid) {
+            // 全て範囲内: 2x2グリッドを読み取り
+            dst[0] = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(srcData, sx,     sy,     srcStride);
+            dst[1] = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(srcData, sx + 1, sy,     srcStride);
+            dst[2] = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(srcData, sx,     sy + 1, srcStride);
+            dst[3] = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(srcData, sx + 1, sy + 1, srcStride);
+            if (edgeFlags) edgeFlags[i] = 0;
         } else {
-            // 全て範囲内
-            bit_packed_detail::unpackIndexBits<BitsPerPixel, Order>(
-                dstRow, srcRow + byteOffset, srcWidth);
+            // 境界外を含む: edgeFlags 生成とピクセル単位チェック
+            uint8_t flags = 0;
+
+            // 各ピクセルの境界チェック
+            auto readSafe = [&](int32_t x, int32_t y, uint8_t edgeFlag) -> uint8_t {
+                if (x >= 0 && x < srcWidth && y >= 0 && y < srcHeight) {
+                    return bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(srcData, x, y, srcStride);
+                } else {
+                    flags |= edgeFlag;
+                    return 0;
+                }
+            };
+
+            dst[0] = readSafe(sx,     sy,     EdgeFade_Left | EdgeFade_Top);
+            dst[1] = readSafe(sx + 1, sy,     EdgeFade_Right | EdgeFade_Top);
+            dst[2] = readSafe(sx,     sy + 1, EdgeFade_Left | EdgeFade_Bottom);
+            dst[3] = readSafe(sx + 1, sy + 1, EdgeFade_Right | EdgeFade_Bottom);
+
+            if (edgeFlags) edgeFlags[i] = flags;
         }
+
+        dst += 4;
     }
-
-    // DDAパラメータ調整（alignedMinXを基準に）
-    DDAParam adjustedParam = *param;
-    adjustedParam.srcX = (param->srcX - (alignedMinX << INT_FIXED_SHIFT));
-    adjustedParam.srcY = (param->srcY - (minY << INT_FIXED_SHIFT));
-    adjustedParam.srcStride = srcWidth;
-    // unpackBuf内での元画像の有効範囲（境界判定用）
-    adjustedParam.srcWidth = param->srcWidth - alignedMinX;
-    adjustedParam.srcHeight = param->srcHeight - minY;
-
-    // 既存の1bpp DDA関数を使用
-    pixel_format::detail::copyQuadDDA_1bpp(dst, unpackBuf, count, &adjustedParam);
-
-    delete[] unpackBuf;
 }
 
 // ========================================================================
