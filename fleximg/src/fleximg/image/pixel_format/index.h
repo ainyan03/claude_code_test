@@ -302,7 +302,7 @@ static void indexN_expandIndex(
     uint8_t* dstPtr = static_cast<uint8_t*>(dst);
     const uint8_t* palette = static_cast<const uint8_t*>(aux->palette);
     // パレットフォーマットのバイト数を取得
-    int_fast8_t paletteBpp = static_cast<int_fast8_t>(aux->paletteFormat->bytesPerPixel);
+    int_fast8_t paletteBytesPerPixel = static_cast<int_fast8_t>(aux->paletteFormat->bytesPerPixel);
 
     const uint8_t pixelOffsetInByte = aux->pixelOffsetInByte;  // bit-packed用のビットオフセット取得
     int remaining = pixelCount;
@@ -320,14 +320,14 @@ static void indexN_expandIndex(
         }
 
         // パレット展開
-        if (paletteBpp == 4) {
+        if (paletteBytesPerPixel == 4) {
             pixel_format::detail::lut8to32(
                 reinterpret_cast<uint32_t*>(dstPtr),
                 indexBuf,
                 chunk,
                 reinterpret_cast<const uint32_t*>(palette)
             );
-        } else if (paletteBpp == 2) {
+        } else if (paletteBytesPerPixel == 2) {
             pixel_format::detail::lut8to16(
                 reinterpret_cast<uint16_t*>(dstPtr),
                 indexBuf,
@@ -338,15 +338,15 @@ static void indexN_expandIndex(
             // 汎用パス (1, 3 byte等)
             for (int i = 0; i < chunk; ++i) {
                 std::memcpy(
-                    dstPtr + static_cast<size_t>(i) * static_cast<size_t>(paletteBpp),
-                    palette + static_cast<size_t>(indexBuf[i]) * static_cast<size_t>(paletteBpp),
-                    static_cast<size_t>(paletteBpp)
+                    dstPtr + static_cast<size_t>(i) * static_cast<size_t>(paletteBytesPerPixel),
+                    palette + static_cast<size_t>(indexBuf[i]) * static_cast<size_t>(paletteBytesPerPixel),
+                    static_cast<size_t>(paletteBytesPerPixel)
                 );
             }
         }
 
         srcPtr += (chunk + MaxPixelsPerByte - 1) / MaxPixelsPerByte;
-        dstPtr += chunk * paletteBpp;
+        dstPtr += chunk * paletteBytesPerPixel;
         remaining -= chunk;
     }
 }

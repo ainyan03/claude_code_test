@@ -450,7 +450,7 @@ RenderResponse& MatteNode::onPullProcess(const RenderRequest& request) {
         if (converter) {
             ViewPort bgViewPort = bgResultPtr->view();
             ViewPort outView = outputBuf.view();
-            int srcBpp = bgViewPort.bytesPerPixel();
+            int srcBytesPerPixel = bgViewPort.bytesPerPixel();
 
             // bgの有効範囲を計算（出力座標系）
             int copyStartX = std::max(0, bgOffsetX);
@@ -465,7 +465,7 @@ RenderResponse& MatteNode::onPullProcess(const RenderRequest& request) {
                     int srcY = y - bgOffsetY;
                     const uint8_t* srcRow = static_cast<const uint8_t*>(bgViewPort.data)
                                           + srcY * bgViewPort.stride
-                                          + srcStartX * srcBpp;
+                                          + srcStartX * srcBytesPerPixel;
                     uint8_t* dstRow = static_cast<uint8_t*>(outView.data)
                                     + y * outView.stride
                                     + copyStartX * 4;

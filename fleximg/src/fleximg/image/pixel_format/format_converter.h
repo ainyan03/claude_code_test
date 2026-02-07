@@ -102,8 +102,8 @@ static void fcv_expandIndex_fromStraight(void* dst, const void* src,
         applyColorKey(reinterpret_cast<uint32_t*>(straightBuf), chunk,
                       c->colorKeyRGBA8, c->colorKeyReplace);
         c->fromStraight(dstPtr, straightBuf, chunk, nullptr);
-        srcPtr += chunk * c->srcBpp;
-        dstPtr += chunk * c->dstBpp;
+        srcPtr += chunk * c->srcBytesPerPixel;
+        dstPtr += chunk * c->dstBytesPerPixel;
         remaining -= chunk;
     }
 }
@@ -113,8 +113,8 @@ static void fcv_expandIndex_fromStraight(void* dst, const void* src,
 static void fcv_expandIndex_toStraight_fromStraight(
     void* dst, const void* src, int pixelCount, const void* ctx) {
     auto* c = static_cast<const FormatConverter::Context*>(ctx);
-    FLEXIMG_ASSERT(c->paletteBpp <= MAX_BYTES_PER_PIXEL,
-                   "paletteBpp exceeds MAX_BYTES_PER_PIXEL");
+    FLEXIMG_ASSERT(c->paletteBytesPerPixel <= MAX_BYTES_PER_PIXEL,
+                   "paletteBytesPerPixel exceeds MAX_BYTES_PER_PIXEL");
 
     // 単一バッファ: expandIndex出力を末尾に配置し、toStraightで先頭から上書き
     uint8_t buf[FCV_CHUNK_SIZE * MAX_BYTES_PER_PIXEL];
@@ -130,7 +130,7 @@ static void fcv_expandIndex_toStraight_fromStraight(
     int remaining = pixelCount;
 
     // 末尾詰めオフセット: toStraightが前から処理する際に上書きが発生しない位置（固定）
-    uint8_t* expandPtr = buf + (MAX_BYTES_PER_PIXEL - c->paletteBpp) * FCV_CHUNK_SIZE;
+    uint8_t* expandPtr = buf + (MAX_BYTES_PER_PIXEL - c->paletteBytesPerPixel) * FCV_CHUNK_SIZE;
 
     while (remaining > 0) {
         int chunk = (remaining < FCV_CHUNK_SIZE) ? remaining : FCV_CHUNK_SIZE;
@@ -139,8 +139,8 @@ static void fcv_expandIndex_toStraight_fromStraight(
         applyColorKey(reinterpret_cast<uint32_t*>(buf), chunk,
                       c->colorKeyRGBA8, c->colorKeyReplace);
         c->fromStraight(dstPtr, buf, chunk, nullptr);
-        srcPtr += chunk * c->srcBpp;
-        dstPtr += chunk * c->dstBpp;
+        srcPtr += chunk * c->srcBytesPerPixel;
+        dstPtr += chunk * c->dstBytesPerPixel;
         remaining -= chunk;
     }
 }
@@ -162,8 +162,8 @@ static void fcv_toStraight_fromStraight(void* dst, const void* src,
         applyColorKey(reinterpret_cast<uint32_t*>(straightBuf), chunk,
                       c->colorKeyRGBA8, c->colorKeyReplace);
         c->fromStraight(dstPtr, straightBuf, chunk, nullptr);
-        srcPtr += chunk * c->srcBpp;
-        dstPtr += chunk * c->dstBpp;
+        srcPtr += chunk * c->srcBytesPerPixel;
+        dstPtr += chunk * c->dstBytesPerPixel;
         remaining -= chunk;
     }
 }
@@ -181,9 +181,9 @@ FormatConverter resolveConverter(
 
     if (!srcFormat || !dstFormat) return result;
 
-    // BPP情報を設定（チャンク処理のポインタ進行用）
-    result.ctx.srcBpp = static_cast<int_fast8_t>(getBytesPerPixel(srcFormat));
-    result.ctx.dstBpp = static_cast<int_fast8_t>(getBytesPerPixel(dstFormat));
+    // BytesPerPixel情報を設定（チャンク処理のポインタ進行用）
+    result.ctx.srcBytesPerPixel = static_cast<int_fast8_t>(getBytesPerPixel(srcFormat));
+    result.ctx.dstBytesPerPixel = static_cast<int_fast8_t>(getBytesPerPixel(dstFormat));
 
     // pixelOffsetInByteを伝播（bit-packed用）
     if (srcAux) {
@@ -238,7 +238,7 @@ FormatConverter resolveConverter(
         if (palFmt && palFmt->toStraight && dstFormat->fromStraight) {
             result.ctx.toStraight = palFmt->toStraight;
             result.ctx.fromStraight = dstFormat->fromStraight;
-            result.ctx.paletteBpp = static_cast<int_fast8_t>(getBytesPerPixel(palFmt));
+            result.ctx.paletteBytesPerPixel = static_cast<int_fast8_t>(getBytesPerPixel(palFmt));
             result.func = fcv_expandIndex_toStraight_fromStraight;
         }
         return result;

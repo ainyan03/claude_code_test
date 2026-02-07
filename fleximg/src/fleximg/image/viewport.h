@@ -459,9 +459,9 @@ void copyRowDDABilinear(
 
     // 元フォーマットのBytesPerPixel（末尾詰め配置用）
     // bit-packedの場合、copyQuadDDAはIndex8形式で出力するため、1バイトとする
-    const int srcBpp = (src.formatID->pixelsPerUnit > 1)
-                     ? 1  // bit-packed: copyQuadDDAがIndex8で出力
-                     : src.formatID->bytesPerPixel;  // 通常フォーマット
+    const int srcBytesPerPixel = (src.formatID->pixelsPerUnit > 1)
+                              ? 1  // bit-packed: copyQuadDDAがIndex8で出力
+                              : src.formatID->bytesPerPixel;  // 通常フォーマット
 
     // フォーマット変換が必要な場合、ループ外で一度だけresolveConverter呼び出し
     // bit-packedの場合、copyQuadDDAの出力はIndex8形式なので、Index8→RGBA8の変換を使う
@@ -496,7 +496,7 @@ void copyRowDDABilinear(
         int chunk = (count - offset < CHUNK_SIZE) ? (count - offset) : CHUNK_SIZE;
 
         // 4ピクセル抽出 + edgeFlags生成（末尾詰め配置でin-place変換可能）
-        int srcQuadSize = srcBpp * 4 * chunk;
+        int srcQuadSize = srcBytesPerPixel * 4 * chunk;
         int dstQuadSize = RGBA8_BPP * 4 * chunk;
         auto quadPtr = reinterpret_cast<uint8_t*>(quadBuffer) + (dstQuadSize - srcQuadSize);
         src.formatID->copyQuadDDA(quadPtr, srcData, chunk, &param);

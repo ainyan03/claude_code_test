@@ -506,11 +506,11 @@ struct FormatConverter {
         PixelFormatDescriptor::FromStraightFunc fromStraight = nullptr;
 
         // BytesPerPixel情報（チャンク処理のポインタ進行用）
-        int_fast8_t srcBpp = 0;
-        int_fast8_t dstBpp = 0;
+        int_fast8_t srcBytesPerPixel = 0;
+        int_fast8_t dstBytesPerPixel = 0;
 
         // パレット展開時のBytesPerPixel（中間バッファ用）
-        int_fast8_t paletteBpp = 0;
+        int_fast8_t paletteBytesPerPixel = 0;
 
         // カラーキー情報（toStraight後にin-placeで適用）
         uint32_t colorKeyRGBA8 = 0;

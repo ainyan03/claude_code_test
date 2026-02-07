@@ -12,6 +12,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- **BytesPerPixel変数名の明確化**
+  - `srcBpp`, `dstBpp`, `paletteBpp` を `srcBytesPerPixel`, `dstBytesPerPixel`, `paletteBytesPerPixel` にリネーム
+  - `Bpp` 略語がbit/byteどちらか不明瞭だった問題を解消
+  - 対象: FormatConverter::Context メンバおよび関連ローカル変数（6ファイル）
+
 - **ViewPort Coordinate Offset Support**（Plan B実装）
   - ViewPortに `x, y` 座標フィールドを追加（bit-packed format対応の根本的解決）
   - `data` ポインタは常にバッファ全体を指し、`(x,y)` で論理的な開始位置を表現
