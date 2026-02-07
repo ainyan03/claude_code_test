@@ -12,6 +12,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- **ViewPort Coordinate Offset Support**
+  - ViewPortに `x, y` 座標フィールドを追加（bit-packed format対応の根本的解決）
+  - `data` ポインタは常にバッファ全体を指し、`(x,y)` で論理的な開始位置を表現
+  - `subView()` は座標オフセットを累積（dataポインタを進めない）
+  - 全フォーマット（bit-packed含む）で統一的に動作
+  - 将来的なクロップ最適化、ウィンドウ管理の基盤
+
 - **DDA Function Consolidation and Naming Unification**
   - DDA（Digital Differential Analyzer）関連の関数を機能別に集約
   - 新規ファイル `pixel_format/dda.h` を作成し、全てのDDA関数を統合

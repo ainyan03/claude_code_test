@@ -188,7 +188,9 @@ TEST_CASE("view_ops::subView") {
 
     SUBCASE("subView with offset") {
         auto sub = view_ops::subView(v, 2, 3, 4, 4);
-        CHECK(sub.data == v.pixelAt(2, 3));
+        CHECK(sub.data == buffer);  // Plan B: dataポインタは進めない
+        CHECK(sub.x == 2);           // Plan B: オフセットはx,yで保持
+        CHECK(sub.y == 3);
         CHECK(sub.width == 4);
         CHECK(sub.height == 4);
         CHECK(sub.stride == v.stride);
