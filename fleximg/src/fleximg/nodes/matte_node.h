@@ -110,7 +110,9 @@ private:
             InputView v;
             if (!resp.isValid()) return v;
             ViewPort vp = resp.view();
-            v.ptr = static_cast<const uint8_t*>(vp.data);
+            v.ptr = static_cast<const uint8_t*>(vp.data)
+                  + vp.y * vp.stride
+                  + vp.x * vp.bytesPerPixel();
             v.width = vp.width;
             v.height = vp.height;
             v.stride = vp.stride;
