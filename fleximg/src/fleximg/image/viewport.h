@@ -435,7 +435,9 @@ void copyRowDDABilinear(
 
     // 元フォーマットのBPP（末尾詰め配置用）
     // bit-packedの場合、copyQuadDDAはIndex8形式で出力するため、bpp=1とする
-    const int srcBpp = 1;
+    const int srcBpp = (src.formatID->pixelsPerUnit > 1)
+                     ? 1  // bit-packed: copyQuadDDAがIndex8で出力
+                     : ((src.formatID->bitsPerPixel + 7) / 8);  // 通常フォーマット
 
     // フォーマット変換が必要な場合、ループ外で一度だけresolveConverter呼び出し
     // bit-packedの場合、copyQuadDDAの出力はIndex8形式なので、Index8→RGBA8の変換を使う
