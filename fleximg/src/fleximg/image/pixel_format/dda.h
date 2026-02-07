@@ -480,7 +480,54 @@ inline void copyQuadDDA_4Byte(uint8_t* dst, const uint8_t* srcData, int count, c
 //       このセクションは bit_packed_index.h がインクルードされた後に
 //       コンパイルされる必要があります。
 
-// copyRowDDA_Bit: ピクセル単位で bit-packed から直接読み取り
+// copyRowDDA_Bit_ConstY: Y座標一定パス（バルクunpack + DDAサンプリング）
+// ソース行のピクセル範囲を一括unpackし、バイト配列上でDDAサンプリングする
+template<int BitsPerPixel, BitOrder Order>
+void copyRowDDA_Bit_ConstY(
+    uint8_t* __restrict__ dst,
+    const uint8_t* __restrict__ srcData,
+    int count,
+    const DDAParam* param
+) {
+    constexpr int PixelsPerByte = 8 / BitsPerPixel;
+    int_fixed srcX = param->srcX;
+    const int_fixed incrX = param->incrX;
+    const int32_t sy = param->srcY >> INT_FIXED_SHIFT;
+    const uint8_t* srcRow = srcData + static_cast<size_t>(sy) * static_cast<size_t>(param->srcStride);
+
+    // DDAが参照するX範囲を計算
+    int32_t firstSx = srcX >> INT_FIXED_SHIFT;
+    int32_t lastSx = (srcX + incrX * (count - 1)) >> INT_FIXED_SHIFT;
+    int32_t minSx = std::min(firstSx, lastSx);
+    int32_t maxSx = std::max(firstSx, lastSx);
+    int32_t unpackCount = maxSx - minSx + 1;
+
+    // スタックバッファでバルクunpack
+    constexpr int StackBufSize = 256;
+    uint8_t stackBuf[StackBufSize];
+
+    if (unpackCount <= StackBufSize) {
+        uint8_t pixelOffset = static_cast<uint8_t>(minSx % PixelsPerByte);
+        const uint8_t* srcByte = srcRow + (minSx / PixelsPerByte);
+        bit_packed_detail::unpackIndexBits<BitsPerPixel, Order>(
+            stackBuf, srcByte, static_cast<int>(unpackCount), pixelOffset);
+
+        // DDAサンプリング（unpack済みバイト配列から読み取り）
+        for (int i = 0; i < count; ++i) {
+            dst[i] = stackBuf[(srcX >> INT_FIXED_SHIFT) - minSx];
+            srcX += incrX;
+        }
+    } else {
+        // バッファに収まらない場合: per-pixel fallback
+        for (int i = 0; i < count; ++i) {
+            dst[i] = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(
+                srcData, srcX >> INT_FIXED_SHIFT, sy, param->srcStride);
+            srcX += incrX;
+        }
+    }
+}
+
+// copyRowDDA_Bit: bit-packed DDA転写（ConstY判定付き）
 template<int BitsPerPixel, BitOrder Order>
 inline void copyRowDDA_Bit(
     uint8_t* dst,
@@ -488,22 +535,29 @@ inline void copyRowDDA_Bit(
     int count,
     const DDAParam* param
 ) {
-    // LovyanGFXスタイル: ピクセル単位で直接読み取り
-    // 境界チェックは呼び出し側が保証（calcScanlineRange）
-    int_fixed srcX = param->srcX;
-    int_fixed srcY = param->srcY;
-    const int_fixed incrX = param->incrX;
+    const int_fixed srcY = param->srcY;
     const int_fixed incrY = param->incrY;
+
+    // ConstY判定（copyRowDDA_Byte と同一ロジック）:
+    // ソースY座標の整数部が全ピクセルで同一かチェック
+    if (0 == (((srcY & ((1 << INT_FIXED_SHIFT) - 1)) + incrY * count) >> INT_FIXED_SHIFT)) {
+        copyRowDDA_Bit_ConstY<BitsPerPixel, Order>(dst, srcData, count, param);
+        return;
+    }
+
+    // 汎用パス（回転を含む変換: per-pixel readPixelDirect）
+    int_fixed srcX = param->srcX;
+    int_fixed srcY_var = srcY;
+    const int_fixed incrX = param->incrX;
     const int32_t srcStride = param->srcStride;
 
     for (int i = 0; i < count; ++i) {
         int32_t sx = srcX >> INT_FIXED_SHIFT;
-        int32_t sy = srcY >> INT_FIXED_SHIFT;
+        int32_t sy = srcY_var >> INT_FIXED_SHIFT;
         srcX += incrX;
-        srcY += incrY;
+        srcY_var += incrY;
 
 #ifdef FLEXIMG_DEBUG
-        // デバッグビルドのみ: width/heightが設定されている場合は境界チェック
         if (param->srcWidth > 0 && param->srcHeight > 0) {
             FLEXIMG_REQUIRE(sx >= 0 && sx < param->srcWidth &&
                           sy >= 0 && sy < param->srcHeight,

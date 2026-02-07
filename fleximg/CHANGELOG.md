@@ -12,6 +12,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- **bit-packed unpackロジック集約 + Index8処理共通化**
+  - パレットLUT処理を `applyPaletteLUT` 共通関数として切り出し、Index8/IndexN で共有
+  - `indexN_expandIndex` を末尾詰め方式に変更（チャンクバッファ不要、in-place展開）
+  - `indexN_toStraight` を末尾詰め + `index8_toStraight` 委譲に変更
+  - `copyRowDDA_Bit` に ConstY 高速パス追加（バルクunpack + DDAサンプリング）
+
 - **`getBytesPerPixel()` 関数を廃止・直接アクセス化**
   - `getBytesPerPixel(fmt)` → `fmt->bytesPerPixel` に全面置換
   - `ViewPort::bytesPerPixel()` / `ImageBuffer::bytesPerPixel()` の戻り値型を `uint8_t` に統一
