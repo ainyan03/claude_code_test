@@ -146,45 +146,51 @@ inline uint8_t readPixelDirect(const uint8_t* srcData, int32_t x, int32_t y, int
 } // namespace bit_packed_detail
 
 // ========================================================================
-// Index8: パレットインデックス（8bit） → パレットフォーマットのピクセルデータ
+// 共通パレットLUT関数（__restrict__ なし、in-place安全）
 // ========================================================================
+//
+// インデックス値（uint8_t配列）をパレットフォーマットのピクセルに展開する。
+// index8_expandIndex / indexN_expandIndex 双方から呼ばれる共通実装。
+// __restrict__ なしのため、末尾詰め方式のin-place展開にも対応。
+//
+// lut8toN は4ピクセル単位で「全読み→全書き」するため、
+// src が dst の末尾に配置されている場合でも読み出しが書き込みより先行し安全。
 
-// expandIndex: インデックス値をパレットフォーマットのピクセルに展開
-// aux->palette, aux->paletteFormat を参照
-// 出力はパレットフォーマットのピクセルデータ
-static void index8_expandIndex(void* __restrict__ dst, const void* __restrict__ src,
-                               int pixelCount, const PixelAuxInfo* __restrict__ aux) {
-    FLEXIMG_FMT_METRICS(Index8, ToStraight, pixelCount);
-    const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
-    uint8_t* __restrict__ d = static_cast<uint8_t*>(dst);
-
+static void applyPaletteLUT(void* dst, const void* src,
+                            int pixelCount, const PixelAuxInfo* aux) {
     if (!aux || !aux->palette || !aux->paletteFormat) {
-        // パレットなし: ゼロ埋め
         std::memset(dst, 0, static_cast<size_t>(pixelCount));
         return;
     }
 
+    const uint8_t* s = static_cast<const uint8_t*>(src);
+    uint8_t* d = static_cast<uint8_t*>(dst);
     const uint8_t* p = static_cast<const uint8_t*>(aux->palette);
-    // パレットフォーマットのバイト数を取得
-    // 注意: インデックス値の境界チェックは行わない（呼び出し側の責務）
     int_fast8_t bpc = static_cast<int_fast8_t>(aux->paletteFormat->bytesPerPixel);
 
     if (bpc == 4) {
-        // 4バイト（RGBA8等）高速パス
         pixel_format::detail::lut8to32(reinterpret_cast<uint32_t*>(d), s, pixelCount,
                          reinterpret_cast<const uint32_t*>(p));
     } else if (bpc == 2) {
-        // 2バイト（RGB565等）高速パス
         pixel_format::detail::lut8to16(reinterpret_cast<uint16_t*>(d), s, pixelCount,
                          reinterpret_cast<const uint16_t*>(p));
     } else {
-        // 汎用パス（1, 3バイト等）
         for (int i = 0; i < pixelCount; ++i) {
             std::memcpy(d + static_cast<size_t>(i) * static_cast<size_t>(bpc),
                         p + static_cast<size_t>(s[i]) * static_cast<size_t>(bpc),
                         static_cast<size_t>(bpc));
         }
     }
+}
+
+// ========================================================================
+// Index8: パレットインデックス（8bit） → パレットフォーマットのピクセルデータ
+// ========================================================================
+
+static void index8_expandIndex(void* __restrict__ dst, const void* __restrict__ src,
+                               int pixelCount, const PixelAuxInfo* __restrict__ aux) {
+    FLEXIMG_FMT_METRICS(Index8, ToStraight, pixelCount);
+    applyPaletteLUT(dst, src, pixelCount, aux);
 }
 
 // ========================================================================
@@ -278,6 +284,8 @@ const PixelFormatDescriptor Index8 = {
 // ========================================================================
 
 // 変換関数: expandIndex (パレット展開)
+// 末尾詰め方式: 出力バッファ末尾にIndex8データをunpackし、
+// applyPaletteLUTでin-place展開する（チャンクバッファ不要）
 template<int BitsPerPixel, BitOrder Order>
 static void indexN_expandIndex(
     void* __restrict__ dst,
@@ -286,70 +294,28 @@ static void indexN_expandIndex(
     const PixelAuxInfo* __restrict__ aux
 ) {
     if (!aux || !aux->palette || !aux->paletteFormat) {
-        // パレットなし: ゼロ埋め
         std::memset(dst, 0, static_cast<size_t>(pixelCount));
         return;
     }
 
-    // ビットアンパック: packed → 8bit index array
-    constexpr int MaxPixelsPerByte = 8 / BitsPerPixel;
-    constexpr int ChunkSize = 64;  // スタックバッファサイズ
-    uint8_t indexBuf[ChunkSize];
+    uint8_t* d = static_cast<uint8_t*>(dst);
+    const uint8_t* s = static_cast<const uint8_t*>(src);
+    int palBpp = aux->paletteFormat->bytesPerPixel;
 
-    const uint8_t* srcPtr = static_cast<const uint8_t*>(src);
-    uint8_t* dstPtr = static_cast<uint8_t*>(dst);
-    const uint8_t* palette = static_cast<const uint8_t*>(aux->palette);
-    // パレットフォーマットのバイト数を取得
-    int_fast8_t paletteBytesPerPixel = static_cast<int_fast8_t>(aux->paletteFormat->bytesPerPixel);
+    // 末尾詰め: dstの後方にIndex8データをunpack
+    // palBpp=4: offset=3N, palBpp=2: offset=N, palBpp=1: offset=0
+    uint8_t* indexData = d + static_cast<size_t>(pixelCount) * static_cast<size_t>(palBpp - 1);
 
-    const uint8_t pixelOffsetInByte = aux->pixelOffsetInByte;  // bit-packed用のビットオフセット取得
-    int remaining = pixelCount;
-    bool isFirstChunk = true;
+    bit_packed_detail::unpackIndexBits<BitsPerPixel, Order>(
+        indexData, s, pixelCount, aux->pixelOffsetInByte);
 
-    while (remaining > 0) {
-        int chunk = (remaining < ChunkSize) ? remaining : ChunkSize;
-
-        // アンパック（最初のチャンクのみpixelOffsetInByteを使用）
-        if (isFirstChunk && pixelOffsetInByte != 0) {
-            bit_packed_detail::unpackIndexBits<BitsPerPixel, Order>(indexBuf, srcPtr, chunk, pixelOffsetInByte);
-            isFirstChunk = false;
-        } else {
-            bit_packed_detail::unpackIndexBits<BitsPerPixel, Order>(indexBuf, srcPtr, chunk);
-        }
-
-        // パレット展開
-        if (paletteBytesPerPixel == 4) {
-            pixel_format::detail::lut8to32(
-                reinterpret_cast<uint32_t*>(dstPtr),
-                indexBuf,
-                chunk,
-                reinterpret_cast<const uint32_t*>(palette)
-            );
-        } else if (paletteBytesPerPixel == 2) {
-            pixel_format::detail::lut8to16(
-                reinterpret_cast<uint16_t*>(dstPtr),
-                indexBuf,
-                chunk,
-                reinterpret_cast<const uint16_t*>(palette)
-            );
-        } else {
-            // 汎用パス (1, 3 byte等)
-            for (int i = 0; i < chunk; ++i) {
-                std::memcpy(
-                    dstPtr + static_cast<size_t>(i) * static_cast<size_t>(paletteBytesPerPixel),
-                    palette + static_cast<size_t>(indexBuf[i]) * static_cast<size_t>(paletteBytesPerPixel),
-                    static_cast<size_t>(paletteBytesPerPixel)
-                );
-            }
-        }
-
-        srcPtr += (chunk + MaxPixelsPerByte - 1) / MaxPixelsPerByte;
-        dstPtr += chunk * paletteBytesPerPixel;
-        remaining -= chunk;
-    }
+    // 共通パレットLUTでin-place展開
+    applyPaletteLUT(dst, indexData, pixelCount, aux);
 }
 
 // 変換関数: toStraight (パレットなし時のグレースケール展開)
+// 末尾詰め方式: 出力バッファ(RGBA8=4byte/pixel)の末尾にIndex8データをunpackし、
+// スケーリング後に index8_toStraight でin-place展開する
 template<int BitsPerPixel, BitOrder Order>
 static void indexN_toStraight(
     void* __restrict__ dst,
@@ -357,45 +323,25 @@ static void indexN_toStraight(
     int pixelCount,
     const PixelAuxInfo* aux
 ) {
-    constexpr int MaxPixelsPerByte = 8 / BitsPerPixel;
-    constexpr int ChunkSize = 64;
-    uint8_t indexBuf[ChunkSize];
+    uint8_t* d = static_cast<uint8_t*>(dst);
+    const uint8_t* s = static_cast<const uint8_t*>(src);
 
-    const uint8_t* srcPtr = static_cast<const uint8_t*>(src);
-    uint8_t* dstPtr = static_cast<uint8_t*>(dst);
+    // 末尾詰め: RGBA8出力(4byte/pixel)の後方にIndex8(1byte/pixel)をunpack
+    uint8_t* indexData = d + static_cast<size_t>(pixelCount) * 3;
 
-    // スケーリング係数（インデックス値を0-255に拡張）
+    const uint8_t pixelOffsetInByte = aux ? aux->pixelOffsetInByte : 0;
+    bit_packed_detail::unpackIndexBits<BitsPerPixel, Order>(
+        indexData, s, pixelCount, pixelOffsetInByte);
+
+    // スケーリング: IndexN値(0-MaxIndex) → 0-255 (Index8相当)
     constexpr int MaxIndex = (1 << BitsPerPixel) - 1;
     constexpr int Scale = 255 / MaxIndex;
-
-    const uint8_t pixelOffsetInByte = aux ? aux->pixelOffsetInByte : 0;  // bit-packed用のビットオフセット取得
-    int remaining = pixelCount;
-    bool isFirstChunk = true;
-
-    while (remaining > 0) {
-        int chunk = (remaining < ChunkSize) ? remaining : ChunkSize;
-
-        // アンパック（最初のチャンクのみpixelOffsetInByteを使用）
-        if (isFirstChunk && pixelOffsetInByte != 0) {
-            bit_packed_detail::unpackIndexBits<BitsPerPixel, Order>(indexBuf, srcPtr, chunk, pixelOffsetInByte);
-            isFirstChunk = false;
-        } else {
-            bit_packed_detail::unpackIndexBits<BitsPerPixel, Order>(indexBuf, srcPtr, chunk);
-        }
-
-        // グレースケール展開 (RGBA8)
-        for (int i = 0; i < chunk; ++i) {
-            uint8_t gray = static_cast<uint8_t>(indexBuf[i] * Scale);
-            dstPtr[i * 4 + 0] = gray;  // R
-            dstPtr[i * 4 + 1] = gray;  // G
-            dstPtr[i * 4 + 2] = gray;  // B
-            dstPtr[i * 4 + 3] = 255;   // A
-        }
-
-        srcPtr += (chunk + MaxPixelsPerByte - 1) / MaxPixelsPerByte;
-        dstPtr += chunk * 4;
-        remaining -= chunk;
+    for (int i = 0; i < pixelCount; ++i) {
+        indexData[i] = static_cast<uint8_t>(indexData[i] * Scale);
     }
+
+    // index8_toStraight に委譲（in-place: indexData → d）
+    index8_toStraight(dst, indexData, pixelCount, nullptr);
 }
 
 // 変換関数: fromStraight (RGBA8 → Index, 輝度計算 + 量子化)
