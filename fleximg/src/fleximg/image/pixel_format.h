@@ -98,16 +98,16 @@ using CopyQuadDDA_Func = void(*)(
 
 // BytesPerPixel別 DDA転写関数（前方宣言）
 // 実装は FLEXIMG_IMPLEMENTATION 部で提供
-void copyRowDDA_1bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
-void copyRowDDA_2bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
-void copyRowDDA_3bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
-void copyRowDDA_4bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+void copyRowDDA_1Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+void copyRowDDA_2Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+void copyRowDDA_3Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+void copyRowDDA_4Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
 
 // BytesPerPixel別 DDA 4ピクセル抽出関数（前方宣言）
-void copyQuadDDA_1bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
-void copyQuadDDA_2bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
-void copyQuadDDA_3bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
-void copyQuadDDA_4bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+void copyQuadDDA_1Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+void copyQuadDDA_2Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+void copyQuadDDA_3Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+void copyQuadDDA_4Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
 
 // 前方宣言
 struct PixelFormatDescriptor;
@@ -633,16 +633,16 @@ template void copyRowDDA_bpp<3>(uint8_t*, const uint8_t*, int, const DDAParam*);
 template void copyRowDDA_bpp<4>(uint8_t*, const uint8_t*, int, const DDAParam*);
 
 // BytesPerPixel別の関数ポインタ取得用ラッパー（非テンプレート）
-inline void copyRowDDA_1bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+inline void copyRowDDA_1Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
     copyRowDDA_bpp<1>(dst, srcData, count, param);
 }
-inline void copyRowDDA_2bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+inline void copyRowDDA_2Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
     copyRowDDA_bpp<2>(dst, srcData, count, param);
 }
-inline void copyRowDDA_3bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+inline void copyRowDDA_3Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
     copyRowDDA_bpp<3>(dst, srcData, count, param);
 }
-inline void copyRowDDA_4bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+inline void copyRowDDA_4Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
     copyRowDDA_bpp<4>(dst, srcData, count, param);
 }
 
@@ -810,16 +810,16 @@ template void copyQuadDDA_bpp<3>(uint8_t*, const uint8_t*, int, const DDAParam*)
 template void copyQuadDDA_bpp<4>(uint8_t*, const uint8_t*, int, const DDAParam*);
 
 // BytesPerPixel別の関数ポインタ取得用ラッパー（非テンプレート）
-inline void copyQuadDDA_1bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+inline void copyQuadDDA_1Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
     copyQuadDDA_bpp<1>(dst, srcData, count, param);
 }
-inline void copyQuadDDA_2bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+inline void copyQuadDDA_2Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
     copyQuadDDA_bpp<2>(dst, srcData, count, param);
 }
-inline void copyQuadDDA_3bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+inline void copyQuadDDA_3Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
     copyQuadDDA_bpp<3>(dst, srcData, count, param);
 }
-inline void copyQuadDDA_4bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+inline void copyQuadDDA_4Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
     copyQuadDDA_bpp<4>(dst, srcData, count, param);
 }
 
