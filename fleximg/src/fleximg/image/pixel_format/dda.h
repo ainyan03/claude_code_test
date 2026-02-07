@@ -55,7 +55,7 @@ template<size_t BytesPerPixel>
 void copyRowDDA_ConstY(
     uint8_t* __restrict__ dstRow,
     const uint8_t* __restrict__ srcData,
-    int count,
+    int_fast16_t count,
     const DDAParam* param
 ) {
     int_fixed srcX = param->srcX;
@@ -92,15 +92,15 @@ void copyRowDDA_ConstY(
         using T = typename PixelType<BytesPerPixel>::type;
         auto src = reinterpret_cast<const T*>(srcRowBase);
         auto dst = reinterpret_cast<T*>(dstRow);
-        int remainder = count & 3;
-        for (int i = 0; i < remainder; i++) {
+        int_fast16_t remainder = count & 3;
+        for (int_fast16_t i = 0; i < remainder; i++) {
             // BytesPerPixel 1, 2, 4: ネイティブ型でロード・ストア分離
             auto p0 = src[srcX >> INT_FIXED_SHIFT]; srcX += incrX;
             dst[0] = p0;
             dst += 1;
         }
-        int count4 = count >> 2;
-        for (int i = 0; i < count4; i++) {
+        int_fast16_t count4 = count >> 2;
+        for (int_fast16_t i = 0; i < count4; i++) {
             // BytesPerPixel 1, 2, 4: ネイティブ型でロード・ストア分離
             auto p0 = src[srcX >> INT_FIXED_SHIFT]; srcX += incrX;
             auto p1 = src[srcX >> INT_FIXED_SHIFT]; srcX += incrX;
@@ -122,7 +122,7 @@ template<size_t BytesPerPixel>
 void copyRowDDA_ConstX(
     uint8_t* __restrict__ dstRow,
     const uint8_t* __restrict__ srcData,
-    int count,
+    int_fast16_t count,
     const DDAParam* param
 ) {
     int_fixed srcY = param->srcY;
@@ -145,7 +145,7 @@ void copyRowDDA_ConstX(
     } else {
         using T = typename PixelType<BytesPerPixel>::type;
         auto dst = reinterpret_cast<T*>(dstRow);
-        int remain = count & 3;
+        int_fast16_t remain = count & 3;
         while (remain--) {
             sy = srcY >> INT_FIXED_SHIFT;
             auto p = *reinterpret_cast<const T*>(srcColBase + static_cast<size_t>(sy * srcStride));
@@ -185,7 +185,7 @@ template<size_t BytesPerPixel>
 void copyRowDDA_Impl(
     uint8_t* __restrict__ dstRow,
     const uint8_t* __restrict__ srcData,
-    int count,
+    int_fast16_t count,
     const DDAParam* param
 ) {
     int_fixed srcY = param->srcY;
@@ -248,7 +248,7 @@ template<size_t BytesPerPixel>
 void copyRowDDA_Byte(
     uint8_t* dst,
     const uint8_t* srcData,
-    int count,
+    int_fast16_t count,
     const DDAParam* param
 ) {
     const int_fixed srcY = param->srcY;
@@ -273,22 +273,22 @@ void copyRowDDA_Byte(
 }
 
 // 明示的インスタンス化（各フォーマットから参照される）
-template void copyRowDDA_Byte<1>(uint8_t*, const uint8_t*, int, const DDAParam*);
-template void copyRowDDA_Byte<2>(uint8_t*, const uint8_t*, int, const DDAParam*);
-template void copyRowDDA_Byte<3>(uint8_t*, const uint8_t*, int, const DDAParam*);
-template void copyRowDDA_Byte<4>(uint8_t*, const uint8_t*, int, const DDAParam*);
+template void copyRowDDA_Byte<1>(uint8_t*, const uint8_t*, int_fast16_t, const DDAParam*);
+template void copyRowDDA_Byte<2>(uint8_t*, const uint8_t*, int_fast16_t, const DDAParam*);
+template void copyRowDDA_Byte<3>(uint8_t*, const uint8_t*, int_fast16_t, const DDAParam*);
+template void copyRowDDA_Byte<4>(uint8_t*, const uint8_t*, int_fast16_t, const DDAParam*);
 
 // BytesPerPixel別の関数ポインタ取得用ラッパー（非テンプレート）
-inline void copyRowDDA_1Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+inline void copyRowDDA_1Byte(uint8_t* dst, const uint8_t* srcData, int_fast16_t count, const DDAParam* param) {
     copyRowDDA_Byte<1>(dst, srcData, count, param);
 }
-inline void copyRowDDA_2Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+inline void copyRowDDA_2Byte(uint8_t* dst, const uint8_t* srcData, int_fast16_t count, const DDAParam* param) {
     copyRowDDA_Byte<2>(dst, srcData, count, param);
 }
-inline void copyRowDDA_3Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+inline void copyRowDDA_3Byte(uint8_t* dst, const uint8_t* srcData, int_fast16_t count, const DDAParam* param) {
     copyRowDDA_Byte<3>(dst, srcData, count, param);
 }
-inline void copyRowDDA_4Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+inline void copyRowDDA_4Byte(uint8_t* dst, const uint8_t* srcData, int_fast16_t count, const DDAParam* param) {
     copyRowDDA_Byte<4>(dst, srcData, count, param);
 }
 
@@ -341,7 +341,7 @@ template<size_t BytesPerPixel>
 void copyQuadDDA_Byte(
     uint8_t* __restrict__ dst,
     const uint8_t* __restrict__ srcData,
-    int count,
+    int_fast16_t count,
     const DDAParam* param
 ) {
     constexpr size_t BPP = BytesPerPixel;
@@ -358,7 +358,7 @@ void copyQuadDDA_Byte(
     uint8_t* edgeFlags = param->edgeFlags;
 
     // 全ピクセル境界チェック版（事前範囲チェックなし）
-    for (int i = 0; i < count; ++i) {
+    for (int_fast16_t i = 0; i < count; ++i) {
         int32_t sx = srcX >> INT_FIXED_SHIFT;
         int32_t sy = srcY >> INT_FIXED_SHIFT;
         weightsXY[i].fx = static_cast<uint8_t>(static_cast<uint32_t>(srcX) >> (INT_FIXED_SHIFT - 8));
@@ -450,22 +450,22 @@ void copyQuadDDA_Byte(
     }
 }
 // 明示的インスタンス化
-template void copyQuadDDA_Byte<1>(uint8_t*, const uint8_t*, int, const DDAParam*);
-template void copyQuadDDA_Byte<2>(uint8_t*, const uint8_t*, int, const DDAParam*);
-template void copyQuadDDA_Byte<3>(uint8_t*, const uint8_t*, int, const DDAParam*);
-template void copyQuadDDA_Byte<4>(uint8_t*, const uint8_t*, int, const DDAParam*);
+template void copyQuadDDA_Byte<1>(uint8_t*, const uint8_t*, int_fast16_t, const DDAParam*);
+template void copyQuadDDA_Byte<2>(uint8_t*, const uint8_t*, int_fast16_t, const DDAParam*);
+template void copyQuadDDA_Byte<3>(uint8_t*, const uint8_t*, int_fast16_t, const DDAParam*);
+template void copyQuadDDA_Byte<4>(uint8_t*, const uint8_t*, int_fast16_t, const DDAParam*);
 
 // BytesPerPixel別の関数ポインタ取得用ラッパー（非テンプレート）
-inline void copyQuadDDA_1Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+inline void copyQuadDDA_1Byte(uint8_t* dst, const uint8_t* srcData, int_fast16_t count, const DDAParam* param) {
     copyQuadDDA_Byte<1>(dst, srcData, count, param);
 }
-inline void copyQuadDDA_2Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+inline void copyQuadDDA_2Byte(uint8_t* dst, const uint8_t* srcData, int_fast16_t count, const DDAParam* param) {
     copyQuadDDA_Byte<2>(dst, srcData, count, param);
 }
-inline void copyQuadDDA_3Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+inline void copyQuadDDA_3Byte(uint8_t* dst, const uint8_t* srcData, int_fast16_t count, const DDAParam* param) {
     copyQuadDDA_Byte<3>(dst, srcData, count, param);
 }
-inline void copyQuadDDA_4Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
+inline void copyQuadDDA_4Byte(uint8_t* dst, const uint8_t* srcData, int_fast16_t count, const DDAParam* param) {
     copyQuadDDA_Byte<4>(dst, srcData, count, param);
 }
 
@@ -486,7 +486,7 @@ template<int BitsPerPixel, BitOrder Order>
 void copyRowDDA_Bit_ConstY(
     uint8_t* __restrict__ dst,
     const uint8_t* __restrict__ srcData,
-    int count,
+    int_fast16_t count,
     const DDAParam* param
 ) {
     constexpr int PixelsPerByte = 8 / BitsPerPixel;
@@ -510,16 +510,16 @@ void copyRowDDA_Bit_ConstY(
         uint8_t pixelOffset = static_cast<uint8_t>(minSx % PixelsPerByte);
         const uint8_t* srcByte = srcRow + (minSx / PixelsPerByte);
         bit_packed_detail::unpackIndexBits<BitsPerPixel, Order>(
-            stackBuf, srcByte, static_cast<int>(unpackCount), pixelOffset);
+            stackBuf, srcByte, static_cast<size_t>(unpackCount), pixelOffset);
 
         // DDAサンプリング（unpack済みバイト配列から読み取り）
-        for (int i = 0; i < count; ++i) {
+        for (int_fast16_t i = 0; i < count; ++i) {
             dst[i] = stackBuf[(srcX >> INT_FIXED_SHIFT) - minSx];
             srcX += incrX;
         }
     } else {
         // バッファに収まらない場合: per-pixel fallback
-        for (int i = 0; i < count; ++i) {
+        for (int_fast16_t i = 0; i < count; ++i) {
             dst[i] = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(
                 srcData, srcX >> INT_FIXED_SHIFT, sy, param->srcStride);
             srcX += incrX;
@@ -532,7 +532,7 @@ template<int BitsPerPixel, BitOrder Order>
 inline void copyRowDDA_Bit(
     uint8_t* dst,
     const uint8_t* srcData,
-    int count,
+    int_fast16_t count,
     const DDAParam* param
 ) {
     const int_fixed srcY = param->srcY;
@@ -551,7 +551,7 @@ inline void copyRowDDA_Bit(
     const int_fixed incrX = param->incrX;
     const int32_t srcStride = param->srcStride;
 
-    for (int i = 0; i < count; ++i) {
+    for (int_fast16_t i = 0; i < count; ++i) {
         int32_t sx = srcX >> INT_FIXED_SHIFT;
         int32_t sy = srcY_var >> INT_FIXED_SHIFT;
         srcX += incrX;
@@ -575,7 +575,7 @@ template<int BitsPerPixel, BitOrder Order>
 inline void copyQuadDDA_Bit(
     uint8_t* dst,
     const uint8_t* srcData,
-    int count,
+    int_fast16_t count,
     const DDAParam* param
 ) {
     // LovyanGFXスタイル: 2x2グリッドを直接読み取り
@@ -589,7 +589,7 @@ inline void copyQuadDDA_Bit(
     BilinearWeightXY* weightsXY = param->weightsXY;
     uint8_t* edgeFlags = param->edgeFlags;
 
-    for (int i = 0; i < count; ++i) {
+    for (int_fast16_t i = 0; i < count; ++i) {
         int32_t sx = srcX >> INT_FIXED_SHIFT;
         int32_t sy = srcY >> INT_FIXED_SHIFT;
 

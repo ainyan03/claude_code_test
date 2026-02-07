@@ -113,7 +113,7 @@ void clear(ViewPort& dst, int x, int y, int width, int height);
 void copyRowDDA(
     void* dst,
     const ViewPort& src,
-    int count,
+    int_fast16_t count,
     int_fixed srcX,
     int_fixed srcY,
     int_fixed incrX,
@@ -128,7 +128,7 @@ void copyRowDDA(
 void copyRowDDABilinear(
     void* dst,
     const ViewPort& src,
-    int count,
+    int_fast16_t count,
     int_fixed srcX,
     int_fixed srcY,
     int_fixed incrX,
@@ -231,7 +231,7 @@ namespace view_ops {
 void copyRowDDA(
     void* dst,
     const ViewPort& src,
-    int count,
+    int_fast16_t count,
     int_fixed srcX,
     int_fixed srcY,
     int_fixed incrX,
@@ -370,7 +370,7 @@ static void bilinearBlend_1ch(
 void copyRowDDABilinear(
     void* dst,
     const ViewPort& src,
-    int count,
+    int_fast16_t count,
     int_fixed srcX,
     int_fixed srcY,
     int_fixed incrX,
@@ -413,15 +413,15 @@ void copyRowDDABilinear(
             weightsXY, edgeFlagsChunk
         };
 
-        for (int offset = 0; offset < count; offset += CHUNK_SIZE) {
-            int chunk = (count - offset < CHUNK_SIZE) ? (count - offset) : CHUNK_SIZE;
+        for (int_fast16_t offset = 0; offset < count; offset += CHUNK_SIZE) {
+            int_fast16_t chunk = (count - offset < CHUNK_SIZE) ? (count - offset) : CHUNK_SIZE;
 
             // 4ピクセル抽出（1 byte/pixel: copyQuadDDA出力がそのまま使える）
             src.formatID->copyQuadDDA(quadBuffer1ch, srcData, chunk, &param);
 
             // 境界ピクセルの値を0化（Alpha8のエッジフェード）
             if (edgeFadeMask) {
-                for (int i = 0; i < chunk; ++i) {
+                for (int_fast16_t i = 0; i < chunk; ++i) {
                     uint8_t flags = edgeFlagsChunk[i] & edgeFadeMask;
                     if (flags) {
                         uint8_t* q = &quadBuffer1ch[i * 4];
@@ -492,8 +492,8 @@ void copyRowDDABilinear(
         edgeFlagsChunk
     };
 
-    for (int offset = 0; offset < count; offset += CHUNK_SIZE) {
-        int chunk = (count - offset < CHUNK_SIZE) ? (count - offset) : CHUNK_SIZE;
+    for (int_fast16_t offset = 0; offset < count; offset += CHUNK_SIZE) {
+        int_fast16_t chunk = (count - offset < CHUNK_SIZE) ? (count - offset) : CHUNK_SIZE;
 
         // 4ピクセル抽出 + edgeFlags生成（末尾詰め配置でin-place変換可能）
         int srcQuadSize = srcBytesPerPixel * 4 * chunk;
@@ -510,7 +510,7 @@ void copyRowDDABilinear(
         // 境界ピクセルのアルファ0化（edgeFlagsに基づく）
         if (edgeFadeMask) {
             auto quad = reinterpret_cast<uint8_t*>(quadRGBA) + 3;
-            for (int i = 0; i < chunk; ++i) {
+            for (int_fast16_t i = 0; i < chunk; ++i) {
                 uint8_t flags = edgeFlagsChunk[i] & edgeFadeMask;
                 if (flags) {
                     if (flags & (EdgeFade_Left | EdgeFade_Top)) { quad[0] = 0; }
@@ -567,7 +567,7 @@ void affineTransform(
 
         int_fixed srcX = incrX * dxStart + rowBaseX + dxOffsetX;
         int_fixed srcY = incrY * dxStart + rowBaseY + dxOffsetY;
-        int count = dxEnd - dxStart + 1;
+        int_fast16_t count = static_cast<int_fast16_t>(dxEnd - dxStart + 1);
 
         void* dstRow = dst.pixelAt(dxStart, dy);
 

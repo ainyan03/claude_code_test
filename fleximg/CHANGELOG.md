@@ -12,6 +12,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- **関数ポインタ型の `int` 引数を `size_t` / `int_fast16_t` に修正**
+  - `ConvertFunc` 系（ピクセル変換関数）: `int pixelCount` → `size_t pixelCount`
+  - `CopyRowDDA_Func` / `CopyQuadDDA_Func`（DDA転送関数）: `int count` → `int_fast16_t count`
+  - `LineFilterFunc`（ラインフィルタ関数）: `int count` → `int_fast16_t count`
+  - 対象12ファイルの実装・ローカル変数も型を統一
+
 - **bit-packed unpackロジック集約 + Index8処理共通化**
   - パレットLUT処理を `applyPaletteLUT` 共通関数として切り出し、Index8/IndexN で共有
   - `indexN_expandIndex` を末尾詰め方式に変更（チャンクバッファ不要、in-place展開）

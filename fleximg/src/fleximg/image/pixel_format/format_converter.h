@@ -12,7 +12,7 @@
 namespace FLEXIMG_NAMESPACE {
 
 // チャンクサイズ（スタック上の中間バッファ用）
-static constexpr int FCV_CHUNK_SIZE = 64;
+static constexpr size_t FCV_CHUNK_SIZE = 64;
 
 // 対応フォーマットの最大バイト/ピクセル（RGBA8 = 4）
 // 将来RGBA16等を追加する場合は更新が必要
@@ -22,7 +22,7 @@ static constexpr int MAX_BYTES_PER_PIXEL = 4;
 // カラーキー適用ヘルパー（toStraight後のRGBA8バッファにin-placeで適用）
 // ========================================================================
 
-static inline void applyColorKey(uint32_t* rgba8, int pixelCount,
+static inline void applyColorKey(uint32_t* rgba8, size_t pixelCount,
                                   uint32_t colorKey, uint32_t replace) {
     if (colorKey == replace) return;
     while (pixelCount & 3) {
@@ -50,17 +50,16 @@ static inline void applyColorKey(uint32_t* rgba8, int pixelCount,
 
 // 同一フォーマット: memcpy
 static void fcv_memcpy(void* dst, const void* src,
-                       int pixelCount, const void* ctx) {
+                       size_t pixelCount, const void* ctx) {
     auto* c = static_cast<const FormatConverter::Context*>(ctx);
-    size_t units = static_cast<size_t>(
-        (pixelCount + c->pixelsPerUnit - 1) / c->pixelsPerUnit);
+    size_t units = (pixelCount + c->pixelsPerUnit - 1) / c->pixelsPerUnit;
     std::memcpy(dst, src, units * c->bytesPerUnit);
 }
 
 // 1段階変換: toStraight フィールドに格納された関数を直接呼び出し
 // （swapEndian, toStraight(dst=RGBA8), fromStraight(src=RGBA8) 共通）
 static void fcv_single(void* dst, const void* src,
-                       int pixelCount, const void* ctx) {
+                       size_t pixelCount, const void* ctx) {
     auto* c = static_cast<const FormatConverter::Context*>(ctx);
     c->toStraight(dst, src, pixelCount, nullptr);
     applyColorKey(static_cast<uint32_t*>(dst), pixelCount,
@@ -69,7 +68,7 @@ static void fcv_single(void* dst, const void* src,
 
 // Index展開: パレットフォーマット == 出力フォーマット（直接展開）
 static void fcv_expandIndex_direct(void* dst, const void* src,
-                                   int pixelCount, const void* ctx) {
+                                   size_t pixelCount, const void* ctx) {
     auto* c = static_cast<const FormatConverter::Context*>(ctx);
     PixelAuxInfo aux;
     aux.palette = c->palette;
@@ -82,7 +81,7 @@ static void fcv_expandIndex_direct(void* dst, const void* src,
 // Index展開 + fromStraight（パレットフォーマット == RGBA8）
 // チャンク処理でアロケーション不要
 static void fcv_expandIndex_fromStraight(void* dst, const void* src,
-                                         int pixelCount, const void* ctx) {
+                                         size_t pixelCount, const void* ctx) {
     auto* c = static_cast<const FormatConverter::Context*>(ctx);
     uint8_t straightBuf[FCV_CHUNK_SIZE * MAX_BYTES_PER_PIXEL];
 
@@ -94,10 +93,10 @@ static void fcv_expandIndex_fromStraight(void* dst, const void* src,
 
     auto* dstPtr = static_cast<uint8_t*>(dst);
     auto* srcPtr = static_cast<const uint8_t*>(src);
-    int remaining = pixelCount;
+    size_t remaining = pixelCount;
 
     while (remaining > 0) {
-        int chunk = (remaining < FCV_CHUNK_SIZE) ? remaining : FCV_CHUNK_SIZE;
+        size_t chunk = (remaining < FCV_CHUNK_SIZE) ? remaining : FCV_CHUNK_SIZE;
         c->expandIndex(straightBuf, srcPtr, chunk, &aux);
         applyColorKey(reinterpret_cast<uint32_t*>(straightBuf), chunk,
                       c->colorKeyRGBA8, c->colorKeyReplace);
@@ -111,7 +110,7 @@ static void fcv_expandIndex_fromStraight(void* dst, const void* src,
 // Index展開 + toStraight + fromStraight（パレットフォーマット != RGBA8, 一般）
 // 単一バッファでin-place処理（expandIndex出力を末尾詰めし、toStraightで先頭から上書き）
 static void fcv_expandIndex_toStraight_fromStraight(
-    void* dst, const void* src, int pixelCount, const void* ctx) {
+    void* dst, const void* src, size_t pixelCount, const void* ctx) {
     auto* c = static_cast<const FormatConverter::Context*>(ctx);
     FLEXIMG_ASSERT(c->paletteBytesPerPixel <= MAX_BYTES_PER_PIXEL,
                    "paletteBytesPerPixel exceeds MAX_BYTES_PER_PIXEL");
@@ -127,13 +126,13 @@ static void fcv_expandIndex_toStraight_fromStraight(
 
     auto* dstPtr = static_cast<uint8_t*>(dst);
     auto* srcPtr = static_cast<const uint8_t*>(src);
-    int remaining = pixelCount;
+    size_t remaining = pixelCount;
 
     // 末尾詰めオフセット: toStraightが前から処理する際に上書きが発生しない位置（固定）
     uint8_t* expandPtr = buf + (MAX_BYTES_PER_PIXEL - c->paletteBytesPerPixel) * FCV_CHUNK_SIZE;
 
     while (remaining > 0) {
-        int chunk = (remaining < FCV_CHUNK_SIZE) ? remaining : FCV_CHUNK_SIZE;
+        size_t chunk = (remaining < FCV_CHUNK_SIZE) ? remaining : FCV_CHUNK_SIZE;
         c->expandIndex(expandPtr, srcPtr, chunk, &aux);
         c->toStraight(buf, expandPtr, chunk, nullptr);
         applyColorKey(reinterpret_cast<uint32_t*>(buf), chunk,
@@ -148,16 +147,16 @@ static void fcv_expandIndex_toStraight_fromStraight(
 // 一般: toStraight + fromStraight（RGBA8 経由 2段階変換）
 // チャンク処理でアロケーション不要
 static void fcv_toStraight_fromStraight(void* dst, const void* src,
-                                        int pixelCount, const void* ctx) {
+                                        size_t pixelCount, const void* ctx) {
     auto* c = static_cast<const FormatConverter::Context*>(ctx);
     uint8_t straightBuf[FCV_CHUNK_SIZE * MAX_BYTES_PER_PIXEL];
 
     auto* dstPtr = static_cast<uint8_t*>(dst);
     auto* srcPtr = static_cast<const uint8_t*>(src);
-    int remaining = pixelCount;
+    size_t remaining = pixelCount;
 
     while (remaining > 0) {
-        int chunk = (remaining < FCV_CHUNK_SIZE) ? remaining : FCV_CHUNK_SIZE;
+        size_t chunk = (remaining < FCV_CHUNK_SIZE) ? remaining : FCV_CHUNK_SIZE;
         c->toStraight(straightBuf, srcPtr, chunk, nullptr);
         applyColorKey(reinterpret_cast<uint32_t*>(straightBuf), chunk,
                       c->colorKeyRGBA8, c->colorKeyReplace);

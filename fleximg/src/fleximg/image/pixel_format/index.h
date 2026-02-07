@@ -63,23 +63,23 @@ namespace bit_packed_detail {
 // ========================================================================
 
 template<int BitsPerPixel, BitOrder Order>
-inline void unpackIndexBits(uint8_t* dst, const uint8_t* src, int pixelCount, uint8_t pixelOffset = 0) {
+inline void unpackIndexBits(uint8_t* dst, const uint8_t* src, size_t pixelCount, uint8_t pixelOffset = 0) {
     constexpr int PixelsPerByte = 8 / BitsPerPixel;
     constexpr uint8_t Mask = (1 << BitsPerPixel) - 1;
 
     // pixelOffsetは1バイト内でのピクセル位置 (0 - PixelsPerByte-1)
     // 最初のバイトでの開始位置を調整
-    int pixelIdx = pixelOffset;
-    int byteIdx = 0;
-    int dstIdx = 0;
+    size_t pixelIdx = pixelOffset;
+    size_t byteIdx = 0;
+    size_t dstIdx = 0;
 
     while (dstIdx < pixelCount) {
         uint8_t b = src[byteIdx];
-        int remainingInByte = PixelsPerByte - pixelIdx;
-        int pixelsToRead = (pixelCount - dstIdx < remainingInByte) ? (pixelCount - dstIdx) : remainingInByte;
+        size_t remainingInByte = static_cast<size_t>(PixelsPerByte) - pixelIdx;
+        size_t pixelsToRead = (pixelCount - dstIdx < remainingInByte) ? (pixelCount - dstIdx) : remainingInByte;
 
-        for (int j = 0; j < pixelsToRead; ++j) {
-            int bitPos = pixelIdx + j;
+        for (size_t j = 0; j < pixelsToRead; ++j) {
+            size_t bitPos = pixelIdx + j;
             if constexpr (Order == BitOrder::MSBFirst) {
                 dst[dstIdx++] = (b >> ((PixelsPerByte - 1 - bitPos) * BitsPerPixel)) & Mask;
             } else {
@@ -97,15 +97,15 @@ inline void unpackIndexBits(uint8_t* dst, const uint8_t* src, int pixelCount, ui
 // ========================================================================
 
 template<int BitsPerPixel, BitOrder Order>
-inline void packIndexBits(uint8_t* dst, const uint8_t* src, int pixelCount) {
-    constexpr int PixelsPerByte = 8 / BitsPerPixel;
+inline void packIndexBits(uint8_t* dst, const uint8_t* src, size_t pixelCount) {
+    constexpr size_t PixelsPerByte = 8 / BitsPerPixel;
     constexpr uint8_t Mask = (1 << BitsPerPixel) - 1;
 
-    int bytes = (pixelCount + PixelsPerByte - 1) / PixelsPerByte;
-    for (int i = 0; i < bytes; ++i) {
+    size_t bytes = (pixelCount + PixelsPerByte - 1) / PixelsPerByte;
+    for (size_t i = 0; i < bytes; ++i) {
         uint8_t b = 0;
-        int pixels_in_byte = (pixelCount >= PixelsPerByte) ? PixelsPerByte : pixelCount;
-        for (int j = 0; j < pixels_in_byte; ++j) {
+        size_t pixels_in_byte = (pixelCount >= PixelsPerByte) ? PixelsPerByte : pixelCount;
+        for (size_t j = 0; j < pixels_in_byte; ++j) {
             if constexpr (Order == BitOrder::MSBFirst) {
                 b |= ((src[j] & Mask) << ((PixelsPerByte - 1 - j) * BitsPerPixel));
             } else {
@@ -157,9 +157,9 @@ inline uint8_t readPixelDirect(const uint8_t* srcData, int32_t x, int32_t y, int
 // src が dst の末尾に配置されている場合でも読み出しが書き込みより先行し安全。
 
 static void applyPaletteLUT(void* dst, const void* src,
-                            int pixelCount, const PixelAuxInfo* aux) {
+                            size_t pixelCount, const PixelAuxInfo* aux) {
     if (!aux || !aux->palette || !aux->paletteFormat) {
-        std::memset(dst, 0, static_cast<size_t>(pixelCount));
+        std::memset(dst, 0, pixelCount);
         return;
     }
 
@@ -175,7 +175,7 @@ static void applyPaletteLUT(void* dst, const void* src,
         pixel_format::detail::lut8to16(reinterpret_cast<uint16_t*>(d), s, pixelCount,
                          reinterpret_cast<const uint16_t*>(p));
     } else {
-        for (int i = 0; i < pixelCount; ++i) {
+        for (size_t i = 0; i < pixelCount; ++i) {
             std::memcpy(d + static_cast<size_t>(i) * static_cast<size_t>(bpc),
                         p + static_cast<size_t>(s[i]) * static_cast<size_t>(bpc),
                         static_cast<size_t>(bpc));
@@ -188,7 +188,7 @@ static void applyPaletteLUT(void* dst, const void* src,
 // ========================================================================
 
 static void index8_expandIndex(void* __restrict__ dst, const void* __restrict__ src,
-                               int pixelCount, const PixelAuxInfo* __restrict__ aux) {
+                               size_t pixelCount, const PixelAuxInfo* __restrict__ aux) {
     FLEXIMG_FMT_METRICS(Index8, ToStraight, pixelCount);
     applyPaletteLUT(dst, src, pixelCount, aux);
 }
@@ -203,11 +203,11 @@ static void index8_expandIndex(void* __restrict__ dst, const void* __restrict__ 
 //
 
 static void index8_toStraight(void* dst, const void* src,
-                               int pixelCount, const PixelAuxInfo*) {
+                               size_t pixelCount, const PixelAuxInfo*) {
     FLEXIMG_FMT_METRICS(Index8, ToStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
     uint8_t* d = static_cast<uint8_t*>(dst);
-    for (int i = 0; i < pixelCount; ++i) {
+    for (size_t i = 0; i < pixelCount; ++i) {
         uint8_t v = s[i];
         d[i*4 + 0] = v;    // R
         d[i*4 + 1] = v;    // G
@@ -226,13 +226,13 @@ static void index8_toStraight(void* dst, const void* src,
 //
 
 static void index8_fromStraight(void* dst, const void* src,
-                                 int pixelCount, const PixelAuxInfo*) {
+                                 size_t pixelCount, const PixelAuxInfo*) {
     FLEXIMG_FMT_METRICS(Index8, FromStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
     uint8_t* d = static_cast<uint8_t*>(dst);
 
     // 端数処理（1〜3ピクセル）
-    int remainder = pixelCount & 3;
+    size_t remainder = pixelCount & 3;
     while (remainder--) {
         d[0] = static_cast<uint8_t>((77 * s[0] + 150 * s[1] + 29 * s[2] + 128) >> 8);
         s += 4;
@@ -290,11 +290,11 @@ template<int BitsPerPixel, BitOrder Order>
 static void indexN_expandIndex(
     void* __restrict__ dst,
     const void* __restrict__ src,
-    int pixelCount,
+    size_t pixelCount,
     const PixelAuxInfo* __restrict__ aux
 ) {
     if (!aux || !aux->palette || !aux->paletteFormat) {
-        std::memset(dst, 0, static_cast<size_t>(pixelCount));
+        std::memset(dst, 0, pixelCount);
         return;
     }
 
@@ -320,7 +320,7 @@ template<int BitsPerPixel, BitOrder Order>
 static void indexN_toStraight(
     void* __restrict__ dst,
     const void* __restrict__ src,
-    int pixelCount,
+    size_t pixelCount,
     const PixelAuxInfo* aux
 ) {
     uint8_t* d = static_cast<uint8_t*>(dst);
@@ -336,7 +336,7 @@ static void indexN_toStraight(
     // スケーリング: IndexN値(0-MaxIndex) → 0-255 (Index8相当)
     constexpr int MaxIndex = (1 << BitsPerPixel) - 1;
     constexpr int Scale = 255 / MaxIndex;
-    for (int i = 0; i < pixelCount; ++i) {
+    for (size_t i = 0; i < pixelCount; ++i) {
         indexData[i] = static_cast<uint8_t>(indexData[i] * Scale);
     }
 
@@ -349,11 +349,11 @@ template<int BitsPerPixel, BitOrder Order>
 static void indexN_fromStraight(
     void* __restrict__ dst,
     const void* __restrict__ src,
-    int pixelCount,
+    size_t pixelCount,
     const PixelAuxInfo*
 ) {
-    constexpr int MaxPixelsPerByte = 8 / BitsPerPixel;
-    constexpr int ChunkSize = 64;
+    constexpr size_t MaxPixelsPerByte = 8 / BitsPerPixel;
+    constexpr size_t ChunkSize = 64;
     uint8_t indexBuf[ChunkSize];
 
     const uint8_t* srcPtr = static_cast<const uint8_t*>(src);
@@ -362,12 +362,12 @@ static void indexN_fromStraight(
     // 量子化シフト量
     constexpr int QuantizeShift = 8 - BitsPerPixel;
 
-    int remaining = pixelCount;
+    size_t remaining = pixelCount;
     while (remaining > 0) {
-        int chunk = (remaining < ChunkSize) ? remaining : ChunkSize;
+        size_t chunk = (remaining < ChunkSize) ? remaining : ChunkSize;
 
         // BT.601 輝度計算 + 量子化
-        for (int i = 0; i < chunk; ++i) {
+        for (size_t i = 0; i < chunk; ++i) {
             uint_fast16_t r = srcPtr[i * 4 + 0];
             uint_fast16_t g = srcPtr[i * 4 + 1];
             uint_fast16_t b = srcPtr[i * 4 + 2];

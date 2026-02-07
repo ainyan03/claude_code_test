@@ -22,7 +22,7 @@ struct LineFilterParams {
 };
 
 /// ラインフィルタ関数型（RGBA8_Straight形式、インプレース処理）
-using LineFilterFunc = void(*)(uint8_t* pixels, int count, const LineFilterParams& params);
+using LineFilterFunc = void(*)(uint8_t* pixels, int_fast16_t count, const LineFilterParams& params);
 
 // ========================================================================
 // ラインフィルタ関数（スキャンライン処理用）
@@ -34,15 +34,15 @@ using LineFilterFunc = void(*)(uint8_t* pixels, int count, const LineFilterParam
 
 /// 明るさ調整（ラインフィルタ版）
 /// params.value1: 明るさ調整量（-1.0〜1.0、0.5で+127相当）
-void brightness_line(uint8_t* pixels, int count, const LineFilterParams& params);
+void brightness_line(uint8_t* pixels, int_fast16_t count, const LineFilterParams& params);
 
 /// グレースケール変換（ラインフィルタ版）
 /// パラメータ未使用（将来の拡張用に引数は維持）
-void grayscale_line(uint8_t* pixels, int count, const LineFilterParams& params);
+void grayscale_line(uint8_t* pixels, int_fast16_t count, const LineFilterParams& params);
 
 /// アルファ調整（ラインフィルタ版）
 /// params.value1: アルファスケール（0.0〜1.0）
-void alpha_line(uint8_t* pixels, int count, const LineFilterParams& params);
+void alpha_line(uint8_t* pixels, int_fast16_t count, const LineFilterParams& params);
 
 } // namespace filters
 } // namespace FLEXIMG_NAMESPACE
@@ -62,11 +62,11 @@ namespace filters {
 // ラインフィルタ関数（スキャンライン処理用）
 // ========================================================================
 
-void brightness_line(uint8_t* pixels, int count, const LineFilterParams& params) {
+void brightness_line(uint8_t* pixels, int_fast16_t count, const LineFilterParams& params) {
     int adjustment = static_cast<int>(params.value1 * 255.0f);
 
-    for (int x = 0; x < count; x++) {
-        int pixelOffset = x * 4;
+    for (int_fast16_t x = 0; x < count; x++) {
+        int_fast16_t pixelOffset = x * 4;
         // RGB各チャンネルに明るさ調整を適用
         for (int c = 0; c < 3; c++) {
             int value = static_cast<int>(pixels[pixelOffset + c]) + adjustment;
@@ -76,11 +76,11 @@ void brightness_line(uint8_t* pixels, int count, const LineFilterParams& params)
     }
 }
 
-void grayscale_line(uint8_t* pixels, int count, const LineFilterParams& params) {
+void grayscale_line(uint8_t* pixels, int_fast16_t count, const LineFilterParams& params) {
     (void)params;  // 将来の拡張用に引数は維持
 
-    for (int x = 0; x < count; x++) {
-        int pixelOffset = x * 4;
+    for (int_fast16_t x = 0; x < count; x++) {
+        int_fast16_t pixelOffset = x * 4;
         // グレースケール変換（平均法）
         uint8_t gray = static_cast<uint8_t>(
             (static_cast<uint16_t>(pixels[pixelOffset]) +
@@ -94,11 +94,11 @@ void grayscale_line(uint8_t* pixels, int count, const LineFilterParams& params) 
     }
 }
 
-void alpha_line(uint8_t* pixels, int count, const LineFilterParams& params) {
+void alpha_line(uint8_t* pixels, int_fast16_t count, const LineFilterParams& params) {
     uint32_t alphaScale = static_cast<uint32_t>(params.value1 * 256.0f);
 
-    for (int x = 0; x < count; x++) {
-        int pixelOffset = x * 4;
+    for (int_fast16_t x = 0; x < count; x++) {
+        int_fast16_t pixelOffset = x * 4;
         // RGBはそのまま、Alphaのみスケール
         uint32_t a = pixels[pixelOffset + 3];
         pixels[pixelOffset + 3] = static_cast<uint8_t>((a * alphaScale) >> 8);

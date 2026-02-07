@@ -80,7 +80,7 @@ struct DDAParam {
 using CopyRowDDA_Func = void(*)(
     uint8_t* dst,
     const uint8_t* srcData,
-    int count,
+    int_fast16_t count,
     const DDAParam* param
 );
 
@@ -92,7 +92,7 @@ using CopyRowDDA_Func = void(*)(
 using CopyQuadDDA_Func = void(*)(
     uint8_t* dst,
     const uint8_t* srcData,
-    int count,
+    int_fast16_t count,
     const DDAParam* param
 );
 
@@ -181,10 +181,10 @@ struct PixelFormatDescriptor {
     // ========================================================================
     // 変換関数の型定義
     // ========================================================================
-    // 統一シグネチャ: void(*)(void* dst, const void* src, int pixelCount, const PixelAuxInfo* aux)
+    // 統一シグネチャ: void(*)(void* dst, const void* src, size_t pixelCount, const PixelAuxInfo* aux)
 
     // Straight形式（RGBA8_Straight）との相互変換
-    using ConvertFunc = void(*)(void* dst, const void* src, int pixelCount, const PixelAuxInfo* aux);
+    using ConvertFunc = void(*)(void* dst, const void* src, size_t pixelCount, const PixelAuxInfo* aux);
     using ToStraightFunc = ConvertFunc;
     using FromStraightFunc = ConvertFunc;
 
@@ -251,36 +251,36 @@ namespace detail {
 
 // BytesPerPixel別 DDA転写関数（前方宣言）
 // 実装は dda.h で提供（FLEXIMG_IMPLEMENTATION部）
-void copyRowDDA_1Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
-void copyRowDDA_2Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
-void copyRowDDA_3Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
-void copyRowDDA_4Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+void copyRowDDA_1Byte(uint8_t* dst, const uint8_t* srcData, int_fast16_t count, const DDAParam* param);
+void copyRowDDA_2Byte(uint8_t* dst, const uint8_t* srcData, int_fast16_t count, const DDAParam* param);
+void copyRowDDA_3Byte(uint8_t* dst, const uint8_t* srcData, int_fast16_t count, const DDAParam* param);
+void copyRowDDA_4Byte(uint8_t* dst, const uint8_t* srcData, int_fast16_t count, const DDAParam* param);
 
 // BytesPerPixel別 DDA 4ピクセル抽出関数（前方宣言）
-void copyQuadDDA_1Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
-void copyQuadDDA_2Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
-void copyQuadDDA_3Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
-void copyQuadDDA_4Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+void copyQuadDDA_1Byte(uint8_t* dst, const uint8_t* srcData, int_fast16_t count, const DDAParam* param);
+void copyQuadDDA_2Byte(uint8_t* dst, const uint8_t* srcData, int_fast16_t count, const DDAParam* param);
+void copyQuadDDA_3Byte(uint8_t* dst, const uint8_t* srcData, int_fast16_t count, const DDAParam* param);
+void copyQuadDDA_4Byte(uint8_t* dst, const uint8_t* srcData, int_fast16_t count, const DDAParam* param);
 
 // BitsPerPixel別 bit-packed DDA転写関数（前方宣言）
 // 実装は dda.h で提供（bit_packed_index.h インクルード後）
 template<int BitsPerPixel, BitOrder Order>
-void copyRowDDA_Bit(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+void copyRowDDA_Bit(uint8_t* dst, const uint8_t* srcData, int_fast16_t count, const DDAParam* param);
 
 template<int BitsPerPixel, BitOrder Order>
-void copyQuadDDA_Bit(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+void copyQuadDDA_Bit(uint8_t* dst, const uint8_t* srcData, int_fast16_t count, const DDAParam* param);
 
 // 8bit LUT → Nbit 変換（4ピクセル単位展開）
 // T = uint32_t: rgb332_toStraight, index8_expandIndex (bpc==4) 等で共用
 // T = uint16_t: index8_expandIndex (bpc==2) 等で共用
 template<typename T>
-void lut8toN(T* d, const uint8_t* s, int pixelCount, const T* lut);
+void lut8toN(T* d, const uint8_t* s, size_t pixelCount, const T* lut);
 
 // 便利エイリアス
-inline void lut8to32(uint32_t* d, const uint8_t* s, int pixelCount, const uint32_t* lut) {
+inline void lut8to32(uint32_t* d, const uint8_t* s, size_t pixelCount, const uint32_t* lut) {
     lut8toN(d, s, pixelCount, lut);
 }
-inline void lut8to16(uint16_t* d, const uint8_t* s, int pixelCount, const uint16_t* lut) {
+inline void lut8to16(uint16_t* d, const uint8_t* s, size_t pixelCount, const uint16_t* lut) {
     lut8toN(d, s, pixelCount, lut);
 }
 
@@ -299,7 +299,7 @@ namespace pixel_format {
 namespace detail {
 
 template<typename T>
-void lut8toN(T* d, const uint8_t* s, int pixelCount, const T* lut) {
+void lut8toN(T* d, const uint8_t* s, size_t pixelCount, const T* lut) {
     while (pixelCount & 3) {
         auto v0 = s[0];
         ++s;
@@ -326,8 +326,8 @@ void lut8toN(T* d, const uint8_t* s, int pixelCount, const T* lut) {
 }
 
 // 明示的インスタンス化（非inlineを維持）
-template void lut8toN<uint16_t>(uint16_t*, const uint8_t*, int, const uint16_t*);
-template void lut8toN<uint32_t>(uint32_t*, const uint8_t*, int, const uint32_t*);
+template void lut8toN<uint16_t>(uint16_t*, const uint8_t*, size_t, const uint16_t*);
+template void lut8toN<uint32_t>(uint32_t*, const uint8_t*, size_t, const uint32_t*);
 
 } // namespace detail
 } // namespace pixel_format
@@ -412,7 +412,7 @@ inline const char* getFormatName(PixelFormatID formatID) {
 struct FormatConverter {
     // 解決済み変換関数（分岐なし）
     using ConvertFunc = void(*)(void* dst, const void* src,
-                                int pixelCount, const void* ctx);
+                                size_t pixelCount, const void* ctx);
     ConvertFunc func = nullptr;
 
     // 解決済みコンテキスト（Prepare 時に確定）
@@ -447,7 +447,7 @@ struct FormatConverter {
     } ctx;
 
     // 行変換実行（分岐なし）
-    void operator()(void* dst, const void* src, int pixelCount) const {
+    void operator()(void* dst, const void* src, size_t pixelCount) const {
         func(dst, src, pixelCount, &ctx);
     }
 
