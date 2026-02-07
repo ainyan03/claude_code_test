@@ -70,7 +70,7 @@ inline void placeFirst(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canv
         for (int_fast16_t y = 0; y < copyHeight; y++) {
             const void* srcRow = src.pixelAt(srcStartX, srcStartY + y);
             void* dstRow = canvas.pixelAt(dstStartX, dstStartY + y);
-            src.formatID->toStraight(dstRow, srcRow, copyWidth, nullptr);
+            src.formatID->toStraight(dstRow, srcRow, static_cast<size_t>(copyWidth), nullptr);
         }
         return;
     }
