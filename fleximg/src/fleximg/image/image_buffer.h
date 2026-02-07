@@ -451,13 +451,14 @@ inline bool ImageBuffer::blendFrom(const ImageBuffer& src) {
     if (!isValid() || !src.isValid() || !view_.data) return false;
 
     const auto& srcView = src.viewRef();
-    const int16_t dstStartX = startX();
-    const int16_t srcStartX = src.startX();
+    const int_fast16_t dstStartX = startX();
+    const int_fast16_t srcStartX = src.startX();
 
     // クリッピング: srcのうちdstバッファ範囲内にある部分
-    const int16_t clippedStart = std::max(srcStartX, dstStartX);
-    const int16_t clippedEnd = std::min(src.endX(), endX());
-    if (clippedStart >= clippedEnd) return true;  // 範囲外、何もしない
+    const int_fast16_t clippedStart = std::max(srcStartX, dstStartX);
+    const int_fast16_t clippedEnd = std::min(src.endX(), endX());
+    int_fast16_t remaining = static_cast<int_fast16_t>(clippedEnd - clippedStart);
+    if (remaining <= 0) return true;  // 範囲外、何もしない
 
     const size_t dstPixelBytes = static_cast<size_t>(view_.formatID->bytesPerPixel);
     const uint8_t srcPixelBits = srcView.formatID->bitsPerPixel;
@@ -473,43 +474,39 @@ inline bool ImageBuffer::blendFrom(const ImageBuffer& src) {
     PixelFormatID srcFmt = srcView.formatID;
     const PixelAuxInfo* srcAux = &src.auxInfo();
 
+    // 共通: クリッピング開始位置のポインタ計算
+    const int_fast32_t srcTotalBits = (srcView.x + clippedStart - srcStartX) * srcPixelBits;
+    const void* srcPtr = srcRowBase + static_cast<size_t>(srcTotalBits >> 3);
+    void* dstPtr = dstRow + static_cast<size_t>(clippedStart - dstStartX) * dstPixelBytes;
+
     auto blendFunc = srcFmt->blendUnderStraight;
     if (blendFunc) {
         // 直接ブレンド（RGBA8_Straight等、blendUnderStraight実装済みフォーマット）
-        // blendUnderStraight対応フォーマットは常にbytesPerPixel>=1のため>>3は正確
-        const int32_t srcBits = (srcView.x + clippedStart - srcStartX) * srcPixelBits;
-        void* dstPtr = dstRow + static_cast<size_t>(clippedStart - dstStartX) * dstPixelBytes;
-        const void* srcPtr = srcRowBase + static_cast<size_t>(srcBits >> 3);
-        blendFunc(dstPtr, srcPtr, clippedEnd - clippedStart, srcAux);
+        blendFunc(dstPtr, srcPtr, remaining, srcAux);
     } else {
         // フォールバック: チャンク単位でRGBA8_Straightに変換してからブレンド
-        // resolveConverterはループ外で一度だけ呼び出し
         auto converter = resolveConverter(srcFmt, PixelFormatIDs::RGBA8_Straight, srcAux);
         if (!converter) return false;
-        auto straightBlend = PixelFormatIDs::RGBA8_Straight->blendUnderStraight;
-        constexpr int16_t CHUNK_SIZE = 64;
-        uint8_t tempBuf[CHUNK_SIZE * 4];
-        int16_t remaining = static_cast<int16_t>(clippedEnd - clippedStart);
-        int16_t cursor = clippedStart;
-
-        // ループ外でsrcPtr初期値と進行量を事前計算
-        // ビット単位で一括計算し、>>3でバイトオフセット、&7でバイト内ビット位置を取得
-        // (CHUNK_SIZE=64はpixelsPerByte(8,4,2)の倍数のためビット端数はチャンク間で不変)
-        const int16_t pixelOffset = static_cast<int16_t>(clippedStart - srcStartX);
-        const int32_t srcTotalBits = (srcView.x + pixelOffset) * srcPixelBits;
-        const uint8_t* srcChunkPtr = srcRowBase + static_cast<size_t>(srcTotalBits >> 3);
-        const size_t srcBytesPerChunk = static_cast<size_t>(CHUNK_SIZE * srcPixelBits >> 3);
         converter.ctx.pixelOffsetInByte = static_cast<uint8_t>((srcTotalBits & 7) >> (srcPixelBits >> 1));
+        auto straightBlend = PixelFormatIDs::RGBA8_Straight->blendUnderStraight;
+        constexpr int_fast16_t CHUNK_SIZE = 64;
+        uint8_t tempBuf[CHUNK_SIZE * 4];
+        int_fast16_t cursor = clippedStart;
 
-        while (remaining > 0) {
-            int16_t chunk = std::min(remaining, CHUNK_SIZE);
+        // ループ外でsrcPtr進行量とビット端数を事前計算
+        // (CHUNK_SIZE=64はpixelsPerByte(8,4,2)の倍数のためビット端数はチャンク間で不変)
+        const uint8_t* srcChunkPtr = static_cast<const uint8_t*>(srcPtr);
+        const size_t srcBytesPerChunk = static_cast<size_t>(CHUNK_SIZE * srcPixelBits >> 3);
+
+        do {
+            int_fast16_t chunk = std::min(remaining, CHUNK_SIZE);
             converter(tempBuf, srcChunkPtr, chunk);
-            void* dstPtr = dstRow + static_cast<size_t>(cursor - dstStartX) * dstPixelBytes;
-            straightBlend(dstPtr, tempBuf, chunk, nullptr);
+            void* dstChunkPtr = dstRow + static_cast<size_t>(cursor - dstStartX) * dstPixelBytes;
+            straightBlend(dstChunkPtr, tempBuf, chunk, nullptr);
             srcChunkPtr += srcBytesPerChunk;
-            cursor = static_cast<int16_t>(cursor + chunk);
-            remaining = static_cast<int16_t>(remaining - chunk);
-        }
+            cursor += chunk;
+            remaining -= chunk;
+        } while (remaining > 0);
     }
     return true;
 }
