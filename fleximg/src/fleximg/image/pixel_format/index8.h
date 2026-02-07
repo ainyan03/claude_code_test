@@ -49,9 +49,9 @@ static void index8_expandIndex(void* __restrict__ dst, const void* __restrict__ 
     }
 
     const uint8_t* p = static_cast<const uint8_t*>(aux->palette);
-    // bitsPerPixel / 8 でバイト数を取得（getBytesPerPixelはまだ定義前）
+    // パレットフォーマットのバイト数を取得
     // 注意: インデックス値の境界チェックは行わない（呼び出し側の責務）
-    int_fast8_t bpc = static_cast<int_fast8_t>((aux->paletteFormat->bitsPerPixel + 7) / 8);
+    int_fast8_t bpc = static_cast<int_fast8_t>(aux->paletteFormat->bytesPerPixel);
 
     if (bpc == 4) {
         // 4バイト（RGBA8等）高速パス
@@ -138,6 +138,7 @@ namespace BuiltinFormats {
 const PixelFormatDescriptor Index8 = {
     "Index8",
     8,   // bitsPerPixel
+    1,   // bytesPerPixel
     1,   // pixelsPerUnit
     1,   // bytesPerUnit
     1,   // channelCount

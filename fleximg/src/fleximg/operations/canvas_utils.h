@@ -56,11 +56,11 @@ inline void placeFirst(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canv
 
     // 同一フォーマット → memcpy
     if (src.formatID == canvas.formatID) {
-        size_t bpp = static_cast<size_t>(getBytesPerPixel(src.formatID));
+        size_t bytesPerPixel = static_cast<size_t>(getBytesPerPixel(src.formatID));
         for (int y = 0; y < copyHeight; y++) {
             const void* srcRow = src.pixelAt(srcStartX, srcStartY + y);
             void* dstRow = canvas.pixelAt(dstStartX, dstStartY + y);
-            std::memcpy(dstRow, srcRow, static_cast<size_t>(copyWidth) * bpp);
+            std::memcpy(dstRow, srcRow, static_cast<size_t>(copyWidth) * bytesPerPixel);
         }
         return;
     }

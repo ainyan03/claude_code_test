@@ -960,12 +960,12 @@ TEST_CASE("resolveConverter: same format (memcpy path)") {
         uint8_t src[16] = {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0,
                            0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88};
         uint8_t dst[16] = {0};
-        int bpp = (fmt->bitsPerPixel + 7) / 8;
-        int count = 16 / bpp;
+        int bytesPerPixel = fmt->bytesPerPixel;
+        int count = 16 / bytesPerPixel;
         if (count > 0) {
             conv(dst, src, count);
             CHECK(std::memcmp(dst, src,
-                static_cast<size_t>(count) * static_cast<size_t>(bpp)) == 0);
+                static_cast<size_t>(count) * static_cast<size_t>(bytesPerPixel)) == 0);
         }
     }
 }

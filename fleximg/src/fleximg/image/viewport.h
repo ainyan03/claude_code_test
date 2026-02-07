@@ -74,8 +74,8 @@ namespace view_ops {
 // サブビュー作成（引数は最速型、32bitマイコンでのビット切り詰め回避）
 inline ViewPort subView(const ViewPort& v, int_fast16_t x, int_fast16_t y,
                         int_fast16_t w, int_fast16_t h) {
-    auto bpp = v.bytesPerPixel();
-    void* subData = static_cast<uint8_t*>(v.data) + y * v.stride + x * bpp;
+    auto bytesPerPixel = v.bytesPerPixel();
+    void* subData = static_cast<uint8_t*>(v.data) + y * v.stride + x * bytesPerPixel;
     return ViewPort(subData, v.formatID, v.stride, w, h);
 }
 
@@ -148,8 +148,8 @@ void affineTransform(
 // edgeFadeMask != 0 の場合、Alphaチャンネルのみ対応（値を直接0にできるため）
 inline bool canUseSingleChannelBilinear(PixelFormatID formatID, uint8_t edgeFadeMask) {
     if (!formatID) return false;
-    const int bpp = (formatID->bitsPerPixel + 7) / 8;
-    return (bpp == 1)
+    const int bytesPerPixel = formatID->bytesPerPixel;
+    return (bytesPerPixel == 1)
         && (formatID->channelCount == 1)
         && !formatID->isIndexed
         && (edgeFadeMask == 0
@@ -191,11 +191,11 @@ void copy(ViewPort& dst, int dstX, int dstY,
     FLEXIMG_ASSERT(src.formatID == dst.formatID,
                    "view_ops::copy requires matching formats; use convertFormat for conversion");
 
-    size_t bpp = static_cast<size_t>(dst.bytesPerPixel());
+    size_t bytesPerPixel = static_cast<size_t>(dst.bytesPerPixel());
     for (int y = 0; y < height; ++y) {
         const uint8_t* srcRow = static_cast<const uint8_t*>(src.pixelAt(srcX, srcY + y));
         uint8_t* dstRow = static_cast<uint8_t*>(dst.pixelAt(dstX, dstY + y));
-        std::memcpy(dstRow, srcRow, static_cast<size_t>(width) * bpp);
+        std::memcpy(dstRow, srcRow, static_cast<size_t>(width) * bytesPerPixel);
     }
 
 }
@@ -203,12 +203,12 @@ void copy(ViewPort& dst, int dstX, int dstY,
 void clear(ViewPort& dst, int x, int y, int width, int height) {
     if (!dst.isValid()) return;
 
-    size_t bpp = static_cast<size_t>(dst.bytesPerPixel());
+    size_t bytesPerPixel = static_cast<size_t>(dst.bytesPerPixel());
     for (int row = 0; row < height; ++row) {
         int dy = y + row;
         if (dy < 0 || dy >= dst.height) continue;
         uint8_t* dstRow = static_cast<uint8_t*>(dst.pixelAt(x, dy));
-        std::memset(dstRow, 0, static_cast<size_t>(width) * bpp);
+        std::memset(dstRow, 0, static_cast<size_t>(width) * bytesPerPixel);
     }
 }
 
@@ -392,7 +392,7 @@ void copyRowDDABilinear(
         for (int offset = 0; offset < count; offset += CHUNK_SIZE) {
             int chunk = (count - offset < CHUNK_SIZE) ? (count - offset) : CHUNK_SIZE;
 
-            // 4ピクセル抽出（1bpp: copyQuadDDA出力がそのまま使える）
+            // 4ピクセル抽出（1 byte/pixel: copyQuadDDA出力がそのまま使える）
             src.formatID->copyQuadDDA(quadBuffer1ch, srcData, chunk, &param);
 
             // 境界ピクセルの値を0化（Alpha8のエッジフェード）
@@ -433,11 +433,11 @@ void copyRowDDABilinear(
     BilinearWeightXY weightsXY[CHUNK_SIZE];      // 128 bytes (2 * 64)
     uint8_t edgeFlagsChunk[CHUNK_SIZE];          // 64 bytes（チャンク用）
 
-    // 元フォーマットのBPP（末尾詰め配置用）
-    // bit-packedの場合、copyQuadDDAはIndex8形式で出力するため、bpp=1とする
+    // 元フォーマットのBytesPerPixel（末尾詰め配置用）
+    // bit-packedの場合、copyQuadDDAはIndex8形式で出力するため、1バイトとする
     const int srcBpp = (src.formatID->pixelsPerUnit > 1)
                      ? 1  // bit-packed: copyQuadDDAがIndex8で出力
-                     : ((src.formatID->bitsPerPixel + 7) / 8);  // 通常フォーマット
+                     : src.formatID->bytesPerPixel;  // 通常フォーマット
 
     // フォーマット変換が必要な場合、ループ外で一度だけresolveConverter呼び出し
     // bit-packedの場合、copyQuadDDAの出力はIndex8形式なので、Index8→RGBA8の変換を使う

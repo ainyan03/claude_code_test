@@ -261,6 +261,7 @@ namespace BuiltinFormats {
 const PixelFormatDescriptor RGBA8_Straight = {
     "RGBA8_Straight",
     32,  // bitsPerPixel
+    4,   // bytesPerPixel
     1,   // pixelsPerUnit
     4,   // bytesPerUnit
     4,   // channelCount

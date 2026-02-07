@@ -300,6 +300,7 @@ extern const PixelFormatDescriptor RGB565_BE;
 const PixelFormatDescriptor RGB565_LE = {
     "RGB565_LE",
     16,  // bitsPerPixel
+    2,   // bytesPerPixel
     1,   // pixelsPerUnit
     2,   // bytesPerUnit
     3,   // channelCount
@@ -325,6 +326,7 @@ const PixelFormatDescriptor RGB565_LE = {
 const PixelFormatDescriptor RGB565_BE = {
     "RGB565_BE",
     16,  // bitsPerPixel
+    2,   // bytesPerPixel
     1,   // pixelsPerUnit
     2,   // bytesPerUnit
     3,   // channelCount
