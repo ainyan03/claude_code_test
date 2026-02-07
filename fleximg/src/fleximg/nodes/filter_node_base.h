@@ -138,7 +138,8 @@ RenderResponse& FilterNodeBase::process(RenderResponse& input,
     ViewPort workingView = working.view();
 
     // ラインフィルタを適用（height=1前提）
-    uint8_t* row = static_cast<uint8_t*>(workingView.data);
+    // ViewPortのx,yオフセットを考慮してpixelAt(0,0)を使用
+    uint8_t* row = static_cast<uint8_t*>(workingView.pixelAt(0, 0));
     getFilterFunc()(row, workingView.width, params_);
 
     // inputをそのまま返す（借用元への変更が反映される）
