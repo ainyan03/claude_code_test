@@ -96,8 +96,8 @@ private:
 
     // アフィン伝播用メンバ変数（事前計算済み）
     Matrix2x2_fixed invMatrix_;    // 逆行列（固定小数点）
-    int32_t baseTx_ = 0;           // 事前計算済みオフセットX（Q16.16、pivot込み）
-    int32_t baseTy_ = 0;           // 事前計算済みオフセットY（Q16.16、pivot込み）
+    int_fixed baseTx_ = 0;          // 事前計算済みオフセットX（Q16.16、pivot込み）
+    int_fixed baseTy_ = 0;          // 事前計算済みオフセットY（Q16.16、pivot込み）
     bool hasAffine_ = false;       // アフィン変換が伝播されているか
 
     // アフィン変換付きプッシュ処理
@@ -286,8 +286,8 @@ void SinkNode::applyAffine(ViewPort& dst,
 
     // baseTx_はすでにworldオフセットを含む
     // srcOriginは入力バッファの左上のworld座標なので減算
-    const int32_t fixedTx = baseTx_ - (srcOriginXInt << INT_FIXED_SHIFT);
-    const int32_t fixedTy = baseTy_ - (srcOriginYInt << INT_FIXED_SHIFT);
+    const int_fixed fixedTx = baseTx_ - (srcOriginXInt << INT_FIXED_SHIFT);
+    const int_fixed fixedTy = baseTy_ - (srcOriginYInt << INT_FIXED_SHIFT);
 
     // ピクセル中心オフセット（逆行列用）
     int_fixed rowOffsetX = invMatrix_.b >> 1;
