@@ -78,12 +78,12 @@ static_assert(NodeType::VerticalBlur == 11,
 // ノード別メトリクス
 struct NodeMetrics {
     uint32_t time_us = 0;         // 処理時間（マイクロ秒）
-    int count = 0;                // 呼び出し回数
-    uint32_t requestedPixels = 0; // 上流に要求したピクセル数
-    uint32_t usedPixels = 0;      // 実際に使用したピクセル数
+    uint32_t count = 0;              // 呼び出し回数
+    uint32_t requestedPixels = 0;    // 上流に要求したピクセル数
+    uint32_t usedPixels = 0;         // 実際に使用したピクセル数
     uint32_t theoreticalMinPixels = 0; // 理論最小ピクセル数（分割時の推定値）
-    uint32_t allocatedBytes = 0;  // このノードが確保したバイト数
-    int allocCount = 0;           // 確保回数
+    uint32_t allocatedBytes = 0;     // このノードが確保したバイト数
+    uint32_t allocCount = 0;         // 確保回数
     uint32_t maxAllocBytes = 0;   // 一回の最大確保バイト数
     int16_t maxAllocWidth = 0;     // その時の幅
     int16_t maxAllocHeight = 0;    // その時の高さ

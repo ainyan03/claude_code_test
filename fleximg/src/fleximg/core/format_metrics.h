@@ -36,16 +36,16 @@ namespace core {
 //
 
 namespace FormatIdx {
-    constexpr int RGBA8_Straight = 0;
-    constexpr int RGB565_LE = 1;
-    constexpr int RGB565_BE = 2;
-    constexpr int RGB332 = 3;
-    constexpr int RGB888 = 4;
-    constexpr int BGR888 = 5;
-    constexpr int Alpha8 = 6;
-    constexpr int Grayscale8 = 7;
-    constexpr int Index8 = 8;
-    constexpr int Count = 9;
+    constexpr uint_fast8_t RGBA8_Straight = 0;
+    constexpr uint_fast8_t RGB565_LE = 1;
+    constexpr uint_fast8_t RGB565_BE = 2;
+    constexpr uint_fast8_t RGB332 = 3;
+    constexpr uint_fast8_t RGB888 = 4;
+    constexpr uint_fast8_t BGR888 = 5;
+    constexpr uint_fast8_t Alpha8 = 6;
+    constexpr uint_fast8_t Grayscale8 = 7;
+    constexpr uint_fast8_t Index8 = 8;
+    constexpr uint_fast8_t Count = 9;
 }
 
 // ========================================================================
@@ -53,10 +53,10 @@ namespace FormatIdx {
 // ========================================================================
 
 namespace OpType {
-    constexpr int ToStraight = 0;        // 各フォーマット → RGBA8_Straight
-    constexpr int FromStraight = 1;      // RGBA8_Straight → 各フォーマット
-    constexpr int BlendUnder = 2;        // 各フォーマット → Straight dst (under合成)
-    constexpr int Count = 3;
+    constexpr uint_fast8_t ToStraight = 0;        // 各フォーマット → RGBA8_Straight
+    constexpr uint_fast8_t FromStraight = 1;      // RGBA8_Straight → 各フォーマット
+    constexpr uint_fast8_t BlendUnder = 2;        // 各フォーマット → Straight dst (under合成)
+    constexpr uint_fast8_t Count = 3;
 }
 
 // ========================================================================
@@ -74,7 +74,7 @@ struct FormatOpEntry {
         pixelCount = 0;
     }
 
-    void record(int pixels) {
+    void record(size_t pixels) {
         callCount++;
         pixelCount += static_cast<uint64_t>(pixels);
     }
@@ -90,25 +90,25 @@ struct FormatMetrics {
     }
 
     void reset() {
-        for (int f = 0; f < FormatIdx::Count; ++f) {
-            for (int o = 0; o < OpType::Count; ++o) {
+        for (uint_fast8_t f = 0; f < FormatIdx::Count; ++f) {
+            for (uint_fast8_t o = 0; o < OpType::Count; ++o) {
                 data[f][o].reset();
             }
         }
     }
 
-    void record(int formatIdx, int opType, int pixels) {
-        if (formatIdx >= 0 && formatIdx < FormatIdx::Count &&
-            opType >= 0 && opType < OpType::Count) {
+    void record(uint_fast8_t formatIdx, uint_fast8_t opType, size_t pixels) {
+        if (formatIdx < FormatIdx::Count &&
+            opType < OpType::Count) {
             data[formatIdx][opType].record(pixels);
         }
     }
 
     // 全フォーマットの合計（操作タイプ別）
-    FormatOpEntry totalByOp(int opType) const {
+    FormatOpEntry totalByOp(uint_fast8_t opType) const {
         FormatOpEntry total;
-        if (opType >= 0 && opType < OpType::Count) {
-            for (int f = 0; f < FormatIdx::Count; ++f) {
+        if (opType < OpType::Count) {
+            for (uint_fast8_t f = 0; f < FormatIdx::Count; ++f) {
                 total.callCount += data[f][opType].callCount;
                 total.pixelCount += data[f][opType].pixelCount;
             }
@@ -117,10 +117,10 @@ struct FormatMetrics {
     }
 
     // 全操作の合計（フォーマット別）
-    FormatOpEntry totalByFormat(int formatIdx) const {
+    FormatOpEntry totalByFormat(uint_fast8_t formatIdx) const {
         FormatOpEntry total;
-        if (formatIdx >= 0 && formatIdx < FormatIdx::Count) {
-            for (int o = 0; o < OpType::Count; ++o) {
+        if (formatIdx < FormatIdx::Count) {
+            for (uint_fast8_t o = 0; o < OpType::Count; ++o) {
                 total.callCount += data[formatIdx][o].callCount;
                 total.pixelCount += data[formatIdx][o].pixelCount;
             }
@@ -131,8 +131,8 @@ struct FormatMetrics {
     // 全体合計
     FormatOpEntry total() const {
         FormatOpEntry t;
-        for (int f = 0; f < FormatIdx::Count; ++f) {
-            for (int o = 0; o < OpType::Count; ++o) {
+        for (uint_fast8_t f = 0; f < FormatIdx::Count; ++f) {
+            for (uint_fast8_t o = 0; o < OpType::Count; ++o) {
                 t.callCount += data[f][o].callCount;
                 t.pixelCount += data[f][o].pixelCount;
             }
@@ -142,8 +142,8 @@ struct FormatMetrics {
 
     // スナップショット（現在の状態を保存）
     void saveSnapshot(FormatOpEntry snapshot[FormatIdx::Count][OpType::Count]) const {
-        for (int f = 0; f < FormatIdx::Count; ++f) {
-            for (int o = 0; o < OpType::Count; ++o) {
+        for (uint_fast8_t f = 0; f < FormatIdx::Count; ++f) {
+            for (uint_fast8_t o = 0; o < OpType::Count; ++o) {
                 snapshot[f][o] = data[f][o];
             }
         }
@@ -151,8 +151,8 @@ struct FormatMetrics {
 
     // スナップショットから復元
     void restoreSnapshot(const FormatOpEntry snapshot[FormatIdx::Count][OpType::Count]) {
-        for (int f = 0; f < FormatIdx::Count; ++f) {
-            for (int o = 0; o < OpType::Count; ++o) {
+        for (uint_fast8_t f = 0; f < FormatIdx::Count; ++f) {
+            for (uint_fast8_t o = 0; o < OpType::Count; ++o) {
                 data[f][o] = snapshot[f][o];
             }
         }
@@ -179,9 +179,9 @@ struct FormatMetrics {
         return s_instance;
     }
     void reset() {}
-    void record(int, int, int) {}
-    FormatOpEntry totalByOp(int) const { return FormatOpEntry{}; }
-    FormatOpEntry totalByFormat(int) const { return FormatOpEntry{}; }
+    void record(uint_fast8_t, uint_fast8_t, size_t) {}
+    FormatOpEntry totalByOp(uint_fast8_t) const { return FormatOpEntry{}; }
+    FormatOpEntry totalByFormat(uint_fast8_t) const { return FormatOpEntry{}; }
     FormatOpEntry total() const { return FormatOpEntry{}; }
     void saveSnapshot(FormatOpEntry[FormatIdx::Count][OpType::Count]) const {}
     void restoreSnapshot(const FormatOpEntry[FormatIdx::Count][OpType::Count]) {}

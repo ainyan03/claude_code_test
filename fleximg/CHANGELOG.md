@@ -12,6 +12,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- **コーディングスタイル違反の包括的修正**
+  - 固定小数点Q16.16メンバを `int32_t` → `int_fixed` に統一（AffinePrecomputed, SinkNode, SourceNode）
+  - 関数引数を `int` → `int_fast16_t` に修正（viewport, image_buffer, pixel_format, render_types 等14ファイル）
+  - 構造体メンバを `int` → `int16_t` に修正（RendererNode, BlurNode, MatteNode, PerfMetrics 等）
+  - ローカル変数・ループカウンタの型を終端変数に一致させる修正（auto + static_castパターン）
+  - 配列インデックスの型を `uint_fast8_t` / `size_t` に整理（EntryPool, RenderContext, FormatMetrics 等）
+  - PerfMetrics の count/allocCount メンバを `uint32_t` に統一
+
 - **関数ポインタ型の `int` 引数を `size_t` / `int_fast16_t` に修正**
   - `ConvertFunc` 系（ピクセル変換関数）: `int pixelCount` → `size_t pixelCount`
   - `CopyRowDDA_Func` / `CopyQuadDDA_Func`（DDA転送関数）: `int count` → `int_fast16_t count`
