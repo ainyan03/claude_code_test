@@ -28,6 +28,7 @@
 | マイグレーションAPI削除 | Point2f, setOriginf() 等の削除 | v2.18.0 |
 | doctestテスト環境 | 91テストケース | v2.20.0 |
 | Grayscale8 / Index8 フォーマット | グレースケールとパレットインデックスフォーマット、ImageBufferパレットサポート | v2.56.0 |
+| Bit-packed Index フォーマット | 1/2/4ビットパレットインデックス（MSB/LSB）、DDA・バイリニア補間対応 | v2.64.0 |
 | AffineNodeシンプル化 | DEPRECATEDコード削除、行列保持・伝播のみに | - |
 | NinePatchオーバーラップ対応 | パッチ区間のオーバーラップ設定でアフィン変換時の隙間を防止 | - |
 | CompositeNode単一バッファ事前確保 | getDataRangeで合成範囲を事前計算し、単一バッファに直接ブレンド（N=32で27%改善） | v2.63.25 |

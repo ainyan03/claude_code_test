@@ -839,6 +839,7 @@ inline void copyQuadDDA_4bpp(uint8_t* dst, const uint8_t* srcData, int count, co
 #include "pixel_format/rgb888.h"
 #include "pixel_format/grayscale8.h"
 #include "pixel_format/index8.h"
+#include "pixel_format/bit_packed_index.h"
 
 namespace FLEXIMG_NAMESPACE {
 
@@ -865,6 +866,12 @@ inline const PixelFormatID builtinFormats[] = {
     PixelFormatIDs::Alpha8,
     PixelFormatIDs::Grayscale8,
     PixelFormatIDs::Index8,
+    PixelFormatIDs::Index1_MSB,
+    PixelFormatIDs::Index1_LSB,
+    PixelFormatIDs::Index2_MSB,
+    PixelFormatIDs::Index2_LSB,
+    PixelFormatIDs::Index4_MSB,
+    PixelFormatIDs::Index4_LSB,
 };
 
 inline constexpr size_t builtinFormatsCount = sizeof(builtinFormats) / sizeof(builtinFormats[0]);

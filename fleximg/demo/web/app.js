@@ -66,6 +66,12 @@ const PIXEL_FORMATS = [
     { formatName: 'RGB332',                displayName: 'RGB332',     bpp: 1, description: '8-bit color' },
     { formatName: 'Alpha8',                displayName: 'Alpha8',     bpp: 1, description: 'Alpha only (for matte)' },
     { formatName: 'Grayscale8',            displayName: 'Gray8',      bpp: 1, description: 'Grayscale' },
+    { formatName: 'Index1_MSB',            displayName: 'Index1 (MSB)', bpp: 0.125, description: 'Palette (2色, 8px/byte)', sinkDisabled: true },
+    { formatName: 'Index1_LSB',            displayName: 'Index1 (LSB)', bpp: 0.125, description: 'Palette (2色, 8px/byte)', sinkDisabled: true },
+    { formatName: 'Index2_MSB',            displayName: 'Index2 (MSB)', bpp: 0.25,  description: 'Palette (4色, 4px/byte)', sinkDisabled: true },
+    { formatName: 'Index2_LSB',            displayName: 'Index2 (LSB)', bpp: 0.25,  description: 'Palette (4色, 4px/byte)', sinkDisabled: true },
+    { formatName: 'Index4_MSB',            displayName: 'Index4 (MSB)', bpp: 0.5,   description: 'Palette (16色, 2px/byte)', sinkDisabled: true },
+    { formatName: 'Index4_LSB',            displayName: 'Index4 (LSB)', bpp: 0.5,   description: 'Palette (16色, 2px/byte)', sinkDisabled: true },
     { formatName: 'Index8',                displayName: 'Index8',     bpp: 1, description: 'Palette (256色)', sinkDisabled: true },
 ];
 
@@ -5482,7 +5488,7 @@ function buildImageDetailContent(node) {
                     // Index8選択時: パレット選択UIを表示
                     const paletteSection = document.createElement('div');
                     paletteSection.className = 'node-detail-section';
-                    paletteSection.style.display = (currentFormat === 'Index8') ? '' : 'none';
+                    paletteSection.style.display = isIndexFormat(currentFormat) ? '' : 'none';
                     paletteSection.id = 'palette-section-' + node.id;
 
                     const palLabel = document.createElement('div');
@@ -5524,7 +5530,7 @@ function buildImageDetailContent(node) {
 
                     // フォーマット変更時にパレットセクションの表示切替
                     formatSelect.addEventListener('change', () => {
-                        paletteSection.style.display = (formatSelect.value === 'Index8') ? '' : 'none';
+                        paletteSection.style.display = isIndexFormat(formatSelect.value) ? '' : 'none';
                     });
 
                     // バイリニア補間チェックボックス
@@ -5574,6 +5580,14 @@ function is1BytePerPixelFormat(formatName) {
            formatName === 'Grayscale8' || formatName === 'RGB332';
 }
 
+// インデックスフォーマット（パレット必須）かどうかを判定
+function isIndexFormat(formatName) {
+    return formatName === 'Index8' ||
+           formatName === 'Index1_MSB' || formatName === 'Index1_LSB' ||
+           formatName === 'Index2_MSB' || formatName === 'Index2_LSB' ||
+           formatName === 'Index4_MSB' || formatName === 'Index4_LSB';
+}
+
 // ピクセルフォーマット変更時の処理
 function onPixelFormatChange(node, formatId) {
     if (node.type !== 'image') return;
@@ -5608,8 +5622,8 @@ function onPixelFormatChange(node, formatId) {
         );
     }
 
-    // Index8でなくなった場合、パレット関連付けを解除
-    if (formatId !== 'Index8') {
+    // インデックスフォーマットでなくなった場合、パレット関連付けを解除
+    if (!isIndexFormat(formatId)) {
         // nodeとcontent両方のpaletteIdをクリア
         if (node.paletteId || content.paletteId) {
             node.paletteId = null;
@@ -5619,7 +5633,7 @@ function onPixelFormatChange(node, formatId) {
             }
         }
     } else {
-        // Index8 に変更された場合、既存パレット関連付けがあれば再適用
+        // インデックスフォーマットに変更された場合、既存パレット関連付けがあれば再適用
         if (node.paletteId && content && graphEvaluator) {
             const pal = paletteLibrary.find(p => p.id === node.paletteId);
             if (pal) {
@@ -6793,7 +6807,7 @@ async function restoreAppState(state) {
 
     // パレット関連付けを復元（画像フォーマット適用後）
     globalNodes.forEach(node => {
-        if (node.type === 'image' && node.paletteId && node.pixelFormat === 'Index8') {
+        if (node.type === 'image' && node.paletteId && isIndexFormat(node.pixelFormat)) {
             const content = contentLibrary.find(c => c.id === node.contentId);
             const pal = paletteLibrary.find(p => p.id === node.paletteId);
             if (content && pal && graphEvaluator) {
