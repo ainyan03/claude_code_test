@@ -39,10 +39,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Improved
 
-- **blendFrom() チャンクループの最適化**
-  - bit-packed分岐をチャンクループ外に移動し、ループ内の条件分岐を除去
-  - `pixelOffsetInByte`、srcポインタ初期値、チャンクあたりの進行バイト数をループ前に事前計算
-  - CHUNK_SIZE(64)はpixelsPerByte(8,4,2)の倍数のためpixelOffsetInByteはチャンク間で不変
+- **blendFrom() のリファクタリング**
+  - 変数名改善: `dstBpp`/`srcBpp` → `dstPixelBytes`/`srcPixelBits`（bits/bytesの混同防止）
+  - `src.view()` の値コピー(×11回) → `src.viewRef()` のconst参照に変更
+  - `getBytesPerPixel()` ヘルパ → `formatID->` メンバ直接参照に変更
+  - srcオフセット計算をビット単位で一括化（`x * pixelBits` → `>>3` でバイト、`&7` でビット端数）
+  - bit-packed/通常フォーマットの条件分岐を完全に除去
+  - `pixelOffsetInByte` を `(totalBits & 7) >> (pixelBits >> 1)` のビットマスク・シフトで算出
+  - 二重 `>>3` 切り捨てによるバイトオフセット誤差の潜在的問題を解消
 
 ### Added
 

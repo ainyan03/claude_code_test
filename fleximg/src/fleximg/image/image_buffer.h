@@ -450,6 +450,7 @@ private:
 inline bool ImageBuffer::blendFrom(const ImageBuffer& src) {
     if (!isValid() || !src.isValid() || !view_.data) return false;
 
+    const auto& srcView = src.viewRef();
     const int16_t dstStartX = startX();
     const int16_t srcStartX = src.startX();
 
@@ -458,38 +459,27 @@ inline bool ImageBuffer::blendFrom(const ImageBuffer& src) {
     const int16_t clippedEnd = std::min(src.endX(), endX());
     if (clippedStart >= clippedEnd) return true;  // 範囲外、何もしない
 
-    const size_t dstBpp = static_cast<size_t>(getBytesPerPixel(view_.formatID));
-    const size_t srcBpp = static_cast<size_t>(getBytesPerPixel(src.view().formatID));
-    const uint8_t srcBitsPerPixel = src.view().formatID->bitsPerPixel;
-    const bool srcIsBitPacked = (srcBitsPerPixel < 8);
+    const size_t dstPixelBytes = static_cast<size_t>(view_.formatID->bytesPerPixel);
+    const uint8_t srcPixelBits = srcView.formatID->bitsPerPixel;
 
-    // ViewPortのx,yオフセットを考慮した行開始アドレス
+    // ViewPortのy成分を含む行ベースアドレス
+    // x成分はビット単位で一括計算し、>>3でバイト、&7でビット端数を取り出す
     uint8_t* dstRow = static_cast<uint8_t*>(view_.data)
                       + view_.y * view_.stride
-                      + static_cast<size_t>(view_.x) * dstBpp;
+                      + static_cast<size_t>(view_.x) * dstPixelBytes;
+    const uint8_t* srcRowBase = static_cast<const uint8_t*>(srcView.data)
+                              + srcView.y * srcView.stride;
 
-    // srcRow: bit-packedの場合はバイト単位のオフセットのみ計算
-    const uint8_t* srcRow;
-    if (srcIsBitPacked) {
-        const int32_t srcXBitOffset = src.view().x * srcBitsPerPixel;
-        const size_t srcXByteOffset = static_cast<size_t>(srcXBitOffset >> 3);
-        srcRow = static_cast<const uint8_t*>(src.view().data)
-                 + src.view().y * src.view().stride
-                 + srcXByteOffset;
-    } else {
-        srcRow = static_cast<const uint8_t*>(src.view().data)
-                 + src.view().y * src.view().stride
-                 + static_cast<size_t>(src.view().x) * srcBpp;
-    }
-
-    PixelFormatID srcFmt = src.view().formatID;
+    PixelFormatID srcFmt = srcView.formatID;
     const PixelAuxInfo* srcAux = &src.auxInfo();
 
     auto blendFunc = srcFmt->blendUnderStraight;
     if (blendFunc) {
         // 直接ブレンド（RGBA8_Straight等、blendUnderStraight実装済みフォーマット）
-        void* dstPtr = dstRow + static_cast<size_t>(clippedStart - dstStartX) * dstBpp;
-        const void* srcPtr = srcRow + static_cast<size_t>(clippedStart - srcStartX) * srcBpp;
+        // blendUnderStraight対応フォーマットは常にbytesPerPixel>=1のため>>3は正確
+        const int32_t srcBits = (srcView.x + clippedStart - srcStartX) * srcPixelBits;
+        void* dstPtr = dstRow + static_cast<size_t>(clippedStart - dstStartX) * dstPixelBytes;
+        const void* srcPtr = srcRowBase + static_cast<size_t>(srcBits >> 3);
         blendFunc(dstPtr, srcPtr, clippedEnd - clippedStart, srcAux);
     } else {
         // フォールバック: チャンク単位でRGBA8_Straightに変換してからブレンド
@@ -502,30 +492,19 @@ inline bool ImageBuffer::blendFrom(const ImageBuffer& src) {
         int16_t remaining = static_cast<int16_t>(clippedEnd - clippedStart);
         int16_t cursor = clippedStart;
 
-        // bit-packed/通常フォーマット共通: ループ外でsrcPtr初期値と進行量を事前計算
-        // (bit-packedの場合、CHUNK_SIZE=64はpixelsPerByte(8,4,2)の倍数のため
-        //  pixelOffsetInByteはチャンク間で不変)
-        const uint8_t* srcChunkPtr;
-        size_t srcBytesPerChunk;
-        if (srcIsBitPacked) {
-            const uint8_t pixelsPerByte = static_cast<uint8_t>(8 / srcBitsPerPixel);
-            const int16_t pixelOffset = static_cast<int16_t>(clippedStart - srcStartX);
-            const int32_t totalBitOffset = pixelOffset * srcBitsPerPixel;
-            srcChunkPtr = srcRow + static_cast<size_t>(totalBitOffset >> 3);
-            srcBytesPerChunk = static_cast<size_t>(CHUNK_SIZE * srcBitsPerPixel) >> 3;
-
-            const int16_t actualPixelPos = static_cast<int16_t>(src.view().x + pixelOffset);
-            converter.ctx.pixelOffsetInByte = static_cast<uint8_t>(actualPixelPos % pixelsPerByte);
-        } else {
-            srcChunkPtr = srcRow + static_cast<size_t>(clippedStart - srcStartX) * srcBpp;
-            srcBytesPerChunk = static_cast<size_t>(CHUNK_SIZE) * srcBpp;
-            converter.ctx.pixelOffsetInByte = 0;
-        }
+        // ループ外でsrcPtr初期値と進行量を事前計算
+        // ビット単位で一括計算し、>>3でバイトオフセット、&7でバイト内ビット位置を取得
+        // (CHUNK_SIZE=64はpixelsPerByte(8,4,2)の倍数のためビット端数はチャンク間で不変)
+        const int16_t pixelOffset = static_cast<int16_t>(clippedStart - srcStartX);
+        const int32_t srcTotalBits = (srcView.x + pixelOffset) * srcPixelBits;
+        const uint8_t* srcChunkPtr = srcRowBase + static_cast<size_t>(srcTotalBits >> 3);
+        const size_t srcBytesPerChunk = static_cast<size_t>(CHUNK_SIZE * srcPixelBits >> 3);
+        converter.ctx.pixelOffsetInByte = static_cast<uint8_t>((srcTotalBits & 7) >> (srcPixelBits >> 1));
 
         while (remaining > 0) {
             int16_t chunk = std::min(remaining, CHUNK_SIZE);
             converter(tempBuf, srcChunkPtr, chunk);
-            void* dstPtr = dstRow + static_cast<size_t>(cursor - dstStartX) * dstBpp;
+            void* dstPtr = dstRow + static_cast<size_t>(cursor - dstStartX) * dstPixelBytes;
             straightBlend(dstPtr, tempBuf, chunk, nullptr);
             srcChunkPtr += srcBytesPerChunk;
             cursor = static_cast<int16_t>(cursor + chunk);
