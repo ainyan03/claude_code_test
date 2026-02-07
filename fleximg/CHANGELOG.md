@@ -28,6 +28,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - `ImageBuffer::blendFrom()`: ブレンド合成時の行開始アドレス計算でオフセット考慮
   - 非アフィンパスでの「先頭行が縦に引き伸ばされる」バグを修正
 
+- **MatteNode マスク画像の横方向位置ずれ修正**
+  - `InputView::from()` が ViewPort の x,y オフセットを無視していたため、`scanMaskZeroRanges` + `cropView` 後のマスクデータアクセス位置がずれていた
+  - `ptr` 設定時に `vp.y * vp.stride + vp.x * vp.bytesPerPixel()` を加算し、ビュー位置をポインタに織り込むよう修正
+
 - **bit-packed format の pixelOffsetInByte サポート**
   - CompositeNode経由でbit-packed（Index1/2/4）データを処理する際のチャンク境界でのオフセットずれを修正
   - `PixelAuxInfo::pixelOffsetInByte` フィールド追加（1バイト内でのピクセル位置 0 - PixelsPerByte-1）
