@@ -5,14 +5,29 @@
 // （PixelFormatDescriptor、DDAParam、int_fixed等は既に定義済み）
 
 // ========================================================================
-// DDA (Digital Differential Analyzer) 転写関数
+// DDA (Digital Differential Analyzer) 転写関数 - バイト単位実装
 // ========================================================================
 //
 // ピクセルフォーマットに依存しないDDA処理の実装を集約。
 // アフィン変換やバイリニア補間で使用される、高速なピクセル転写関数群。
 //
+// **このファイルの内容:**
 // - バイト単位のDDA（1/2/3/4 バイト/ピクセル）
-// - ビット単位のDDA（1/2/4 ビット/ピクセル、bit-packed形式）
+//   - copyRowDDA_Byte<BytesPerPixel>: 行単位ピクセル転写
+//   - copyQuadDDA_Byte<BytesPerPixel>: 2x2グリッド抽出（バイリニア補間用）
+//   - ラッパー関数: copyRowDDA_1Byte ～ _4Byte, copyQuadDDA_1Byte ～ _4Byte
+//
+// **bit-packed DDA関数の場所:**
+// - ビット単位のDDA（1/2/4 ビット/ピクセル）は bit_packed_index.h 内に定義
+//   - copyRowDDA_Bit<BitsPerPixel, Order>
+//   - copyQuadDDA_Bit<BitsPerPixel, Order>
+// - これは bit_packed_detail::readPixelDirect への依存を避けるための設計
+//   （インクルード順序の複雑さを回避しつつ、命名規則の統一は達成）
+//
+// **命名規則の統一:**
+// - バイト単位: _Byte サフィックス（明示的にバイト数を指定）
+// - ビット単位: _Bit サフィックス（明示的にビット数とbit-orderを指定）
+// - 対称性: copyRowDDA_Byte<3> vs copyRowDDA_Bit<4, MSBFirst>
 //
 
 #ifdef FLEXIMG_IMPLEMENTATION
