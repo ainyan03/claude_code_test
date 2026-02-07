@@ -113,13 +113,14 @@ struct PixelAuxInfo {
     // パレット情報（インデックスフォーマット用）
     const void* palette = nullptr;           // パレットデータポインタ（非所有）
     PixelFormatID paletteFormat = nullptr;   // パレットエントリのフォーマット
-    uint16_t paletteColorCount = 0;          // パレットエントリ数
 
-    uint8_t alphaMultiplier = 255;  // アルファ係数（1 byte）AlphaNodeで使用
+    // カラーキー情報（toStraight後にin-placeで適用）
     uint32_t colorKeyRGBA8 = 0;    // カラーキー比較値（RGBA8、alpha込み）
     uint32_t colorKeyReplace = 0;  // カラーキー差し替え値（通常は透明黒0）
     // colorKeyRGBA8 == colorKeyReplace の場合は無効
 
+    uint16_t paletteColorCount = 0;          // パレットエントリ数
+    uint8_t alphaMultiplier = 255;  // アルファ係数（1 byte）AlphaNodeで使用
     uint8_t pixelOffsetInByte = 0;  // bit-packed用: 1バイト内でのピクセル位置 (0 - PixelsPerByte-1)
                                      // Index1: 0-7, Index2: 0-3, Index4: 0-1
 
@@ -173,67 +174,10 @@ enum class ByteOrder {
 };
 
 // ========================================================================
-// チャンネル種別
-// ========================================================================
-
-enum class ChannelType : uint8_t {
-    Unused = 0,      // チャンネルなし
-    Red,             // 赤チャンネル
-    Green,           // 緑チャンネル
-    Blue,            // 青チャンネル
-    Alpha,           // アルファチャンネル
-    Luminance,       // 輝度（グレースケール）
-    Index            // パレットインデックス
-};
-
-// ========================================================================
-// チャンネル記述子
-// ========================================================================
-
-struct ChannelDescriptor {
-    ChannelType type;   // チャンネル種別
-    uint8_t bits;       // ビット数（0なら存在しない）
-    uint8_t shift;      // ビットシフト量
-    uint16_t mask;      // ビットマスク
-
-    // デフォルトコンストラクタ（Unusedチャンネル）
-    constexpr ChannelDescriptor()
-        : type(ChannelType::Unused), bits(0), shift(0), mask(0) {}
-
-    // コンストラクタ（チャンネル種別を指定）
-    constexpr ChannelDescriptor(ChannelType t, uint8_t b, uint8_t s = 0)
-        : type(t), bits(b), shift(s)
-        , mask(b > 0 ? static_cast<uint16_t>(((1u << b) - 1) << s) : 0) {}
-};
-
-// ========================================================================
 // ピクセルフォーマット記述子
 // ========================================================================
 
 struct PixelFormatDescriptor {
-    const char* name;
-
-    // 基本情報
-    uint8_t bitsPerPixel;       // ピクセルあたりのビット数
-    uint8_t bytesPerPixel;      // ピクセルあたりのバイト数（切り上げ）
-    uint8_t pixelsPerUnit;      // 1ユニットあたりのピクセル数
-    uint8_t bytesPerUnit;       // 1ユニットあたりのバイト数
-
-    // チャンネル情報（ダイレクトカラーの場合）
-    uint8_t channelCount;           // チャンネル総数（Phase 2で追加、Phase 4で使用開始）
-    ChannelDescriptor channels[4];  // R, G, B, A の順（Phase 5で削除予定）
-
-    // アルファ情報
-    bool hasAlpha;
-
-    // パレット情報（インデックスカラーの場合）
-    bool isIndexed;
-    uint16_t maxPaletteSize;
-
-    // エンディアン情報
-    BitOrder bitOrder;
-    ByteOrder byteOrder;
-
     // ========================================================================
     // 変換関数の型定義
     // ========================================================================
@@ -244,15 +188,10 @@ struct PixelFormatDescriptor {
     using ToStraightFunc = ConvertFunc;
     using FromStraightFunc = ConvertFunc;
 
-    // 変換関数ポインタ（ダイレクトカラー用）
-    ToStraightFunc toStraight;
-    FromStraightFunc fromStraight;
-
     // インデックス展開関数（インデックス値 → パレットフォーマットのピクセルデータ）
     // aux->palette, aux->paletteFormat を参照してインデックスをパレットエントリに展開
     // 出力はパレットフォーマット（RGBA8とは限らない）
     using ExpandIndexFunc = ConvertFunc;
-    ExpandIndexFunc expandIndex;   // 非インデックスフォーマットでは nullptr
 
     // BlendUnderStraightFunc: srcフォーマットからStraight形式(RGBA8)のdstへunder合成
     //   - dst が不透明なら何もしない（スキップ）
@@ -263,8 +202,18 @@ struct PixelFormatDescriptor {
     // SwapEndianFunc: エンディアン違いの兄弟フォーマットとの変換
     using SwapEndianFunc = ConvertFunc;
 
-    // 関数ポインタ（Straight形式用、未実装の場合は nullptr）
-    BlendUnderStraightFunc blendUnderStraight;
+    // ========================================================================
+    // メンバ（アライメント効率順: ポインタ → 4byte → 2byte → 1byte）
+    // ========================================================================
+
+    // フォーマット名
+    const char* name;
+
+    // 変換関数ポインタ（ダイレクトカラー用）
+    ToStraightFunc toStraight;
+    FromStraightFunc fromStraight;
+    ExpandIndexFunc expandIndex;   // 非インデックスフォーマットでは nullptr
+    BlendUnderStraightFunc blendUnderStraight;  // 未実装の場合は nullptr
 
     // エンディアン変換（兄弟フォーマットがある場合）
     const PixelFormatDescriptor* siblingEndian;  // エンディアン違いの兄弟（なければnullptr）
@@ -274,38 +223,23 @@ struct PixelFormatDescriptor {
     CopyRowDDA_Func copyRowDDA;                  // DDA方式の行転写（nullptrなら未対応）
     CopyQuadDDA_Func copyQuadDDA;                // DDA方式の4ピクセル抽出（バイリニア用、nullptrなら未対応）
 
-    // ========================================================================
-    // チャンネルアクセスメソッド（Phase 2で追加）
-    // ========================================================================
+    // エンディアン情報
+    BitOrder bitOrder;
+    ByteOrder byteOrder;
 
-    // 指定インデックスのチャンネル記述子を取得
-    // index >= channelCount の場合はUnusedチャンネルを返す
-    constexpr ChannelDescriptor getChannel(uint8_t index) const {
-        return (index < channelCount) ? channels[index] : ChannelDescriptor();
-    }
+    // パレット情報（インデックスカラーの場合）
+    uint16_t maxPaletteSize;
 
-    // 指定タイプのチャンネルインデックスを取得
-    // 見つからない場合は-1を返す
-    constexpr int8_t getChannelIndex(ChannelType type) const {
-        for (uint8_t i = 0; i < channelCount; ++i) {
-            if (channels[i].type == type) {
-                return static_cast<int8_t>(i);
-            }
-        }
-        return -1;
-    }
+    // 基本情報
+    uint8_t bitsPerPixel;       // ピクセルあたりのビット数
+    uint8_t bytesPerPixel;      // ピクセルあたりのバイト数（切り上げ）
+    uint8_t pixelsPerUnit;      // 1ユニットあたりのピクセル数
+    uint8_t bytesPerUnit;       // 1ユニットあたりのバイト数
+    uint8_t channelCount;       // チャンネル総数
 
-    // 指定タイプのチャンネルを持つか判定
-    constexpr bool hasChannelType(ChannelType type) const {
-        return getChannelIndex(type) >= 0;
-    }
-
-    // 指定タイプのチャンネル記述子を取得
-    // 見つからない場合はUnusedチャンネルを返す
-    constexpr ChannelDescriptor getChannelByType(ChannelType type) const {
-        int8_t idx = getChannelIndex(type);
-        return (idx >= 0) ? channels[idx] : ChannelDescriptor();
-    }
+    // フラグ
+    bool hasAlpha;
+    bool isIndexed;
 };
 
 // ========================================================================
@@ -424,14 +358,6 @@ namespace FLEXIMG_NAMESPACE {
 // ユーティリティ関数
 // ========================================================================
 
-// ピクセルあたりのバイト数を取得
-inline int_fast8_t getBytesPerPixel(PixelFormatID formatID) {
-    if (formatID) {
-        return static_cast<int_fast8_t>(formatID->bytesPerPixel);
-    }
-    return 4;  // フォールバック
-}
-
 // 組み込みフォーマット一覧（名前検索用）
 inline const PixelFormatID builtinFormats[] = {
     PixelFormatIDs::RGBA8_Straight,
@@ -491,30 +417,30 @@ struct FormatConverter {
 
     // 解決済みコンテキスト（Prepare 時に確定）
     struct Context {
-        // フォーマット情報（memcpy パス用）
-        uint8_t pixelsPerUnit = 1;
-        uint8_t bytesPerUnit = 4;
+        // 解決済み関数ポインタ
+        PixelFormatDescriptor::ExpandIndexFunc expandIndex = nullptr;
+        PixelFormatDescriptor::ToStraightFunc toStraight = nullptr;
+        PixelFormatDescriptor::FromStraightFunc fromStraight = nullptr;
 
         // パレット情報（Index 展開用）
         const void* palette = nullptr;
         PixelFormatID paletteFormat = nullptr;
         uint16_t paletteColorCount = 0;
 
-        // 解決済み関数ポインタ
-        PixelFormatDescriptor::ExpandIndexFunc expandIndex = nullptr;
-        PixelFormatDescriptor::ToStraightFunc toStraight = nullptr;
-        PixelFormatDescriptor::FromStraightFunc fromStraight = nullptr;
-
-        // BytesPerPixel情報（チャンク処理のポインタ進行用）
-        int_fast8_t srcBytesPerPixel = 0;
-        int_fast8_t dstBytesPerPixel = 0;
-
-        // パレット展開時のBytesPerPixel（中間バッファ用）
-        int_fast8_t paletteBytesPerPixel = 0;
+        // フォーマット情報（memcpy パス用）
+        uint8_t pixelsPerUnit = 1;
+        uint8_t bytesPerUnit = 4;
 
         // カラーキー情報（toStraight後にin-placeで適用）
         uint32_t colorKeyRGBA8 = 0;
         uint32_t colorKeyReplace = 0;
+
+        // BytesPerPixel情報（チャンク処理のポインタ進行用）
+        uint8_t srcBytesPerPixel = 0;
+        uint8_t dstBytesPerPixel = 0;
+
+        // パレット展開時のBytesPerPixel（中間バッファ用）
+        uint8_t paletteBytesPerPixel = 0;
 
         // bit-packed用: 1バイト内でのピクセル位置（0 - PixelsPerByte-1）
         uint8_t pixelOffsetInByte = 0;

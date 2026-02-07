@@ -260,20 +260,6 @@ namespace BuiltinFormats {
 
 const PixelFormatDescriptor RGBA8_Straight = {
     "RGBA8_Straight",
-    32,  // bitsPerPixel
-    4,   // bytesPerPixel
-    1,   // pixelsPerUnit
-    4,   // bytesPerUnit
-    4,   // channelCount
-    { ChannelDescriptor(ChannelType::Red, 8, 0),
-      ChannelDescriptor(ChannelType::Green, 8, 0),
-      ChannelDescriptor(ChannelType::Blue, 8, 0),
-      ChannelDescriptor(ChannelType::Alpha, 8, 0) },  // R, G, B, A
-    true,   // hasAlpha
-    false,  // isIndexed
-    0,      // maxPaletteSize
-    BitOrder::MSBFirst,
-    ByteOrder::Native,
     rgba8Straight_toStraight,
     rgba8Straight_fromStraight,
     nullptr,  // expandIndex
@@ -281,7 +267,17 @@ const PixelFormatDescriptor RGBA8_Straight = {
     nullptr,  // siblingEndian
     nullptr,  // swapEndian
     pixel_format::detail::copyRowDDA_4Byte,  // copyRowDDA
-    pixel_format::detail::copyQuadDDA_4Byte  // copyQuadDDA
+    pixel_format::detail::copyQuadDDA_4Byte, // copyQuadDDA
+    BitOrder::MSBFirst,
+    ByteOrder::Native,
+    0,      // maxPaletteSize
+    32,  // bitsPerPixel
+    4,   // bytesPerPixel
+    1,   // pixelsPerUnit
+    4,   // bytesPerUnit
+    4,   // channelCount
+    true,   // hasAlpha
+    false,  // isIndexed
 };
 
 } // namespace BuiltinFormats

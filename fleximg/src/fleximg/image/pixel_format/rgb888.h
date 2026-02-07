@@ -176,20 +176,6 @@ extern const PixelFormatDescriptor BGR888;
 
 const PixelFormatDescriptor RGB888 = {
     "RGB888",
-    24,  // bitsPerPixel
-    3,   // bytesPerPixel
-    1,   // pixelsPerUnit
-    3,   // bytesPerUnit
-    3,   // channelCount
-    { ChannelDescriptor(ChannelType::Red, 8, 16),
-      ChannelDescriptor(ChannelType::Green, 8, 8),
-      ChannelDescriptor(ChannelType::Blue, 8, 0),
-      ChannelDescriptor() },  // R, G, B, (no A)
-    false,  // hasAlpha
-    false,  // isIndexed
-    0,      // maxPaletteSize
-    BitOrder::MSBFirst,
-    ByteOrder::Native,
     rgb888_toStraight,
     rgb888_fromStraight,
     nullptr,  // expandIndex
@@ -197,25 +183,21 @@ const PixelFormatDescriptor RGB888 = {
     &BGR888,  // siblingEndian
     swap24,   // swapEndian
     pixel_format::detail::copyRowDDA_3Byte,  // copyRowDDA
-    pixel_format::detail::copyQuadDDA_3Byte  // copyQuadDDA
-};
-
-const PixelFormatDescriptor BGR888 = {
-    "BGR888",
+    pixel_format::detail::copyQuadDDA_3Byte, // copyQuadDDA
+    BitOrder::MSBFirst,
+    ByteOrder::Native,
+    0,      // maxPaletteSize
     24,  // bitsPerPixel
     3,   // bytesPerPixel
     1,   // pixelsPerUnit
     3,   // bytesPerUnit
     3,   // channelCount
-    { ChannelDescriptor(ChannelType::Blue, 8, 0),
-      ChannelDescriptor(ChannelType::Green, 8, 8),
-      ChannelDescriptor(ChannelType::Red, 8, 16),
-      ChannelDescriptor() },  // B, G, R (メモリ順序)
     false,  // hasAlpha
     false,  // isIndexed
-    0,      // maxPaletteSize
-    BitOrder::MSBFirst,
-    ByteOrder::Native,
+};
+
+const PixelFormatDescriptor BGR888 = {
+    "BGR888",
     bgr888_toStraight,
     bgr888_fromStraight,
     nullptr,  // expandIndex
@@ -223,7 +205,17 @@ const PixelFormatDescriptor BGR888 = {
     &RGB888,  // siblingEndian
     swap24,   // swapEndian
     pixel_format::detail::copyRowDDA_3Byte,  // copyRowDDA
-    pixel_format::detail::copyQuadDDA_3Byte  // copyQuadDDA
+    pixel_format::detail::copyQuadDDA_3Byte, // copyQuadDDA
+    BitOrder::MSBFirst,
+    ByteOrder::Native,
+    0,      // maxPaletteSize
+    24,  // bitsPerPixel
+    3,   // bytesPerPixel
+    1,   // pixelsPerUnit
+    3,   // bytesPerUnit
+    3,   // channelCount
+    false,  // hasAlpha
+    false,  // isIndexed
 };
 
 } // namespace BuiltinFormats

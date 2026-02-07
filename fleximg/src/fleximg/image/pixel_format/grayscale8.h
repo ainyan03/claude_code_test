@@ -70,18 +70,6 @@ namespace BuiltinFormats {
 
 const PixelFormatDescriptor Grayscale8 = {
     "Grayscale8",
-    8,   // bitsPerPixel
-    1,   // bytesPerPixel
-    1,   // pixelsPerUnit
-    1,   // bytesPerUnit
-    1,   // channelCount
-    { ChannelDescriptor(ChannelType::Luminance, 8, 0),
-      ChannelDescriptor(), ChannelDescriptor(), ChannelDescriptor() },  // Luminance only
-    false,  // hasAlpha
-    false,  // isIndexed
-    0,      // maxPaletteSize
-    BitOrder::MSBFirst,
-    ByteOrder::Native,
     grayscale8_toStraight,
     grayscale8_fromStraight,
     nullptr,  // expandIndex
@@ -89,7 +77,17 @@ const PixelFormatDescriptor Grayscale8 = {
     nullptr,  // siblingEndian
     nullptr,  // swapEndian
     pixel_format::detail::copyRowDDA_1Byte,  // copyRowDDA
-    pixel_format::detail::copyQuadDDA_1Byte  // copyQuadDDA
+    pixel_format::detail::copyQuadDDA_1Byte, // copyQuadDDA
+    BitOrder::MSBFirst,
+    ByteOrder::Native,
+    0,      // maxPaletteSize
+    8,   // bitsPerPixel
+    1,   // bytesPerPixel
+    1,   // pixelsPerUnit
+    1,   // bytesPerUnit
+    1,   // channelCount
+    false,  // hasAlpha
+    false,  // isIndexed
 };
 
 } // namespace BuiltinFormats

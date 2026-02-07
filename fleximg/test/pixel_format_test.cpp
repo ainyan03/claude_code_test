@@ -61,30 +61,26 @@ TEST_CASE("PixelFormatDescriptor properties") {
 }
 
 // =============================================================================
-// getBytesPerPixel Tests
+// bytesPerPixel Tests
 // =============================================================================
 
-TEST_CASE("getBytesPerPixel") {
+TEST_CASE("bytesPerPixel") {
     SUBCASE("RGBA8_Straight - 4 bytes") {
-        CHECK(getBytesPerPixel(PixelFormatIDs::RGBA8_Straight) == 4);
+        CHECK(PixelFormatIDs::RGBA8_Straight->bytesPerPixel == 4);
     }
 
     SUBCASE("RGB formats - 3 bytes") {
-        CHECK(getBytesPerPixel(PixelFormatIDs::RGB888) == 3);
-        CHECK(getBytesPerPixel(PixelFormatIDs::BGR888) == 3);
+        CHECK(PixelFormatIDs::RGB888->bytesPerPixel == 3);
+        CHECK(PixelFormatIDs::BGR888->bytesPerPixel == 3);
     }
 
     SUBCASE("Packed RGB formats - 2 bytes") {
-        CHECK(getBytesPerPixel(PixelFormatIDs::RGB565_LE) == 2);
-        CHECK(getBytesPerPixel(PixelFormatIDs::RGB565_BE) == 2);
+        CHECK(PixelFormatIDs::RGB565_LE->bytesPerPixel == 2);
+        CHECK(PixelFormatIDs::RGB565_BE->bytesPerPixel == 2);
     }
 
     SUBCASE("RGB332 - 1 byte") {
-        CHECK(getBytesPerPixel(PixelFormatIDs::RGB332) == 1);
-    }
-
-    SUBCASE("nullptr returns fallback (4)") {
-        CHECK(getBytesPerPixel(nullptr) == 4);
+        CHECK(PixelFormatIDs::RGB332->bytesPerPixel == 1);
     }
 }
 
@@ -132,106 +128,6 @@ TEST_CASE("convertFormat") {
         for (int i = 0; i < 8; ++i) {
             CHECK(dst[i] == src[i]);
         }
-    }
-}
-
-// =============================================================================
-// ChannelDescriptor Tests
-// =============================================================================
-
-TEST_CASE("ChannelDescriptor") {
-    SUBCASE("default construction") {
-        ChannelDescriptor ch;
-        CHECK(ch.bits == 0);
-        CHECK(ch.shift == 0);
-        CHECK(ch.mask == 0);
-    }
-
-    SUBCASE("8-bit channel at shift 0") {
-        ChannelDescriptor ch(ChannelType::Red, 8, 0);
-        CHECK(ch.bits == 8);
-        CHECK(ch.shift == 0);
-        CHECK(ch.mask == 0x00FF);
-    }
-
-    SUBCASE("8-bit channel at shift 8") {
-        ChannelDescriptor ch(ChannelType::Green, 8, 8);
-        CHECK(ch.bits == 8);
-        CHECK(ch.shift == 8);
-        CHECK(ch.mask == 0xFF00);
-    }
-
-    SUBCASE("5-bit channel (RGB565 style)") {
-        ChannelDescriptor ch(ChannelType::Red, 5, 11);  // R in RGB565
-        CHECK(ch.bits == 5);
-        CHECK(ch.shift == 11);
-        CHECK(ch.mask == 0xF800);
-    }
-
-    SUBCASE("ChannelType Alpha") {
-        ChannelDescriptor ch(ChannelType::Alpha, 8, 0);
-        CHECK(ch.type == ChannelType::Alpha);
-        CHECK(ch.bits == 8);
-        CHECK(ch.shift == 0);
-        CHECK(ch.mask == 0x00FF);
-    }
-
-    SUBCASE("default constructor creates Unused") {
-        ChannelDescriptor ch;
-        CHECK(ch.type == ChannelType::Unused);
-        CHECK(ch.bits == 0);
-    }
-}
-
-// =============================================================================
-// PixelFormatDescriptor Channel Methods Tests
-// =============================================================================
-
-TEST_CASE("PixelFormatDescriptor channel methods") {
-    SUBCASE("Alpha8 - single channel") {
-        const auto* fmt = PixelFormatIDs::Alpha8;
-
-        CHECK(fmt->channelCount == 1);
-        CHECK(fmt->getChannel(0).type == ChannelType::Alpha);
-        CHECK(fmt->getChannel(0).bits == 8);
-        CHECK(fmt->getChannel(1).type == ChannelType::Unused);
-
-        CHECK(fmt->hasChannelType(ChannelType::Alpha) == true);
-        CHECK(fmt->hasChannelType(ChannelType::Red) == false);
-
-        CHECK(fmt->getChannelIndex(ChannelType::Alpha) == 0);
-        CHECK(fmt->getChannelIndex(ChannelType::Red) == -1);
-
-        auto alphaCh = fmt->getChannelByType(ChannelType::Alpha);
-        CHECK(alphaCh.type == ChannelType::Alpha);
-        CHECK(alphaCh.bits == 8);
-    }
-
-    SUBCASE("RGBA8 - four channels") {
-        const auto* fmt = PixelFormatIDs::RGBA8_Straight;
-
-        CHECK(fmt->channelCount == 4);
-        CHECK(fmt->getChannelIndex(ChannelType::Red) == 0);
-        CHECK(fmt->getChannelIndex(ChannelType::Green) == 1);
-        CHECK(fmt->getChannelIndex(ChannelType::Blue) == 2);
-        CHECK(fmt->getChannelIndex(ChannelType::Alpha) == 3);
-
-        auto alphaCh = fmt->getChannelByType(ChannelType::Alpha);
-        CHECK(alphaCh.type == ChannelType::Alpha);
-        CHECK(alphaCh.bits == 8);
-    }
-
-    SUBCASE("RGB565 - packed format") {
-        const auto* fmt = PixelFormatIDs::RGB565_LE;
-
-        CHECK(fmt->channelCount == 3);
-        CHECK(fmt->hasChannelType(ChannelType::Red) == true);
-        CHECK(fmt->hasChannelType(ChannelType::Alpha) == false);
-
-        auto redCh = fmt->getChannelByType(ChannelType::Red);
-        CHECK(redCh.type == ChannelType::Red);
-        CHECK(redCh.bits == 5);
-        CHECK(redCh.shift == 11);
     }
 }
 
@@ -317,15 +213,8 @@ TEST_CASE("Grayscale8 pixel format properties") {
         CHECK(fmt->expandIndex == nullptr);
     }
 
-    SUBCASE("channel type") {
-        CHECK(fmt->getChannel(0).type == ChannelType::Luminance);
-        CHECK(fmt->getChannel(0).bits == 8);
-        CHECK(fmt->hasChannelType(ChannelType::Luminance) == true);
-        CHECK(fmt->hasChannelType(ChannelType::Red) == false);
-    }
-
-    SUBCASE("getBytesPerPixel") {
-        CHECK(getBytesPerPixel(PixelFormatIDs::Grayscale8) == 1);
+    SUBCASE("bytesPerPixel") {
+        CHECK(PixelFormatIDs::Grayscale8->bytesPerPixel == 1);
     }
 
     SUBCASE("getFormatByName") {
@@ -423,14 +312,8 @@ TEST_CASE("Index8 pixel format properties") {
         CHECK(fmt->fromStraight != nullptr);
     }
 
-    SUBCASE("channel type") {
-        CHECK(fmt->getChannel(0).type == ChannelType::Index);
-        CHECK(fmt->getChannel(0).bits == 8);
-        CHECK(fmt->hasChannelType(ChannelType::Index) == true);
-    }
-
-    SUBCASE("getBytesPerPixel") {
-        CHECK(getBytesPerPixel(PixelFormatIDs::Index8) == 1);
+    SUBCASE("bytesPerPixel") {
+        CHECK(PixelFormatIDs::Index8->bytesPerPixel == 1);
     }
 
     SUBCASE("getFormatByName") {

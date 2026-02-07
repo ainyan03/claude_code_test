@@ -230,7 +230,7 @@ public:
     void* pixelAt(int x, int y) { return view_.pixelAt(x, y); }
     const void* pixelAt(int x, int y) const { return view_.pixelAt(x, y); }
 
-    int_fast8_t bytesPerPixel() const { return view_.bytesPerPixel(); }
+    uint8_t bytesPerPixel() const { return view_.bytesPerPixel(); }
     uint32_t totalBytes() const {
         // strideが負の場合は絶対値を使用
         int32_t absStride = stride() >= 0 ? stride() : -stride();
@@ -377,14 +377,17 @@ private:
     InitPolicy initPolicy_;
 
     void allocate() {
+        // view_.formatIDがnullptrでないことを確認
+        FLEXIMG_ASSERT(view_.formatID != nullptr, "PixelFormatID is null");
+
         // bit-packed形式に対応したstride計算
-        if (view_.formatID && view_.formatID->pixelsPerUnit > 1) {
+        if (view_.formatID->pixelsPerUnit > 1) {
             // bit-packed形式: 必要なユニット数 × bytesPerUnit
             int units = (view_.width + view_.formatID->pixelsPerUnit - 1) / view_.formatID->pixelsPerUnit;
             view_.stride = static_cast<int32_t>(units * view_.formatID->bytesPerUnit);
         } else {
             // 通常形式: width × bytesPerPixel
-            auto bytesPerPixel = getBytesPerPixel(view_.formatID);
+            auto bytesPerPixel = view_.formatID->bytesPerPixel;
             view_.stride = static_cast<int32_t>(view_.width * bytesPerPixel);
         }
         capacity_ = static_cast<size_t>(view_.stride) * static_cast<size_t>(view_.height);

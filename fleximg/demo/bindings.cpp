@@ -54,7 +54,7 @@ class ImageStore {
 public:
     // 外部データをコピーして保存（入力画像用）
     ViewPort store(int id, const uint8_t* data, int w, int h, PixelFormatID fmt) {
-        auto bytesPerPixel = getBytesPerPixel(fmt);
+        auto bytesPerPixel = fmt->bytesPerPixel;
         auto size = static_cast<size_t>(w * h * bytesPerPixel);
         storage_[id].assign(data, data + size);
 
@@ -71,7 +71,7 @@ public:
 
     // バッファを確保（出力用）
     ViewPort allocate(int id, int w, int h, PixelFormatID fmt) {
-        auto bytesPerPixel = getBytesPerPixel(fmt);
+        auto bytesPerPixel =  fmt->bytesPerPixel;
         auto size = static_cast<size_t>(w * h * bytesPerPixel);
         storage_[id].resize(size, 0);
 
@@ -319,8 +319,8 @@ public:
                 int units = (totalPixels + targetFormat->pixelsPerUnit - 1) / targetFormat->pixelsPerUnit;
                 bufferSize = static_cast<size_t>(units) * static_cast<size_t>(targetFormat->bytesPerUnit);
             } else {
-                // 通常形式: ピクセル数 × getBytesPerPixel
-                auto targetBpp = getBytesPerPixel(targetFormat);
+                // 通常形式: ピクセル数 × bytesPerPixel
+                auto targetBpp = targetFormat->bytesPerPixel;
                 bufferSize = static_cast<size_t>(totalPixels) * static_cast<size_t>(targetBpp);
             }
 
@@ -987,7 +987,7 @@ private:
             sinkOut.format = info.format;
             sinkOut.width = info.width;
             sinkOut.height = info.height;
-            auto sinkBpp = getBytesPerPixel(info.format);
+            auto sinkBpp = info.format->bytesPerPixel;
             auto sinkBufferSize = static_cast<size_t>(info.width * info.height * sinkBpp);
             sinkOut.buffer.resize(sinkBufferSize);
             std::fill(sinkOut.buffer.begin(), sinkOut.buffer.end(), 0);
