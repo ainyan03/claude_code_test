@@ -465,8 +465,8 @@ RenderResponse& MatteNode::onPullProcess(const RenderRequest& request) {
                 for (auto y = copyStartY; y < copyEndY; ++y) {
                     auto srcY = static_cast<int_fast16_t>(y - bgOffsetY);
                     const uint8_t* srcRow = static_cast<const uint8_t*>(bgViewPort.data)
-                                          + srcY * bgViewPort.stride
-                                          + srcStartX * srcBytesPerPixel;
+                                          + (bgViewPort.y + srcY) * bgViewPort.stride
+                                          + (bgViewPort.x + srcStartX) * srcBytesPerPixel;
                     uint8_t* dstRow = static_cast<uint8_t*>(outView.data)
                                     + y * outView.stride
                                     + copyStartX * 4;
