@@ -34,11 +34,11 @@ namespace FLEXIMG_NAMESPACE {
 // ========================================================================
 
 // Grayscale8 → RGBA8_Straight（L → R=G=B=L, A=255）
-static void grayscale8_toStraight(void* dst, const void* src, int pixelCount, const PixelAuxInfo*) {
+static void grayscale8_toStraight(void* dst, const void* src, size_t pixelCount, const PixelAuxInfo*) {
     FLEXIMG_FMT_METRICS(Grayscale8, ToStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
     uint8_t* d = static_cast<uint8_t*>(dst);
-    for (int i = 0; i < pixelCount; ++i) {
+    for (size_t i = 0; i < pixelCount; ++i) {
         uint8_t lum = s[i];
         d[i*4 + 0] = lum;   // R
         d[i*4 + 1] = lum;   // G
@@ -48,11 +48,11 @@ static void grayscale8_toStraight(void* dst, const void* src, int pixelCount, co
 }
 
 // RGBA8_Straight → Grayscale8（BT.601 輝度計算）
-static void grayscale8_fromStraight(void* dst, const void* src, int pixelCount, const PixelAuxInfo*) {
+static void grayscale8_fromStraight(void* dst, const void* src, size_t pixelCount, const PixelAuxInfo*) {
     FLEXIMG_FMT_METRICS(Grayscale8, FromStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
     uint8_t* d = static_cast<uint8_t*>(dst);
-    for (int i = 0; i < pixelCount; ++i) {
+    for (size_t i = 0; i < pixelCount; ++i) {
         // BT.601: Y = 0.299*R + 0.587*G + 0.114*B
         // 整数近似: (77*R + 150*G + 29*B + 128) >> 8
         uint_fast16_t r = s[i*4 + 0];

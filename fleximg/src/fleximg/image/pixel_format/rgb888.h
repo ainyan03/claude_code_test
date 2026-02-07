@@ -35,13 +35,13 @@ namespace FLEXIMG_NAMESPACE {
 // RGB888: 24bit RGB (mem[0]=R, mem[1]=G, mem[2]=B)
 // ========================================================================
 
-static void rgb888_toStraight(void* dst, const void* src, int pixelCount, const PixelAuxInfo*) {
+static void rgb888_toStraight(void* dst, const void* src, size_t pixelCount, const PixelAuxInfo*) {
     FLEXIMG_FMT_METRICS(RGB888, ToStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
     uint8_t* d = static_cast<uint8_t*>(dst);
 
     // 端数処理（1〜3ピクセル）
-    int remainder = pixelCount & 3;
+    size_t remainder = pixelCount & 3;
     while (remainder--) {
         d[0] = s[0];  // R
         d[1] = s[1];  // G
@@ -63,13 +63,13 @@ static void rgb888_toStraight(void* dst, const void* src, int pixelCount, const 
     }
 }
 
-static void rgb888_fromStraight(void* dst, const void* src, int pixelCount, const PixelAuxInfo*) {
+static void rgb888_fromStraight(void* dst, const void* src, size_t pixelCount, const PixelAuxInfo*) {
     FLEXIMG_FMT_METRICS(RGB888, FromStraight, pixelCount);
     uint8_t* d = static_cast<uint8_t*>(dst);
     const uint8_t* s = static_cast<const uint8_t*>(src);
 
     // 端数処理（1〜3ピクセル）
-    int remainder = pixelCount & 3;
+    size_t remainder = pixelCount & 3;
     while (remainder--) {
         d[0] = s[0];  // R
         d[1] = s[1];  // G
@@ -94,13 +94,13 @@ static void rgb888_fromStraight(void* dst, const void* src, int pixelCount, cons
 // BGR888: 24bit BGR (mem[0]=B, mem[1]=G, mem[2]=R)
 // ========================================================================
 
-static void bgr888_toStraight(void* dst, const void* src, int pixelCount, const PixelAuxInfo*) {
+static void bgr888_toStraight(void* dst, const void* src, size_t pixelCount, const PixelAuxInfo*) {
     FLEXIMG_FMT_METRICS(BGR888, ToStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
     uint8_t* d = static_cast<uint8_t*>(dst);
 
     // 端数処理（1〜3ピクセル）
-    int remainder = pixelCount & 3;
+    size_t remainder = pixelCount & 3;
     while (remainder--) {
         d[0] = s[2];  // R (src の B 位置)
         d[1] = s[1];  // G
@@ -122,13 +122,13 @@ static void bgr888_toStraight(void* dst, const void* src, int pixelCount, const 
     }
 }
 
-static void bgr888_fromStraight(void* dst, const void* src, int pixelCount, const PixelAuxInfo*) {
+static void bgr888_fromStraight(void* dst, const void* src, size_t pixelCount, const PixelAuxInfo*) {
     FLEXIMG_FMT_METRICS(BGR888, FromStraight, pixelCount);
     uint8_t* d = static_cast<uint8_t*>(dst);
     const uint8_t* s = static_cast<const uint8_t*>(src);
 
     // 端数処理（1〜3ピクセル）
-    int remainder = pixelCount & 3;
+    size_t remainder = pixelCount & 3;
     while (remainder--) {
         d[0] = s[2];  // B
         d[1] = s[1];  // G
@@ -154,11 +154,11 @@ static void bgr888_fromStraight(void* dst, const void* src, int pixelCount, cons
 // ========================================================================
 
 // 24bit用チャンネルスワップ（RGB888 ↔ BGR888）
-static void swap24(void* dst, const void* src, int pixelCount, const PixelAuxInfo*) {
+static void swap24(void* dst, const void* src, size_t pixelCount, const PixelAuxInfo*) {
     const uint8_t* srcPtr = static_cast<const uint8_t*>(src);
     uint8_t* dstPtr = static_cast<uint8_t*>(dst);
-    for (int i = 0; i < pixelCount; ++i) {
-        int idx = i * 3;
+    for (size_t i = 0; i < pixelCount; ++i) {
+        size_t idx = i * 3;
         dstPtr[idx + 0] = srcPtr[idx + 2];
         dstPtr[idx + 1] = srcPtr[idx + 1];
         dstPtr[idx + 2] = srcPtr[idx + 0];

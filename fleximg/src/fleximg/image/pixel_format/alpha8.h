@@ -34,11 +34,11 @@ namespace FLEXIMG_NAMESPACE {
 // ========================================================================
 
 // Alpha8 → RGBA8_Straight（可視化のため全チャンネルにアルファ値を展開）
-static void alpha8_toStraight(void* dst, const void* src, int pixelCount, const PixelAuxInfo*) {
+static void alpha8_toStraight(void* dst, const void* src, size_t pixelCount, const PixelAuxInfo*) {
     FLEXIMG_FMT_METRICS(Alpha8, ToStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
     uint8_t* d = static_cast<uint8_t*>(dst);
-    for (int i = 0; i < pixelCount; ++i) {
+    for (size_t i = 0; i < pixelCount; ++i) {
         uint8_t alpha = s[i];
         d[i*4 + 0] = alpha;  // R
         d[i*4 + 1] = alpha;  // G
@@ -48,11 +48,11 @@ static void alpha8_toStraight(void* dst, const void* src, int pixelCount, const 
 }
 
 // RGBA8_Straight → Alpha8（Aチャンネルのみ抽出）
-static void alpha8_fromStraight(void* dst, const void* src, int pixelCount, const PixelAuxInfo*) {
+static void alpha8_fromStraight(void* dst, const void* src, size_t pixelCount, const PixelAuxInfo*) {
     FLEXIMG_FMT_METRICS(Alpha8, FromStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
     uint8_t* d = static_cast<uint8_t*>(dst);
-    for (int i = 0; i < pixelCount; ++i) {
+    for (size_t i = 0; i < pixelCount; ++i) {
         d[i] = s[i*4 + 3];  // Aチャンネル抽出
     }
 }

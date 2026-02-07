@@ -67,7 +67,7 @@ alignas(64) static const uint32_t rgb332ToRgba8[256] = {
 
 } // namespace
 
-static void rgb332_toStraight(void* dst, const void* src, int pixelCount, const PixelAuxInfo*) {
+static void rgb332_toStraight(void* dst, const void* src, size_t pixelCount, const PixelAuxInfo*) {
     FLEXIMG_FMT_METRICS(RGB332, ToStraight, pixelCount);
     pixel_format::detail::lut8to32(static_cast<uint32_t*>(dst),
                      static_cast<const uint8_t*>(src),
@@ -79,7 +79,7 @@ static void rgb332_toStraight(void* dst, const void* src, int pixelCount, const 
 #define RGBA8_TO_RGB332(rgba) \
     (((((rgba) >> 5) << 3) + (((rgba) >> 13) & 0x07)) << 2) + (((rgba) >> 22) & 0x03)
 
-static void rgb332_fromStraight(void* dst, const void* src, int pixelCount, const PixelAuxInfo*) {
+static void rgb332_fromStraight(void* dst, const void* src, size_t pixelCount, const PixelAuxInfo*) {
     FLEXIMG_FMT_METRICS(RGB332, FromStraight, pixelCount);
     uint8_t* d = static_cast<uint8_t*>(dst);
     const uint32_t* s = static_cast<const uint32_t*>(src);
