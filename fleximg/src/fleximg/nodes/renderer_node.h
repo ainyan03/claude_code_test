@@ -432,7 +432,7 @@ void RendererNode::applyDataRangeDebug(Node* upstream,
 
             // バッファの内容をコピー
             const uint8_t* src = static_cast<const uint8_t*>(buf.data());
-            int srcBpp = getBytesPerPixel(srcFormat);
+            int srcBytesPerPixel = getBytesPerPixel(srcFormat);
 
             for (int i = 0; i < buf.width(); ++i) {
                 int dstX = bufStartX + i;
@@ -440,7 +440,7 @@ void RendererNode::applyDataRangeDebug(Node* upstream,
                     uint8_t* p = dst + dstX * 4;
 
                     if (needConvert && converter.func) {
-                        converter.func(p, src + i * srcBpp, 1, &converter.ctx);
+                        converter.func(p, src + i * srcBytesPerPixel, 1, &converter.ctx);
                     } else if (!needConvert) {
                         const uint8_t* s = src + i * 4;
                         p[0] = s[0];
