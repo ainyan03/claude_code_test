@@ -8,6 +8,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.64.0] - 2026-02-06
+
+### Added
+
+- **Bit-packed Index Formats** (Index1/2/4 MSB/LSB)
+  - 1/2/4ビットのパレットインデックスフォーマットを追加
+  - MSBFirst（上位ビット優先）とLSBFirst（下位ビット優先）の両方に対応
+  - アフィン変換（DDA）とバイリニア補間をフルサポート
+
+### Changed
+
+- **DDA Implementation Refactoring**
+  - bit-packed形式のDDA実装をLovyanGFXスタイルのピクセル単位アクセスに書き換え
+  - バッファベースからダイレクトビットアクセスに変更し、境界処理を改善
+
+### Fixed
+
+- **Bilinear Interpolation Edge Fade**
+  - バイリニア補間時のエッジフェード機能を修正
+  - 境界外ピクセルは隣接する有効なピクセルの値を使用するように改善
+  - edgeFlagsの生成ロジックを座標ベースに修正
+
+---
+
 ## [2.63.x] - 2026-02-05～2026-02-06
 
 ### ハイライト
