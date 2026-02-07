@@ -221,11 +221,11 @@ void SinkNode::onPushProcess(RenderResponse& input,
     ViewPort inputView = input.view();
     int_fixed txFixed = float_to_fixed(localMatrix_.tx);
     int_fixed tyFixed = float_to_fixed(localMatrix_.ty);
-    int dstX = from_fixed(input.origin.x + txFixed + pivotX_);
-    int dstY = from_fixed(input.origin.y + tyFixed + pivotY_);
+    auto dstX = static_cast<int_fast16_t>(from_fixed(input.origin.x + txFixed + pivotX_));
+    auto dstY = static_cast<int_fast16_t>(from_fixed(input.origin.y + tyFixed + pivotY_));
 
     // クリッピング処理
-    int srcX = 0, srcY = 0;
+    int_fast16_t srcX = 0, srcY = 0;
     if (dstX < 0) { srcX = -dstX; dstX = 0; }
     if (dstY < 0) { srcY = -dstY; dstY = 0; }
 

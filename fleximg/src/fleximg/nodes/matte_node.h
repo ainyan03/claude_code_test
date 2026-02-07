@@ -136,7 +136,7 @@ private:
     // alpha=0: 何もしない（出力に既にbgがある）
     // alpha=255: fgをコピー
     // 中間alpha: out = out*(1-a) + fg*a
-    void applyMatteOverlay(ImageBuffer& output, int outWidth,
+    void applyMatteOverlay(ImageBuffer& output, int_fast16_t outWidth,
                            const InputView& fg, const InputView& mask);
 
     // ========================================
@@ -178,7 +178,7 @@ PrepareResponse MatteNode::onPullPrepare(const PrepareRequest& request) {
     float minX = 0, minY = 0, maxX = 0, maxY = 0;
 
     // 全上流へ伝播し、結果をマージ（AABB和集合）
-    for (int i = 0; i < 3; ++i) {
+    for (int_fast16_t i = 0; i < 3; ++i) {
         Node* upstream = upstreamNode(i);
         if (upstream) {
             PrepareResponse result = upstream->pullPrepare(request);
@@ -235,7 +235,7 @@ PrepareResponse MatteNode::onPullPrepare(const PrepareRequest& request) {
 
 void MatteNode::onPullFinalize() {
     finalize();
-    for (int i = 0; i < 3; ++i) {
+    for (int_fast16_t i = 0; i < 3; ++i) {
         Node* upstream = upstreamNode(i);
         if (upstream) {
             upstream->pullFinalize();
@@ -424,8 +424,8 @@ RenderResponse& MatteNode::onPullProcess(const RenderRequest& request) {
         if (bgMaxY > unionMaxY) unionMaxY = bgMaxY;
     }
 
-    int unionWidth = from_fixed(unionMaxX - unionMinX);
-    int unionHeight = from_fixed(unionMaxY - unionMinY);
+    auto unionWidth = static_cast<int_fast16_t>(from_fixed(unionMaxX - unionMinX));
+    auto unionHeight = static_cast<int_fast16_t>(from_fixed(unionMaxY - unionMinY));
 
     // ========================================================================
     // Step 3: 出力バッファ作成（ゼロクリア）+ bgコピー
@@ -442,8 +442,8 @@ RenderResponse& MatteNode::onPullProcess(const RenderRequest& request) {
 
     // bgがあればコピー
     if (bgResultPtr) {
-        int bgOffsetX = from_fixed(bgResultPtr->origin.x - unionMinX);
-        int bgOffsetY = from_fixed(bgResultPtr->origin.y - unionMinY);
+        auto bgOffsetX = static_cast<int_fast16_t>(from_fixed(bgResultPtr->origin.x - unionMinX));
+        auto bgOffsetY = static_cast<int_fast16_t>(from_fixed(bgResultPtr->origin.y - unionMinY));
 
         auto converter = resolveConverter(bgResultPtr->buffer().formatID(),
                                           PixelFormatIDs::RGBA8_Straight,
@@ -451,19 +451,19 @@ RenderResponse& MatteNode::onPullProcess(const RenderRequest& request) {
         if (converter) {
             ViewPort bgViewPort = bgResultPtr->view();
             ViewPort outView = outputBuf.view();
-            int srcBytesPerPixel = bgViewPort.bytesPerPixel();
+            auto srcBytesPerPixel = static_cast<int_fast16_t>(bgViewPort.bytesPerPixel());
 
             // bgの有効範囲を計算（出力座標系）
-            int copyStartX = std::max(0, bgOffsetX);
-            int copyEndX = std::min(unionWidth, bgOffsetX + bgViewPort.width);
-            int copyStartY = std::max(0, bgOffsetY);
-            int copyEndY = std::min(unionHeight, bgOffsetY + bgViewPort.height);
-            int copyWidth = copyEndX - copyStartX;
+            auto copyStartX = std::max<int_fast16_t>(0, bgOffsetX);
+            auto copyEndX = std::min<int_fast16_t>(unionWidth, bgOffsetX + bgViewPort.width);
+            auto copyStartY = std::max<int_fast16_t>(0, bgOffsetY);
+            auto copyEndY = std::min<int_fast16_t>(unionHeight, bgOffsetY + bgViewPort.height);
+            auto copyWidth = static_cast<int_fast16_t>(copyEndX - copyStartX);
 
             if (copyWidth > 0) {
-                int srcStartX = copyStartX - bgOffsetX;
-                for (int y = copyStartY; y < copyEndY; ++y) {
-                    int srcY = y - bgOffsetY;
+                auto srcStartX = static_cast<int_fast16_t>(copyStartX - bgOffsetX);
+                for (auto y = copyStartY; y < copyEndY; ++y) {
+                    auto srcY = static_cast<int_fast16_t>(y - bgOffsetY);
                     const uint8_t* srcRow = static_cast<const uint8_t*>(bgViewPort.data)
                                           + srcY * bgViewPort.stride
                                           + srcStartX * srcBytesPerPixel;
@@ -684,9 +684,9 @@ handle_alpha_255:
                 m += 4;
             } while (--plimit);
             if (m != m_start) {
-                auto len = static_cast<int>(m - m_start);
+                auto len = static_cast<int_fast16_t>(m - m_start);
                 std::memset(d, 0, static_cast<size_t>(len) * 4);
-                pixelCount -= static_cast<int_fast16_t>(len);
+                pixelCount -= len;
                 if (pixelCount <= 0) return;
                 alpha = static_cast<uint_fast8_t>(m32);
                 d += len * 4;
@@ -713,8 +713,8 @@ handle_alpha_0:
                 m += 4;
             } while (--plimit);
             if (m != m_start) {
-                int skipped = static_cast<int>(m - m_start);
-                pixelCount -= static_cast<int_fast16_t>(skipped);
+                auto skipped = static_cast<int_fast16_t>(m - m_start);
+                pixelCount -= skipped;
                 if (pixelCount <= 0) return;
                 alpha = static_cast<uint_fast8_t>(m32);
                 d += skipped * 4;
@@ -797,9 +797,9 @@ handle_alpha_255:
                 m += 4;
             } while (--plimit);
             if (m != m_start) {
-                auto len = static_cast<int>(m - m_start);
+                auto len = static_cast<int_fast16_t>(m - m_start);
                 memcpy(d, s, static_cast<size_t>(len) * 4);
-                pixelCount -= static_cast<int_fast16_t>(len);
+                pixelCount -= len;
                 if (pixelCount <= 0) return;
                 alpha = static_cast<uint_fast8_t>(m32);
                 d += len * 4;
@@ -827,8 +827,8 @@ handle_alpha_0:
                 m += 4;
             } while (--plimit);
             if (m != m_start) {
-                int skipped = static_cast<int>(m - m_start);
-                pixelCount -= static_cast<int_fast16_t>(skipped);
+                auto skipped = static_cast<int_fast16_t>(m - m_start);
+                pixelCount -= skipped;
                 if (pixelCount <= 0) return;
                 alpha = static_cast<uint_fast8_t>(m32);
                 d += skipped * 4;
@@ -843,12 +843,12 @@ handle_alpha_0:
 
 // ----------------------------------------------------------------------------
 
-void MatteNode::applyMatteOverlay(ImageBuffer& output, int outWidth,
+void MatteNode::applyMatteOverlay(ImageBuffer& output, int_fast16_t outWidth,
                                   const InputView& fg, const InputView& mask) {
     ViewPort outView = output.view();
     uint8_t* __restrict__ outData = static_cast<uint8_t*>(outView.data);
-    const int outHeight = outView.height;
-    const int outStride = outView.stride;
+    const auto outHeight = static_cast<int_fast16_t>(outView.height);
+    const int32_t outStride = outView.stride;
 
     // マスクの有効X範囲（出力座標系）
     const auto maskXStart = std::max<int_fast16_t>(0, mask.offsetX);
@@ -860,15 +860,15 @@ void MatteNode::applyMatteOverlay(ImageBuffer& output, int outWidth,
     // 前景の有効X範囲（事前計算）
     const auto fgXStart = fg.valid() ? std::max<int_fast16_t>(maskXStart, fg.offsetX) : maskXEnd;
     const auto fgXEnd = fg.valid() ? std::min<int_fast16_t>(maskXEnd, fg.width + fg.offsetX) : maskXStart;
-    const int fgSrcOffsetX = fgXStart - fg.offsetX;
+    const auto fgSrcOffsetX = static_cast<int_fast16_t>(fgXStart - fg.offsetX);
 
     // 3領域の幅を事前計算
-    const int leftWidth = fgXStart - maskXStart;   // 左領域（fgなし）
-    const int midWidth = fgXEnd - fgXStart;        // 中央領域（fg/bg両方）
-    const int rightWidth = maskXEnd - fgXEnd;      // 右領域（fgなし）
+    const auto leftWidth = static_cast<int_fast16_t>(fgXStart - maskXStart);   // 左領域（fgなし）
+    const auto midWidth = static_cast<int_fast16_t>(fgXEnd - fgXStart);        // 中央領域（fg/bg両方）
+    const auto rightWidth = static_cast<int_fast16_t>(maskXEnd - fgXEnd);      // 右領域（fgなし）
 
     // 行ごとに処理
-    for (int y = 0; y < outHeight; ++y) {
+    for (int_fast16_t y = 0; y < outHeight; ++y) {
         // マスクがない行 → スキップ
         const uint8_t* maskRowBase = mask.rowAt(y);
         if (!maskRowBase) continue;

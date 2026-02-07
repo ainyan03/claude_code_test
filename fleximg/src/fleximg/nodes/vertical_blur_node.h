@@ -116,12 +116,12 @@ private:
         std::vector<uint32_t> colSumG;       // 列合計（G×A）
         std::vector<uint32_t> colSumB;       // 列合計（B×A）
         std::vector<uint32_t> colSumA;       // 列合計（A）
-        int currentY = 0;                    // 現在のY座標（pull型用）
+        int32_t currentY = 0;                // 現在のY座標（pull型用）
         bool cacheReady = false;             // キャッシュ初期化済みフラグ
 
         // push型用の状態
-        int pushInputY = 0;                  // 入力行カウント
-        int pushOutputY = 0;                 // 出力行カウント
+        int32_t pushInputY = 0;              // 入力行カウント
+        int32_t pushOutputY = 0;             // 出力行カウント
 
         void clear() {
             rowCache.clear();
@@ -140,7 +140,7 @@ private:
 
     // パイプラインステージ（passes個、passes=1でもstages_[0]を使用）
     std::vector<BlurStage> stages_;
-    int cacheWidth_ = 0;
+    int16_t cacheWidth_ = 0;
     int_fixed cacheOriginX_ = 0;  // キャッシュの基準X座標（pull型用）
     int_fixed upstreamOriginX_ = 0;  // 上流pullProcessのorigin.x（radius=0と同じ出力用）
     bool upstreamOriginXSet_ = false;  // upstreamOriginX_が設定済みかどうか
@@ -150,11 +150,11 @@ private:
     int16_t sourceHeight_ = 0;     // 上流の高さ（拡張前）
 
     // push型処理用の状態
-    int pushInputY_ = 0;
-    int pushOutputY_ = 0;
-    int pushInputWidth_ = 0;
-    int pushInputHeight_ = 0;
-    int pushOutputHeight_ = 0;
+    int32_t pushInputY_ = 0;
+    int32_t pushOutputY_ = 0;
+    int16_t pushInputWidth_ = 0;
+    int16_t pushInputHeight_ = 0;
+    int16_t pushOutputHeight_ = 0;
     int_fixed baseOriginX_ = 0;              // 基準origin.x（pushPrepareで設定）
     int_fixed pushInputOriginY_ = 0;
     int_fixed lastInputOriginY_ = 0;
@@ -169,16 +169,16 @@ private:
 
     // 内部実装（宣言のみ）
     RenderResponse& pullProcessPipeline(Node* upstream, const RenderRequest& request);
-    void updateStageCache(int stageIndex, Node* upstream, const RenderRequest& request, int newY);
-    void fetchRowToStageCache(BlurStage& stage, Node* upstream, const RenderRequest& request, int srcY, int cacheIndex);
-    void fetchRowFromPrevStage(int stageIndex, Node* upstream, const RenderRequest& request, int srcY, int cacheIndex);
-    void updateStageColSum(BlurStage& stage, int cacheIndex, bool add);
-    void computeStageOutputRow(BlurStage& stage, ImageBuffer& output, int width);
-    void initializeStage(BlurStage& stage, int width);
-    void initializeStages(int width);
+    void updateStageCache(int_fast16_t stageIndex, Node* upstream, const RenderRequest& request, int_fast16_t newY);
+    void fetchRowToStageCache(BlurStage& stage, Node* upstream, const RenderRequest& request, int_fast16_t srcY, int_fast16_t cacheIndex);
+    void fetchRowFromPrevStage(int_fast16_t stageIndex, Node* upstream, const RenderRequest& request, int_fast16_t srcY, int_fast16_t cacheIndex);
+    void updateStageColSum(BlurStage& stage, int_fast16_t cacheIndex, bool add);
+    void computeStageOutputRow(BlurStage& stage, ImageBuffer& output, int_fast16_t width);
+    void initializeStage(BlurStage& stage, int_fast16_t width);
+    void initializeStages(int_fast16_t width);
     void propagatePipelineStages();
     void emitBlurredLinePipeline();
-    void storeInputRowToStageCache(BlurStage& stage, const ImageBuffer& input, int cacheIndex, int xOffset = 0);
+    void storeInputRowToStageCache(BlurStage& stage, const ImageBuffer& input, int_fast16_t cacheIndex, int_fast16_t xOffset = 0);
 };
 
 } // namespace FLEXIMG_NAMESPACE
@@ -258,7 +258,7 @@ DataRange VerticalBlurNode::getDataRange(const RenderRequest& request) const {
     // 垂直ブラーでは、出力行Yに対して入力行 Y-expansion から Y+expansion の
     // X範囲の和集合が必要（expansion = radius * passes）
     // 特にアフィン変換された画像では、各行のX範囲が異なる可能性がある
-    int expansion = radius_ * passes_;
+    int_fast16_t expansion = radius_ * passes_;
     int16_t startX = INT16_MAX;
     int16_t endX = INT16_MIN;
 
@@ -332,7 +332,7 @@ PrepareResponse VerticalBlurNode::onPullPrepare(const PrepareRequest& request) {
 
     // 垂直ぼかしはY方向に radius * passes 分拡張する
     // AABBの高さを拡張し、originのYをシフト（上方向に拡大）
-    int expansion = radius_ * passes_;
+    int_fast16_t expansion = radius_ * passes_;
     upstreamResult.height = static_cast<int16_t>(upstreamResult.height + expansion * 2);
     upstreamResult.origin.y = upstreamResult.origin.y - to_fixed(expansion);
 
@@ -394,11 +394,11 @@ void VerticalBlurNode::onPushProcess(RenderResponse& input, const RenderRequest&
 
     // パイプライン方式で処理（passes=1でもstages_[0]を使用）
     Point inputOrigin = input.origin;
-    int ks = kernelSize();
+    int_fast16_t ks = kernelSize();
 
     // Stage 0に入力行を格納
     BlurStage& stage0 = stages_[0];
-    int slot0 = stage0.pushInputY % ks;
+    int_fast16_t slot0 = static_cast<int_fast16_t>(stage0.pushInputY % ks);
 
     // 古い行を列合計から減算
     if (stage0.pushInputY >= ks) {
@@ -413,7 +413,7 @@ void VerticalBlurNode::onPushProcess(RenderResponse& input, const RenderRequest&
         inputOrigin = input.origin;  // consolidate後のoriginを反映
         ImageBuffer converted = convertFormat(ImageBuffer(input.buffer()),
                                                PixelFormatIDs::RGBA8_Straight);
-        int xOffset = from_fixed(inputOrigin.x - baseOriginX_);
+        int_fast16_t xOffset = static_cast<int_fast16_t>(from_fixed(inputOrigin.x - baseOriginX_));
         storeInputRowToStageCache(stage0, converted, slot0, xOffset);
     }
     stage0.rowOriginX[static_cast<size_t>(slot0)] = inputOrigin.x;
@@ -442,13 +442,13 @@ void VerticalBlurNode::onPushFinalize() {
     }
 
     // パイプライン方式で残りの行を出力（passes=1でもstages_[0]を使用）
-    int ks = kernelSize();
+    int_fast16_t ks = kernelSize();
 
     // 残りの行を出力（下端はゼロパディング扱い）
     while (pushOutputY_ < pushOutputHeight_) {
         // Stage 0にゼロ行を追加
         BlurStage& stage0 = stages_[0];
-        int slot0 = stage0.pushInputY % ks;
+        int_fast16_t slot0 = static_cast<int_fast16_t>(stage0.pushInputY % ks);
 
         if (stage0.pushInputY >= ks) {
             updateStageColSum(stage0, slot0, false);
@@ -489,7 +489,7 @@ RenderResponse& VerticalBlurNode::onPullProcess(const RenderRequest& request) {
 // ========================================
 
 RenderResponse& VerticalBlurNode::pullProcessPipeline(Node* upstream, const RenderRequest& request) {
-    int requestY = from_fixed(request.origin.y);
+    int_fast16_t requestY = static_cast<int_fast16_t>(from_fixed(request.origin.y));
     // 注: 各ステージの初期化はupdateStageCache内で行われる
 
     // 最終ステージのキャッシュを更新（再帰的に前段ステージも更新される）
@@ -531,8 +531,8 @@ RenderResponse& VerticalBlurNode::pullProcessPipeline(Node* upstream, const Rend
     }
 
     // キャッシュ内のオフセットと出力幅を計算（SourceNodeと同じ丸め方式）
-    int srcStartX = from_fixed_floor(interLeft - cacheLeft);
-    int srcEndX = from_fixed_ceil(interRight - cacheLeft);
+    int_fast16_t srcStartX = static_cast<int_fast16_t>(from_fixed_floor(interLeft - cacheLeft));
+    int_fast16_t srcEndX = static_cast<int_fast16_t>(from_fixed_ceil(interRight - cacheLeft));
     int16_t outputWidth = static_cast<int16_t>(srcEndX - srcStartX);
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
@@ -551,9 +551,9 @@ RenderResponse& VerticalBlurNode::pullProcessPipeline(Node* upstream, const Rend
     // 最終ステージの列合計から出力行を計算（有効範囲のみ）
     BlurStage& lastStage = stages_[static_cast<size_t>(passes_ - 1)];
     uint8_t* outRow = static_cast<uint8_t*>(output.view().data);
-    int ks = kernelSize();
+    int_fast16_t ks = kernelSize();
 
-    for (auto cacheX = static_cast<int_fast16_t>(srcStartX); cacheX < srcEndX; cacheX++) {
+    for (int_fast16_t cacheX = srcStartX; cacheX < srcEndX; cacheX++) {
         size_t outOff = static_cast<size_t>(cacheX - srcStartX) * 4;
 
         if (lastStage.colSumA[static_cast<size_t>(cacheX)] > 0) {
@@ -575,9 +575,9 @@ RenderResponse& VerticalBlurNode::pullProcessPipeline(Node* upstream, const Rend
     return makeResponse(std::move(output), outputOrigin);
 }
 
-void VerticalBlurNode::updateStageCache(int stageIndex, Node* upstream, const RenderRequest& request, int newY) {
+void VerticalBlurNode::updateStageCache(int_fast16_t stageIndex, Node* upstream, const RenderRequest& request, int_fast16_t newY) {
     BlurStage& stage = stages_[static_cast<size_t>(stageIndex)];
-    int ks = kernelSize();
+    int_fast16_t ks = kernelSize();
 
     // このステージへの最初の呼び出し時、currentYを調整してキャッシュを完全に充填
     // newY - kernelSize() から開始することで、kernelSize()回のループでキャッシュが充填される
@@ -588,11 +588,11 @@ void VerticalBlurNode::updateStageCache(int stageIndex, Node* upstream, const Re
 
     if (stage.currentY == newY) return;
 
-    int step = (stage.currentY < newY) ? 1 : -1;
+    int_fast16_t step = (stage.currentY < newY) ? 1 : -1;
 
     while (stage.currentY != newY) {
-        int newSrcY = stage.currentY + step * (radius_ + 1);
-        int slot = newSrcY % ks;
+        int_fast16_t newSrcY = static_cast<int_fast16_t>(stage.currentY + step * (radius_ + 1));
+        int_fast16_t slot = static_cast<int_fast16_t>(newSrcY % ks);
         if (slot < 0) slot += ks;
 
         // 古い行を列合計から減算
@@ -615,7 +615,7 @@ void VerticalBlurNode::updateStageCache(int stageIndex, Node* upstream, const Re
 }
 
 void VerticalBlurNode::fetchRowToStageCache(BlurStage& stage, Node* upstream, const RenderRequest& request,
-                                             int srcY, int cacheIndex) {
+                                             int_fast16_t srcY, int_fast16_t cacheIndex) {
     // キャッシュ幅・原点を使用してリクエスト作成
     RenderRequest upstreamReq;
     upstreamReq.width = static_cast<int16_t>(cacheWidth_);
@@ -658,10 +658,10 @@ void VerticalBlurNode::fetchRowToStageCache(BlurStage& stage, Node* upstream, co
     // 入力データをキャッシュにコピー（オフセット考慮）
     // cacheOriginX_（更新済み）を使用して正しい座標でコピーする
     // result.origin.x - cacheOriginX_ = 入力バッファ左端 - キャッシュ左端
-    int srcOffsetX = from_fixed(result.origin.x - cacheOriginX_);
-    int dstStartX = std::max(0, srcOffsetX);
-    int srcStartX = std::max(0, -srcOffsetX);
-    int copyWidth = std::min(static_cast<int>(srcView.width) - srcStartX, cacheWidth_ - dstStartX);
+    int_fast16_t srcOffsetX = static_cast<int_fast16_t>(from_fixed(result.origin.x - cacheOriginX_));
+    int_fast16_t dstStartX = std::max<int_fast16_t>(0, srcOffsetX);
+    int_fast16_t srcStartX = std::max<int_fast16_t>(0, -srcOffsetX);
+    int_fast16_t copyWidth = std::min<int_fast16_t>(static_cast<int_fast16_t>(srcView.width) - srcStartX, cacheWidth_ - dstStartX);
     if (copyWidth > 0) {
         const uint8_t* srcPtr = static_cast<const uint8_t*>(srcView.data) + srcStartX * 4;
         std::memcpy(static_cast<uint8_t*>(dstView.data) + dstStartX * 4, srcPtr, static_cast<size_t>(copyWidth) * 4);
@@ -670,8 +670,8 @@ void VerticalBlurNode::fetchRowToStageCache(BlurStage& stage, Node* upstream, co
     (void)request;  // 現在は未使用（将来の拡張用）
 }
 
-void VerticalBlurNode::fetchRowFromPrevStage(int stageIndex, Node* upstream, const RenderRequest& request,
-                                              int srcY, int cacheIndex) {
+void VerticalBlurNode::fetchRowFromPrevStage(int_fast16_t stageIndex, Node* upstream, const RenderRequest& request,
+                                              int_fast16_t srcY, int_fast16_t cacheIndex) {
     BlurStage& stage = stages_[static_cast<size_t>(stageIndex)];
     BlurStage& prevStage = stages_[static_cast<size_t>(stageIndex - 1)];
 
@@ -686,7 +686,7 @@ void VerticalBlurNode::fetchRowFromPrevStage(int stageIndex, Node* upstream, con
     int16_t startX = static_cast<int16_t>(cacheWidth_);
     int16_t endX = 0;
 
-    int ks = kernelSize();
+    int_fast16_t ks = kernelSize();
     for (size_t x = 0; x < static_cast<size_t>(cacheWidth_); x++) {
         size_t off = x * 4;
         if (prevStage.colSumA[x] > 0) {
@@ -706,9 +706,9 @@ void VerticalBlurNode::fetchRowFromPrevStage(int stageIndex, Node* upstream, con
     stage.rowDataRange[static_cast<size_t>(cacheIndex)] = DataRange{startX, endX};
 }
 
-void VerticalBlurNode::updateStageColSum(BlurStage& stage, int cacheIndex, bool add) {
+void VerticalBlurNode::updateStageColSum(BlurStage& stage, int_fast16_t cacheIndex, bool add) {
     const uint8_t* row = static_cast<const uint8_t*>(stage.rowCache[static_cast<size_t>(cacheIndex)].view().data);
-    int sign = add ? 1 : -1;
+    int_fast16_t sign = add ? 1 : -1;
     for (size_t x = 0; x < static_cast<size_t>(cacheWidth_); x++) {
         size_t off = x * 4;
         int32_t a = row[off + 3] * sign;
@@ -722,9 +722,9 @@ void VerticalBlurNode::updateStageColSum(BlurStage& stage, int cacheIndex, bool 
     }
 }
 
-void VerticalBlurNode::computeStageOutputRow(BlurStage& stage, ImageBuffer& output, int width) {
+void VerticalBlurNode::computeStageOutputRow(BlurStage& stage, ImageBuffer& output, int_fast16_t width) {
     uint8_t* outRow = static_cast<uint8_t*>(output.view().data);
-    int ks = kernelSize();
+    int_fast16_t ks = kernelSize();
     for (size_t x = 0; x < static_cast<size_t>(width); x++) {
         size_t off = x * 4;
         if (stage.colSumA[x] > 0) {
@@ -742,7 +742,7 @@ void VerticalBlurNode::computeStageOutputRow(BlurStage& stage, ImageBuffer& outp
 // キャッシュ管理
 // ========================================
 
-void VerticalBlurNode::initializeStage(BlurStage& stage, int width) {
+void VerticalBlurNode::initializeStage(BlurStage& stage, int_fast16_t width) {
     size_t cacheRows = static_cast<size_t>(kernelSize());  // radius*2+1
     stage.rowCache.resize(cacheRows);
     stage.rowOriginX.assign(cacheRows, 0);
@@ -759,8 +759,8 @@ void VerticalBlurNode::initializeStage(BlurStage& stage, int width) {
     stage.cacheReady = false;
 }
 
-void VerticalBlurNode::initializeStages(int width) {
-    cacheWidth_ = width;
+void VerticalBlurNode::initializeStages(int_fast16_t width) {
+    cacheWidth_ = static_cast<int16_t>(width);
     stages_.resize(static_cast<size_t>(passes_));
     for (size_t i = 0; i < static_cast<size_t>(passes_); i++) {
         initializeStage(stages_[i], width);
@@ -772,7 +772,7 @@ void VerticalBlurNode::initializeStages(int width) {
 // ========================================
 
 void VerticalBlurNode::propagatePipelineStages() {
-    int ks = kernelSize();
+    int_fast16_t ks = kernelSize();
 
     // Stage 0の出力を計算してStage 1以降に伝播
     for (int_fast16_t s = 1; s < passes_; s++) {
@@ -800,7 +800,7 @@ void VerticalBlurNode::propagatePipelineStages() {
         prevStage.pushOutputY++;
 
         // 現段ステージのキャッシュに格納
-        int slot = stage.pushInputY % ks;
+        int_fast16_t slot = static_cast<int_fast16_t>(stage.pushInputY % ks);
 
         // 古い行を列合計から減算
         if (stage.pushInputY >= ks) {
@@ -829,7 +829,7 @@ void VerticalBlurNode::propagatePipelineStages() {
 
 void VerticalBlurNode::emitBlurredLinePipeline() {
     BlurStage& lastStage = stages_[static_cast<size_t>(passes_ - 1)];
-    int ks = kernelSize();
+    int_fast16_t ks = kernelSize();
 
     ImageBuffer output(cacheWidth_, 1, PixelFormatIDs::RGBA8_Straight,
                       InitPolicy::Uninitialized);
@@ -853,7 +853,7 @@ void VerticalBlurNode::emitBlurredLinePipeline() {
     // lastInputOriginY_は最後に受信した入力行のorigin.y
     // 出力行のorigin.yは、入力行との差分を減算して求める
     int_fixed originX = baseOriginX_;
-    int rowDiff = (stages_[0].pushInputY - 1) - pushOutputY_;
+    int32_t rowDiff = (stages_[0].pushInputY - 1) - pushOutputY_;
     int_fixed originY = lastInputOriginY_ - to_fixed(rowDiff);
 
     RenderRequest outReq;
@@ -871,12 +871,12 @@ void VerticalBlurNode::emitBlurredLinePipeline() {
     }
 }
 
-void VerticalBlurNode::storeInputRowToStageCache(BlurStage& stage, const ImageBuffer& input, int cacheIndex, int xOffset) {
+void VerticalBlurNode::storeInputRowToStageCache(BlurStage& stage, const ImageBuffer& input, int_fast16_t cacheIndex, int_fast16_t xOffset) {
     ViewPort srcView = input.view();
     ViewPort dstView = stage.rowCache[static_cast<size_t>(cacheIndex)].view();
     const uint8_t* srcData = static_cast<const uint8_t*>(srcView.data);
     uint8_t* dstData = static_cast<uint8_t*>(dstView.data);
-    int srcWidth = static_cast<int>(srcView.width);
+    int_fast16_t srcWidth = static_cast<int_fast16_t>(srcView.width);
 
     // キャッシュをゼロクリア
     std::memset(dstData, 0, static_cast<size_t>(cacheWidth_) * 4);
@@ -884,9 +884,9 @@ void VerticalBlurNode::storeInputRowToStageCache(BlurStage& stage, const ImageBu
     // コピー範囲の計算（pull pathのfetchRowToStageCacheと同じロジック）
     // xOffset > 0: 入力がキャッシュより右にある → cache[xOffset]に書き込み
     // xOffset < 0: 入力がキャッシュより左にある → source[-xOffset]から読み込み
-    int dstStart = std::max(0, xOffset);
-    int srcStart = std::max(0, -xOffset);
-    int copyWidth = std::min(srcWidth - srcStart, cacheWidth_ - dstStart);
+    int_fast16_t dstStart = std::max<int_fast16_t>(0, xOffset);
+    int_fast16_t srcStart = std::max<int_fast16_t>(0, -xOffset);
+    int_fast16_t copyWidth = std::min<int_fast16_t>(srcWidth - srcStart, cacheWidth_ - dstStart);
 
     if (copyWidth > 0) {
         std::memcpy(dstData + dstStart * 4, srcData + srcStart * 4, static_cast<size_t>(copyWidth) * 4);

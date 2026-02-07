@@ -296,7 +296,7 @@ public:
                 resolved = resolveConverter(view_.formatID, target, auxPtr);
             }
             if (resolved) {
-                for (int y = 0; y < view_.height; ++y) {
+                for (int_fast16_t y = 0; y < view_.height; ++y) {
                     // ViewPortのx,yオフセットを考慮
                     const uint8_t* srcRow = static_cast<const uint8_t*>(view_.data)
                                             + (view_.y + y) * view_.stride

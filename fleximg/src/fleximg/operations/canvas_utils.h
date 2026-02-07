@@ -39,25 +39,25 @@ inline void placeFirst(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canv
 
     // 新座標系: originはバッファ左上のワールド座標
     // srcをcanvasに配置する際のオフセット = src左端 - canvas左端
-    int offsetX = from_fixed(srcOriginX - canvasOriginX);
-    int offsetY = from_fixed(srcOriginY - canvasOriginY);
+    auto offsetX = static_cast<int_fast16_t>(from_fixed(srcOriginX - canvasOriginX));
+    auto offsetY = static_cast<int_fast16_t>(from_fixed(srcOriginY - canvasOriginY));
 
     // クリッピング範囲を計算
     // offsetX > 0: srcがcanvasより右にある → canvas[offsetX]に書き込み
     // offsetX < 0: srcがcanvasより左にある → src[-offsetX]から読み込み
-    int srcStartX = std::max(0, -offsetX);
-    int srcStartY = std::max(0, -offsetY);
-    int dstStartX = std::max(0, offsetX);
-    int dstStartY = std::max(0, offsetY);
-    int copyWidth = std::min(src.width - srcStartX, canvas.width - dstStartX);
-    int copyHeight = std::min(src.height - srcStartY, canvas.height - dstStartY);
+    auto srcStartX = std::max<int_fast16_t>(0, -offsetX);
+    auto srcStartY = std::max<int_fast16_t>(0, -offsetY);
+    auto dstStartX = std::max<int_fast16_t>(0, offsetX);
+    auto dstStartY = std::max<int_fast16_t>(0, offsetY);
+    auto copyWidth = std::min<int_fast16_t>(src.width - srcStartX, canvas.width - dstStartX);
+    auto copyHeight = std::min<int_fast16_t>(src.height - srcStartY, canvas.height - dstStartY);
 
     if (copyWidth <= 0 || copyHeight <= 0) return;
 
     // 同一フォーマット → memcpy
     if (src.formatID == canvas.formatID) {
         size_t bytesPerPixel = static_cast<size_t>(src.formatID->bytesPerPixel);
-        for (int y = 0; y < copyHeight; y++) {
+        for (int_fast16_t y = 0; y < copyHeight; y++) {
             const void* srcRow = src.pixelAt(srcStartX, srcStartY + y);
             void* dstRow = canvas.pixelAt(dstStartX, dstStartY + y);
             std::memcpy(dstRow, srcRow, static_cast<size_t>(copyWidth) * bytesPerPixel);
@@ -67,7 +67,7 @@ inline void placeFirst(ViewPort& canvas, int_fixed canvasOriginX, int_fixed canv
 
     // キャンバスがRGBA8_Straight → toStraight関数を使用
     if (canvas.formatID == PixelFormatIDs::RGBA8_Straight && src.formatID->toStraight) {
-        for (int y = 0; y < copyHeight; y++) {
+        for (int_fast16_t y = 0; y < copyHeight; y++) {
             const void* srcRow = src.pixelAt(srcStartX, srcStartY + y);
             void* dstRow = canvas.pixelAt(dstStartX, dstStartY + y);
             src.formatID->toStraight(dstRow, srcRow, copyWidth, nullptr);

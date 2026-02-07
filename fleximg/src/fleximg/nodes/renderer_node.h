@@ -165,7 +165,7 @@ protected:
     // タイル処理（派生クラスでカスタマイズ可能）
     // 注: exec()全体の時間はnodes[NodeType::Renderer]に記録される
     //     各ノードの合計との差分がオーバーヘッド（タイル管理、データ受け渡し等）
-    virtual void processTile(int tileX, int tileY) {
+    virtual void processTile(int_fast16_t tileX, int_fast16_t tileY) {
         RenderRequest request = createTileRequest(tileX, tileY);
 
         // 上流からプル
@@ -211,25 +211,25 @@ private:
     // タイルサイズ取得
     // 注: パイプライン上のリクエストは必ずスキャンライン（height=1）
     //     これにより各ノードの最適化が可能になる
-    int effectiveTileWidth() const {
+    int_fast16_t effectiveTileWidth() const {
         return tileConfig_.isEnabled() ? tileConfig_.tileWidth : virtualWidth_;
     }
 
-    int effectiveTileHeight() const {
+    int_fast16_t effectiveTileHeight() const {
         // スキャンライン必須（height=1）
         // TileConfig の tileHeight は無視される
         return 1;
     }
 
     // タイル数取得
-    int calcTileCountX() const {
-        int tw = effectiveTileWidth();
-        return (tw > 0) ? (virtualWidth_ + tw - 1) / tw : 1;
+    int_fast16_t calcTileCountX() const {
+        auto tw = effectiveTileWidth();
+        return (tw > 0) ? static_cast<int_fast16_t>((virtualWidth_ + tw - 1) / tw) : 1;
     }
 
-    int calcTileCountY() const {
-        int th = effectiveTileHeight();
-        return (th > 0) ? (virtualHeight_ + th - 1) / th : 1;
+    int_fast16_t calcTileCountY() const {
+        auto th = effectiveTileHeight();
+        return (th > 0) ? static_cast<int_fast16_t>((virtualHeight_ + th - 1) / th) : 1;
     }
 
     // スクリーン全体のRenderRequestを作成
@@ -244,15 +244,15 @@ private:
     }
 
     // タイル用のRenderRequestを作成
-    RenderRequest createTileRequest(int tileX, int tileY) const {
-        int tw = effectiveTileWidth();
-        int th = effectiveTileHeight();
-        int tileLeft = tileX * tw;
-        int tileTop = tileY * th;
+    RenderRequest createTileRequest(int_fast16_t tileX, int_fast16_t tileY) const {
+        auto tw = effectiveTileWidth();
+        auto th = effectiveTileHeight();
+        auto tileLeft = static_cast<int_fast16_t>(tileX * tw);
+        auto tileTop = static_cast<int_fast16_t>(tileY * th);
 
         // タイルサイズ（端の処理）
-        int tileW = std::min(tw, virtualWidth_ - tileLeft);
-        int tileH = std::min(th, virtualHeight_ - tileTop);
+        auto tileW = std::min<int_fast16_t>(tw, virtualWidth_ - tileLeft);
+        auto tileH = std::min<int_fast16_t>(th, virtualHeight_ - tileTop);
 
         RenderRequest req;
         req.width = static_cast<int16_t>(tileW);
@@ -349,11 +349,11 @@ PrepareStatus RendererNode::execPrepare() {
 }
 
 void RendererNode::execProcess() {
-    int tileCountX = calcTileCountX();
-    int tileCountY = calcTileCountY();
+    auto tileCountX = calcTileCountX();
+    auto tileCountY = calcTileCountY();
 
-    for (int ty = 0; ty < tileCountY; ++ty) {
-        for (int tx = 0; tx < tileCountX; ++tx) {
+    for (int_fast16_t ty = 0; ty < tileCountY; ++ty) {
+        for (int_fast16_t tx = 0; tx < tileCountX; ++tx) {
             // デバッグ用チェッカーボード: 市松模様でタイルをスキップ
             if (debugCheckerboard_ && ((tx + ty) % 2 == 1)) {
                 continue;

@@ -200,7 +200,7 @@ void copy(ViewPort& dst, int_fast16_t dstX, int_fast16_t dstY,
                    "view_ops::copy requires matching formats; use convertFormat for conversion");
 
     size_t bytesPerPixel = static_cast<size_t>(dst.bytesPerPixel());
-    for (int y = 0; y < height; ++y) {
+    for (int_fast16_t y = 0; y < height; ++y) {
         const uint8_t* srcRow = static_cast<const uint8_t*>(src.pixelAt(srcX, srcY + y));
         uint8_t* dstRow = static_cast<uint8_t*>(dst.pixelAt(dstX, dstY + y));
         std::memcpy(dstRow, srcRow, static_cast<size_t>(width) * bytesPerPixel);
@@ -212,8 +212,8 @@ void clear(ViewPort& dst, int_fast16_t x, int_fast16_t y, int_fast16_t width, in
     if (!dst.isValid()) return;
 
     size_t bytesPerPixel = static_cast<size_t>(dst.bytesPerPixel());
-    for (int row = 0; row < height; ++row) {
-        int dy = y + row;
+    for (int_fast16_t row = 0; row < height; ++row) {
+        auto dy = static_cast<int_fast16_t>(y + row);
         if (dy < 0 || dy >= dst.height) continue;
         uint8_t* dstRow = static_cast<uint8_t*>(dst.pixelAt(x, dy));
         std::memset(dstRow, 0, static_cast<size_t>(width) * bytesPerPixel);

@@ -81,7 +81,7 @@ public:
         }
 
         // 上流への拡張リクエストを作成（左方向に拡大）
-        int totalMargin = radius_ * passes_;
+        auto totalMargin = static_cast<int_fast16_t>(radius_ * passes_);
         RenderRequest inputReq;
         inputReq.width = static_cast<int16_t>(request.width + totalMargin * 2);
         inputReq.height = 1;
@@ -191,7 +191,7 @@ PrepareResponse HorizontalBlurNode::onPullPrepare(const PrepareRequest& request)
 
     // 水平ぼかしはX方向に radius * passes 分拡張する
     // AABBの幅を拡張し、originのXをシフト（左方向に拡大）
-    int expansion = radius_ * passes_;
+    auto expansion = static_cast<int_fast16_t>(radius_ * passes_);
     upstreamResult.width = static_cast<int16_t>(upstreamResult.width + expansion * 2);
     upstreamResult.origin.x = upstreamResult.origin.x - to_fixed(expansion);
 
@@ -208,7 +208,7 @@ RenderResponse& HorizontalBlurNode::onPullProcess(const RenderRequest& request) 
     }
 
     // マージンを計算して上流への要求を拡大
-    int totalMargin = radius_ * passes_;  // 片側のマージン
+    auto totalMargin = static_cast<int_fast16_t>(radius_ * passes_);  // 片側のマージン
     RenderRequest inputReq;
     inputReq.width = static_cast<int16_t>(request.width + totalMargin * 2);  // 両側にマージンを追加
     inputReq.height = 1;
@@ -243,10 +243,10 @@ RenderResponse& HorizontalBlurNode::onPullProcess(const RenderRequest& request) 
     Point currentOrigin = input.origin;
 
     // passes回、水平ブラーを適用（各パスで拡張＋origin調整）
-    for (int pass = 0; pass < passes_; pass++) {
+    for (int_fast16_t pass = 0; pass < passes_; pass++) {
         ViewPort srcView = buffer.view();
-        int inputWidth = srcView.width;
-        int outputWidth = inputWidth + radius_ * 2;
+        auto inputWidth = static_cast<int_fast16_t>(srcView.width);
+        auto outputWidth = static_cast<int_fast16_t>(inputWidth + radius_ * 2);
 
 #ifdef FLEXIMG_DEBUG_PERF_METRICS
         if (pass == 0) {
@@ -286,7 +286,7 @@ RenderResponse& HorizontalBlurNode::onPullProcess(const RenderRequest& request) 
 
     // origin座標を基準にクロップ位置を計算
     int_fixed offsetX = currentOrigin.x - request.origin.x;
-    int cropOffset = from_fixed(offsetX);
+    auto cropOffset = static_cast<int_fast16_t>(from_fixed(offsetX));
 
     // 出力バッファを確保（必要幅のみ、ゼロ初期化）
     // 出力バッファ左端のワールド座標 = リクエスト左端 + blurredStartX
@@ -300,10 +300,10 @@ RenderResponse& HorizontalBlurNode::onPullProcess(const RenderRequest& request) 
     // cropOffset = ブラー後バッファ左端 - リクエスト左端（ワールド座標差）
     // blurredStartX = 出力範囲の開始位置（リクエスト座標系）
     // ブラー後バッファ内での位置 = blurredStartX - cropOffset
-    int srcStartX = std::max(0, blurredStartX - cropOffset);
-    int dstStartX = std::max(0, cropOffset - blurredStartX);
-    int copyWidth = std::min(static_cast<int>(buffer.width()) - srcStartX,
-                             static_cast<int>(outputWidth) - dstStartX);
+    auto srcStartX = std::max<int_fast16_t>(0, blurredStartX - cropOffset);
+    auto dstStartX = std::max<int_fast16_t>(0, cropOffset - blurredStartX);
+    auto copyWidth = std::min<int_fast16_t>(static_cast<int_fast16_t>(buffer.width()) - srcStartX,
+                                            static_cast<int_fast16_t>(outputWidth) - dstStartX);
 
     // 有効な範囲をコピー（範囲外は既にゼロ初期化済み）
     if (copyWidth > 0) {
@@ -344,10 +344,10 @@ void HorizontalBlurNode::onPushProcess(RenderResponse& input, const RenderReques
     Point currentOrigin = input.origin;
 
     // passes回、水平ブラーを適用
-    for (int pass = 0; pass < passes_; pass++) {
+    for (int_fast16_t pass = 0; pass < passes_; pass++) {
         ViewPort srcView = buffer.view();
-        int inputWidth = srcView.width;
-        int outputWidth = inputWidth + radius_ * 2;
+        auto inputWidth = static_cast<int_fast16_t>(srcView.width);
+        auto outputWidth = static_cast<int_fast16_t>(inputWidth + radius_ * 2);
 
         // 出力バッファを確保
         ImageBuffer output(outputWidth, 1, PixelFormatIDs::RGBA8_Straight,
@@ -382,8 +382,8 @@ void HorizontalBlurNode::onPushProcess(RenderResponse& input, const RenderReques
 void HorizontalBlurNode::applyHorizontalBlur(const ViewPort& srcView, int_fast16_t inputOffset, ImageBuffer& output) {
     const uint8_t* srcRow = static_cast<const uint8_t*>(srcView.data);
     uint8_t* dstRow = static_cast<uint8_t*>(output.view().data);
-    int inputWidth = srcView.width;
-    int outputWidth = output.width();
+    auto inputWidth = static_cast<int_fast16_t>(srcView.width);
+    auto outputWidth = static_cast<int_fast16_t>(output.width());
 
     // 初期ウィンドウの合計（出力x=0に対応）
     uint32_t sumR = 0, sumG = 0, sumB = 0, sumA = 0;
