@@ -63,23 +63,32 @@ namespace bit_packed_detail {
 // ========================================================================
 
 template<int BitsPerPixel, BitOrder Order>
-inline void unpackIndexBits(uint8_t* dst, const uint8_t* src, int pixelCount) {
+inline void unpackIndexBits(uint8_t* dst, const uint8_t* src, int pixelCount, uint8_t pixelOffset = 0) {
     constexpr int PixelsPerByte = 8 / BitsPerPixel;
     constexpr uint8_t Mask = (1 << BitsPerPixel) - 1;
 
-    int bytes = (pixelCount + PixelsPerByte - 1) / PixelsPerByte;
-    for (int i = 0; i < bytes; ++i) {
-        uint8_t b = src[i];
-        int pixels_in_byte = (pixelCount >= PixelsPerByte) ? PixelsPerByte : pixelCount;
-        for (int j = 0; j < pixels_in_byte; ++j) {
+    // pixelOffsetは1バイト内でのピクセル位置 (0 - PixelsPerByte-1)
+    // 最初のバイトでの開始位置を調整
+    int pixelIdx = pixelOffset;
+    int byteIdx = 0;
+    int dstIdx = 0;
+
+    while (dstIdx < pixelCount) {
+        uint8_t b = src[byteIdx];
+        int remainingInByte = PixelsPerByte - pixelIdx;
+        int pixelsToRead = (pixelCount - dstIdx < remainingInByte) ? (pixelCount - dstIdx) : remainingInByte;
+
+        for (int j = 0; j < pixelsToRead; ++j) {
+            int bitPos = pixelIdx + j;
             if constexpr (Order == BitOrder::MSBFirst) {
-                dst[j] = (b >> ((PixelsPerByte - 1 - j) * BitsPerPixel)) & Mask;
+                dst[dstIdx++] = (b >> ((PixelsPerByte - 1 - bitPos) * BitsPerPixel)) & Mask;
             } else {
-                dst[j] = (b >> (j * BitsPerPixel)) & Mask;
+                dst[dstIdx++] = (b >> (bitPos * BitsPerPixel)) & Mask;
             }
         }
-        dst += PixelsPerByte;
-        pixelCount -= PixelsPerByte;
+
+        ++byteIdx;
+        pixelIdx = 0;  // 次のバイトからは先頭から読む
     }
 }
 
@@ -119,9 +128,9 @@ inline uint8_t readPixelDirect(const uint8_t* srcData, int32_t x, int32_t y, int
     constexpr uint8_t Mask = (1 << BitsPerPixel) - 1;
 
     // ビット単位のオフセット計算
-    int32_t bitOffset = (y * stride * 8) + (x * BitsPerPixel);
-    int32_t byteIdx = bitOffset >> 3;
-    int32_t bitPos = bitOffset & 7;
+    int32_t pixelOffsetInByte = (y * stride * 8) + (x * BitsPerPixel);
+    int32_t byteIdx = pixelOffsetInByte >> 3;
+    int32_t bitPos = pixelOffsetInByte & 7;
 
     uint8_t byte = srcData[byteIdx];
 
@@ -295,12 +304,20 @@ static void indexN_expandIndex(
     // パレットフォーマットのバイト数を取得
     int_fast8_t paletteBpp = static_cast<int_fast8_t>(aux->paletteFormat->bytesPerPixel);
 
+    const uint8_t pixelOffsetInByte = aux->pixelOffsetInByte;  // bit-packed用のビットオフセット取得
     int remaining = pixelCount;
+    bool isFirstChunk = true;
+
     while (remaining > 0) {
         int chunk = (remaining < ChunkSize) ? remaining : ChunkSize;
 
-        // アンパック
-        bit_packed_detail::unpackIndexBits<BitsPerPixel, Order>(indexBuf, srcPtr, chunk);
+        // アンパック（最初のチャンクのみpixelOffsetInByteを使用）
+        if (isFirstChunk && pixelOffsetInByte != 0) {
+            bit_packed_detail::unpackIndexBits<BitsPerPixel, Order>(indexBuf, srcPtr, chunk, pixelOffsetInByte);
+            isFirstChunk = false;
+        } else {
+            bit_packed_detail::unpackIndexBits<BitsPerPixel, Order>(indexBuf, srcPtr, chunk);
+        }
 
         // パレット展開
         if (paletteBpp == 4) {
@@ -340,7 +357,7 @@ static void indexN_toStraight(
     void* __restrict__ dst,
     const void* __restrict__ src,
     int pixelCount,
-    const PixelAuxInfo*
+    const PixelAuxInfo* aux
 ) {
     constexpr int MaxPixelsPerByte = 8 / BitsPerPixel;
     constexpr int ChunkSize = 64;
@@ -353,12 +370,20 @@ static void indexN_toStraight(
     constexpr int MaxIndex = (1 << BitsPerPixel) - 1;
     constexpr int Scale = 255 / MaxIndex;
 
+    const uint8_t pixelOffsetInByte = aux ? aux->pixelOffsetInByte : 0;  // bit-packed用のビットオフセット取得
     int remaining = pixelCount;
+    bool isFirstChunk = true;
+
     while (remaining > 0) {
         int chunk = (remaining < ChunkSize) ? remaining : ChunkSize;
 
-        // アンパック
-        bit_packed_detail::unpackIndexBits<BitsPerPixel, Order>(indexBuf, srcPtr, chunk);
+        // アンパック（最初のチャンクのみpixelOffsetInByteを使用）
+        if (isFirstChunk && pixelOffsetInByte != 0) {
+            bit_packed_detail::unpackIndexBits<BitsPerPixel, Order>(indexBuf, srcPtr, chunk, pixelOffsetInByte);
+            isFirstChunk = false;
+        } else {
+            bit_packed_detail::unpackIndexBits<BitsPerPixel, Order>(indexBuf, srcPtr, chunk);
+        }
 
         // グレースケール展開 (RGBA8)
         for (int i = 0; i < chunk; ++i) {

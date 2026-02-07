@@ -75,6 +75,7 @@ static void fcv_expandIndex_direct(void* dst, const void* src,
     aux.palette = c->palette;
     aux.paletteFormat = c->paletteFormat;
     aux.paletteColorCount = c->paletteColorCount;
+    aux.pixelOffsetInByte = c->pixelOffsetInByte;  // bit-packed用
     c->expandIndex(dst, src, pixelCount, &aux);
 }
 
@@ -89,6 +90,7 @@ static void fcv_expandIndex_fromStraight(void* dst, const void* src,
     aux.palette = c->palette;
     aux.paletteFormat = c->paletteFormat;
     aux.paletteColorCount = c->paletteColorCount;
+    aux.pixelOffsetInByte = c->pixelOffsetInByte;  // bit-packed用
 
     auto* dstPtr = static_cast<uint8_t*>(dst);
     auto* srcPtr = static_cast<const uint8_t*>(src);
@@ -121,6 +123,7 @@ static void fcv_expandIndex_toStraight_fromStraight(
     aux.palette = c->palette;
     aux.paletteFormat = c->paletteFormat;
     aux.paletteColorCount = c->paletteColorCount;
+    aux.pixelOffsetInByte = c->pixelOffsetInByte;  // bit-packed用
 
     auto* dstPtr = static_cast<uint8_t*>(dst);
     auto* srcPtr = static_cast<const uint8_t*>(src);
@@ -181,6 +184,11 @@ FormatConverter resolveConverter(
     // BPP情報を設定（チャンク処理のポインタ進行用）
     result.ctx.srcBpp = static_cast<int_fast8_t>(getBytesPerPixel(srcFormat));
     result.ctx.dstBpp = static_cast<int_fast8_t>(getBytesPerPixel(dstFormat));
+
+    // pixelOffsetInByteを伝播（bit-packed用）
+    if (srcAux) {
+        result.ctx.pixelOffsetInByte = srcAux->pixelOffsetInByte;
+    }
 
     // 同一フォーマット → memcpy
     if (srcFormat == dstFormat) {

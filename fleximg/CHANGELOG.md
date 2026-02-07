@@ -28,6 +28,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - `ImageBuffer::blendFrom()`: ブレンド合成時の行開始アドレス計算でオフセット考慮
   - 非アフィンパスでの「先頭行が縦に引き伸ばされる」バグを修正
 
+- **bit-packed format の pixelOffsetInByte サポート**
+  - CompositeNode経由でbit-packed（Index1/2/4）データを処理する際のチャンク境界でのオフセットずれを修正
+  - `PixelAuxInfo::pixelOffsetInByte` フィールド追加（1バイト内でのピクセル位置 0 - PixelsPerByte-1）
+  - `FormatConverter::Context::pixelOffsetInByte` フィールド追加
+  - `ImageBuffer::blendFrom()`: bit-packedフォーマットで正確なバイト/ピクセルオフセット計算を実装
+  - `unpackIndexBits()`: pixelOffsetInByte パラメータ追加、バイト内のピクセル位置から正確に読み取り
+  - ViewPort.x の端数成分（subView使用時）を正しく反映
+  - チャンク境界（64ピクセル単位）をまたぐ変換でも正確な位置からデータを読み取り
+
 ### Added
 
 - **ViewPort オフセットテスト**（`viewport_offset_test.cpp`）
