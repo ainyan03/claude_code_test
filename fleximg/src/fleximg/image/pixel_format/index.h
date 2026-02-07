@@ -253,18 +253,6 @@ namespace BuiltinFormats {
 
 const PixelFormatDescriptor Index8 = {
     "Index8",
-    8,   // bitsPerPixel
-    1,   // bytesPerPixel
-    1,   // pixelsPerUnit
-    1,   // bytesPerUnit
-    1,   // channelCount
-    { ChannelDescriptor(ChannelType::Index, 8, 0),
-      ChannelDescriptor(), ChannelDescriptor(), ChannelDescriptor() },  // Index only
-    false,   // hasAlpha
-    true,    // isIndexed
-    256,     // maxPaletteSize
-    BitOrder::MSBFirst,
-    ByteOrder::Native,
     index8_toStraight,     // toStraight (パレットなし時のグレースケールフォールバック)
     index8_fromStraight,   // fromStraight (BT.601 輝度抽出)
     index8_expandIndex,  // expandIndex
@@ -272,7 +260,17 @@ const PixelFormatDescriptor Index8 = {
     nullptr,  // siblingEndian
     nullptr,  // swapEndian
     pixel_format::detail::copyRowDDA_1Byte,  // copyRowDDA
-    pixel_format::detail::copyQuadDDA_1Byte  // copyQuadDDA（インデックス抽出、パレット展開はconvertFormatで実施）
+    pixel_format::detail::copyQuadDDA_1Byte, // copyQuadDDA（インデックス抽出、パレット展開はconvertFormatで実施）
+    BitOrder::MSBFirst,
+    ByteOrder::Native,
+    256,     // maxPaletteSize
+    8,   // bitsPerPixel
+    1,   // bytesPerPixel
+    1,   // pixelsPerUnit
+    1,   // bytesPerUnit
+    1,   // channelCount
+    false,   // hasAlpha
+    true,    // isIndexed
 };
 
 // ========================================================================
@@ -453,18 +451,6 @@ extern const PixelFormatDescriptor Index4_LSB;
 
 const PixelFormatDescriptor Index1_MSB = {
     "Index1_MSB",
-    1,   // bitsPerPixel
-    1,   // bytesPerPixel
-    8,   // pixelsPerUnit
-    1,   // bytesPerUnit
-    1,   // channelCount
-    { ChannelDescriptor(ChannelType::Index, 1, 0),
-      ChannelDescriptor(), ChannelDescriptor(), ChannelDescriptor() },
-    false,  // hasAlpha
-    true,   // isIndexed
-    2,      // maxPaletteSize
-    BitOrder::MSBFirst,
-    ByteOrder::Native,
     indexN_toStraight<1, BitOrder::MSBFirst>,
     indexN_fromStraight<1, BitOrder::MSBFirst>,
     indexN_expandIndex<1, BitOrder::MSBFirst>,
@@ -472,87 +458,92 @@ const PixelFormatDescriptor Index1_MSB = {
     &Index1_LSB,  // siblingEndian
     nullptr,  // swapEndian
     pixel_format::detail::copyRowDDA_Bit<1, BitOrder::MSBFirst>,   // copyRowDDA
-    pixel_format::detail::copyQuadDDA_Bit<1, BitOrder::MSBFirst>   // copyQuadDDA
+    pixel_format::detail::copyQuadDDA_Bit<1, BitOrder::MSBFirst>,  // copyQuadDDA
+    BitOrder::MSBFirst,
+    ByteOrder::Native,
+    2,      // maxPaletteSize
+    1,   // bitsPerPixel
+    1,   // bytesPerPixel
+    8,   // pixelsPerUnit
+    1,   // bytesPerUnit
+    1,   // channelCount
+    false,  // hasAlpha
+    true,   // isIndexed
 };
 
 const PixelFormatDescriptor Index1_LSB = {
     "Index1_LSB",
-    1, 1, 8, 1, 1,
-    { ChannelDescriptor(ChannelType::Index, 1, 0),
-      ChannelDescriptor(), ChannelDescriptor(), ChannelDescriptor() },
-    false, true, 2,
-    BitOrder::LSBFirst,
-    ByteOrder::Native,
     indexN_toStraight<1, BitOrder::LSBFirst>,
     indexN_fromStraight<1, BitOrder::LSBFirst>,
     indexN_expandIndex<1, BitOrder::LSBFirst>,
     nullptr, &Index1_MSB, nullptr,
     pixel_format::detail::copyRowDDA_Bit<1, BitOrder::LSBFirst>,
-    pixel_format::detail::copyQuadDDA_Bit<1, BitOrder::LSBFirst>
+    pixel_format::detail::copyQuadDDA_Bit<1, BitOrder::LSBFirst>,
+    BitOrder::LSBFirst,
+    ByteOrder::Native,
+    2,      // maxPaletteSize
+    1, 1, 8, 1, 1,
+    false, true,
 };
 
 const PixelFormatDescriptor Index2_MSB = {
     "Index2_MSB",
-    2, 1, 4, 1, 1,
-    { ChannelDescriptor(ChannelType::Index, 2, 0),
-      ChannelDescriptor(), ChannelDescriptor(), ChannelDescriptor() },
-    false, true, 4,
-    BitOrder::MSBFirst,
-    ByteOrder::Native,
     indexN_toStraight<2, BitOrder::MSBFirst>,
     indexN_fromStraight<2, BitOrder::MSBFirst>,
     indexN_expandIndex<2, BitOrder::MSBFirst>,
     nullptr, &Index2_LSB, nullptr,
     pixel_format::detail::copyRowDDA_Bit<2, BitOrder::MSBFirst>,
-    pixel_format::detail::copyQuadDDA_Bit<2, BitOrder::MSBFirst>
+    pixel_format::detail::copyQuadDDA_Bit<2, BitOrder::MSBFirst>,
+    BitOrder::MSBFirst,
+    ByteOrder::Native,
+    4,      // maxPaletteSize
+    2, 1, 4, 1, 1,
+    false, true,
 };
 
 const PixelFormatDescriptor Index2_LSB = {
     "Index2_LSB",
-    2, 1, 4, 1, 1,
-    { ChannelDescriptor(ChannelType::Index, 2, 0),
-      ChannelDescriptor(), ChannelDescriptor(), ChannelDescriptor() },
-    false, true, 4,
-    BitOrder::LSBFirst,
-    ByteOrder::Native,
     indexN_toStraight<2, BitOrder::LSBFirst>,
     indexN_fromStraight<2, BitOrder::LSBFirst>,
     indexN_expandIndex<2, BitOrder::LSBFirst>,
     nullptr, &Index2_MSB, nullptr,
     pixel_format::detail::copyRowDDA_Bit<2, BitOrder::LSBFirst>,
-    pixel_format::detail::copyQuadDDA_Bit<2, BitOrder::LSBFirst>
+    pixel_format::detail::copyQuadDDA_Bit<2, BitOrder::LSBFirst>,
+    BitOrder::LSBFirst,
+    ByteOrder::Native,
+    4,      // maxPaletteSize
+    2, 1, 4, 1, 1,
+    false, true,
 };
 
 const PixelFormatDescriptor Index4_MSB = {
     "Index4_MSB",
-    4, 1, 2, 1, 1,
-    { ChannelDescriptor(ChannelType::Index, 4, 0),
-      ChannelDescriptor(), ChannelDescriptor(), ChannelDescriptor() },
-    false, true, 16,
-    BitOrder::MSBFirst,
-    ByteOrder::Native,
     indexN_toStraight<4, BitOrder::MSBFirst>,
     indexN_fromStraight<4, BitOrder::MSBFirst>,
     indexN_expandIndex<4, BitOrder::MSBFirst>,
     nullptr, &Index4_LSB, nullptr,
     pixel_format::detail::copyRowDDA_Bit<4, BitOrder::MSBFirst>,
-    pixel_format::detail::copyQuadDDA_Bit<4, BitOrder::MSBFirst>
+    pixel_format::detail::copyQuadDDA_Bit<4, BitOrder::MSBFirst>,
+    BitOrder::MSBFirst,
+    ByteOrder::Native,
+    16,     // maxPaletteSize
+    4, 1, 2, 1, 1,
+    false, true,
 };
 
 const PixelFormatDescriptor Index4_LSB = {
     "Index4_LSB",
-    4, 1, 2, 1, 1,
-    { ChannelDescriptor(ChannelType::Index, 4, 0),
-      ChannelDescriptor(), ChannelDescriptor(), ChannelDescriptor() },
-    false, true, 16,
-    BitOrder::LSBFirst,
-    ByteOrder::Native,
     indexN_toStraight<4, BitOrder::LSBFirst>,
     indexN_fromStraight<4, BitOrder::LSBFirst>,
     indexN_expandIndex<4, BitOrder::LSBFirst>,
     nullptr, &Index4_MSB, nullptr,
     pixel_format::detail::copyRowDDA_Bit<4, BitOrder::LSBFirst>,
-    pixel_format::detail::copyQuadDDA_Bit<4, BitOrder::LSBFirst>
+    pixel_format::detail::copyQuadDDA_Bit<4, BitOrder::LSBFirst>,
+    BitOrder::LSBFirst,
+    ByteOrder::Native,
+    16,     // maxPaletteSize
+    4, 1, 2, 1, 1,
+    false, true,
 };
 
 } // namespace BuiltinFormats

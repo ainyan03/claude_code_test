@@ -41,7 +41,7 @@ struct ViewPort {
     // 簡易初期化（strideを自動計算）
     ViewPort(void* d, int_fast16_t w, int_fast16_t h, PixelFormatID fmt = PixelFormatIDs::RGBA8_Straight)
         : data(d), formatID(fmt)
-        , stride(static_cast<int32_t>(w * getBytesPerPixel(fmt)))
+        , stride(static_cast<int32_t>(w * fmt->bytesPerPixel))
         , width(static_cast<int16_t>(w))
         , height(static_cast<int16_t>(h)) {}
 
@@ -52,17 +52,17 @@ struct ViewPort {
     void* pixelAt(int localX, int localY) {
         return static_cast<uint8_t*>(data)
                + static_cast<int_fast32_t>(this->y + localY) * stride
-               + (this->x + localX) * getBytesPerPixel(formatID);
+               + (this->x + localX) * formatID->bytesPerPixel;
     }
 
     const void* pixelAt(int localX, int localY) const {
         return static_cast<const uint8_t*>(data)
                + static_cast<int_fast32_t>(this->y + localY) * stride
-               + (this->x + localX) * getBytesPerPixel(formatID);
+               + (this->x + localX) * formatID->bytesPerPixel;
     }
 
     // バイト情報
-    int_fast8_t bytesPerPixel() const { return getBytesPerPixel(formatID); }
+    uint8_t bytesPerPixel() const { return formatID->bytesPerPixel; }
     uint32_t rowBytes() const {
         return stride > 0 ? static_cast<uint32_t>(stride)
                           : static_cast<uint32_t>(width) * static_cast<uint32_t>(bytesPerPixel());
@@ -161,7 +161,7 @@ inline bool canUseSingleChannelBilinear(PixelFormatID formatID, uint8_t edgeFade
         && (formatID->channelCount == 1)
         && !formatID->isIndexed
         && (edgeFadeMask == 0
-            || formatID->channels[0].type == ChannelType::Alpha);
+            || formatID->hasAlpha);
 }
 
 } // namespace view_ops

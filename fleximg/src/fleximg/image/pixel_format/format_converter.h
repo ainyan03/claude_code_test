@@ -182,8 +182,8 @@ FormatConverter resolveConverter(
     if (!srcFormat || !dstFormat) return result;
 
     // BytesPerPixel情報を設定（チャンク処理のポインタ進行用）
-    result.ctx.srcBytesPerPixel = static_cast<int_fast8_t>(getBytesPerPixel(srcFormat));
-    result.ctx.dstBytesPerPixel = static_cast<int_fast8_t>(getBytesPerPixel(dstFormat));
+    result.ctx.srcBytesPerPixel = srcFormat->bytesPerPixel;
+    result.ctx.dstBytesPerPixel = dstFormat->bytesPerPixel;
 
     // pixelOffsetInByteを伝播（bit-packed用）
     if (srcAux) {
@@ -238,7 +238,7 @@ FormatConverter resolveConverter(
         if (palFmt && palFmt->toStraight && dstFormat->fromStraight) {
             result.ctx.toStraight = palFmt->toStraight;
             result.ctx.fromStraight = dstFormat->fromStraight;
-            result.ctx.paletteBytesPerPixel = static_cast<int_fast8_t>(getBytesPerPixel(palFmt));
+            result.ctx.paletteBytesPerPixel = static_cast<uint8_t>(palFmt->bytesPerPixel);
             result.func = fcv_expandIndex_toStraight_fromStraight;
         }
         return result;

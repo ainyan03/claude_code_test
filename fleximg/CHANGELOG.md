@@ -12,6 +12,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- **`getBytesPerPixel()` 関数を廃止・直接アクセス化**
+  - `getBytesPerPixel(fmt)` → `fmt->bytesPerPixel` に全面置換
+  - `ViewPort::bytesPerPixel()` / `ImageBuffer::bytesPerPixel()` の戻り値型を `uint8_t` に統一
+  - BytesPerPixel関連メンバを `uint8_t` に統一（符号変換警告を解消）
+
+- **PixelFormatDescriptor の整理・最適化**
+  - `ChannelType` enum、`ChannelDescriptor` struct、`channels[4]` 配列を削除（32バイト削減）
+  - 関連メソッド（`getChannel`, `getChannelIndex`, `hasChannelType`, `getChannelByType`）を削除
+  - メンバ並び順をアライメント効率順に再配置（ポインタ→4byte→2byte→1byte）
+  - `viewport.h` の `canUseSingleChannelBilinear()` を `hasAlpha` で代替
+
+- **PixelAuxInfo メンバ配置最適化**
+  - メンバ並び順をアライメント効率順に再配置（40+→28バイト）
+
+- **FormatConverter::Context メンバ配置最適化・型整理**
+  - メンバ並び順をアライメント効率順に再配置（72→56バイト、約22%削減）
+  - BytesPerPixel系メンバを `uint8_t` に統一
+
 - **BytesPerPixel変数名の明確化**
   - `srcBpp`, `dstBpp`, `paletteBpp` を `srcBytesPerPixel`, `dstBytesPerPixel`, `paletteBytesPerPixel` にリネーム
   - `Bpp` 略語がbit/byteどちらか不明瞭だった問題を解消

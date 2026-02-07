@@ -299,20 +299,6 @@ extern const PixelFormatDescriptor RGB565_BE;
 
 const PixelFormatDescriptor RGB565_LE = {
     "RGB565_LE",
-    16,  // bitsPerPixel
-    2,   // bytesPerPixel
-    1,   // pixelsPerUnit
-    2,   // bytesPerUnit
-    3,   // channelCount
-    { ChannelDescriptor(ChannelType::Red, 5, 11),
-      ChannelDescriptor(ChannelType::Green, 6, 5),
-      ChannelDescriptor(ChannelType::Blue, 5, 0),
-      ChannelDescriptor() },  // R, G, B, (no A)
-    false,  // hasAlpha
-    false,  // isIndexed
-    0,      // maxPaletteSize
-    BitOrder::MSBFirst,
-    ByteOrder::LittleEndian,
     rgb565le_toStraight,
     rgb565le_fromStraight,
     nullptr,  // expandIndex
@@ -320,25 +306,21 @@ const PixelFormatDescriptor RGB565_LE = {
     &RGB565_BE,  // siblingEndian
     swap16,      // swapEndian
     pixel_format::detail::copyRowDDA_2Byte,  // copyRowDDA
-    pixel_format::detail::copyQuadDDA_2Byte  // copyQuadDDA
-};
-
-const PixelFormatDescriptor RGB565_BE = {
-    "RGB565_BE",
+    pixel_format::detail::copyQuadDDA_2Byte, // copyQuadDDA
+    BitOrder::MSBFirst,
+    ByteOrder::LittleEndian,
+    0,      // maxPaletteSize
     16,  // bitsPerPixel
     2,   // bytesPerPixel
     1,   // pixelsPerUnit
     2,   // bytesPerUnit
     3,   // channelCount
-    { ChannelDescriptor(ChannelType::Red, 5, 11),
-      ChannelDescriptor(ChannelType::Green, 6, 5),
-      ChannelDescriptor(ChannelType::Blue, 5, 0),
-      ChannelDescriptor() },  // R, G, B, (no A)
     false,  // hasAlpha
     false,  // isIndexed
-    0,      // maxPaletteSize
-    BitOrder::MSBFirst,
-    ByteOrder::BigEndian,
+};
+
+const PixelFormatDescriptor RGB565_BE = {
+    "RGB565_BE",
     rgb565be_toStraight,
     rgb565be_fromStraight,
     nullptr,  // expandIndex
@@ -346,7 +328,17 @@ const PixelFormatDescriptor RGB565_BE = {
     &RGB565_LE,  // siblingEndian
     swap16,      // swapEndian
     pixel_format::detail::copyRowDDA_2Byte,  // copyRowDDA
-    pixel_format::detail::copyQuadDDA_2Byte  // copyQuadDDA
+    pixel_format::detail::copyQuadDDA_2Byte, // copyQuadDDA
+    BitOrder::MSBFirst,
+    ByteOrder::BigEndian,
+    0,      // maxPaletteSize
+    16,  // bitsPerPixel
+    2,   // bytesPerPixel
+    1,   // pixelsPerUnit
+    2,   // bytesPerUnit
+    3,   // channelCount
+    false,  // hasAlpha
+    false,  // isIndexed
 };
 
 } // namespace BuiltinFormats

@@ -432,7 +432,7 @@ void RendererNode::applyDataRangeDebug(Node* upstream,
 
             // バッファの内容をコピー
             const uint8_t* src = static_cast<const uint8_t*>(buf.data());
-            int srcBytesPerPixel = getBytesPerPixel(srcFormat);
+            int srcBytesPerPixel = srcFormat->bytesPerPixel;
 
             for (int i = 0; i < buf.width(); ++i) {
                 int dstX = bufStartX + i;
