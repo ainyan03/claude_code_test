@@ -192,14 +192,18 @@ TEST_CASE("ImageBuffer view access") {
 
     SUBCASE("subView") {
         ViewPort sub = buf.subView(2, 2, 5, 5);
-        CHECK(sub.data == buf.pixelAt(2, 2));
+        CHECK(sub.data == buf.data());  // Plan B: dataポインタは進めない
+        CHECK(sub.x == 2);               // Plan B: オフセットはx,yで保持
+        CHECK(sub.y == 2);
         CHECK(sub.width == 5);
         CHECK(sub.height == 5);
     }
 
     SUBCASE("subBuffer") {
         ImageBuffer sub = buf.subBuffer(2, 2, 5, 5);
-        CHECK(sub.data() == buf.pixelAt(2, 2));
+        CHECK(sub.data() == buf.data());  // Plan B: dataポインタは進めない
+        CHECK(sub.view().x == 2);         // Plan B: オフセットはx,yで保持
+        CHECK(sub.view().y == 2);
         CHECK(sub.width() == 5);
         CHECK(sub.height() == 5);
         CHECK_FALSE(sub.ownsMemory());  // 参照モード

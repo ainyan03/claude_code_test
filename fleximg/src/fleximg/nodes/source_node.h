@@ -561,6 +561,10 @@ RenderResponse& SourceNode::pullProcessWithAffine(const RenderRequest& request) 
 
     void* dstRow = output->data();
 
+    // ViewPortのx,yオフセットをQ16.16固定小数点に変換
+    int32_t offsetX = static_cast<int32_t>(source_.x) << INT_FIXED_SHIFT;
+    int32_t offsetY = static_cast<int32_t>(source_.y) << INT_FIXED_SHIFT;
+
     if (useBilinear_) {
         // バイリニア補間（出力はRGBA8_Straight）
         // 0.5ピクセル減算（ピクセル中心→左上基準への変換）
@@ -579,14 +583,15 @@ RenderResponse& SourceNode::pullProcessWithAffine(const RenderRequest& request) 
         const PixelAuxInfo* auxPtr = (auxInfo.palette || auxInfo.colorKeyRGBA8 != auxInfo.colorKeyReplace)
                                    ? &auxInfo : nullptr;
         view_ops::copyRowDDABilinear(dstRow, source_, validWidth,
-            srcX_fixed - halfPixel, srcY_fixed - halfPixel, invA, invC, edgeFadeFlags_, auxPtr);
+            srcX_fixed + offsetX - halfPixel, srcY_fixed + offsetY - halfPixel, invA, invC, edgeFadeFlags_, auxPtr);
     } else {
         // 最近傍補間（BPP分岐は関数内部で実施）
         // view_ops::copyRowDDA(dstRow, source_, validWidth,
         //     srcX_fixed, srcY_fixed, invA, invC);
 
         // DDAParam を構築（bit-packed形式は境界チェックにsrcWidth/srcHeightを使用）
-        DDAParam param = { source_.stride, source_.width, source_.height, srcX_fixed, srcY_fixed, invA, invC, nullptr, nullptr };
+        // ViewPortのx,yオフセットを加算
+        DDAParam param = { source_.stride, source_.width, source_.height, srcX_fixed + offsetX, srcY_fixed + offsetY, invA, invC, nullptr, nullptr };
 
         // フォーマットの関数ポインタを呼び出し
        if (source_.formatID && source_.formatID->copyRowDDA) {

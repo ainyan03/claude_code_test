@@ -21,11 +21,13 @@ namespace FLEXIMG_NAMESPACE {
 //
 
 struct ViewPort {
-    void* data = nullptr;
+    void* data = nullptr;   // 常にバッファ全体の先頭を指す
     PixelFormatID formatID = PixelFormatIDs::RGBA8_Straight;
     int32_t stride = 0;     // 負値でY軸反転対応
     int16_t width = 0;
     int16_t height = 0;
+    int16_t x = 0;          // バッファ内でのビュー左上のX座標
+    int16_t y = 0;          // バッファ内でのビュー左上のY座標
 
     // デフォルトコンストラクタ
     ViewPort() = default;
@@ -47,14 +49,16 @@ struct ViewPort {
     bool isValid() const { return data != nullptr && width > 0 && height > 0; }
 
     // ピクセルアドレス取得（strideが負の場合もサポート）
-    void* pixelAt(int x, int y) {
-        return static_cast<uint8_t*>(data) + static_cast<int_fast32_t>(y) * stride
-               + x * getBytesPerPixel(formatID);
+    void* pixelAt(int localX, int localY) {
+        return static_cast<uint8_t*>(data)
+               + static_cast<int_fast32_t>(this->y + localY) * stride
+               + (this->x + localX) * getBytesPerPixel(formatID);
     }
 
-    const void* pixelAt(int x, int y) const {
-        return static_cast<const uint8_t*>(data) + static_cast<int_fast32_t>(y) * stride
-               + x * getBytesPerPixel(formatID);
+    const void* pixelAt(int localX, int localY) const {
+        return static_cast<const uint8_t*>(data)
+               + static_cast<int_fast32_t>(this->y + localY) * stride
+               + (this->x + localX) * getBytesPerPixel(formatID);
     }
 
     // バイト情報
@@ -72,11 +76,15 @@ struct ViewPort {
 namespace view_ops {
 
 // サブビュー作成（引数は最速型、32bitマイコンでのビット切り詰め回避）
-inline ViewPort subView(const ViewPort& v, int_fast16_t x, int_fast16_t y,
+inline ViewPort subView(const ViewPort& v, int_fast16_t dx, int_fast16_t dy,
                         int_fast16_t w, int_fast16_t h) {
-    auto bytesPerPixel = v.bytesPerPixel();
-    void* subData = static_cast<uint8_t*>(v.data) + y * v.stride + x * bytesPerPixel;
-    return ViewPort(subData, v.formatID, v.stride, w, h);
+    ViewPort result = v;
+    result.x = static_cast<int16_t>(v.x + dx);  // オフセット累積
+    result.y = static_cast<int16_t>(v.y + dy);  // オフセット累積
+    result.width = static_cast<int16_t>(w);
+    result.height = static_cast<int16_t>(h);
+    // data, stride, formatID は変更しない（常にバッファ全体を指す）
+    return result;
 }
 
 // 矩形コピー
@@ -231,8 +239,18 @@ void copyRowDDA(
 ) {
     if (!src.isValid() || count <= 0) return;
 
+    // ViewPortのオフセットを固定小数点に変換して加算
+    int_fixed offsetX = static_cast<int_fixed>(src.x) << INT_FIXED_SHIFT;
+    int_fixed offsetY = static_cast<int_fixed>(src.y) << INT_FIXED_SHIFT;
+
     // DDAParam を構築（copyRowDDAでは srcWidth/srcHeight/weights は使用しない）
-    DDAParam param = { src.stride, 0, 0, srcX, srcY, incrX, incrY, nullptr, nullptr };
+    DDAParam param = {
+        src.stride, 0, 0,
+        srcX + offsetX,  // オフセット加算
+        srcY + offsetY,  // オフセット加算
+        incrX, incrY,
+        nullptr, nullptr
+    };
 
     // フォーマットの関数ポインタを呼び出し
     if (src.formatID && src.formatID->copyRowDDA) {
@@ -383,9 +401,15 @@ void copyRowDDABilinear(
         uint8_t* dstPtr = static_cast<uint8_t*>(dst);
         const uint8_t* srcData = static_cast<const uint8_t*>(src.data);
 
+        // ViewPortのオフセットを固定小数点に変換して加算
+        int_fixed offsetX = static_cast<int_fixed>(src.x) << INT_FIXED_SHIFT;
+        int_fixed offsetY = static_cast<int_fixed>(src.y) << INT_FIXED_SHIFT;
+
         DDAParam param = {
             src.stride, src.width, src.height,
-            srcX, srcY, incrX, incrY,
+            srcX + offsetX,  // オフセット加算
+            srcY + offsetY,  // オフセット加算
+            incrX, incrY,
             weightsXY, edgeFlagsChunk
         };
 
@@ -451,13 +475,17 @@ void copyRowDDABilinear(
     uint32_t* dstPtr = static_cast<uint32_t*>(dst);
     const uint8_t* srcData = static_cast<const uint8_t*>(src.data);
 
+    // ViewPortのオフセットを固定小数点に変換して加算
+    int_fixed offsetX = static_cast<int_fixed>(src.x) << INT_FIXED_SHIFT;
+    int_fixed offsetY = static_cast<int_fixed>(src.y) << INT_FIXED_SHIFT;
+
     // DDAParam を構築
     DDAParam param = {
         src.stride,
         src.width,
         src.height,
-        srcX,
-        srcY,
+        srcX + offsetX,  // オフセット加算
+        srcY + offsetY,  // オフセット加算
         incrX,
         incrY,
         weightsXY,

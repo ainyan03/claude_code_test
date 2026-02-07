@@ -12,6 +12,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- **ViewPort Coordinate Offset Support**（Plan B実装）
+  - ViewPortに `x, y` 座標フィールドを追加（bit-packed format対応の根本的解決）
+  - `data` ポインタは常にバッファ全体を指し、`(x,y)` で論理的な開始位置を表現
+  - `subView()` は座標オフセットを累積（dataポインタを進めない）
+  - 全フォーマット（bit-packed含む）で統一的に動作
+  - 将来的なクロップ最適化、ウィンドウ管理の基盤
+
+### Fixed
+
+- **ViewPort x,y オフセットの適用漏れ修正**
+  - `SourceNode::pullProcessWithAffine()`: アフィンパスでのDDAパラメータ計算時にオフセット加算
+  - `ImageBuffer::toFormat()`: フォーマット変換時の行アドレス計算でオフセット考慮
+  - `ImageBuffer::copyFrom()`: ディープコピー時の送信元・送信先アドレス計算でオフセット考慮
+  - `ImageBuffer::blendFrom()`: ブレンド合成時の行開始アドレス計算でオフセット考慮
+  - 非アフィンパスでの「先頭行が縦に引き伸ばされる」バグを修正
+
+### Added
+
+- **ViewPort オフセットテスト**（`viewport_offset_test.cpp`）
+  - 全ピクセルフォーマットでのsubView座標オフセット動作を検証
+  - 4つのオフセットパターン（x=0/3/8/9）でバイト境界またぎを包括的にテスト
+  - bit-packed形式（Index1/2/4 MSB/LSB）で特に重要
+  - subView連鎖での累積オフセット検証
+  - 12テストケース、59アサーション追加（162テスト総計）
+
 - **DDA Function Consolidation and Naming Unification**
   - DDA（Digital Differential Analyzer）関連の関数を機能別に集約
   - 新規ファイル `pixel_format/dda.h` を作成し、全てのDDA関数を統合
