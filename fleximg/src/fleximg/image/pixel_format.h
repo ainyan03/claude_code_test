@@ -349,6 +349,8 @@ inline void lut8to16(uint16_t* d, const uint8_t* s, int pixelCount, const uint16
 // ------------------------------------------------------------------------
 #ifdef FLEXIMG_IMPLEMENTATION
 
+#include "pixel_format/dda.h"
+
 namespace FLEXIMG_NAMESPACE {
 namespace pixel_format {
 namespace detail {
