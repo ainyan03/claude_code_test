@@ -297,8 +297,10 @@ public:
             }
             if (resolved) {
                 for (int y = 0; y < view_.height; ++y) {
+                    // ViewPortのx,yオフセットを考慮
                     const uint8_t* srcRow = static_cast<const uint8_t*>(view_.data)
-                                            + y * view_.stride;
+                                            + (view_.y + y) * view_.stride
+                                            + view_.x * view_.bytesPerPixel();
                     uint8_t* dstRow = static_cast<uint8_t*>(converted.view_.data)
                                       + y * converted.view_.stride;
                     resolved(dstRow, srcRow, view_.width);
@@ -427,9 +429,14 @@ private:
         int32_t copyBytes = std::min(view_.stride, other.view_.stride);
         int16_t copyHeight = std::min(view_.height, other.view_.height);
         for (int_fast16_t y = 0; y < copyHeight; ++y) {
+            // ViewPortのx,yオフセットを考慮
             std::memcpy(
-                static_cast<uint8_t*>(view_.data) + y * view_.stride,
-                static_cast<const uint8_t*>(other.view_.data) + y * other.view_.stride,
+                static_cast<uint8_t*>(view_.data)
+                    + (view_.y + y) * view_.stride
+                    + view_.x * view_.bytesPerPixel(),
+                static_cast<const uint8_t*>(other.view_.data)
+                    + (other.view_.y + y) * other.view_.stride
+                    + other.view_.x * other.view_.bytesPerPixel(),
                 static_cast<size_t>(copyBytes)
             );
         }
@@ -453,8 +460,13 @@ inline bool ImageBuffer::blendFrom(const ImageBuffer& src) {
 
     const size_t dstBpp = static_cast<size_t>(getBytesPerPixel(view_.formatID));
     const size_t srcBpp = static_cast<size_t>(getBytesPerPixel(src.view().formatID));
-    uint8_t* dstRow = static_cast<uint8_t*>(view_.data);
-    const uint8_t* srcRow = static_cast<const uint8_t*>(src.view().data);
+    // ViewPortのx,yオフセットを考慮した行開始アドレス
+    uint8_t* dstRow = static_cast<uint8_t*>(view_.data)
+                      + view_.y * view_.stride
+                      + static_cast<size_t>(view_.x) * dstBpp;
+    const uint8_t* srcRow = static_cast<const uint8_t*>(src.view().data)
+                            + src.view().y * src.view().stride
+                            + static_cast<size_t>(src.view().x) * srcBpp;
     PixelFormatID srcFmt = src.view().formatID;
     const PixelAuxInfo* srcAux = &src.auxInfo();
 
