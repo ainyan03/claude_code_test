@@ -37,6 +37,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - ViewPort.x の端数成分（subView使用時）を正しく反映
   - チャンク境界（64ピクセル単位）をまたぐ変換でも正確な位置からデータを読み取り
 
+### Improved
+
+- **blendFrom() チャンクループの最適化**
+  - bit-packed分岐をチャンクループ外に移動し、ループ内の条件分岐を除去
+  - `pixelOffsetInByte`、srcポインタ初期値、チャンクあたりの進行バイト数をループ前に事前計算
+  - CHUNK_SIZE(64)はpixelsPerByte(8,4,2)の倍数のためpixelOffsetInByteはチャンク間で不変
+
 ### Added
 
 - **ViewPort オフセットテスト**（`viewport_offset_test.cpp`）
