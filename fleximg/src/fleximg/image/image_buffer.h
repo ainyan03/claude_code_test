@@ -460,13 +460,28 @@ inline bool ImageBuffer::blendFrom(const ImageBuffer& src) {
 
     const size_t dstBpp = static_cast<size_t>(getBytesPerPixel(view_.formatID));
     const size_t srcBpp = static_cast<size_t>(getBytesPerPixel(src.view().formatID));
+    const uint8_t srcBitsPerPixel = src.view().formatID->bitsPerPixel;
+    const bool srcIsBitPacked = (srcBitsPerPixel < 8);
+
     // ViewPortのx,yオフセットを考慮した行開始アドレス
     uint8_t* dstRow = static_cast<uint8_t*>(view_.data)
                       + view_.y * view_.stride
                       + static_cast<size_t>(view_.x) * dstBpp;
-    const uint8_t* srcRow = static_cast<const uint8_t*>(src.view().data)
-                            + src.view().y * src.view().stride
-                            + static_cast<size_t>(src.view().x) * srcBpp;
+
+    // srcRow: bit-packedの場合はバイト単位のオフセットのみ計算
+    const uint8_t* srcRow;
+    if (srcIsBitPacked) {
+        const int32_t srcXBitOffset = src.view().x * srcBitsPerPixel;
+        const size_t srcXByteOffset = static_cast<size_t>(srcXBitOffset >> 3);
+        srcRow = static_cast<const uint8_t*>(src.view().data)
+                 + src.view().y * src.view().stride
+                 + srcXByteOffset;
+    } else {
+        srcRow = static_cast<const uint8_t*>(src.view().data)
+                 + src.view().y * src.view().stride
+                 + static_cast<size_t>(src.view().x) * srcBpp;
+    }
+
     PixelFormatID srcFmt = src.view().formatID;
     const PixelAuxInfo* srcAux = &src.auxInfo();
 
@@ -486,9 +501,35 @@ inline bool ImageBuffer::blendFrom(const ImageBuffer& src) {
         uint8_t tempBuf[CHUNK_SIZE * 4];
         int16_t remaining = static_cast<int16_t>(clippedEnd - clippedStart);
         int16_t cursor = clippedStart;
+
+        // bit-packed用の事前計算
+        const uint8_t pixelsPerByte = srcIsBitPacked ? static_cast<uint8_t>(8 / srcBitsPerPixel) : 0;
+
         while (remaining > 0) {
             int16_t chunk = std::min(remaining, CHUNK_SIZE);
-            const void* srcPtr = srcRow + static_cast<size_t>(cursor - srcStartX) * srcBpp;
+
+            const void* srcPtr;
+            if (srcIsBitPacked) {
+                // bit-packed: ピクセル単位のオフセット計算
+                const int16_t pixelOffset = static_cast<int16_t>(cursor - srcStartX);
+                // バイト単位のオフセット: ピクセル数をビット数に変換してバイト数に
+                const int32_t totalBitOffset = pixelOffset * srcBitsPerPixel;
+                const size_t byteOffset = static_cast<size_t>(totalBitOffset >> 3);
+
+                // 実際のピクセル位置（元のバッファ内での絶対位置）
+                const int16_t actualPixelPos = static_cast<int16_t>(src.view().x + pixelOffset);
+                // ピクセル単位の端数: 1バイト内でのピクセル位置 (0 - PixelsPerByte-1)
+                const uint8_t pixelFractional = static_cast<uint8_t>(actualPixelPos % pixelsPerByte);
+
+                srcPtr = srcRow + byteOffset;
+                // pixelFractionalをconverterに渡す
+                converter.ctx.pixelOffsetInByte = pixelFractional;
+            } else {
+                // 通常フォーマット: バイト単位
+                srcPtr = srcRow + static_cast<size_t>(cursor - srcStartX) * srcBpp;
+                converter.ctx.pixelOffsetInByte = 0;
+            }
+
             converter(tempBuf, srcPtr, chunk);
             void* dstPtr = dstRow + static_cast<size_t>(cursor - dstStartX) * dstBpp;
             straightBlend(dstPtr, tempBuf, chunk, nullptr);

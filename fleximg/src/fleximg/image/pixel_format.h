@@ -120,6 +120,9 @@ struct PixelAuxInfo {
     uint32_t colorKeyReplace = 0;  // カラーキー差し替え値（通常は透明黒0）
     // colorKeyRGBA8 == colorKeyReplace の場合は無効
 
+    uint8_t pixelOffsetInByte = 0;  // bit-packed用: 1バイト内でのピクセル位置 (0 - PixelsPerByte-1)
+                                     // Index1: 0-7, Index2: 0-3, Index4: 0-1
+
     // デフォルトコンストラクタ
     constexpr PixelAuxInfo() = default;
 
@@ -512,6 +515,9 @@ struct FormatConverter {
         // カラーキー情報（toStraight後にin-placeで適用）
         uint32_t colorKeyRGBA8 = 0;
         uint32_t colorKeyReplace = 0;
+
+        // bit-packed用: 1バイト内でのピクセル位置（0 - PixelsPerByte-1）
+        uint8_t pixelOffsetInByte = 0;
     } ctx;
 
     // 行変換実行（分岐なし）
