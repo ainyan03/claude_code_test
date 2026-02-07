@@ -8,6 +8,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **DDA Function Consolidation and Naming Unification**
+  - DDA（Digital Differential Analyzer）関連の関数を機能別に集約
+  - 新規ファイル `pixel_format/dda.h` を作成し、全てのDDA関数を統合
+  - テンプレート関数名を統一:
+    - `copyRowDDA_bpp` → `copyRowDDA_Byte`（バイト単位: 1/2/3/4バイト）
+    - `copyQuadDDA_bpp` → `copyQuadDDA_Byte`（バイト単位）
+    - `indexN_copyRowDDA` → `copyRowDDA_Bit`（ビット単位: 1/2/4ビット）
+    - `indexN_copyQuadDDA` → `copyQuadDDA_Bit`（ビット単位）
+  - ラッパー関数名も統一: `copyRowDDA_1Byte` ～ `_4Byte`
+  - 命名の対称性を実現: `_Byte`（バイト単位） vs `_Bit`（ビット単位）
+  - pixel_format.hの肥大化を解消（約440行削減）
+
+- **Index Format Consolidation**
+  - `index8.h` と `bit_packed_index.h` を `index.h` に統合
+  - Index1/2/4/8 全てのインデックスフォーマットを単一ファイルで管理
+  - bit_packed_detail名前空間も同ファイル内に配置
+  - ファイル構成の簡素化と保守性の向上
+
+---
+
 ## [2.64.0] - 2026-02-06
 
 ### Added
