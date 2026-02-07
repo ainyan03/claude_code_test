@@ -53,7 +53,7 @@ struct TileConfig {
     int16_t tileHeight = 0;
 
     TileConfig() = default;
-    TileConfig(int w, int h)
+    TileConfig(int_fast16_t w, int_fast16_t h)
         : tileWidth(static_cast<int16_t>(w))
         , tileHeight(static_cast<int16_t>(h)) {}
 
@@ -74,7 +74,7 @@ struct RenderRequest {
     // マージン分拡大（フィルタ用）
     // 左右上下に適用されるため width/height は margin*2 増加
     // origin は左上に移動（ワールド座標なので減算）
-    RenderRequest expand(int margin) const {
+    RenderRequest expand(int_fast16_t margin) const {
         int_fixed marginFixed = to_fixed(margin);
         return {
             static_cast<int16_t>(width + margin * 2),
@@ -276,7 +276,7 @@ inline void calcAffineAABB(
 // matrix: 順方向のアフィン変換（内部で逆行列を計算）
 // 戻り値: 入力側で必要なAABB（width, height, origin）
 inline void calcInverseAffineAABB(
-    int outputWidth, int outputHeight,
+    int_fast16_t outputWidth, int_fast16_t outputHeight,
     Point outputOrigin,
     const AffineMatrix& matrix,
     int16_t& outWidth, int16_t& outHeight, Point& outOrigin)
@@ -382,7 +382,7 @@ struct RenderResponse {
 
     /// @brief 新しいバッファを直接作成
     /// @return 作成されたバッファへのポインタ（失敗時はnullptr）
-    ImageBuffer* createBuffer(int width, int height, PixelFormatID format,
+    ImageBuffer* createBuffer(int_fast16_t width, int_fast16_t height, PixelFormatID format,
                               InitPolicy policy) {
         if (width <= 0 || height <= 0 || !format) return nullptr;
         // 既存エントリがあれば解放
@@ -428,8 +428,8 @@ struct RenderResponse {
         PixelFormatID srcFmt = entry_->buffer.view().formatID;
         if (srcFmt == format) return;
 
-        int width = entry_->buffer.width();
-        ImageBuffer converted(width, 1, format, InitPolicy::Uninitialized, allocator_);
+        auto width = entry_->buffer.width();
+        ImageBuffer converted(width, static_cast<int_fast16_t>(1), format, InitPolicy::Uninitialized, allocator_);
         if (!converted.isValid()) return;
 
         const void* srcRow = entry_->buffer.view().pixelAt(0, 0);

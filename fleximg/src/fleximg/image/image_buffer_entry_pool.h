@@ -58,7 +58,7 @@ public:
     /// @brief デフォルトコンストラクタ
     ImageBufferEntryPool() : nextHint_(0) {
         // エントリを初期化
-        for (int i = 0; i < POOL_SIZE; ++i) {
+        for (uint_fast8_t i = 0; i < POOL_SIZE; ++i) {
             entries_[i].inUse = false;
         }
     }
@@ -87,7 +87,7 @@ public:
     Entry* acquire() {
         // nextHint_から開始して循環探索
         uint_fast8_t idx = nextHint_;
-        for (int i = 0; i < POOL_SIZE; ++i) {
+        for (uint_fast8_t i = 0; i < POOL_SIZE; ++i) {
             idx = (idx + 1) & (POOL_SIZE - 1);
             if (!entries_[idx].inUse) {
                 entries_[idx].inUse = true;
@@ -124,7 +124,7 @@ public:
 
     /// @brief 全エントリを一括解放（フレーム終了時）
     void releaseAll() {
-        for (int i = 0; i < POOL_SIZE; ++i) {
+        for (uint_fast8_t i = 0; i < POOL_SIZE; ++i) {
             if (entries_[i].inUse) {
                 entries_[i].buffer.reset();  // 軽量リセット
                 entries_[i].inUse = false;
@@ -138,22 +138,22 @@ public:
     // ========================================
 
     /// @brief 使用中のエントリ数を取得
-    int usedCount() const {
-        int count = 0;
-        for (int i = 0; i < POOL_SIZE; ++i) {
+    uint_fast8_t usedCount() const {
+        uint_fast8_t count = 0;
+        for (uint_fast8_t i = 0; i < POOL_SIZE; ++i) {
             if (entries_[i].inUse) ++count;
         }
         return count;
     }
 
     /// @brief 空きエントリ数を取得
-    int freeCount() const {
-        return POOL_SIZE - usedCount();
+    uint_fast8_t freeCount() const {
+        return static_cast<uint_fast8_t>(POOL_SIZE - usedCount());
     }
 
     /// @brief 空きがあるか
     bool hasAvailable() const {
-        for (int i = 0; i < POOL_SIZE; ++i) {
+        for (uint_fast8_t i = 0; i < POOL_SIZE; ++i) {
             if (!entries_[i].inUse) return true;
         }
         return false;

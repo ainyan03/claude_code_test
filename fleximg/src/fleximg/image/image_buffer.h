@@ -65,7 +65,7 @@ public:
 
     // サイズ指定コンストラクタ
     // alloc = nullptr の場合、DefaultAllocator を使用
-    ImageBuffer(int w, int h, PixelFormatID fmt = PixelFormatIDs::RGBA8_Straight,
+    ImageBuffer(int_fast16_t w, int_fast16_t h, PixelFormatID fmt = PixelFormatIDs::RGBA8_Straight,
                 InitPolicy init = DefaultInitPolicy,
                 core::memory::IAllocator* alloc = nullptr)
         : view_(nullptr, fmt, 0, static_cast<int16_t>(w), static_cast<int16_t>(h))
@@ -296,7 +296,7 @@ public:
                 resolved = resolveConverter(view_.formatID, target, auxPtr);
             }
             if (resolved) {
-                for (int y = 0; y < view_.height; ++y) {
+                for (int_fast16_t y = 0; y < view_.height; ++y) {
                     // ViewPortのx,yオフセットを考慮
                     const uint8_t* srcRow = static_cast<const uint8_t*>(view_.data)
                                             + (view_.y + y) * view_.stride

@@ -229,12 +229,12 @@ inline Matrix2x2_fixed inverseFixed(const AffineMatrix& m) {
 
 struct AffinePrecomputed {
     Matrix2x2_fixed invMatrix;  // 逆行列（2x2部分）
-    int32_t invTxFixed = 0;       // 逆変換オフセットX（Q16.16）
-    int32_t invTyFixed = 0;       // 逆変換オフセットY（Q16.16）
-    int32_t rowOffsetX = 0;       // ピクセル中心オフセット: invMatrix.b >> 1
-    int32_t rowOffsetY = 0;       // ピクセル中心オフセット: invMatrix.d >> 1
-    int32_t dxOffsetX = 0;        // ピクセル中心オフセット: invMatrix.a >> 1
-    int32_t dxOffsetY = 0;        // ピクセル中心オフセット: invMatrix.c >> 1
+    int_fixed invTxFixed = 0;      // 逆変換オフセットX（Q16.16）
+    int_fixed invTyFixed = 0;      // 逆変換オフセットY（Q16.16）
+    int_fixed rowOffsetX = 0;      // ピクセル中心オフセット: invMatrix.b >> 1
+    int_fixed rowOffsetY = 0;      // ピクセル中心オフセット: invMatrix.d >> 1
+    int_fixed dxOffsetX = 0;       // ピクセル中心オフセット: invMatrix.a >> 1
+    int_fixed dxOffsetY = 0;       // ピクセル中心オフセット: invMatrix.c >> 1
 
     bool isValid() const { return invMatrix.valid; }
 };

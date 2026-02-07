@@ -93,14 +93,15 @@ private:
     // 入力画像のビュー情報（座標変換済み）
     struct InputView {
         const uint8_t* ptr = nullptr;
-        int width = 0, height = 0, stride = 0;
-        int offsetX = 0, offsetY = 0;
+        int16_t width = 0, height = 0;
+        int32_t stride = 0;
+        int16_t offsetX = 0, offsetY = 0;
 
         bool valid() const { return ptr != nullptr; }
 
         // 指定Y座標の行ポインタ（範囲外ならnullptr）
-        const uint8_t* rowAt(int y) const {
-            int srcY = y - offsetY;
+        const uint8_t* rowAt(int_fast16_t y) const {
+            auto srcY = static_cast<int_fast16_t>(y - offsetY);
             if (static_cast<unsigned>(srcY) >= static_cast<unsigned>(height)) return nullptr;
             return ptr + srcY * stride;
         }
@@ -116,16 +117,16 @@ private:
             v.width = vp.width;
             v.height = vp.height;
             v.stride = vp.stride;
-            v.offsetX = from_fixed(resp.origin.x - outOriginX);
-            v.offsetY = from_fixed(resp.origin.y - outOriginY);
+            v.offsetX = static_cast<int16_t>(from_fixed(resp.origin.x - outOriginX));
+            v.offsetY = static_cast<int16_t>(from_fixed(resp.origin.y - outOriginY));
             return v;
         }
     };
 
     // マスクの左右0スキップ範囲をスキャン（4バイト単位、アライメント対応）
     // 戻り値: 有効範囲の幅（0なら全面0）
-    static int scanMaskZeroRanges(const uint8_t* maskData, int maskWidth,
-                                  int& outLeftSkip, int& outRightSkip);
+    static int_fast16_t scanMaskZeroRanges(const uint8_t* maskData, int_fast16_t maskWidth,
+                                  int_fast16_t& outLeftSkip, int_fast16_t& outRightSkip);
 
     // ========================================
     // 合成処理
@@ -135,7 +136,7 @@ private:
     // alpha=0: 何もしない（出力に既にbgがある）
     // alpha=255: fgをコピー
     // 中間alpha: out = out*(1-a) + fg*a
-    void applyMatteOverlay(ImageBuffer& output, int outWidth,
+    void applyMatteOverlay(ImageBuffer& output, int_fast16_t outWidth,
                            const InputView& fg, const InputView& mask);
 
     // ========================================
@@ -177,7 +178,7 @@ PrepareResponse MatteNode::onPullPrepare(const PrepareRequest& request) {
     float minX = 0, minY = 0, maxX = 0, maxY = 0;
 
     // 全上流へ伝播し、結果をマージ（AABB和集合）
-    for (int i = 0; i < 3; ++i) {
+    for (int_fast16_t i = 0; i < 3; ++i) {
         Node* upstream = upstreamNode(i);
         if (upstream) {
             PrepareResponse result = upstream->pullPrepare(request);
@@ -234,7 +235,7 @@ PrepareResponse MatteNode::onPullPrepare(const PrepareRequest& request) {
 
 void MatteNode::onPullFinalize() {
     finalize();
-    for (int i = 0; i < 3; ++i) {
+    for (int_fast16_t i = 0; i < 3; ++i) {
         Node* upstream = upstreamNode(i);
         if (upstream) {
             upstream->pullFinalize();
@@ -374,8 +375,8 @@ RenderResponse& MatteNode::onPullProcess(const RenderRequest& request) {
     // 全面0判定（行スキャン）+ 有効範囲へのcrop
     ViewPort maskView = maskResult.view();
     const uint8_t* maskData = static_cast<const uint8_t*>(maskView.data);
-    int maskLeftSkip = 0, maskRightSkip = 0;
-    int maskEffectiveWidth = scanMaskZeroRanges(maskData, maskView.width,
+    int_fast16_t maskLeftSkip = 0, maskRightSkip = 0;
+    auto maskEffectiveWidth = scanMaskZeroRanges(maskData, maskView.width,
                                                  maskLeftSkip, maskRightSkip);
 
     // 全面0 → bg fallback
@@ -423,8 +424,8 @@ RenderResponse& MatteNode::onPullProcess(const RenderRequest& request) {
         if (bgMaxY > unionMaxY) unionMaxY = bgMaxY;
     }
 
-    int unionWidth = from_fixed(unionMaxX - unionMinX);
-    int unionHeight = from_fixed(unionMaxY - unionMinY);
+    auto unionWidth = static_cast<int_fast16_t>(from_fixed(unionMaxX - unionMinX));
+    auto unionHeight = static_cast<int_fast16_t>(from_fixed(unionMaxY - unionMinY));
 
     // ========================================================================
     // Step 3: 出力バッファ作成（ゼロクリア）+ bgコピー
@@ -441,8 +442,8 @@ RenderResponse& MatteNode::onPullProcess(const RenderRequest& request) {
 
     // bgがあればコピー
     if (bgResultPtr) {
-        int bgOffsetX = from_fixed(bgResultPtr->origin.x - unionMinX);
-        int bgOffsetY = from_fixed(bgResultPtr->origin.y - unionMinY);
+        auto bgOffsetX = static_cast<int_fast16_t>(from_fixed(bgResultPtr->origin.x - unionMinX));
+        auto bgOffsetY = static_cast<int_fast16_t>(from_fixed(bgResultPtr->origin.y - unionMinY));
 
         auto converter = resolveConverter(bgResultPtr->buffer().formatID(),
                                           PixelFormatIDs::RGBA8_Straight,
@@ -450,19 +451,19 @@ RenderResponse& MatteNode::onPullProcess(const RenderRequest& request) {
         if (converter) {
             ViewPort bgViewPort = bgResultPtr->view();
             ViewPort outView = outputBuf.view();
-            int srcBytesPerPixel = bgViewPort.bytesPerPixel();
+            auto srcBytesPerPixel = static_cast<int_fast16_t>(bgViewPort.bytesPerPixel());
 
             // bgの有効範囲を計算（出力座標系）
-            int copyStartX = std::max(0, bgOffsetX);
-            int copyEndX = std::min(unionWidth, bgOffsetX + bgViewPort.width);
-            int copyStartY = std::max(0, bgOffsetY);
-            int copyEndY = std::min(unionHeight, bgOffsetY + bgViewPort.height);
-            int copyWidth = copyEndX - copyStartX;
+            auto copyStartX = std::max<int_fast16_t>(0, bgOffsetX);
+            auto copyEndX = std::min<int_fast16_t>(unionWidth, bgOffsetX + bgViewPort.width);
+            auto copyStartY = std::max<int_fast16_t>(0, bgOffsetY);
+            auto copyEndY = std::min<int_fast16_t>(unionHeight, bgOffsetY + bgViewPort.height);
+            auto copyWidth = static_cast<int_fast16_t>(copyEndX - copyStartX);
 
             if (copyWidth > 0) {
-                int srcStartX = copyStartX - bgOffsetX;
-                for (int y = copyStartY; y < copyEndY; ++y) {
-                    int srcY = y - bgOffsetY;
+                auto srcStartX = static_cast<int_fast16_t>(copyStartX - bgOffsetX);
+                for (auto y = copyStartY; y < copyEndY; ++y) {
+                    auto srcY = static_cast<int_fast16_t>(y - bgOffsetY);
                     const uint8_t* srcRow = static_cast<const uint8_t*>(bgViewPort.data)
                                           + srcY * bgViewPort.stride
                                           + srcStartX * srcBytesPerPixel;
@@ -525,16 +526,16 @@ fallback_bg:
 // MatteNode - ヘルパー関数実装
 // ============================================================================
 
-int MatteNode::scanMaskZeroRanges(const uint8_t* maskData, int maskWidth,
-                                  int& outLeftSkip, int& outRightSkip) {
+int_fast16_t MatteNode::scanMaskZeroRanges(const uint8_t* maskData, int_fast16_t maskWidth,
+                                  int_fast16_t& outLeftSkip, int_fast16_t& outRightSkip) {
     // 左端からの0スキップ（4バイト単位、アライメント対応）
-    int leftSkip = 0;
+    int_fast16_t leftSkip = 0;
     {
         // Phase 1: アライメントまで1バイトずつ
         uintptr_t addr = reinterpret_cast<uintptr_t>(maskData);
-        int misalign = static_cast<int>(addr & 3);
+        int_fast16_t misalign = static_cast<int_fast16_t>(addr & 3);
         if (misalign != 0) {
-            int alignBytes = 4 - misalign;
+            int_fast16_t alignBytes = static_cast<int_fast16_t>(4 - misalign);
             if (alignBytes > maskWidth) {
                 alignBytes = maskWidth;
             }
@@ -557,7 +558,7 @@ int MatteNode::scanMaskZeroRanges(const uint8_t* maskData, int maskWidth,
             while (p32 < p32_end && *p32 == 0) {
                 ++p32;
             }
-            leftSkip = static_cast<int>(reinterpret_cast<const uint8_t*>(p32) - maskData);
+            leftSkip = static_cast<int_fast16_t>(reinterpret_cast<const uint8_t*>(p32) - maskData);
         }
 
         // Phase 3: 残りを1バイトずつ
@@ -577,13 +578,13 @@ scan_right:
     outLeftSkip = leftSkip;
 
     // 右端からの0スキップ（4バイト単位、アライメント対応）
-    int rightSkip = 0;
+    int_fast16_t rightSkip = 0;
     {
-        const int limit = maskWidth - leftSkip;
+        const int_fast16_t limit = static_cast<int_fast16_t>(maskWidth - leftSkip);
 
         // Phase 1: アライメントまで1バイトずつ
         uintptr_t endAddr = reinterpret_cast<uintptr_t>(maskData + maskWidth);
-        int misalign = static_cast<int>(endAddr & 3);
+        int_fast16_t misalign = static_cast<int_fast16_t>(endAddr & 3);
         if (misalign > limit) {
             misalign = limit;
         }
@@ -602,7 +603,7 @@ scan_right:
             while (p32 > p32_end && *p32 == 0) {
                 --p32;
             }
-            rightSkip = static_cast<int>(maskData + maskWidth - reinterpret_cast<const uint8_t*>(p32 + 1));
+            rightSkip = static_cast<int_fast16_t>(maskData + maskWidth - reinterpret_cast<const uint8_t*>(p32 + 1));
         }
 
         // Phase 3: 残りを1バイトずつ
@@ -683,9 +684,9 @@ handle_alpha_255:
                 m += 4;
             } while (--plimit);
             if (m != m_start) {
-                auto len = static_cast<int>(m - m_start);
+                auto len = static_cast<int_fast16_t>(m - m_start);
                 std::memset(d, 0, static_cast<size_t>(len) * 4);
-                pixelCount -= static_cast<int_fast16_t>(len);
+                pixelCount -= len;
                 if (pixelCount <= 0) return;
                 alpha = static_cast<uint_fast8_t>(m32);
                 d += len * 4;
@@ -712,8 +713,8 @@ handle_alpha_0:
                 m += 4;
             } while (--plimit);
             if (m != m_start) {
-                int skipped = static_cast<int>(m - m_start);
-                pixelCount -= static_cast<int_fast16_t>(skipped);
+                auto skipped = static_cast<int_fast16_t>(m - m_start);
+                pixelCount -= skipped;
                 if (pixelCount <= 0) return;
                 alpha = static_cast<uint_fast8_t>(m32);
                 d += skipped * 4;
@@ -796,9 +797,9 @@ handle_alpha_255:
                 m += 4;
             } while (--plimit);
             if (m != m_start) {
-                auto len = static_cast<int>(m - m_start);
+                auto len = static_cast<int_fast16_t>(m - m_start);
                 memcpy(d, s, static_cast<size_t>(len) * 4);
-                pixelCount -= static_cast<int_fast16_t>(len);
+                pixelCount -= len;
                 if (pixelCount <= 0) return;
                 alpha = static_cast<uint_fast8_t>(m32);
                 d += len * 4;
@@ -826,8 +827,8 @@ handle_alpha_0:
                 m += 4;
             } while (--plimit);
             if (m != m_start) {
-                int skipped = static_cast<int>(m - m_start);
-                pixelCount -= static_cast<int_fast16_t>(skipped);
+                auto skipped = static_cast<int_fast16_t>(m - m_start);
+                pixelCount -= skipped;
                 if (pixelCount <= 0) return;
                 alpha = static_cast<uint_fast8_t>(m32);
                 d += skipped * 4;
@@ -842,32 +843,32 @@ handle_alpha_0:
 
 // ----------------------------------------------------------------------------
 
-void MatteNode::applyMatteOverlay(ImageBuffer& output, int outWidth,
+void MatteNode::applyMatteOverlay(ImageBuffer& output, int_fast16_t outWidth,
                                   const InputView& fg, const InputView& mask) {
     ViewPort outView = output.view();
     uint8_t* __restrict__ outData = static_cast<uint8_t*>(outView.data);
-    const int outHeight = outView.height;
-    const int outStride = outView.stride;
+    const auto outHeight = static_cast<int_fast16_t>(outView.height);
+    const int32_t outStride = outView.stride;
 
     // マスクの有効X範囲（出力座標系）
-    const int maskXStart = std::max(0, mask.offsetX);
-    const int maskXEnd = std::min(outWidth, mask.width + mask.offsetX);
+    const auto maskXStart = std::max<int_fast16_t>(0, mask.offsetX);
+    const auto maskXEnd = std::min<int_fast16_t>(outWidth, mask.width + mask.offsetX);
     if (maskXStart >= maskXEnd) return;
 
-    const int maskSrcOffsetX = maskXStart - mask.offsetX;
+    const auto maskSrcOffsetX = static_cast<int_fast16_t>(maskXStart - mask.offsetX);
 
     // 前景の有効X範囲（事前計算）
-    const int fgXStart = fg.valid() ? std::max(maskXStart, fg.offsetX) : maskXEnd;
-    const int fgXEnd = fg.valid() ? std::min(maskXEnd, fg.width + fg.offsetX) : maskXStart;
-    const int fgSrcOffsetX = fgXStart - fg.offsetX;
+    const auto fgXStart = fg.valid() ? std::max<int_fast16_t>(maskXStart, fg.offsetX) : maskXEnd;
+    const auto fgXEnd = fg.valid() ? std::min<int_fast16_t>(maskXEnd, fg.width + fg.offsetX) : maskXStart;
+    const auto fgSrcOffsetX = static_cast<int_fast16_t>(fgXStart - fg.offsetX);
 
     // 3領域の幅を事前計算
-    const int leftWidth = fgXStart - maskXStart;   // 左領域（fgなし）
-    const int midWidth = fgXEnd - fgXStart;        // 中央領域（fg/bg両方）
-    const int rightWidth = maskXEnd - fgXEnd;      // 右領域（fgなし）
+    const auto leftWidth = static_cast<int_fast16_t>(fgXStart - maskXStart);   // 左領域（fgなし）
+    const auto midWidth = static_cast<int_fast16_t>(fgXEnd - fgXStart);        // 中央領域（fg/bg両方）
+    const auto rightWidth = static_cast<int_fast16_t>(maskXEnd - fgXEnd);      // 右領域（fgなし）
 
     // 行ごとに処理
-    for (int y = 0; y < outHeight; ++y) {
+    for (int_fast16_t y = 0; y < outHeight; ++y) {
         // マスクがない行 → スキップ
         const uint8_t* maskRowBase = mask.rowAt(y);
         if (!maskRowBase) continue;

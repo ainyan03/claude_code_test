@@ -102,7 +102,7 @@ public:
     RenderResponse& acquireResponse() {
         // nextHint_から開始して循環探索
         uint_fast8_t idx = nextHint_;
-        for (int i = 0; i < MAX_RESPONSES; ++i) {
+        for (uint_fast8_t i = 0; i < MAX_RESPONSES; ++i) {
             idx = (idx + 1) & (MAX_RESPONSES - 1);
             if (!responsePool_[idx].inUse) {
                 responsePool_[idx].inUse = true;
@@ -154,8 +154,8 @@ public:
     void resetScanlineResources() {
 #ifdef FLEXIMG_DEBUG
         // 未返却チェック
-        int inUseCount = 0;
-        for (int i = 0; i < MAX_RESPONSES; ++i) {
+        uint_fast8_t inUseCount = 0;
+        for (uint_fast8_t i = 0; i < MAX_RESPONSES; ++i) {
             if (responsePool_[i].inUse) ++inUseCount;
         }
         if (inUseCount > 1) {
@@ -167,7 +167,7 @@ public:
 #endif
         }
 #endif
-        for (int i = 0; i < MAX_RESPONSES; ++i) {
+        for (uint_fast8_t i = 0; i < MAX_RESPONSES; ++i) {
             if (responsePool_[i].inUse) {
                 responsePool_[i].clear();
                 responsePool_[i].inUse = false;

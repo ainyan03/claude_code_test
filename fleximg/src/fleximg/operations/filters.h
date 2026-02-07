@@ -63,14 +63,14 @@ namespace filters {
 // ========================================================================
 
 void brightness_line(uint8_t* pixels, int_fast16_t count, const LineFilterParams& params) {
-    int adjustment = static_cast<int>(params.value1 * 255.0f);
+    auto adjustment = static_cast<int_fast16_t>(params.value1 * 255.0f);
 
     for (int_fast16_t x = 0; x < count; x++) {
         int_fast16_t pixelOffset = x * 4;
         // RGB各チャンネルに明るさ調整を適用
-        for (int c = 0; c < 3; c++) {
-            int value = static_cast<int>(pixels[pixelOffset + c]) + adjustment;
-            pixels[pixelOffset + c] = static_cast<uint8_t>(std::max(0, std::min(255, value)));
+        for (int_fast16_t c = 0; c < 3; c++) {
+            auto value = static_cast<int_fast16_t>(pixels[pixelOffset + c] + adjustment);
+            pixels[pixelOffset + c] = static_cast<uint8_t>(std::max<int_fast16_t>(0, std::min<int_fast16_t>(255, value)));
         }
         // Alphaはそのまま維持
     }

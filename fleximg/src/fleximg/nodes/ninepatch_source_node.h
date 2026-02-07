@@ -241,7 +241,7 @@ private:
     // 内部メソッド
     // ========================================
 
-    int getPatchIndex(int col, int row) const {
+    int_fast16_t getPatchIndex(int_fast16_t col, int_fast16_t row) const {
         return row * 3 + col;
     }
 

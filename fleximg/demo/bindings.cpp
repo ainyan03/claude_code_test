@@ -838,12 +838,12 @@ public:
 
         // フォーマット別データ
         val formats = val::array();
-        for (int f = 0; f < FormatIdx::Count; f++) {
+        for (uint_fast8_t f = 0; f < FormatIdx::Count; f++) {
             val fmtData = val::object();
             fmtData.set("name", formatNames[f]);
 
             val ops = val::array();
-            for (int o = 0; o < OpType::Count; o++) {
+            for (uint_fast8_t o = 0; o < OpType::Count; o++) {
                 val opData = val::object();
                 opData.set("name", opNames[o]);
                 opData.set("callCount", metrics.data[f][o].callCount);
@@ -863,7 +863,7 @@ public:
 
         // 操作別合計
         val opTotals = val::array();
-        for (int o = 0; o < OpType::Count; o++) {
+        for (uint_fast8_t o = 0; o < OpType::Count; o++) {
             val opTotal = val::object();
             opTotal.set("name", opNames[o]);
             auto t = metrics.totalByOp(o);

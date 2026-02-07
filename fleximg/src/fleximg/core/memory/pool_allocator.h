@@ -277,14 +277,15 @@ void* PoolAllocator::allocate(size_t size) {
     uint32_t needBitmap = (1U << blocksNeeded) - 1;
 
     // 探索方向を決定（交互に切り替えてフラグメンテーション軽減）
-    int start = searchFromHead_ ? 0 : static_cast<int>(blockCount_ - blocksNeeded);
-    int end = searchFromHead_ ? static_cast<int>(blockCount_ - blocksNeeded + 1) : -1;
-    int step = searchFromHead_ ? 1 : -1;
+    size_t start = searchFromHead_ ? 0 : blockCount_ - blocksNeeded;
+    size_t end = blockCount_ - blocksNeeded + 1;
+    bool forward = searchFromHead_;
 
     searchFromHead_ = !searchFromHead_;  // 次回は逆方向
 
     // ビットマップで連続空きブロックを探索
-    for (int i = start; i != end; i += step) {
+    for (size_t idx = 0; idx < end; ++idx) {
+        size_t i = forward ? idx : (start - idx);
         uint32_t shiftedNeed = needBitmap << i;
 
         if ((allocatedBitmap_ & shiftedNeed) == 0) {

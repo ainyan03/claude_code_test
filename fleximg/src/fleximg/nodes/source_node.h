@@ -139,12 +139,12 @@ private:
     PixelFormatID preferredFormat_ = PixelFormatIDs::RGBA8_Straight;
 
     // LovyanGFX方式の範囲計算用事前計算値
-    int32_t xs1_ = 0, xs2_ = 0;  // X方向の範囲境界（invAに依存）
-    int32_t ys1_ = 0, ys2_ = 0;  // Y方向の範囲境界（invCに依存）
-    int32_t fpWidth_ = 0;        // ソース幅（Q16.16固定小数点）
-    int32_t fpHeight_ = 0;       // ソース高さ（Q16.16固定小数点）
-    int32_t baseTxWithOffsets_ = 0;  // 事前計算統合: invTx + srcPivot + rowOffset + dxOffset
-    int32_t baseTyWithOffsets_ = 0;  // 事前計算統合: invTy + srcPivot + rowOffset + dxOffset
+    int_fixed xs1_ = 0, xs2_ = 0;  // X方向の範囲境界（invAに依存）
+    int_fixed ys1_ = 0, ys2_ = 0;  // Y方向の範囲境界（invCに依存）
+    int_fixed fpWidth_ = 0;        // ソース幅（Q16.16固定小数点）
+    int_fixed fpHeight_ = 0;       // ソース高さ（Q16.16固定小数点）
+    int_fixed baseTxWithOffsets_ = 0;  // 事前計算統合: invTx + srcPivot + rowOffset + dxOffset
+    int_fixed baseTyWithOffsets_ = 0;  // 事前計算統合: invTy + srcPivot + rowOffset + dxOffset
 
     // Prepare時のorigin（Process時の差分計算用）
     int_fixed prepareOriginX_ = 0;
@@ -241,7 +241,7 @@ PrepareResponse SourceNode::onPullPrepare(const PrepareRequest& request) {
             // バイリニア: edgeFadeFlagsに応じて各辺の範囲を拡張
             // フェード有効な辺のみ halfPixel 分拡張（フェードアウト領域用）
             // invA/invCの符号によって、どの辺がstart/endに対応するか変わる
-            constexpr int32_t halfPixel = 1 << (INT_FIXED_SHIFT - 1);
+            constexpr int_fixed halfPixel = 1 << (INT_FIXED_SHIFT - 1);
 
             // X方向のフェード拡張
             int32_t hpAStart = 0, hpAEnd = 0;
@@ -300,7 +300,7 @@ PrepareResponse SourceNode::onPullPrepare(const PrepareRequest& request) {
         // 等倍表示相当（逆行列2x2部分が単位行列）かつ最近傍の場合、
         // DDA をスキップし、高速な非アフィンパス（subView参照）を使用
         // バイリニア補間時はedgeFade等の処理にDDAが必要なためスキップしない
-        constexpr int32_t one = 1 << INT_FIXED_SHIFT;
+        constexpr int_fixed one = 1 << INT_FIXED_SHIFT;
         bool isTranslationOnly =
             !useBilinear_ &&
             invA == one &&
@@ -562,13 +562,13 @@ RenderResponse& SourceNode::pullProcessWithAffine(const RenderRequest& request) 
     void* dstRow = output->data();
 
     // ViewPortのx,yオフセットをQ16.16固定小数点に変換
-    int32_t offsetX = static_cast<int32_t>(source_.x) << INT_FIXED_SHIFT;
-    int32_t offsetY = static_cast<int32_t>(source_.y) << INT_FIXED_SHIFT;
+    int_fixed offsetX = static_cast<int32_t>(source_.x) << INT_FIXED_SHIFT;
+    int_fixed offsetY = static_cast<int32_t>(source_.y) << INT_FIXED_SHIFT;
 
     if (useBilinear_) {
         // バイリニア補間（出力はRGBA8_Straight）
         // 0.5ピクセル減算（ピクセル中心→左上基準への変換）
-        constexpr int32_t halfPixel = 1 << (INT_FIXED_SHIFT - 1);
+        constexpr int_fixed halfPixel = 1 << (INT_FIXED_SHIFT - 1);
         // パレット情報をPixelAuxInfoとして渡す（Index8のパレット展開用）
         PixelAuxInfo auxInfo;
         if (palette_) {
