@@ -12,7 +12,7 @@
  *   c [fmt]  : Conversion benchmark (toStraight/fromStraight)
  *   b [fmt]  : BlendUnder benchmark (direct vs indirect path)
  *   u [pat]  : blendUnderStraight benchmark with dst pattern variations
- *   t [grp] [bpp] : copyRowDDA benchmark (DDA scanline transform)
+ *   t [grp] [bytesPerPixel] : copyRowDDA benchmark (DDA scanline transform)
  *   m [pat]  : Matte composite benchmark (direct, no pipeline)
  *   p [pat]  : Matte pipeline benchmark (full node pipeline)
  *   o [N]    : Composite pipeline benchmark (N upstream nodes)
@@ -26,7 +26,7 @@
  *   [fmt] = all | rgb332 | rgb565le | rgb565be | rgb888 | bgr888 | rgba8
  *   [pat] = all | trans | opaque | semi | mixed
  *   [grp] = all | h (horizontal) | v (vertical) | d (diagonal)
- *   [bpp] = all | 4 | 3 | 2 | 1
+ *   [bytesPerPixel] = all | 4 | 3 | 2 | 1
  */
 
 // =============================================================================
@@ -951,23 +951,23 @@ static int computeDDASafeCount(int_fixed incrX, int_fixed incrY) {
     return count;
 }
 
-// BPP configurations for multi-format DDA benchmark
-struct DDABppConfig {
-    int bpp;
+// BytesPerPixel configurations for multi-format DDA benchmark
+struct DDAFormatConfig {
+    int bytesPerPixel;
     const char* label;
     PixelFormatID formatID;
 };
 
-static const DDABppConfig ddaBppConfigs[] = {
+static const DDAFormatConfig ddaFormatConfigs[] = {
     {4, "BPP4", PixelFormatIDs::RGBA8_Straight},
     {3, "BPP3", PixelFormatIDs::RGB888},
     {2, "BPP2", PixelFormatIDs::RGB565_LE},
     {1, "BPP1", PixelFormatIDs::RGB332},
 };
-static constexpr int NUM_DDA_BPP = sizeof(ddaBppConfigs) / sizeof(ddaBppConfigs[0]);
+static constexpr int NUM_DDA_FORMATS = sizeof(ddaFormatConfigs) / sizeof(ddaFormatConfigs[0]);
 
-static uint8_t* getDDASourceBuffer(int bpp) {
-    switch (bpp) {
+static uint8_t* getDDASourceBuffer(int bytesPerPixel) {
+    switch (bytesPerPixel) {
         case 3: return bufRGB888;
         case 2: return bufRGB565;
         case 1: return bufRGB332;
@@ -976,7 +976,7 @@ static uint8_t* getDDASourceBuffer(int bpp) {
 }
 
 // Run single DDA test, return ns/px
-static double runDDATest(const ViewPort& srcVP, int /*bpp*/, int testIdx) {
+static double runDDATest(const ViewPort& srcVP, int /*bytesPerPixel*/, int testIdx) {
     const auto& test = ddaTests[testIdx];
 
     // 出力ピクセル数を計算（ソース範囲内に収まる最大数、ラインバッファ上限も考慮）
@@ -1046,9 +1046,9 @@ static double runDDATestBilinear(const ViewPort& srcVP, int testIdx) {
 }
 
 static void runDDABenchmark(const char* args) {
-    // Parse: "[grp] [bpp]"  grp = all|h|v|d  bpp = all|4|3|2|1
+    // Parse: "[grp] [bytesPerPixel]"  grp = all|h|v|d  bytesPerPixel = all|4|3|2|1
     char groupStr[16] = "all";
-    char bppStr[16] = "all";
+    char bytesPerPixelStr[16] = "all";
     {
         const char* p = args;
         int len = 0;
@@ -1057,29 +1057,29 @@ static void runDDABenchmark(const char* args) {
         while (*p == ' ') p++;
         if (*p) {
             len = 0;
-            while (*p && *p != ' ' && len < 15) { bppStr[len++] = *p++; }
-            bppStr[len] = '\0';
+            while (*p && *p != ' ' && len < 15) { bytesPerPixelStr[len++] = *p++; }
+            bytesPerPixelStr[len] = '\0';
         }
     }
 
-    // Parse BPP filter (0 = all)
-    int bppFilter = 0;
-    if (strcmp(bppStr, "all") != 0) {
-        if (bppStr[0] >= '1' && bppStr[0] <= '4' && bppStr[1] == '\0') {
-            bppFilter = bppStr[0] - '0';
+    // Parse bytesPerPixel filter (0 = all)
+    int bytesPerPixelFilter = 0;
+    if (strcmp(bytesPerPixelStr, "all") != 0) {
+        if (bytesPerPixelStr[0] >= '1' && bytesPerPixelStr[0] <= '4' && bytesPerPixelStr[1] == '\0') {
+            bytesPerPixelFilter = bytesPerPixelStr[0] - '0';
         } else {
-            benchPrintf("Unknown bpp: %s\n", bppStr);
+            benchPrintf("Unknown bytesPerPixel: %s\n", bytesPerPixelStr);
             benchPrintln("Available: all | 4 | 3 | 2 | 1");
             return;
         }
     }
 
-    // Build active BPP list
-    int activeBppIdx[NUM_DDA_BPP];
+    // Build active format list
+    int activeFormatIdx[NUM_DDA_FORMATS];
     int numActive = 0;
-    for (int b = 0; b < NUM_DDA_BPP; b++) {
-        if (bppFilter == 0 || ddaBppConfigs[b].bpp == bppFilter) {
-            activeBppIdx[numActive++] = b;
+    for (int b = 0; b < NUM_DDA_FORMATS; b++) {
+        if (bytesPerPixelFilter == 0 || ddaFormatConfigs[b].bytesPerPixel == bytesPerPixelFilter) {
+            activeFormatIdx[numActive++] = b;
         }
     }
 
@@ -1091,12 +1091,12 @@ static void runDDABenchmark(const char* args) {
     benchPrintln();
 
     if (numActive == 1) {
-        // Single-BPP mode: detailed output with us/frm
-        const auto& cfg = ddaBppConfigs[activeBppIdx[0]];
-        ViewPort srcVP(getDDASourceBuffer(cfg.bpp),
+        // Single-format mode: detailed output with us/frm
+        const auto& cfg = ddaFormatConfigs[activeFormatIdx[0]];
+        ViewPort srcVP(getDDASourceBuffer(cfg.bytesPerPixel),
                        DDA_SRC_SIZE, DDA_SRC_SIZE, cfg.formatID);
 
-        const bool showBilinear = (cfg.bpp == 4);  // Bilinear is RGBA8 only
+        const bool showBilinear = (cfg.bytesPerPixel == 4);  // Bilinear is RGBA8 only
 
         benchPrintf("Format: %s\n", cfg.formatID->name);
         benchPrintln();
@@ -1116,7 +1116,7 @@ static void runDDABenchmark(const char* args) {
                 if (numRows < 1) numRows = 1;
                 int totalPixels = count * numRows;
 
-                double nsNearest = runDDATest(srcVP, cfg.bpp, i);
+                double nsNearest = runDDATest(srcVP, cfg.bytesPerPixel, i);
 
                 if (showBilinear) {
                     double nsBilinear = runDDATestBilinear(srcVP, i);
@@ -1137,11 +1137,11 @@ static void runDDABenchmark(const char* args) {
             benchPrintln("Available: all | h | v | d");
         }
     } else {
-        // Multi-BPP mode: ns/px columns side by side
+        // Multi-format mode: ns/px columns side by side
         benchPrintln("[Nearest interpolation]");
         benchPrintf("%-12s", "Test");
         for (int b = 0; b < numActive; b++) {
-            benchPrintf(" %7s", ddaBppConfigs[activeBppIdx[b]].label);
+            benchPrintf(" %7s", ddaFormatConfigs[activeFormatIdx[b]].label);
         }
         benchPrintln();
         benchPrint("------------");
@@ -1150,23 +1150,23 @@ static void runDDABenchmark(const char* args) {
         }
         benchPrintln();
 
-        // 4BPP結果を保存（Bilinear比較用）
-        double nearest4bpp[NUM_DDA_TESTS] = {};
-        bool has4bpp = false;
+        // 4BytesPerPixel結果を保存（Bilinear比較用）
+        double nearest4BytesPerPixel[NUM_DDA_TESTS] = {};
+        bool has4BytesPerPixel = false;
 
         bool found = false;
         for (int i = 0; i < NUM_DDA_TESTS; i++) {
             if (allGroups || strcmp(ddaTests[i].group, groupStr) == 0) {
                 benchPrintf("%-12s", ddaTests[i].name);
                 for (int b = 0; b < numActive; b++) {
-                    const auto& cfg = ddaBppConfigs[activeBppIdx[b]];
-                    ViewPort srcVP(getDDASourceBuffer(cfg.bpp),
+                    const auto& cfg = ddaFormatConfigs[activeFormatIdx[b]];
+                    ViewPort srcVP(getDDASourceBuffer(cfg.bytesPerPixel),
                                    DDA_SRC_SIZE, DDA_SRC_SIZE, cfg.formatID);
-                    double ns = runDDATest(srcVP, cfg.bpp, i);
+                    double ns = runDDATest(srcVP, cfg.bytesPerPixel, i);
                     benchPrintf(" %7.2f", ns);
-                    if (cfg.bpp == 4) {
-                        nearest4bpp[i] = ns;
-                        has4bpp = true;
+                    if (cfg.bytesPerPixel == 4) {
+                        nearest4BytesPerPixel[i] = ns;
+                        has4BytesPerPixel = true;
                     }
                 }
                 benchPrintln();
@@ -1180,7 +1180,7 @@ static void runDDABenchmark(const char* args) {
         }
 
         // 4BPPが含まれていればBilinear結果を追加
-        if (has4bpp && found) {
+        if (has4BytesPerPixel && found) {
             benchPrintln();
             benchPrintln("[Bilinear interpolation - RGBA8 only]");
             benchPrintf("%-12s %8s %8s %6s\n", "Test", "Nearest", "Bilinear", "Ratio");
@@ -1192,9 +1192,9 @@ static void runDDABenchmark(const char* args) {
             for (int i = 0; i < NUM_DDA_TESTS; i++) {
                 if (allGroups || strcmp(ddaTests[i].group, groupStr) == 0) {
                     double nsBilinear = runDDATestBilinear(srcVP, i);
-                    double ratio = nsBilinear / nearest4bpp[i];
+                    double ratio = nsBilinear / nearest4BytesPerPixel[i];
                     benchPrintf("%-12s %8.2f %8.2f %5.1fx\n",
-                        ddaTests[i].name, nearest4bpp[i], nsBilinear, ratio);
+                        ddaTests[i].name, nearest4BytesPerPixel[i], nsBilinear, ratio);
                 }
             }
         }
@@ -1760,7 +1760,7 @@ static void printHelp() {
     benchPrintln("  c [fmt]  : Conversion benchmark");
     benchPrintln("  b [fmt]  : BlendUnder benchmark (Direct vs Indirect)");
     benchPrintln("  u [pat]  : blendUnderStraight with dst pattern variations");
-    benchPrintln("  t [grp] [bpp] : copyRowDDA benchmark (DDA scanline transform)");
+    benchPrintln("  t [grp] [bytesPerPixel] : copyRowDDA benchmark (DDA scanline transform)");
     benchPrintln("  m [pat]  : Matte composite benchmark (direct, no pipeline)");
     benchPrintln("  p [pat]  : Matte pipeline benchmark (full node pipeline)");
     benchPrintln("  o [N]    : Composite pipeline benchmark (N upstream nodes)");
@@ -1785,7 +1785,7 @@ static void printHelp() {
     benchPrintln();
     benchPrintln("DDA Groups (for 't' command):");
     benchPrintln("  [grp] = all | h (horizontal) | v (vertical) | d (diagonal)");
-    benchPrintln("  [bpp] = all | 4 | 3 | 2 | 1");
+    benchPrintln("  [bytesPerPixel] = all | 4 | 3 | 2 | 1");
     benchPrintln();
     benchPrintln("Mask Patterns (for 'm'/'p' commands):");
     benchPrintln("  all | zero | 255 | left | right | grad | rand");

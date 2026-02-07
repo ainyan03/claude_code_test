@@ -177,6 +177,7 @@ extern const PixelFormatDescriptor BGR888;
 const PixelFormatDescriptor RGB888 = {
     "RGB888",
     24,  // bitsPerPixel
+    3,   // bytesPerPixel
     1,   // pixelsPerUnit
     3,   // bytesPerUnit
     3,   // channelCount
@@ -202,6 +203,7 @@ const PixelFormatDescriptor RGB888 = {
 const PixelFormatDescriptor BGR888 = {
     "BGR888",
     24,  // bitsPerPixel
+    3,   // bytesPerPixel
     1,   // pixelsPerUnit
     3,   // bytesPerUnit
     3,   // channelCount

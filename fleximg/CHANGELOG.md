@@ -23,6 +23,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - bit-packed形式のDDA実装をLovyanGFXスタイルのピクセル単位アクセスに書き換え
   - バッファベースからダイレクトビットアクセスに変更し、境界処理を改善
 
+- **BPP/bpp Naming Unification**
+  - 曖昧な "bpp" 表記を明示的な "bytesPerPixel" に統一
+  - `PixelFormatDescriptor` に `bytesPerPixel` フィールドを追加
+  - `(bitsPerPixel + 7) / 8` の分散した計算ロジックを一元化
+  - テンプレートパラメータ、変数名、コメント、ドキュメントを全面的に更新
+
 ### Fixed
 
 - **Bilinear Interpolation Edge Fade**

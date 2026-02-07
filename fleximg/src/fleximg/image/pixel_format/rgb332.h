@@ -114,6 +114,7 @@ namespace BuiltinFormats {
 const PixelFormatDescriptor RGB332 = {
     "RGB332",
     8,   // bitsPerPixel
+    1,   // bytesPerPixel
     1,   // pixelsPerUnit
     1,   // bytesPerUnit
     3,   // channelCount

@@ -71,6 +71,7 @@ namespace BuiltinFormats {
 const PixelFormatDescriptor Grayscale8 = {
     "Grayscale8",
     8,   // bitsPerPixel
+    1,   // bytesPerPixel
     1,   // pixelsPerUnit
     1,   // bytesPerUnit
     1,   // channelCount

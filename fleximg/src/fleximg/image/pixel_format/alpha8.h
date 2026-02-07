@@ -66,6 +66,7 @@ namespace BuiltinFormats {
 const PixelFormatDescriptor Alpha8 = {
     "Alpha8",
     8,   // bitsPerPixel
+    1,   // bytesPerPixel
     1,   // pixelsPerUnit
     1,   // bytesPerUnit
     1,   // channelCount

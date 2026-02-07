@@ -54,8 +54,8 @@ class ImageStore {
 public:
     // 外部データをコピーして保存（入力画像用）
     ViewPort store(int id, const uint8_t* data, int w, int h, PixelFormatID fmt) {
-        auto bpp = getBytesPerPixel(fmt);
-        auto size = static_cast<size_t>(w * h * bpp);
+        auto bytesPerPixel = getBytesPerPixel(fmt);
+        auto size = static_cast<size_t>(w * h * bytesPerPixel);
         storage_[id].assign(data, data + size);
 
         // bit-packed形式に対応したstride計算
@@ -64,15 +64,15 @@ public:
             int units = (w + fmt->pixelsPerUnit - 1) / fmt->pixelsPerUnit;
             stride = units * fmt->bytesPerUnit;
         } else {
-            stride = w * bpp;
+            stride = w * bytesPerPixel;
         }
         return ViewPort(storage_[id].data(), fmt, stride, w, h);
     }
 
     // バッファを確保（出力用）
     ViewPort allocate(int id, int w, int h, PixelFormatID fmt) {
-        auto bpp = getBytesPerPixel(fmt);
-        auto size = static_cast<size_t>(w * h * bpp);
+        auto bytesPerPixel = getBytesPerPixel(fmt);
+        auto size = static_cast<size_t>(w * h * bytesPerPixel);
         storage_[id].resize(size, 0);
 
         // bit-packed形式に対応したstride計算
@@ -81,7 +81,7 @@ public:
             int units = (w + fmt->pixelsPerUnit - 1) / fmt->pixelsPerUnit;
             stride = units * fmt->bytesPerUnit;
         } else {
-            stride = w * bpp;
+            stride = w * bytesPerPixel;
         }
         return ViewPort(storage_[id].data(), fmt, stride, w, h);
     }

@@ -278,8 +278,8 @@ static void indexN_expandIndex(
     const uint8_t* srcPtr = static_cast<const uint8_t*>(src);
     uint8_t* dstPtr = static_cast<uint8_t*>(dst);
     const uint8_t* palette = static_cast<const uint8_t*>(aux->palette);
-    // bitsPerPixel / 8 でバイト数を取得（getBytesPerPixelはまだ定義前）
-    int_fast8_t paletteBpp = static_cast<int_fast8_t>((aux->paletteFormat->bitsPerPixel + 7) / 8);
+    // パレットフォーマットのバイト数を取得
+    int_fast8_t paletteBpp = static_cast<int_fast8_t>(aux->paletteFormat->bytesPerPixel);
 
     int remaining = pixelCount;
     while (remaining > 0) {
@@ -423,6 +423,7 @@ extern const PixelFormatDescriptor Index4_LSB;
 const PixelFormatDescriptor Index1_MSB = {
     "Index1_MSB",
     1,   // bitsPerPixel
+    1,   // bytesPerPixel
     8,   // pixelsPerUnit
     1,   // bytesPerUnit
     1,   // channelCount
@@ -445,7 +446,7 @@ const PixelFormatDescriptor Index1_MSB = {
 
 const PixelFormatDescriptor Index1_LSB = {
     "Index1_LSB",
-    1, 8, 1, 1,
+    1, 1, 8, 1, 1,
     { ChannelDescriptor(ChannelType::Index, 1, 0),
       ChannelDescriptor(), ChannelDescriptor(), ChannelDescriptor() },
     false, true, 2,
@@ -461,7 +462,7 @@ const PixelFormatDescriptor Index1_LSB = {
 
 const PixelFormatDescriptor Index2_MSB = {
     "Index2_MSB",
-    2, 4, 1, 1,
+    2, 1, 4, 1, 1,
     { ChannelDescriptor(ChannelType::Index, 2, 0),
       ChannelDescriptor(), ChannelDescriptor(), ChannelDescriptor() },
     false, true, 4,
@@ -477,7 +478,7 @@ const PixelFormatDescriptor Index2_MSB = {
 
 const PixelFormatDescriptor Index2_LSB = {
     "Index2_LSB",
-    2, 4, 1, 1,
+    2, 1, 4, 1, 1,
     { ChannelDescriptor(ChannelType::Index, 2, 0),
       ChannelDescriptor(), ChannelDescriptor(), ChannelDescriptor() },
     false, true, 4,
@@ -493,7 +494,7 @@ const PixelFormatDescriptor Index2_LSB = {
 
 const PixelFormatDescriptor Index4_MSB = {
     "Index4_MSB",
-    4, 2, 1, 1,
+    4, 1, 2, 1, 1,
     { ChannelDescriptor(ChannelType::Index, 4, 0),
       ChannelDescriptor(), ChannelDescriptor(), ChannelDescriptor() },
     false, true, 16,
@@ -509,7 +510,7 @@ const PixelFormatDescriptor Index4_MSB = {
 
 const PixelFormatDescriptor Index4_LSB = {
     "Index4_LSB",
-    4, 2, 1, 1,
+    4, 1, 2, 1, 1,
     { ChannelDescriptor(ChannelType::Index, 4, 0),
       ChannelDescriptor(), ChannelDescriptor(), ChannelDescriptor() },
     false, true, 16,

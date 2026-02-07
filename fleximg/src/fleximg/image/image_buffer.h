@@ -382,8 +382,8 @@ private:
             view_.stride = static_cast<int32_t>(units * view_.formatID->bytesPerUnit);
         } else {
             // 通常形式: width × bytesPerPixel
-            auto bpp = getBytesPerPixel(view_.formatID);
-            view_.stride = static_cast<int32_t>(view_.width * bpp);
+            auto bytesPerPixel = getBytesPerPixel(view_.formatID);
+            view_.stride = static_cast<int32_t>(view_.width * bytesPerPixel);
         }
         capacity_ = static_cast<size_t>(view_.stride) * static_cast<size_t>(view_.height);
         if (capacity_ > 0 && allocator_) {

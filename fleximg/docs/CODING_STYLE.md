@@ -130,7 +130,7 @@ int_fast16_t srcX = static_cast<int_fast16_t>(from_fixed_floor(value));
 // 画像幅以下のカウント値（int16_t範囲で十分）
 auto count = static_cast<uint_fast16_t>(xEnd - xStart + 1);
 
-// bpp は最大8（64bit RGBA）
+// bytesPerPixel は最大8（64bit RGBA）
 int_fast8_t getBytesPerPixel(PixelFormatID id);
 
 // 悪い例：なぜこの型か不明
@@ -209,7 +209,7 @@ void processPixels(const ViewPort& src) {
 }
 
 // memcpy等は size_t にキャスト（警告回避）
-std::memcpy(dst, src, static_cast<size_t>(width * bpp));
+std::memcpy(dst, src, static_cast<size_t>(width * bytesPerPixel));
 ```
 
 ### 座標値と配列インデックス
@@ -228,7 +228,7 @@ std::memcpy(dst, src, static_cast<size_t>(width * bpp));
        // 範囲チェック後、内部で size_t にキャスト
        return static_cast<uint8_t*>(data) +
               static_cast<size_t>(y) * stride +
-              static_cast<size_t>(x) * bpp;
+              static_cast<size_t>(x) * bytesPerPixel;
    }
    ```
 

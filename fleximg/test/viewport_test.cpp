@@ -135,7 +135,7 @@ TEST_CASE("ViewPort pixelAt") {
 }
 
 TEST_CASE("ViewPort pixelAt with custom stride") {
-    // stride > width * bpp のケース（パディングあり）
+    // stride > width * bytesPerPixel のケース（パディングあり）
     uint8_t buffer[64] = {0};  // 2x2 with 32-byte stride
     ViewPort v(buffer, PixelFormatIDs::RGBA8_Straight, 32, 2, 2);
 
@@ -165,7 +165,7 @@ TEST_CASE("ViewPort byte info") {
 
     SUBCASE("rowBytes with negative stride (Y-flip)") {
         ViewPort v(buffer, PixelFormatIDs::RGBA8_Straight, -48, 10, 10);
-        CHECK(v.rowBytes() == 40);  // width * bpp
+        CHECK(v.rowBytes() == 40);  // width * bytesPerPixel
     }
 }
 
@@ -205,7 +205,7 @@ static void copyRowDDA_Reference(
     uint8_t* dstRow,
     const uint8_t* srcData,
     int32_t srcStride,
-    int bpp,
+    int bytesPerPixel,
     int_fixed srcX,
     int_fixed srcY,
     int_fixed incrX,
@@ -217,9 +217,9 @@ static void copyRowDDA_Reference(
         uint32_t sy = static_cast<uint32_t>(srcY) >> 16;
         const uint8_t* srcPixel = srcData
             + static_cast<size_t>(sy) * static_cast<size_t>(srcStride)
-            + static_cast<size_t>(sx) * static_cast<size_t>(bpp);
-        std::memcpy(dstRow, srcPixel, static_cast<size_t>(bpp));
-        dstRow += bpp;
+            + static_cast<size_t>(sx) * static_cast<size_t>(bytesPerPixel);
+        std::memcpy(dstRow, srcPixel, static_cast<size_t>(bytesPerPixel));
+        dstRow += bytesPerPixel;
         srcX += incrX;
         srcY += incrY;
     }
@@ -436,10 +436,10 @@ TEST_CASE("copyRowDDA: 2BPP format") {
     }
     ViewPort src(srcBuf, PixelFormatIDs::RGBA8_Straight, SRC_W * BPP, SRC_W, SRC_H);
     // 注意: formatIDはRGBA8_Straightだが、strideを2*widthに設定してBPP=2相当にテスト
-    // 実際にはbppはformatIDから決まるので、ここでは2bppフォーマットが必要
-    // → bpp=4のformatIDを使うが、テストの本質は方向別パスの正確性
+    // 実際にはbytesPerPixelはformatIDから決まるので、ここでは2bytesPerPixelフォーマットが必要
+    // → bytesPerPixel=4のformatIDを使うが、テストの本質は方向別パスの正確性
 
-    // 代わりに、RGBA8(4BPP)で小さい画像でのConstXパスをテスト
+    // 代わりに、RGBA8(4BytesPerPixel)で小さい画像でのConstXパスをテスト
     constexpr int SRC_W2 = 4;
     constexpr int SRC_H2 = 8;
     constexpr int BPP2 = 4;

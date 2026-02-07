@@ -96,14 +96,14 @@ using CopyQuadDDA_Func = void(*)(
     const DDAParam* param
 );
 
-// BPP別 DDA転写関数（前方宣言）
+// BytesPerPixel別 DDA転写関数（前方宣言）
 // 実装は FLEXIMG_IMPLEMENTATION 部で提供
 void copyRowDDA_1bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
 void copyRowDDA_2bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
 void copyRowDDA_3bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
 void copyRowDDA_4bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
 
-// BPP別 DDA 4ピクセル抽出関数（前方宣言）
+// BytesPerPixel別 DDA 4ピクセル抽出関数（前方宣言）
 void copyQuadDDA_1bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
 void copyQuadDDA_2bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
 void copyQuadDDA_3bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
@@ -225,6 +225,7 @@ struct PixelFormatDescriptor {
 
     // 基本情報
     uint8_t bitsPerPixel;       // ピクセルあたりのビット数
+    uint8_t bytesPerPixel;      // ピクセルあたりのバイト数（切り上げ）
     uint8_t pixelsPerUnit;      // 1ユニットあたりのピクセル数
     uint8_t bytesPerUnit;       // 1ユニットあたりのバイト数
 
@@ -393,10 +394,10 @@ template void lut8toN<uint32_t>(uint32_t*, const uint8_t*, int, const uint32_t*)
 namespace pixel_format {
 namespace detail {
 
-// BPP → ネイティブ型マッピング（ロード・ストア分離用）
-// BPP 1, 2, 4 はネイティブ型で直接ロード・ストア可能
-// BPP 3 はネイティブ型が存在しないため byte 単位で処理
-template<size_t BPP> struct PixelType {};
+// BytesPerPixel → ネイティブ型マッピング（ロード・ストア分離用）
+// 1, 2, 4 バイトはネイティブ型で直接ロード・ストア可能
+// 3 バイトはネイティブ型が存在しないため byte 単位で処理
+template<size_t BytesPerPixel> struct PixelType {};
 template<> struct PixelType<1> { using type = uint8_t; };
 template<> struct PixelType<2> { using type = uint16_t; };
 template<> struct PixelType<4> { using type = uint32_t; };
@@ -419,7 +420,7 @@ void copyRowDDA_ConstY(
     // 端数を先に処理し、4ピクセルループを最後に連続実行する
     if constexpr (BytesPerPixel == 3) {
         if (count & 1) {
-            // BPP==3: byte単位でロード・ストア分離（3bytes × 4pixels）
+            // BytesPerPixel==3: byte単位でロード・ストア分離（3bytes × 4pixels）
             size_t s0 = static_cast<size_t>(srcX >> INT_FIXED_SHIFT) * 3;
             uint8_t p00 = srcRowBase[s0], p01 = srcRowBase[s0+1], p02 = srcRowBase[s0+2];
             srcX += incrX;
@@ -428,7 +429,7 @@ void copyRowDDA_ConstY(
         }
         count >>= 1;
         while (count--) {
-            // BPP==3: byte単位でロード・ストア分離（3bytes × 4pixels）
+            // BytesPerPixel==3: byte単位でロード・ストア分離（3bytes × 4pixels）
             size_t s0 = static_cast<size_t>(srcX >> INT_FIXED_SHIFT) * 3;
             uint8_t p00 = srcRowBase[s0], p01 = srcRowBase[s0+1], p02 = srcRowBase[s0+2];
             srcX += incrX;
@@ -447,14 +448,14 @@ void copyRowDDA_ConstY(
         auto dst = reinterpret_cast<T*>(dstRow);
         int remainder = count & 3;
         for (int i = 0; i < remainder; i++) {
-            // BPP 1, 2, 4: ネイティブ型でロード・ストア分離
+            // BytesPerPixel 1, 2, 4: ネイティブ型でロード・ストア分離
             auto p0 = src[srcX >> INT_FIXED_SHIFT]; srcX += incrX;
             dst[0] = p0;
             dst += 1;
         }
         int count4 = count >> 2;
         for (int i = 0; i < count4; i++) {
-            // BPP 1, 2, 4: ネイティブ型でロード・ストア分離
+            // BytesPerPixel 1, 2, 4: ネイティブ型でロード・ストア分離
             auto p0 = src[srcX >> INT_FIXED_SHIFT]; srcX += incrX;
             auto p1 = src[srcX >> INT_FIXED_SHIFT]; srcX += incrX;
             auto p2 = src[srcX >> INT_FIXED_SHIFT]; srcX += incrX;
@@ -469,7 +470,7 @@ void copyRowDDA_ConstY(
 }
 
 // DDA行転写: X座標一定パス（ソース列が同一の場合）
-// srcColBase = srcData + sx * BPP（呼び出し前に加算済み）
+// srcColBase = srcData + sx * BytesPerPixel（呼び出し前に加算済み）
 // 4ピクセル単位展開でループオーバーヘッドを削減
 template<size_t BytesPerPixel>
 void copyRowDDA_ConstX(
@@ -487,7 +488,7 @@ void copyRowDDA_ConstX(
     // 端数を先に処理し、4ピクセルループを最後に連続実行する
     if constexpr (BytesPerPixel == 3) {
         while (count--) {
-            // BPP==3: byte単位でピクセルごとにロード・ストア
+            // BytesPerPixel==3: byte単位でピクセルごとにロード・ストア
             sy = srcY >> INT_FIXED_SHIFT;
             const uint8_t* r = srcColBase + static_cast<size_t>(sy * srcStride);
             auto p0 = r[0], p1 = r[1], p2 = r[2];
@@ -509,7 +510,7 @@ void copyRowDDA_ConstX(
 
         count >>= 2;
         while (count--) {
-            // BPP 1, 2, 4: ネイティブ型でロード・ストア分離
+            // BytesPerPixel 1, 2, 4: ネイティブ型でロード・ストア分離
             sy = srcY >> INT_FIXED_SHIFT;
             auto p0 = *reinterpret_cast<const T*>(srcColBase + static_cast<size_t>(sy * srcStride));
             srcY += incrY;
@@ -551,7 +552,7 @@ void copyRowDDA_Impl(
     // 端数を先に処理し、4ピクセルループを最後に連続実行する
     if constexpr (BytesPerPixel == 3) {
         while (count--) {
-            // BPP==3: byte単位でピクセルごとにロード・ストア
+            // BytesPerPixel==3: byte単位でピクセルごとにロード・ストア
             sx = srcX >> INT_FIXED_SHIFT;
             sy = srcY >> INT_FIXED_SHIFT;
             const uint8_t* r0 = srcData + static_cast<size_t>(sy * srcStride + sx * 3);
@@ -582,7 +583,7 @@ void copyRowDDA_Impl(
             sy = srcY >> INT_FIXED_SHIFT;
             auto p1 = reinterpret_cast<const T*>(srcData + static_cast<size_t>(sy * srcStride))[sx];
             srcX += incrX; srcY += incrY;
-            // BPP 1, 2, 4: ネイティブ型でロード・ストア分離
+            // BytesPerPixel 1, 2, 4: ネイティブ型でロード・ストア分離
             d[0] = p0;
             d[1] = p1;
             d += 2;
@@ -591,7 +592,7 @@ void copyRowDDA_Impl(
 }
 
 // ============================================================================
-// BPP別 DDA転写関数（CopyRowDDA_Func シグネチャ準拠）
+// BytesPerPixel別 DDA転写関数（CopyRowDDA_Func シグネチャ準拠）
 // ============================================================================
 //
 // PixelFormatDescriptor::copyRowDDA に設定する関数群。
@@ -631,7 +632,7 @@ template void copyRowDDA_bpp<2>(uint8_t*, const uint8_t*, int, const DDAParam*);
 template void copyRowDDA_bpp<3>(uint8_t*, const uint8_t*, int, const DDAParam*);
 template void copyRowDDA_bpp<4>(uint8_t*, const uint8_t*, int, const DDAParam*);
 
-// BPP別の関数ポインタ取得用ラッパー（非テンプレート）
+// BytesPerPixel別の関数ポインタ取得用ラッパー（非テンプレート）
 inline void copyRowDDA_1bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
     copyRowDDA_bpp<1>(dst, srcData, count, param);
 }
@@ -658,8 +659,8 @@ inline void copyRowDDA_4bpp(uint8_t* dst, const uint8_t* srcData, int count, con
 // - 案2: コピー部分のみテンプレート化（copyQuadPixels）
 //
 
-// 4ピクセルのコピー（BPP依存部分のみ）
-template<size_t BPP>
+// 4ピクセルのコピー（BytesPerPixel依存部分のみ）
+template<size_t BytesPerPixel>
 inline void copyQuadPixels(
     uint8_t* __restrict__ dst,
     const uint8_t* p00,
@@ -667,13 +668,13 @@ inline void copyQuadPixels(
     const uint8_t* p01,
     const uint8_t* p11
 ) {
-    if constexpr (BPP == 3) {
+    if constexpr (BytesPerPixel == 3) {
         dst[0] = p00[0]; dst[1] = p00[1]; dst[2] = p00[2];
         dst[3] = p10[0]; dst[4] = p10[1]; dst[5] = p10[2];
         dst[6] = p01[0]; dst[7] = p01[1]; dst[8] = p01[2];
         dst[9] = p11[0]; dst[10] = p11[1]; dst[11] = p11[2];
     } else {
-        using T = typename PixelType<BPP>::type;
+        using T = typename PixelType<BytesPerPixel>::type;
         auto d = reinterpret_cast<T*>(dst);
         auto d0 = *reinterpret_cast<const T*>(p00);
         auto d1 = *reinterpret_cast<const T*>(p10);
@@ -808,7 +809,7 @@ template void copyQuadDDA_bpp<2>(uint8_t*, const uint8_t*, int, const DDAParam*)
 template void copyQuadDDA_bpp<3>(uint8_t*, const uint8_t*, int, const DDAParam*);
 template void copyQuadDDA_bpp<4>(uint8_t*, const uint8_t*, int, const DDAParam*);
 
-// BPP別の関数ポインタ取得用ラッパー（非テンプレート）
+// BytesPerPixel別の関数ポインタ取得用ラッパー（非テンプレート）
 inline void copyQuadDDA_1bpp(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param) {
     copyQuadDDA_bpp<1>(dst, srcData, count, param);
 }
@@ -850,7 +851,7 @@ namespace FLEXIMG_NAMESPACE {
 // ピクセルあたりのバイト数を取得
 inline int_fast8_t getBytesPerPixel(PixelFormatID formatID) {
     if (formatID) {
-        return static_cast<int_fast8_t>((formatID->bitsPerPixel + 7) / 8);
+        return static_cast<int_fast8_t>(formatID->bytesPerPixel);
     }
     return 4;  // フォールバック
 }
@@ -928,11 +929,11 @@ struct FormatConverter {
         PixelFormatDescriptor::ToStraightFunc toStraight = nullptr;
         PixelFormatDescriptor::FromStraightFunc fromStraight = nullptr;
 
-        // BPP情報（チャンク処理のポインタ進行用）
+        // BytesPerPixel情報（チャンク処理のポインタ進行用）
         int_fast8_t srcBpp = 0;
         int_fast8_t dstBpp = 0;
 
-        // パレット展開時のBPP（中間バッファ用）
+        // パレット展開時のBytesPerPixel（中間バッファ用）
         int_fast8_t paletteBpp = 0;
 
         // カラーキー情報（toStraight後にin-placeで適用）
