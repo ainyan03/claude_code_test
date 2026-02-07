@@ -454,12 +454,6 @@ inline void copyQuadDDA_4Byte(uint8_t* dst, const uint8_t* srcData, int count, c
     copyQuadDDA_Byte<4>(dst, srcData, count, param);
 }
 
-} // namespace detail
-} // namespace pixel_format
-} // namespace FLEXIMG_NAMESPACE
-
-#endif // FLEXIMG_IMPLEMENTATION
-
 // ========================================================================
 // ビット単位のDDA関数（1/2/4 ビット/ピクセル、bit-packed形式）
 // ========================================================================
@@ -467,9 +461,140 @@ inline void copyQuadDDA_4Byte(uint8_t* dst, const uint8_t* srcData, int count, c
 // Bit-packed形式用のDDA転写関数。
 // ピクセル単位でbit-packedデータから直接読み取り。
 //
+// 注意: bit_packed_detail::readPixelDirect を使用するため、
+//       このセクションは bit_packed_index.h がインクルードされた後に
+//       コンパイルされる必要があります。
 
-// TODO: Phase 3 で bit_packed_index.h から移動
-// - copyRowDDA_Bit<N, Order> テンプレート実装
-// - copyQuadDDA_Bit<N, Order> テンプレート実装
+// copyRowDDA_Bit: ピクセル単位で bit-packed から直接読み取り
+template<int BitsPerPixel, BitOrder Order>
+inline void copyRowDDA_Bit(
+    uint8_t* dst,
+    const uint8_t* srcData,
+    int count,
+    const DDAParam* param
+) {
+    // LovyanGFXスタイル: ピクセル単位で直接読み取り
+    // 境界チェックは呼び出し側が保証（calcScanlineRange）
+    int_fixed srcX = param->srcX;
+    int_fixed srcY = param->srcY;
+    const int_fixed incrX = param->incrX;
+    const int_fixed incrY = param->incrY;
+    const int32_t srcStride = param->srcStride;
+
+    for (int i = 0; i < count; ++i) {
+        int32_t sx = srcX >> INT_FIXED_SHIFT;
+        int32_t sy = srcY >> INT_FIXED_SHIFT;
+        srcX += incrX;
+        srcY += incrY;
+
+#ifdef FLEXIMG_DEBUG
+        // デバッグビルドのみ: width/heightが設定されている場合は境界チェック
+        if (param->srcWidth > 0 && param->srcHeight > 0) {
+            FLEXIMG_REQUIRE(sx >= 0 && sx < param->srcWidth &&
+                          sy >= 0 && sy < param->srcHeight,
+                          "DDA out of bounds access");
+        }
+#endif
+
+        dst[i] = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(
+            srcData, sx, sy, srcStride);
+    }
+}
+
+// copyQuadDDA_Bit: 2x2グリッドをピクセル単位で直接読み取り
+template<int BitsPerPixel, BitOrder Order>
+inline void copyQuadDDA_Bit(
+    uint8_t* dst,
+    const uint8_t* srcData,
+    int count,
+    const DDAParam* param
+) {
+    // LovyanGFXスタイル: 2x2グリッドを直接読み取り
+    int_fixed srcX = param->srcX;
+    int_fixed srcY = param->srcY;
+    const int_fixed incrX = param->incrX;
+    const int_fixed incrY = param->incrY;
+    const int32_t srcWidth = param->srcWidth;
+    const int32_t srcHeight = param->srcHeight;
+    const int32_t srcStride = param->srcStride;
+    BilinearWeightXY* weightsXY = param->weightsXY;
+    uint8_t* edgeFlags = param->edgeFlags;
+
+    for (int i = 0; i < count; ++i) {
+        int32_t sx = srcX >> INT_FIXED_SHIFT;
+        int32_t sy = srcY >> INT_FIXED_SHIFT;
+
+        // バイリニア補間用の重み計算
+        if (weightsXY) {
+            weightsXY[i].fx = static_cast<uint8_t>(static_cast<uint32_t>(srcX) >> (INT_FIXED_SHIFT - 8));
+            weightsXY[i].fy = static_cast<uint8_t>(static_cast<uint32_t>(srcY) >> (INT_FIXED_SHIFT - 8));
+        }
+
+        srcX += incrX;
+        srcY += incrY;
+
+        // 境界チェック（2x2グリッドが全て範囲内か）
+        bool x_valid = (sx >= 0 && sx + 1 < srcWidth);
+        bool y_valid = (sy >= 0 && sy + 1 < srcHeight);
+
+        if (x_valid && y_valid) {
+            // 全て範囲内: 2x2グリッドを読み取り
+            dst[0] = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(srcData, sx,     sy,     srcStride);
+            dst[1] = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(srcData, sx + 1, sy,     srcStride);
+            dst[2] = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(srcData, sx,     sy + 1, srcStride);
+            dst[3] = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(srcData, sx + 1, sy + 1, srcStride);
+            if (edgeFlags) edgeFlags[i] = 0;
+        } else {
+            // 境界外を含む: copyQuadDDA_Byte と同じロジック
+            uint8_t flag_x = EdgeFade_Right;
+            uint8_t flag_y = EdgeFade_Bottom;
+
+            // 座標をクランプ
+            if (sx < 0) {
+                sx = 0;
+                flag_x = EdgeFade_Left;
+            }
+            if (sy < 0) {
+                sy = 0;
+                flag_y = EdgeFade_Top;
+            }
+
+            // 基準ピクセル（クランプした座標）を読む
+            uint8_t val = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(
+                srcData, sx, sy, srcStride);
+
+            // 全て基準値で初期化
+            dst[0] = val;
+            dst[1] = val;
+            dst[2] = val;
+
+            // x方向が有効なら右隣を読む
+            if (x_valid) {
+                val = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(
+                    srcData, sx + 1, sy, srcStride);
+                dst[1] = val;
+                flag_x = 0;
+            } else if (y_valid) {
+                // x方向無効でy方向有効なら下隣を読む
+                val = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(
+                    srcData, sx, sy + 1, srcStride);
+                dst[2] = val;
+                flag_y = 0;
+            }
+
+            dst[3] = val;  // 最後に読んだ値
+
+            if (edgeFlags) edgeFlags[i] = flag_x + flag_y;
+        }
+
+        dst += 4;
+    }
+}
+
+} // namespace detail
+} // namespace pixel_format
+} // namespace FLEXIMG_NAMESPACE
+
+#endif // FLEXIMG_IMPLEMENTATION
 
 #endif // FLEXIMG_PIXEL_FORMAT_DDA_H

@@ -96,19 +96,6 @@ using CopyQuadDDA_Func = void(*)(
     const DDAParam* param
 );
 
-// BytesPerPixel別 DDA転写関数（前方宣言）
-// 実装は FLEXIMG_IMPLEMENTATION 部で提供
-void copyRowDDA_1Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
-void copyRowDDA_2Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
-void copyRowDDA_3Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
-void copyRowDDA_4Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
-
-// BytesPerPixel別 DDA 4ピクセル抽出関数（前方宣言）
-void copyQuadDDA_1Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
-void copyQuadDDA_2Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
-void copyQuadDDA_3Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
-void copyQuadDDA_4Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
-
 // 前方宣言
 struct PixelFormatDescriptor;
 
@@ -325,6 +312,27 @@ struct PixelFormatDescriptor {
 namespace pixel_format {
 namespace detail {
 
+// BytesPerPixel別 DDA転写関数（前方宣言）
+// 実装は dda.h で提供（FLEXIMG_IMPLEMENTATION部）
+void copyRowDDA_1Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+void copyRowDDA_2Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+void copyRowDDA_3Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+void copyRowDDA_4Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+
+// BytesPerPixel別 DDA 4ピクセル抽出関数（前方宣言）
+void copyQuadDDA_1Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+void copyQuadDDA_2Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+void copyQuadDDA_3Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+void copyQuadDDA_4Byte(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+
+// BitsPerPixel別 bit-packed DDA転写関数（前方宣言）
+// 実装は dda.h で提供（bit_packed_index.h インクルード後）
+template<int BitsPerPixel, BitOrder Order>
+void copyRowDDA_Bit(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+
+template<int BitsPerPixel, BitOrder Order>
+void copyQuadDDA_Bit(uint8_t* dst, const uint8_t* srcData, int count, const DDAParam* param);
+
 // 8bit LUT → Nbit 変換（4ピクセル単位展開）
 // T = uint32_t: rgb332_toStraight, index8_expandIndex (bpc==4) 等で共用
 // T = uint16_t: index8_expandIndex (bpc==2) 等で共用
@@ -348,8 +356,6 @@ inline void lut8to16(uint16_t* d, const uint8_t* s, int pixelCount, const uint16
 // 内部ヘルパー関数（実装部）
 // ------------------------------------------------------------------------
 #ifdef FLEXIMG_IMPLEMENTATION
-
-#include "pixel_format/dda.h"
 
 namespace FLEXIMG_NAMESPACE {
 namespace pixel_format {
@@ -402,8 +408,12 @@ template void lut8toN<uint32_t>(uint32_t*, const uint8_t*, int, const uint32_t*)
 #include "pixel_format/rgb332.h"
 #include "pixel_format/rgb888.h"
 #include "pixel_format/grayscale8.h"
-#include "pixel_format/index8.h"
-#include "pixel_format/bit_packed_index.h"
+#include "pixel_format/index.h"
+
+// DDA関数（bit_packed_detail が定義された後にインクルード）
+#ifdef FLEXIMG_IMPLEMENTATION
+#include "pixel_format/dda.h"
+#endif
 
 namespace FLEXIMG_NAMESPACE {
 

@@ -1,5 +1,5 @@
-#ifndef FLEXIMG_PIXEL_FORMAT_BIT_PACKED_INDEX_H
-#define FLEXIMG_PIXEL_FORMAT_BIT_PACKED_INDEX_H
+#ifndef FLEXIMG_PIXEL_FORMAT_INDEX_H
+#define FLEXIMG_PIXEL_FORMAT_INDEX_H
 
 // pixel_format.h からインクルードされることを前提
 // （PixelFormatDescriptor等は既に定義済み）
@@ -7,16 +7,27 @@
 namespace FLEXIMG_NAMESPACE {
 
 // ========================================================================
-// 組み込みフォーマット宣言
+// 組み込みフォーマット宣言（Indexフォーマット全般）
 // ========================================================================
+//
+// このファイルは以下のインデックスフォーマットを定義:
+// - Index1_MSB/LSB: 1ビット/ピクセル（bit-packed）
+// - Index2_MSB/LSB: 2ビット/ピクセル（bit-packed）
+// - Index4_MSB/LSB: 4ビット/ピクセル（bit-packed）
+// - Index8: 8ビット/ピクセル
+//
 
 namespace BuiltinFormats {
+    // Bit-packed Index formats
     extern const PixelFormatDescriptor Index1_MSB;
     extern const PixelFormatDescriptor Index1_LSB;
     extern const PixelFormatDescriptor Index2_MSB;
     extern const PixelFormatDescriptor Index2_LSB;
     extern const PixelFormatDescriptor Index4_MSB;
     extern const PixelFormatDescriptor Index4_LSB;
+
+    // 8-bit Index format
+    extern const PixelFormatDescriptor Index8;
 }
 
 namespace PixelFormatIDs {
@@ -26,6 +37,8 @@ namespace PixelFormatIDs {
     inline const PixelFormatID Index2_LSB = &BuiltinFormats::Index2_LSB;
     inline const PixelFormatID Index4_MSB = &BuiltinFormats::Index4_MSB;
     inline const PixelFormatID Index4_LSB = &BuiltinFormats::Index4_LSB;
+
+    inline const PixelFormatID Index8 = &BuiltinFormats::Index8;
 }
 
 } // namespace FLEXIMG_NAMESPACE
@@ -40,7 +53,7 @@ namespace PixelFormatIDs {
 namespace FLEXIMG_NAMESPACE {
 
 // ========================================================================
-// ビット操作ヘルパー関数
+// ビット操作ヘルパー関数（bit-packed Index用）
 // ========================================================================
 
 namespace bit_packed_detail {
@@ -124,139 +137,140 @@ inline uint8_t readPixelDirect(const uint8_t* srcData, int32_t x, int32_t y, int
 } // namespace bit_packed_detail
 
 // ========================================================================
-// DDA転写関数（bit-packed専用、ピクセル単位直接アクセス）
+// Index8: パレットインデックス（8bit） → パレットフォーマットのピクセルデータ
 // ========================================================================
 
-// copyRowDDA: ピクセル単位で bit-packed から直接読み取り
-template<int BitsPerPixel, BitOrder Order>
-static void indexN_copyRowDDA(
-    uint8_t* dst,
-    const uint8_t* srcData,
-    int count,
-    const DDAParam* param
-) {
-    // LovyanGFXスタイル: ピクセル単位で直接読み取り
-    // 境界チェックは呼び出し側が保証（calcScanlineRange）
-    int_fixed srcX = param->srcX;
-    int_fixed srcY = param->srcY;
-    const int_fixed incrX = param->incrX;
-    const int_fixed incrY = param->incrY;
-    const int32_t srcStride = param->srcStride;
+// expandIndex: インデックス値をパレットフォーマットのピクセルに展開
+// aux->palette, aux->paletteFormat を参照
+// 出力はパレットフォーマットのピクセルデータ
+static void index8_expandIndex(void* __restrict__ dst, const void* __restrict__ src,
+                               int pixelCount, const PixelAuxInfo* __restrict__ aux) {
+    FLEXIMG_FMT_METRICS(Index8, ToStraight, pixelCount);
+    const uint8_t* __restrict__ s = static_cast<const uint8_t*>(src);
+    uint8_t* __restrict__ d = static_cast<uint8_t*>(dst);
 
-    for (int i = 0; i < count; ++i) {
-        int32_t sx = srcX >> INT_FIXED_SHIFT;
-        int32_t sy = srcY >> INT_FIXED_SHIFT;
-        srcX += incrX;
-        srcY += incrY;
-
-#ifdef FLEXIMG_DEBUG
-        // デバッグビルドのみ: width/heightが設定されている場合は境界チェック
-        if (param->srcWidth > 0 && param->srcHeight > 0) {
-            FLEXIMG_REQUIRE(sx >= 0 && sx < param->srcWidth &&
-                          sy >= 0 && sy < param->srcHeight,
-                          "DDA out of bounds access");
-        }
-#endif
-
-        dst[i] = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(
-            srcData, sx, sy, srcStride);
+    if (!aux || !aux->palette || !aux->paletteFormat) {
+        // パレットなし: ゼロ埋め
+        std::memset(dst, 0, static_cast<size_t>(pixelCount));
+        return;
     }
-}
 
-// copyQuadDDA: 2x2グリッドをピクセル単位で直接読み取り
-template<int BitsPerPixel, BitOrder Order>
-static void indexN_copyQuadDDA(
-    uint8_t* dst,
-    const uint8_t* srcData,
-    int count,
-    const DDAParam* param
-) {
-    // LovyanGFXスタイル: 2x2グリッドを直接読み取り
-    int_fixed srcX = param->srcX;
-    int_fixed srcY = param->srcY;
-    const int_fixed incrX = param->incrX;
-    const int_fixed incrY = param->incrY;
-    const int32_t srcWidth = param->srcWidth;
-    const int32_t srcHeight = param->srcHeight;
-    const int32_t srcStride = param->srcStride;
-    BilinearWeightXY* weightsXY = param->weightsXY;
-    uint8_t* edgeFlags = param->edgeFlags;
+    const uint8_t* p = static_cast<const uint8_t*>(aux->palette);
+    // パレットフォーマットのバイト数を取得
+    // 注意: インデックス値の境界チェックは行わない（呼び出し側の責務）
+    int_fast8_t bpc = static_cast<int_fast8_t>(aux->paletteFormat->bytesPerPixel);
 
-    for (int i = 0; i < count; ++i) {
-        int32_t sx = srcX >> INT_FIXED_SHIFT;
-        int32_t sy = srcY >> INT_FIXED_SHIFT;
-
-        // バイリニア補間用の重み計算
-        if (weightsXY) {
-            weightsXY[i].fx = static_cast<uint8_t>(static_cast<uint32_t>(srcX) >> (INT_FIXED_SHIFT - 8));
-            weightsXY[i].fy = static_cast<uint8_t>(static_cast<uint32_t>(srcY) >> (INT_FIXED_SHIFT - 8));
+    if (bpc == 4) {
+        // 4バイト（RGBA8等）高速パス
+        pixel_format::detail::lut8to32(reinterpret_cast<uint32_t*>(d), s, pixelCount,
+                         reinterpret_cast<const uint32_t*>(p));
+    } else if (bpc == 2) {
+        // 2バイト（RGB565等）高速パス
+        pixel_format::detail::lut8to16(reinterpret_cast<uint16_t*>(d), s, pixelCount,
+                         reinterpret_cast<const uint16_t*>(p));
+    } else {
+        // 汎用パス（1, 3バイト等）
+        for (int i = 0; i < pixelCount; ++i) {
+            std::memcpy(d + static_cast<size_t>(i) * static_cast<size_t>(bpc),
+                        p + static_cast<size_t>(s[i]) * static_cast<size_t>(bpc),
+                        static_cast<size_t>(bpc));
         }
-
-        srcX += incrX;
-        srcY += incrY;
-
-        // 境界チェック（2x2グリッドが全て範囲内か）
-        bool x_valid = (sx >= 0 && sx + 1 < srcWidth);
-        bool y_valid = (sy >= 0 && sy + 1 < srcHeight);
-
-        if (x_valid && y_valid) {
-            // 全て範囲内: 2x2グリッドを読み取り
-            dst[0] = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(srcData, sx,     sy,     srcStride);
-            dst[1] = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(srcData, sx + 1, sy,     srcStride);
-            dst[2] = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(srcData, sx,     sy + 1, srcStride);
-            dst[3] = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(srcData, sx + 1, sy + 1, srcStride);
-            if (edgeFlags) edgeFlags[i] = 0;
-        } else {
-            // 境界外を含む: copyQuadDDA_bpp と同じロジック
-            uint8_t flag_x = EdgeFade_Right;
-            uint8_t flag_y = EdgeFade_Bottom;
-
-            // 座標をクランプ
-            if (sx < 0) {
-                sx = 0;
-                flag_x = EdgeFade_Left;
-            }
-            if (sy < 0) {
-                sy = 0;
-                flag_y = EdgeFade_Top;
-            }
-
-            // 基準ピクセル（クランプした座標）を読む
-            uint8_t val = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(
-                srcData, sx, sy, srcStride);
-
-            // 全て基準値で初期化
-            dst[0] = val;
-            dst[1] = val;
-            dst[2] = val;
-
-            // x方向が有効なら右隣を読む
-            if (x_valid) {
-                val = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(
-                    srcData, sx + 1, sy, srcStride);
-                dst[1] = val;
-                flag_x = 0;
-            } else if (y_valid) {
-                // x方向無効でy方向有効なら下隣を読む
-                val = bit_packed_detail::readPixelDirect<BitsPerPixel, Order>(
-                    srcData, sx, sy + 1, srcStride);
-                dst[2] = val;
-                flag_y = 0;
-            }
-
-            dst[3] = val;  // 最後に読んだ値
-
-            if (edgeFlags) edgeFlags[i] = flag_x + flag_y;
-        }
-
-        dst += 4;
     }
 }
 
 // ========================================================================
+// Index8: Index8 → RGBA8_Straight 変換（パレットなし時のフォールバック）
+// ========================================================================
+//
+// パレットが利用できない場合、インデックス値をグレースケールとして展開。
+// convertFormat内では expandIndex+パレット のパスが先に評価されるため、
+// パレットが設定されている場合はこの関数は呼ばれない。
+//
+
+static void index8_toStraight(void* dst, const void* src,
+                               int pixelCount, const PixelAuxInfo*) {
+    FLEXIMG_FMT_METRICS(Index8, ToStraight, pixelCount);
+    const uint8_t* s = static_cast<const uint8_t*>(src);
+    uint8_t* d = static_cast<uint8_t*>(dst);
+    for (int i = 0; i < pixelCount; ++i) {
+        uint8_t v = s[i];
+        d[i*4 + 0] = v;    // R
+        d[i*4 + 1] = v;    // G
+        d[i*4 + 2] = v;    // B
+        d[i*4 + 3] = 255;  // A
+    }
+}
+
+// ========================================================================
+// Index8: RGBA8_Straight → Index8 変換（BT.601 輝度抽出）
+// ========================================================================
+//
+// RGBカラーからインデックス値への変換。
+// パレットへの最近傍色マッチングではなく、BT.601輝度計算を使用。
+// Grayscale8のfromStraightと同一の計算式: index = (77*R + 150*G + 29*B + 128) >> 8
+//
+
+static void index8_fromStraight(void* dst, const void* src,
+                                 int pixelCount, const PixelAuxInfo*) {
+    FLEXIMG_FMT_METRICS(Index8, FromStraight, pixelCount);
+    const uint8_t* s = static_cast<const uint8_t*>(src);
+    uint8_t* d = static_cast<uint8_t*>(dst);
+
+    // 端数処理（1〜3ピクセル）
+    int remainder = pixelCount & 3;
+    while (remainder--) {
+        d[0] = static_cast<uint8_t>((77 * s[0] + 150 * s[1] + 29 * s[2] + 128) >> 8);
+        s += 4;
+        d += 1;
+    }
+
+    // 4ピクセル単位でループ
+    pixelCount >>= 2;
+    while (pixelCount--) {
+        d[0] = static_cast<uint8_t>((77 * s[0] + 150 * s[1] + 29 * s[2] + 128) >> 8);
+        d[1] = static_cast<uint8_t>((77 * s[4] + 150 * s[5] + 29 * s[6] + 128) >> 8);
+        d[2] = static_cast<uint8_t>((77 * s[8] + 150 * s[9] + 29 * s[10] + 128) >> 8);
+        d[3] = static_cast<uint8_t>((77 * s[12] + 150 * s[13] + 29 * s[14] + 128) >> 8);
+        s += 16;
+        d += 4;
+    }
+}
+
+// ------------------------------------------------------------------------
+// フォーマット定義
+// ------------------------------------------------------------------------
+
+namespace BuiltinFormats {
+
+const PixelFormatDescriptor Index8 = {
+    "Index8",
+    8,   // bitsPerPixel
+    1,   // bytesPerPixel
+    1,   // pixelsPerUnit
+    1,   // bytesPerUnit
+    1,   // channelCount
+    { ChannelDescriptor(ChannelType::Index, 8, 0),
+      ChannelDescriptor(), ChannelDescriptor(), ChannelDescriptor() },  // Index only
+    false,   // hasAlpha
+    true,    // isIndexed
+    256,     // maxPaletteSize
+    BitOrder::MSBFirst,
+    ByteOrder::Native,
+    index8_toStraight,     // toStraight (パレットなし時のグレースケールフォールバック)
+    index8_fromStraight,   // fromStraight (BT.601 輝度抽出)
+    index8_expandIndex,  // expandIndex
+    nullptr,  // blendUnderStraight
+    nullptr,  // siblingEndian
+    nullptr,  // swapEndian
+    pixel_format::detail::copyRowDDA_1Byte,  // copyRowDDA
+    pixel_format::detail::copyQuadDDA_1Byte  // copyQuadDDA（インデックス抽出、パレット展開はconvertFormatで実施）
+};
+
+// ========================================================================
+// Bit-packed Index Formats (Index1/2/4 MSB/LSB)
+// ========================================================================
+
 // 変換関数: expandIndex (パレット展開)
-// ========================================================================
-
 template<int BitsPerPixel, BitOrder Order>
 static void indexN_expandIndex(
     void* __restrict__ dst,
@@ -320,10 +334,7 @@ static void indexN_expandIndex(
     }
 }
 
-// ========================================================================
 // 変換関数: toStraight (パレットなし時のグレースケール展開)
-// ========================================================================
-
 template<int BitsPerPixel, BitOrder Order>
 static void indexN_toStraight(
     void* __restrict__ dst,
@@ -364,10 +375,7 @@ static void indexN_toStraight(
     }
 }
 
-// ========================================================================
 // 変換関数: fromStraight (RGBA8 → Index, 輝度計算 + 量子化)
-// ========================================================================
-
 template<int BitsPerPixel, BitOrder Order>
 static void indexN_fromStraight(
     void* __restrict__ dst,
@@ -410,10 +418,8 @@ static void indexN_fromStraight(
 }
 
 // ------------------------------------------------------------------------
-// フォーマット定義
+// Bit-packed Index Formats フォーマット定義
 // ------------------------------------------------------------------------
-
-namespace BuiltinFormats {
 
 // Forward declarations for sibling references
 extern const PixelFormatDescriptor Index1_LSB;
@@ -440,8 +446,8 @@ const PixelFormatDescriptor Index1_MSB = {
     nullptr,  // blendUnderStraight
     &Index1_LSB,  // siblingEndian
     nullptr,  // swapEndian
-    indexN_copyRowDDA<1, BitOrder::MSBFirst>,   // copyRowDDA
-    indexN_copyQuadDDA<1, BitOrder::MSBFirst>   // copyQuadDDA
+    pixel_format::detail::copyRowDDA_Bit<1, BitOrder::MSBFirst>,   // copyRowDDA
+    pixel_format::detail::copyQuadDDA_Bit<1, BitOrder::MSBFirst>   // copyQuadDDA
 };
 
 const PixelFormatDescriptor Index1_LSB = {
@@ -456,8 +462,8 @@ const PixelFormatDescriptor Index1_LSB = {
     indexN_fromStraight<1, BitOrder::LSBFirst>,
     indexN_expandIndex<1, BitOrder::LSBFirst>,
     nullptr, &Index1_MSB, nullptr,
-    indexN_copyRowDDA<1, BitOrder::LSBFirst>,
-    indexN_copyQuadDDA<1, BitOrder::LSBFirst>
+    pixel_format::detail::copyRowDDA_Bit<1, BitOrder::LSBFirst>,
+    pixel_format::detail::copyQuadDDA_Bit<1, BitOrder::LSBFirst>
 };
 
 const PixelFormatDescriptor Index2_MSB = {
@@ -472,8 +478,8 @@ const PixelFormatDescriptor Index2_MSB = {
     indexN_fromStraight<2, BitOrder::MSBFirst>,
     indexN_expandIndex<2, BitOrder::MSBFirst>,
     nullptr, &Index2_LSB, nullptr,
-    indexN_copyRowDDA<2, BitOrder::MSBFirst>,
-    indexN_copyQuadDDA<2, BitOrder::MSBFirst>
+    pixel_format::detail::copyRowDDA_Bit<2, BitOrder::MSBFirst>,
+    pixel_format::detail::copyQuadDDA_Bit<2, BitOrder::MSBFirst>
 };
 
 const PixelFormatDescriptor Index2_LSB = {
@@ -488,8 +494,8 @@ const PixelFormatDescriptor Index2_LSB = {
     indexN_fromStraight<2, BitOrder::LSBFirst>,
     indexN_expandIndex<2, BitOrder::LSBFirst>,
     nullptr, &Index2_MSB, nullptr,
-    indexN_copyRowDDA<2, BitOrder::LSBFirst>,
-    indexN_copyQuadDDA<2, BitOrder::LSBFirst>
+    pixel_format::detail::copyRowDDA_Bit<2, BitOrder::LSBFirst>,
+    pixel_format::detail::copyQuadDDA_Bit<2, BitOrder::LSBFirst>
 };
 
 const PixelFormatDescriptor Index4_MSB = {
@@ -504,8 +510,8 @@ const PixelFormatDescriptor Index4_MSB = {
     indexN_fromStraight<4, BitOrder::MSBFirst>,
     indexN_expandIndex<4, BitOrder::MSBFirst>,
     nullptr, &Index4_LSB, nullptr,
-    indexN_copyRowDDA<4, BitOrder::MSBFirst>,
-    indexN_copyQuadDDA<4, BitOrder::MSBFirst>
+    pixel_format::detail::copyRowDDA_Bit<4, BitOrder::MSBFirst>,
+    pixel_format::detail::copyQuadDDA_Bit<4, BitOrder::MSBFirst>
 };
 
 const PixelFormatDescriptor Index4_LSB = {
@@ -520,8 +526,8 @@ const PixelFormatDescriptor Index4_LSB = {
     indexN_fromStraight<4, BitOrder::LSBFirst>,
     indexN_expandIndex<4, BitOrder::LSBFirst>,
     nullptr, &Index4_MSB, nullptr,
-    indexN_copyRowDDA<4, BitOrder::LSBFirst>,
-    indexN_copyQuadDDA<4, BitOrder::LSBFirst>
+    pixel_format::detail::copyRowDDA_Bit<4, BitOrder::LSBFirst>,
+    pixel_format::detail::copyQuadDDA_Bit<4, BitOrder::LSBFirst>
 };
 
 } // namespace BuiltinFormats
@@ -530,4 +536,4 @@ const PixelFormatDescriptor Index4_LSB = {
 
 #endif // FLEXIMG_IMPLEMENTATION
 
-#endif // FLEXIMG_PIXEL_FORMAT_BIT_PACKED_INDEX_H
+#endif // FLEXIMG_PIXEL_FORMAT_INDEX_H
