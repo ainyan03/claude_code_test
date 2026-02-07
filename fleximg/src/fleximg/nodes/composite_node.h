@@ -43,7 +43,7 @@ namespace FLEXIMG_NAMESPACE {
 class CompositeNode : public Node, public AffineCapability {
 public:
     explicit CompositeNode(int_fast16_t inputCount = 2) {
-        initPorts(static_cast<int>(inputCount), 1);  // 入力N、出力1
+        initPorts(inputCount, 1);  // 入力N、出力1
     }
 
     // ========================================

@@ -85,8 +85,8 @@ struct NodeMetrics {
     uint32_t allocatedBytes = 0;  // このノードが確保したバイト数
     int allocCount = 0;           // 確保回数
     uint32_t maxAllocBytes = 0;   // 一回の最大確保バイト数
-    int maxAllocWidth = 0;        // その時の幅
-    int maxAllocHeight = 0;       // その時の高さ
+    int16_t maxAllocWidth = 0;     // その時の幅
+    int16_t maxAllocHeight = 0;    // その時の高さ
 
     void reset() {
         *this = NodeMetrics{};
@@ -112,13 +112,13 @@ struct NodeMetrics {
     }
 
     // メモリ確保を記録
-    void recordAlloc(size_t bytes, int width, int height) {
+    void recordAlloc(size_t bytes, int_fast16_t width, int_fast16_t height) {
         allocatedBytes += static_cast<uint32_t>(bytes);
         allocCount++;
         if (static_cast<uint32_t>(bytes) > maxAllocBytes) {
             maxAllocBytes = static_cast<uint32_t>(bytes);
-            maxAllocWidth = width;
-            maxAllocHeight = height;
+            maxAllocWidth = static_cast<int16_t>(width);
+            maxAllocHeight = static_cast<int16_t>(height);
         }
     }
 };

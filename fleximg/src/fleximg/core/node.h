@@ -54,8 +54,8 @@ public:
         : context_(nullptr)
     {
         prepareResponse_.status = PrepareStatus::Idle;
-        initPorts(static_cast<int>(other.inputs_.size()),
-                  static_cast<int>(other.outputs_.size()));
+        initPorts(static_cast<int_fast16_t>(other.inputs_.size()),
+                  static_cast<int_fast16_t>(other.outputs_.size()));
     }
 
     // ムーブコンストラクタ: ポート構造をムーブし、ownerを修正
@@ -78,8 +78,8 @@ public:
     Node& operator=(const Node& other) {
         if (this != &other) {
             disconnectAll();
-            initPorts(static_cast<int>(other.inputs_.size()),
-                      static_cast<int>(other.outputs_.size()));
+            initPorts(static_cast<int_fast16_t>(other.inputs_.size()),
+                      static_cast<int_fast16_t>(other.outputs_.size()));
             prepareResponse_.status = PrepareStatus::Idle;
             context_ = nullptr;
         }
@@ -539,7 +539,7 @@ protected:
                               const FormatConverter* converter = nullptr);
 
     // 派生クラス用：ポート初期化
-    void initPorts(int inputCount, int outputCount);
+    void initPorts(int_fast16_t inputCount, int_fast16_t outputCount);
 };
 
 } // namespace core
@@ -613,13 +613,13 @@ ImageBuffer Node::convertFormat(ImageBuffer&& buffer, PixelFormatID target,
 }
 
 // 派生クラス用：ポート初期化
-void Node::initPorts(int inputCount, int outputCount) {
+void Node::initPorts(int_fast16_t inputCount, int_fast16_t outputCount) {
     inputs_.resize(static_cast<size_t>(inputCount));
     outputs_.resize(static_cast<size_t>(outputCount));
-    for (int i = 0; i < inputCount; ++i) {
+    for (int_fast16_t i = 0; i < inputCount; ++i) {
         inputs_[static_cast<size_t>(i)] = Port(this, i);
     }
-    for (int i = 0; i < outputCount; ++i) {
+    for (int_fast16_t i = 0; i < outputCount; ++i) {
         outputs_[static_cast<size_t>(i)] = Port(this, i);
     }
 }

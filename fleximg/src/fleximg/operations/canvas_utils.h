@@ -24,7 +24,7 @@ namespace canvas_utils {
 //   - 全面を画像で埋める場合: DefaultInitPolicy（初期化スキップ可）
 //   - 部分的な描画の場合: InitPolicy::Zero（透明で初期化）
 // alloc: メモリアロケータ（nullptrの場合はDefaultAllocator使用）
-inline ImageBuffer createCanvas(int width, int height,
+inline ImageBuffer createCanvas(int_fast16_t width, int_fast16_t height,
                                 InitPolicy init = DefaultInitPolicy,
                                 core::memory::IAllocator* alloc = nullptr) {
     return ImageBuffer(width, height, PixelFormatIDs::RGBA8_Straight, init, alloc);

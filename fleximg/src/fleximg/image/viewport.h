@@ -88,12 +88,12 @@ inline ViewPort subView(const ViewPort& v, int_fast16_t dx, int_fast16_t dy,
 }
 
 // 矩形コピー
-void copy(ViewPort& dst, int dstX, int dstY,
-          const ViewPort& src, int srcX, int srcY,
-          int width, int height);
+void copy(ViewPort& dst, int_fast16_t dstX, int_fast16_t dstY,
+          const ViewPort& src, int_fast16_t srcX, int_fast16_t srcY,
+          int_fast16_t width, int_fast16_t height);
 
 // 矩形クリア
-void clear(ViewPort& dst, int x, int y, int width, int height);
+void clear(ViewPort& dst, int_fast16_t x, int_fast16_t y, int_fast16_t width, int_fast16_t height);
 
 // ========================================================================
 // DDA転写関数
@@ -180,9 +180,9 @@ inline bool canUseSingleChannelBilinear(PixelFormatID formatID, uint8_t edgeFade
 namespace FLEXIMG_NAMESPACE {
 namespace view_ops {
 
-void copy(ViewPort& dst, int dstX, int dstY,
-          const ViewPort& src, int srcX, int srcY,
-          int width, int height) {
+void copy(ViewPort& dst, int_fast16_t dstX, int_fast16_t dstY,
+          const ViewPort& src, int_fast16_t srcX, int_fast16_t srcY,
+          int_fast16_t width, int_fast16_t height) {
     if (!dst.isValid() || !src.isValid()) return;
 
     // クリッピング
@@ -190,8 +190,8 @@ void copy(ViewPort& dst, int dstX, int dstY,
     if (srcY < 0) { dstY -= srcY; height += srcY; srcY = 0; }
     if (dstX < 0) { srcX -= dstX; width += dstX; dstX = 0; }
     if (dstY < 0) { srcY -= dstY; height += dstY; dstY = 0; }
-    width = std::min(width, std::min(src.width - srcX, dst.width - dstX));
-    height = std::min(height, std::min(src.height - srcY, dst.height - dstY));
+    width = std::min<int_fast16_t>(width, std::min<int_fast16_t>(src.width - srcX, dst.width - dstX));
+    height = std::min<int_fast16_t>(height, std::min<int_fast16_t>(src.height - srcY, dst.height - dstY));
     if (width <= 0 || height <= 0) return;
 
     // view_ops::copy は同一フォーマット間の矩形コピー専用。
@@ -208,7 +208,7 @@ void copy(ViewPort& dst, int dstX, int dstY,
 
 }
 
-void clear(ViewPort& dst, int x, int y, int width, int height) {
+void clear(ViewPort& dst, int_fast16_t x, int_fast16_t y, int_fast16_t width, int_fast16_t height) {
     if (!dst.isValid()) return;
 
     size_t bytesPerPixel = static_cast<size_t>(dst.bytesPerPixel());

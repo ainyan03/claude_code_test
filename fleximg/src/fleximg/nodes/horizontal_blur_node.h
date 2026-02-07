@@ -51,17 +51,17 @@ public:
     static constexpr int kMaxRadius = 127;  // 実用上十分、メモリ消費も許容範囲
     static constexpr int kMaxPasses = 3;    // ガウシアン近似に十分
 
-    void setRadius(int radius) {
-        radius_ = (radius < 0) ? 0 : (radius > kMaxRadius) ? kMaxRadius : radius;
+    void setRadius(int_fast16_t radius) {
+        radius_ = static_cast<int16_t>((radius < 0) ? 0 : (radius > kMaxRadius) ? kMaxRadius : radius);
     }
 
-    void setPasses(int passes) {
-        passes_ = (passes < 1) ? 1 : (passes > kMaxPasses) ? kMaxPasses : passes;
+    void setPasses(int_fast16_t passes) {
+        passes_ = static_cast<int16_t>((passes < 1) ? 1 : (passes > kMaxPasses) ? kMaxPasses : passes);
     }
 
-    int radius() const { return radius_; }
-    int passes() const { return passes_; }
-    int kernelSize() const { return radius_ * 2 + 1; }
+    int16_t radius() const { return radius_; }
+    int16_t passes() const { return passes_; }
+    int_fast16_t kernelSize() const { return radius_ * 2 + 1; }
 
     // ========================================
     // Node インターフェース
@@ -134,16 +134,16 @@ protected:
     void onPushProcess(RenderResponse& input, const RenderRequest& request) override;
 
 private:
-    int radius_ = 5;
-    int passes_ = 1;  // 1-3の範囲、デフォルト1
+    int16_t radius_ = 5;
+    int16_t passes_ = 1;  // 1-3の範囲、デフォルト1
 
     // 水平方向ブラー処理（共通）
-    void applyHorizontalBlur(const ViewPort& srcView, int inputOffset, ImageBuffer& output);
+    void applyHorizontalBlur(const ViewPort& srcView, int_fast16_t inputOffset, ImageBuffer& output);
 
     // ブラー済みピクセルを書き込み
-    void writeBlurredPixel(uint8_t* row, int x, uint32_t sumR, uint32_t sumG,
+    void writeBlurredPixel(uint8_t* row, int_fast16_t x, uint32_t sumR, uint32_t sumG,
                            uint32_t sumB, uint32_t sumA) {
-        int off = x * 4;
+        auto off = static_cast<int_fast16_t>(x * 4);
         uint32_t ks = static_cast<uint32_t>(kernelSize());
         if (sumA > 0) {
             row[off]     = static_cast<uint8_t>(sumR / sumA);
@@ -379,7 +379,7 @@ void HorizontalBlurNode::onPushProcess(RenderResponse& input, const RenderReques
 
 // 水平方向ブラー処理（共通）
 // inputOffset: 出力x=0に対応する入力のカーネル中心位置
-void HorizontalBlurNode::applyHorizontalBlur(const ViewPort& srcView, int inputOffset, ImageBuffer& output) {
+void HorizontalBlurNode::applyHorizontalBlur(const ViewPort& srcView, int_fast16_t inputOffset, ImageBuffer& output) {
     const uint8_t* srcRow = static_cast<const uint8_t*>(srcView.data);
     uint8_t* dstRow = static_cast<uint8_t*>(output.view().data);
     int inputWidth = srcView.width;

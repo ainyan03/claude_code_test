@@ -47,9 +47,9 @@ public:
 
     // 仮想スクリーン設定
     // サイズを指定。pivot は setPivot() または setPivotCenter() で別途設定
-    void setVirtualScreen(int width, int height) {
-        virtualWidth_ = width;
-        virtualHeight_ = height;
+    void setVirtualScreen(int_fast16_t width, int_fast16_t height) {
+        virtualWidth_ = static_cast<int16_t>(width);
+        virtualHeight_ = static_cast<int16_t>(height);
     }
 
     // pivot設定（スクリーン座標でワールド原点の表示位置を指定）
@@ -78,7 +78,7 @@ public:
         tileConfig_ = config;
     }
 
-    void setTileConfig(int tileWidth, int tileHeight) {
+    void setTileConfig(int_fast16_t tileWidth, int_fast16_t tileHeight) {
         tileConfig_ = TileConfig(tileWidth, tileHeight);
     }
 
@@ -197,8 +197,8 @@ protected:
                              RenderResponse& result);
 
 private:
-    int virtualWidth_ = 0;
-    int virtualHeight_ = 0;
+    int16_t virtualWidth_ = 0;
+    int16_t virtualHeight_ = 0;
     int_fixed pivotX_ = 0;
     int_fixed pivotY_ = 0;
     TileConfig tileConfig_;

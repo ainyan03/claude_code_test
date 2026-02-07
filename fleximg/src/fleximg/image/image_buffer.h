@@ -65,7 +65,7 @@ public:
 
     // サイズ指定コンストラクタ
     // alloc = nullptr の場合、DefaultAllocator を使用
-    ImageBuffer(int w, int h, PixelFormatID fmt = PixelFormatIDs::RGBA8_Straight,
+    ImageBuffer(int_fast16_t w, int_fast16_t h, PixelFormatID fmt = PixelFormatIDs::RGBA8_Straight,
                 InitPolicy init = DefaultInitPolicy,
                 core::memory::IAllocator* alloc = nullptr)
         : view_(nullptr, fmt, 0, static_cast<int16_t>(w), static_cast<int16_t>(h))

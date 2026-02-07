@@ -58,18 +58,18 @@ public:
     static constexpr int kMaxRadius = 127;  // 実用上十分、メモリ消費も許容範囲
     static constexpr int kMaxPasses = 3;    // ガウシアン近似に十分
 
-    void setRadius(int radius) {
-        radius_ = (radius < 0) ? 0 : (radius > kMaxRadius) ? kMaxRadius : radius;
+    void setRadius(int_fast16_t radius) {
+        radius_ = static_cast<int16_t>((radius < 0) ? 0 : (radius > kMaxRadius) ? kMaxRadius : radius);
     }
 
-    void setPasses(int passes) {
-        passes_ = (passes < 1) ? 1 : (passes > kMaxPasses) ? kMaxPasses : passes;
+    void setPasses(int_fast16_t passes) {
+        passes_ = static_cast<int16_t>((passes < 1) ? 1 : (passes > kMaxPasses) ? kMaxPasses : passes);
     }
 
-    int radius() const { return radius_; }
-    int passes() const { return passes_; }
-    int kernelSize() const { return radius_ * 2 + 1; }
-    int totalKernelSize() const { return radius_ * 2 * passes_ + 1; }
+    int16_t radius() const { return radius_; }
+    int16_t passes() const { return passes_; }
+    int_fast16_t kernelSize() const { return radius_ * 2 + 1; }
+    int_fast16_t totalKernelSize() const { return radius_ * 2 * passes_ + 1; }
 
     // ========================================
     // Node インターフェース
@@ -95,12 +95,12 @@ protected:
     RenderResponse& onPullProcess(const RenderRequest& request) override;
 
 private:
-    int radius_ = 5;
-    int passes_ = 1;  // 1-3の範囲、デフォルト1
+    int16_t radius_ = 5;
+    int16_t passes_ = 1;  // 1-3の範囲、デフォルト1
 
     // スクリーン情報
-    int screenWidth_ = 0;
-    int screenHeight_ = 0;
+    int16_t screenWidth_ = 0;
+    int16_t screenHeight_ = 0;
     Point screenOrigin_;
 
     // ========================================

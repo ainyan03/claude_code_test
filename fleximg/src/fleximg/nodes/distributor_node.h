@@ -47,7 +47,7 @@ public:
     // ========================================
 
     // 出力数を変更（既存接続は維持）
-    void setOutputCount(int count) {
+    void setOutputCount(int_fast16_t count) {
         if (count < 1) count = 1;
         outputs_.resize(static_cast<size_t>(count));
         for (int i = 0; i < count; ++i) {

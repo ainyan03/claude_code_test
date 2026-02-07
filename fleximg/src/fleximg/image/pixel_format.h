@@ -476,7 +476,7 @@ FormatConverter resolveConverter(
 // 中間バッファが必要な場合は DefaultAllocator 経由で一時確保される。
 inline void convertFormat(const void* src, PixelFormatID srcFormat,
                           void* dst, PixelFormatID dstFormat,
-                          int pixelCount,
+                          int_fast16_t pixelCount,
                           const PixelAuxInfo* srcAux = nullptr,
                           const PixelAuxInfo* dstAux = nullptr) {
     (void)dstAux;  // 現在の全呼び出し箇所で未使用
