@@ -205,6 +205,7 @@
             // アプリケーションロジックを読み込み（WASMの後に）
             wasmScript.onload = function() {
                 const appScript = document.createElement('script');
+                appScript.type = 'module';
                 appScript.src = 'app.js?v=' + version;
                 document.head.appendChild(appScript);
             };
