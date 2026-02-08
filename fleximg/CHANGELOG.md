@@ -12,6 +12,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **WebUI: Grayscale1/2/4 フォーマット選択 + optgroup 分類**
+  - フォーマット選択ドロップダウンに Grayscale1/2/4 MSB/LSB の6フォーマットを追加
+  - `<optgroup>` によるカテゴリ分類（RGB / Grayscale / Alpha / Index）でUI整理
+  - `buildFormatOptions()` ヘルパー関数で SourceNode / SinkNode の select 構築を共通化
+
 - **Grayscale bit-packed フォーマット** (Grayscale1/2/4 MSB/LSB)
   - 1/2/4ビットのグレースケールフォーマットを6種追加
   - MSBFirst（上位ビット優先）とLSBFirst（下位ビット優先）の両方に対応
@@ -97,6 +102,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **MatteNode 背景コピーの ViewPort オフセット適用漏れ修正**
   - bgの非アフィン状態で先頭行の内容が全ラインに適用されるバグを修正
   - 背景コピーループの行アドレス計算に `bgViewPort.x`, `bgViewPort.y` オフセットを加算
+
+- **WebUI: ビットパック形式のストライド不整合による画像歪みを修正**
+  - `bindings.cpp` でビットパック形式（Gray1/2/4, Index1/2/4）の変換が全ピクセルを1Dストリームとして処理していたため、`width % pixelsPerUnit != 0` の場合に行境界でパディングされず画像が歪んでいた
+  - `calcStride()` / `convertFormatRowByRow()` ヘルパー関数を追加し、全変換箇所（7箇所）を行単位変換に修正
+  - `ImageStore::store()` / `allocate()` のバッファサイズ計算も `stride * height` に修正
 
 - **bit-packed format の pixelOffsetInByte サポート**
   - CompositeNode経由でbit-packed（Index1/2/4）データを処理する際のチャンク境界でのオフセットずれを修正
