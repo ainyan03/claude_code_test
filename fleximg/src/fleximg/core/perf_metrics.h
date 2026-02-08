@@ -27,12 +27,12 @@ namespace core {
 // ノードタイプ定義（デバッグ/リリース共通）
 // ========================================================================
 //
-// 重要: demo/web/app.js の NODE_TYPES と同期を維持すること
+// 重要: demo/web/cpp-sync-types.js の NODE_TYPES と同期を維持すること
 //
 // 新規ノード追加時の手順:
 //   1. ここに新しいノードタイプを追加（連番で）
 //   2. Count を更新（最後のノードタイプ + 1）
-//   3. demo/web/app.js の NODE_TYPES にも同じ index で追加
+//   3. demo/web/cpp-sync-types.js の NODE_TYPES にも同じ index で追加
 //   4. 該当ノードの nodeTypeForMetrics() が正しい値を返すことを確認
 //
 // ========================================================================
@@ -65,9 +65,9 @@ namespace NodeType {
 // ノード追加時に Count の更新を忘れるとここでエラーになる
 static_assert(NodeType::Matte + 1 == NodeType::Count,
               "NodeType::Count must equal last node type + 1. "
-              "Also update demo/web/app.js NODE_TYPES.");
+              "Also update demo/web/cpp-sync-types.js NODE_TYPES.");
 static_assert(NodeType::VerticalBlur == 11,
-              "HorizontalBlur=10, VerticalBlur=11 must match app.js NODE_TYPES.");
+              "HorizontalBlur=10, VerticalBlur=11 must match cpp-sync-types.js NODE_TYPES.");
 
 // ========================================================================
 // パフォーマンス計測構造体

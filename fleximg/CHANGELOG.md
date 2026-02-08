@@ -10,6 +10,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **WebUI: C++同期型定義を `cpp-sync-types.js` に分離**
+  - `NODE_TYPES`, `PIXEL_FORMATS`, `DEFAULT_PIXEL_FORMAT` 等のC++側と手動同期が必要な定義を `app.js` から `demo/web/cpp-sync-types.js` に分離
+  - `buildFormatOptions()`, `NodeTypeHelper` も同ファイルに移動
+  - C++側コメント・ドキュメントの参照先を更新
+
+### Fixed
+
+- **WebUI: `PIXEL_FORMATS` の `bpp` を bytesPerPixel から bitsPerPixel に修正**
+  - 値をバイト単位からビット単位に変換（例: `4` → `32`, `0.5` → `4`）
+  - UI表示を `(4B)` → `(32bit)` に変更
+
 ### Added
 
 - **WebUI: Grayscale1/2/4 フォーマット選択 + optgroup 分類**

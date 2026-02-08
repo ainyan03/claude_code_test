@@ -295,4 +295,5 @@ WebUIバインディング（JS↔C++間のフォーマット変換）はパイ�
 | `src/fleximg/nodes/renderer_node.h` | RendererNode（パイプライン実行、メトリクスリセット） |
 | `src/fleximg/image/pixel_format.h` | フォーマット変換関数（FLEXIMG_FMT_METRICSマクロ、stb-style実装部） |
 | `demo/bindings.cpp` | WASM bindings（snapshot/restore） |
-| `demo/web/app.js` | 表示UI（NODE_TYPES定義、updateFormatMetrics） |
+| `demo/web/cpp-sync-types.js` | C++同期型定義（NODE_TYPES、PIXEL_FORMATS） |
+| `demo/web/app.js` | 表示UI（updateFormatMetrics等） |
