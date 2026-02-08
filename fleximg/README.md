@@ -203,7 +203,7 @@ C++コアは以下の特徴により組込み環境への移植が容易です�
 ### 移植手順
 
 1. `src/fleximg/`フォルダをプロジェクトにコピー
-2. `#include "fleximg/common.h"` でインクルード
+2. `#include "fleximg/core/common.h"` でインクルード
 3. ノードを作成し、RendererNode で実行
 
 ### M5Stack サンプル
