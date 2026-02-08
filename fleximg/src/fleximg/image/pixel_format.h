@@ -344,7 +344,7 @@ template void lut8toN<uint32_t>(uint32_t*, const uint8_t*, size_t, const uint32_
 #include "pixel_format/rgb565.h"
 #include "pixel_format/rgb332.h"
 #include "pixel_format/rgb888.h"
-#include "pixel_format/grayscale8.h"
+#include "pixel_format/grayscale.h"
 #include "pixel_format/index.h"
 
 // DDA関数（bit_packed_detail が定義された後にインクルード）
@@ -375,6 +375,12 @@ inline const PixelFormatID builtinFormats[] = {
     PixelFormatIDs::Index2_LSB,
     PixelFormatIDs::Index4_MSB,
     PixelFormatIDs::Index4_LSB,
+    PixelFormatIDs::Grayscale1_MSB,
+    PixelFormatIDs::Grayscale1_LSB,
+    PixelFormatIDs::Grayscale2_MSB,
+    PixelFormatIDs::Grayscale2_LSB,
+    PixelFormatIDs::Grayscale4_MSB,
+    PixelFormatIDs::Grayscale4_LSB,
 };
 
 inline constexpr size_t builtinFormatsCount = sizeof(builtinFormats) / sizeof(builtinFormats[0]);

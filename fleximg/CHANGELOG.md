@@ -10,6 +10,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Grayscale bit-packed フォーマット** (Grayscale1/2/4 MSB/LSB)
+  - 1/2/4ビットのグレースケールフォーマットを6種追加
+  - MSBFirst（上位ビット優先）とLSBFirst（下位ビット優先）の両方に対応
+  - `isIndexed = false`, `maxPaletteSize = 0`（Index系とは独立したフォーマット）
+  - DDA転写・バイリニア補間をフルサポート（copyRowDDA_Bit / copyQuadDDA_Bit 共有）
+  - `grayscale8.h` → `grayscale.h` にリネームし、Grayscale8 + GrayscaleN を統合
+  - `bit_packed_detail` ヘルパー関数群を `grayscale.h` に移動（Index/Grayscale共用）
+  - IndexN の `toStraight` を `grayscaleN_toStraight` に直接設定（コード共有）
+  - IndexN の `fromStraight` を `grayscaleN_fromStraight` への委譲ラッパーに変更
+
 ### Changed
 
 - **コーディングスタイル違反の包括的修正**

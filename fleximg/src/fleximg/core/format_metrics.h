@@ -44,7 +44,9 @@ namespace FormatIdx {
     constexpr uint_fast8_t BGR888 = 5;
     constexpr uint_fast8_t Alpha8 = 6;
     constexpr uint_fast8_t Grayscale8 = 7;
+    constexpr uint_fast8_t GrayscaleN = 7;  // bit-packed Grayscale → Grayscale8 と共有
     constexpr uint_fast8_t Index8 = 8;
+    constexpr uint_fast8_t IndexN = 8;      // bit-packed Index → Index8 と共有
     constexpr uint_fast8_t Count = 9;
 }
 
