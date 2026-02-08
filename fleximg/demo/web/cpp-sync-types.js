@@ -41,30 +41,30 @@ export const NODE_TYPES = {
 // ========================================
 export const PIXEL_FORMATS = [
     // RGB
-    { formatName: 'RGBA8_Straight', displayName: 'RGBA8888',     bpp: 4,     description: 'Standard (default)', category: 'RGB' },
-    { formatName: 'RGB888',         displayName: 'RGB888',       bpp: 3,     description: 'RGB order',          category: 'RGB' },
-    { formatName: 'BGR888',         displayName: 'BGR888',       bpp: 3,     description: 'BGR order',          category: 'RGB' },
-    { formatName: 'RGB565_LE',      displayName: 'RGB565_LE',    bpp: 2,     description: 'Little Endian',      category: 'RGB' },
-    { formatName: 'RGB565_BE',      displayName: 'RGB565_BE',    bpp: 2,     description: 'Big Endian',         category: 'RGB' },
-    { formatName: 'RGB332',         displayName: 'RGB332',       bpp: 1,     description: '8-bit color',        category: 'RGB' },
+    { formatName: 'RGBA8_Straight', displayName: 'RGBA8888',     bpp: 32, description: 'Standard (default)', category: 'RGB' },
+    { formatName: 'RGB888',         displayName: 'RGB888',       bpp: 24, description: 'RGB order',          category: 'RGB' },
+    { formatName: 'BGR888',         displayName: 'BGR888',       bpp: 24, description: 'BGR order',          category: 'RGB' },
+    { formatName: 'RGB565_LE',      displayName: 'RGB565_LE',    bpp: 16, description: 'Little Endian',      category: 'RGB' },
+    { formatName: 'RGB565_BE',      displayName: 'RGB565_BE',    bpp: 16, description: 'Big Endian',         category: 'RGB' },
+    { formatName: 'RGB332',         displayName: 'RGB332',       bpp: 8,  description: '8-bit color',        category: 'RGB' },
     // Grayscale
-    { formatName: 'Grayscale8',     displayName: 'Gray8',        bpp: 1,     description: 'Grayscale 8bit',     category: 'Grayscale' },
-    { formatName: 'Grayscale4_MSB', displayName: 'Gray4 (MSB)',  bpp: 0.5,   description: '4bit, 2px/byte',     category: 'Grayscale' },
-    { formatName: 'Grayscale4_LSB', displayName: 'Gray4 (LSB)',  bpp: 0.5,   description: '4bit, 2px/byte',     category: 'Grayscale' },
-    { formatName: 'Grayscale2_MSB', displayName: 'Gray2 (MSB)',  bpp: 0.25,  description: '2bit, 4px/byte',     category: 'Grayscale' },
-    { formatName: 'Grayscale2_LSB', displayName: 'Gray2 (LSB)',  bpp: 0.25,  description: '2bit, 4px/byte',     category: 'Grayscale' },
-    { formatName: 'Grayscale1_MSB', displayName: 'Gray1 (MSB)',  bpp: 0.125, description: '1bit, 8px/byte',     category: 'Grayscale' },
-    { formatName: 'Grayscale1_LSB', displayName: 'Gray1 (LSB)',  bpp: 0.125, description: '1bit, 8px/byte',     category: 'Grayscale' },
+    { formatName: 'Grayscale8',     displayName: 'Gray8',        bpp: 8,  description: 'Grayscale 8bit',     category: 'Grayscale' },
+    { formatName: 'Grayscale4_MSB', displayName: 'Gray4 (MSB)',  bpp: 4,  description: '4bit, 2px/byte',     category: 'Grayscale' },
+    { formatName: 'Grayscale4_LSB', displayName: 'Gray4 (LSB)',  bpp: 4,  description: '4bit, 2px/byte',     category: 'Grayscale' },
+    { formatName: 'Grayscale2_MSB', displayName: 'Gray2 (MSB)',  bpp: 2,  description: '2bit, 4px/byte',     category: 'Grayscale' },
+    { formatName: 'Grayscale2_LSB', displayName: 'Gray2 (LSB)',  bpp: 2,  description: '2bit, 4px/byte',     category: 'Grayscale' },
+    { formatName: 'Grayscale1_MSB', displayName: 'Gray1 (MSB)',  bpp: 1,  description: '1bit, 8px/byte',     category: 'Grayscale' },
+    { formatName: 'Grayscale1_LSB', displayName: 'Gray1 (LSB)',  bpp: 1,  description: '1bit, 8px/byte',     category: 'Grayscale' },
     // Alpha
-    { formatName: 'Alpha8',         displayName: 'Alpha8',       bpp: 1,     description: 'Alpha only (for matte)', category: 'Alpha' },
+    { formatName: 'Alpha8',         displayName: 'Alpha8',       bpp: 8,  description: 'Alpha only (for matte)', category: 'Alpha' },
     // Index (Palette)
-    { formatName: 'Index8',         displayName: 'Index8',       bpp: 1,     description: 'Palette (256色)',    category: 'Index', sinkDisabled: true },
-    { formatName: 'Index4_MSB',     displayName: 'Index4 (MSB)', bpp: 0.5,   description: 'Palette (16色, 2px/byte)', category: 'Index', sinkDisabled: true },
-    { formatName: 'Index4_LSB',     displayName: 'Index4 (LSB)', bpp: 0.5,   description: 'Palette (16色, 2px/byte)', category: 'Index', sinkDisabled: true },
-    { formatName: 'Index2_MSB',     displayName: 'Index2 (MSB)', bpp: 0.25,  description: 'Palette (4色, 4px/byte)', category: 'Index', sinkDisabled: true },
-    { formatName: 'Index2_LSB',     displayName: 'Index2 (LSB)', bpp: 0.25,  description: 'Palette (4色, 4px/byte)', category: 'Index', sinkDisabled: true },
-    { formatName: 'Index1_MSB',     displayName: 'Index1 (MSB)', bpp: 0.125, description: 'Palette (2色, 8px/byte)', category: 'Index', sinkDisabled: true },
-    { formatName: 'Index1_LSB',     displayName: 'Index1 (LSB)', bpp: 0.125, description: 'Palette (2色, 8px/byte)', category: 'Index', sinkDisabled: true },
+    { formatName: 'Index8',         displayName: 'Index8',       bpp: 8,  description: 'Palette (256色)',    category: 'Index', sinkDisabled: true },
+    { formatName: 'Index4_MSB',     displayName: 'Index4 (MSB)', bpp: 4,  description: 'Palette (16色, 2px/byte)', category: 'Index', sinkDisabled: true },
+    { formatName: 'Index4_LSB',     displayName: 'Index4 (LSB)', bpp: 4,  description: 'Palette (16色, 2px/byte)', category: 'Index', sinkDisabled: true },
+    { formatName: 'Index2_MSB',     displayName: 'Index2 (MSB)', bpp: 2,  description: 'Palette (4色, 4px/byte)', category: 'Index', sinkDisabled: true },
+    { formatName: 'Index2_LSB',     displayName: 'Index2 (LSB)', bpp: 2,  description: 'Palette (4色, 4px/byte)', category: 'Index', sinkDisabled: true },
+    { formatName: 'Index1_MSB',     displayName: 'Index1 (MSB)', bpp: 1,  description: 'Palette (2色, 8px/byte)', category: 'Index', sinkDisabled: true },
+    { formatName: 'Index1_LSB',     displayName: 'Index1 (LSB)', bpp: 1,  description: 'Palette (2色, 8px/byte)', category: 'Index', sinkDisabled: true },
 ];
 
 // デフォルトピクセルフォーマット
@@ -88,7 +88,7 @@ export function buildFormatOptions(selectElement, currentFormat, opts = {}) {
         }
         const option = document.createElement('option');
         option.value = fmt.formatName;
-        option.textContent = `${fmt.displayName} (${fmt.bpp}B)`;
+        option.textContent = `${fmt.displayName} (${fmt.bpp}bit)`;
         option.title = fmt.description;
         if (disableSinkOnly && fmt.sinkDisabled) option.disabled = true;
         if (currentFormat === fmt.formatName) option.selected = true;
