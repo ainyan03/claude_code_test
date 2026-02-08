@@ -28,6 +28,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - **bit-packed unpackロジック集約 + Index8処理共通化**
   - パレットLUT処理を `applyPaletteLUT` 共通関数として切り出し、Index8/IndexN で共有
+
+- **Index8のパレットなしフォールバックをGrayscale8に統合**
+  - `index8_toStraight` を削除し、Index8 Descriptorの `toStraight` に `grayscale8_toStraight` を直接設定
+  - `index8_fromStraight` は `grayscale8_fromStraight` への委譲ラッパーに変更（将来のパレットマッピング拡張に備える）
+  - `grayscale8_fromStraight` を4ピクセルループ展開版に最適化
+  - `indexN_toStraight` の委譲先を `grayscale8_toStraight` に変更
+  - バイナリ上の重複コード解消、関数ポインタの共有による効率化
   - `indexN_expandIndex` を末尾詰め方式に変更（チャンクバッファ不要、in-place展開）
   - `indexN_toStraight` を末尾詰め + `index8_toStraight` 委譲に変更
   - `copyRowDDA_Bit` に ConstY 高速パス追加（バルクunpack + DDAサンプリング）

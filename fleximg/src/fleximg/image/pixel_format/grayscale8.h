@@ -52,13 +52,27 @@ static void grayscale8_fromStraight(void* dst, const void* src, size_t pixelCoun
     FLEXIMG_FMT_METRICS(Grayscale8, FromStraight, pixelCount);
     const uint8_t* s = static_cast<const uint8_t*>(src);
     uint8_t* d = static_cast<uint8_t*>(dst);
-    for (size_t i = 0; i < pixelCount; ++i) {
-        // BT.601: Y = 0.299*R + 0.587*G + 0.114*B
-        // 整数近似: (77*R + 150*G + 29*B + 128) >> 8
-        uint_fast16_t r = s[i*4 + 0];
-        uint_fast16_t g = s[i*4 + 1];
-        uint_fast16_t b = s[i*4 + 2];
-        d[i] = static_cast<uint8_t>((77 * r + 150 * g + 29 * b + 128) >> 8);
+
+    // BT.601: Y = 0.299*R + 0.587*G + 0.114*B
+    // 整数近似: (77*R + 150*G + 29*B + 128) >> 8
+
+    // 端数処理（1〜3ピクセル）
+    size_t remainder = pixelCount & 3;
+    while (remainder--) {
+        d[0] = static_cast<uint8_t>((77 * s[0] + 150 * s[1] + 29 * s[2] + 128) >> 8);
+        s += 4;
+        d += 1;
+    }
+
+    // 4ピクセル単位でループ
+    pixelCount >>= 2;
+    while (pixelCount--) {
+        d[0] = static_cast<uint8_t>((77 * s[0] + 150 * s[1] + 29 * s[2] + 128) >> 8);
+        d[1] = static_cast<uint8_t>((77 * s[4] + 150 * s[5] + 29 * s[6] + 128) >> 8);
+        d[2] = static_cast<uint8_t>((77 * s[8] + 150 * s[9] + 29 * s[10] + 128) >> 8);
+        d[3] = static_cast<uint8_t>((77 * s[12] + 150 * s[13] + 29 * s[14] + 128) >> 8);
+        s += 16;
+        d += 4;
     }
 }
 
