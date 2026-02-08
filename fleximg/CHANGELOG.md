@@ -10,6 +10,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Grayscale bit-packed フォーマット** (Grayscale1/2/4 MSB/LSB)
+  - 1/2/4ビットのグレースケールフォーマットを6種追加
+  - MSBFirst（上位ビット優先）とLSBFirst（下位ビット優先）の両方に対応
+  - `isIndexed = false`, `maxPaletteSize = 0`（Index系とは独立したフォーマット）
+  - DDA転写・バイリニア補間をフルサポート（copyRowDDA_Bit / copyQuadDDA_Bit 共有）
+  - `grayscale8.h` → `grayscale.h` にリネームし、Grayscale8 + GrayscaleN を統合
+  - `bit_packed_detail` ヘルパー関数群を `grayscale.h` に移動（Index/Grayscale共用）
+  - IndexN の `toStraight` を `grayscaleN_toStraight` に直接設定（コード共有）
+  - IndexN の `fromStraight` を `grayscaleN_fromStraight` への委譲ラッパーに変更
+
 ### Changed
 
 - **コーディングスタイル違反の包括的修正**
@@ -28,6 +40,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - **bit-packed unpackロジック集約 + Index8処理共通化**
   - パレットLUT処理を `applyPaletteLUT` 共通関数として切り出し、Index8/IndexN で共有
+
+- **Index8のパレットなしフォールバックをGrayscale8に統合**
+  - `index8_toStraight` を削除し、Index8 Descriptorの `toStraight` に `grayscale8_toStraight` を直接設定
+  - `index8_fromStraight` は `grayscale8_fromStraight` への委譲ラッパーに変更（将来のパレットマッピング拡張に備える）
+  - `grayscale8_fromStraight` を4ピクセルループ展開版に最適化
+  - `indexN_toStraight` の委譲先を `grayscale8_toStraight` に変更
+  - バイナリ上の重複コード解消、関数ポインタの共有による効率化
   - `indexN_expandIndex` を末尾詰め方式に変更（チャンクバッファ不要、in-place展開）
   - `indexN_toStraight` を末尾詰め + `index8_toStraight` 委譲に変更
   - `copyRowDDA_Bit` に ConstY 高速パス追加（バルクunpack + DDAサンプリング）
