@@ -343,7 +343,7 @@ RenderResponse onPullProcess(const RenderRequest& request) override {
 **使用上の注意**:
 - 関数の先頭付近でマクロを呼び出す（上流ノードの呼び出し後が望ましい）
 - ノードタイプは `NodeType::*` 定数を使用（`perf_metrics.h` で定義）
-- 新規ノード追加時は `NodeType` に定数を追加し、`demo/web/app.js` の `NODE_TYPES` と同期する
+- 新規ノード追加時は `NodeType` に定数を追加し、`demo/web/cpp-sync-types.js` の `NODE_TYPES` と同期する
 
 ### 追加のメトリクス記録
 
