@@ -47,6 +47,33 @@ struct SinkOutput {
 };
 
 // ========================================================================
+// ビットパック形式用ヘルパー関数
+// ========================================================================
+
+// 1行あたりのバイト数（stride）を計算
+static int32_t calcStride(int width, PixelFormatID fmt) {
+    if (fmt && fmt->pixelsPerUnit > 1) {
+        int units = (width + fmt->pixelsPerUnit - 1) / fmt->pixelsPerUnit;
+        return units * fmt->bytesPerUnit;
+    }
+    return width * fmt->bytesPerPixel;
+}
+
+// 行単位でフォーマット変換を行う（ビットパック形式対応）
+// srcStride/dstStride: 行あたりのバイト数
+static void convertFormatRowByRow(
+    const uint8_t* src, PixelFormatID srcFormat, int32_t srcStride,
+    uint8_t* dst, PixelFormatID dstFormat, int32_t dstStride,
+    int width, int height,
+    const PixelAuxInfo* srcAux = nullptr) {
+    auto converter = resolveConverter(srcFormat, dstFormat, srcAux);
+    if (!converter) return;
+    for (int y = 0; y < height; ++y) {
+        converter(dst + y * dstStride, src + y * srcStride, static_cast<size_t>(width));
+    }
+}
+
+// ========================================================================
 // ImageStore - 入出力画像データの永続化管理
 // ========================================================================
 
@@ -54,35 +81,17 @@ class ImageStore {
 public:
     // 外部データをコピーして保存（入力画像用）
     ViewPort store(int id, const uint8_t* data, int w, int h, PixelFormatID fmt) {
-        auto bytesPerPixel = fmt->bytesPerPixel;
-        auto size = static_cast<size_t>(w * h * bytesPerPixel);
+        int32_t stride = calcStride(w, fmt);
+        auto size = static_cast<size_t>(stride) * static_cast<size_t>(h);
         storage_[id].assign(data, data + size);
-
-        // bit-packed形式に対応したstride計算
-        int32_t stride;
-        if (fmt && fmt->pixelsPerUnit > 1) {
-            int units = (w + fmt->pixelsPerUnit - 1) / fmt->pixelsPerUnit;
-            stride = units * fmt->bytesPerUnit;
-        } else {
-            stride = w * bytesPerPixel;
-        }
         return ViewPort(storage_[id].data(), fmt, stride, w, h);
     }
 
     // バッファを確保（出力用）
     ViewPort allocate(int id, int w, int h, PixelFormatID fmt) {
-        auto bytesPerPixel =  fmt->bytesPerPixel;
-        auto size = static_cast<size_t>(w * h * bytesPerPixel);
+        int32_t stride = calcStride(w, fmt);
+        auto size = static_cast<size_t>(stride) * static_cast<size_t>(h);
         storage_[id].resize(size, 0);
-
-        // bit-packed形式に対応したstride計算
-        int32_t stride;
-        if (fmt && fmt->pixelsPerUnit > 1) {
-            int units = (w + fmt->pixelsPerUnit - 1) / fmt->pixelsPerUnit;
-            stride = units * fmt->bytesPerUnit;
-        } else {
-            stride = w * bytesPerPixel;
-        }
         return ViewPort(storage_[id].data(), fmt, stride, w, h);
     }
 
@@ -268,10 +277,13 @@ public:
             FormatMetrics::instance().saveSnapshot(snapshot);
 
             std::vector<uint8_t> rgba8Data(rgba8Size);
-            convertFormat(
-                sinkOut.buffer.data(), sinkOut.format,
-                rgba8Data.data(), PixelFormatIDs::RGBA8_Straight,
-                static_cast<int>(pixelCount)
+            // 行単位でフォーマット変換（ビットパック形式対応）
+            int32_t srcStride = calcStride(sinkOut.width, sinkOut.format);
+            int32_t dstStride = sinkOut.width * 4;  // RGBA8 = 4 bytes/pixel
+            convertFormatRowByRow(
+                sinkOut.buffer.data(), sinkOut.format, srcStride,
+                rgba8Data.data(), PixelFormatIDs::RGBA8_Straight, dstStride,
+                sinkOut.width, sinkOut.height
             );
 
             FormatMetrics::instance().restoreSnapshot(snapshot);
@@ -311,25 +323,17 @@ public:
             FormatOpEntry snapshot[FormatIdx::Count][OpType::Count];
             FormatMetrics::instance().saveSnapshot(snapshot);
 
-            // bit-packed形式に対応したバッファサイズ計算
-            int totalPixels = width * height;
-            size_t bufferSize;
-            if (targetFormat->pixelsPerUnit > 1) {
-                // bit-packed形式: 必要なユニット数 × bytesPerUnit
-                int units = (totalPixels + targetFormat->pixelsPerUnit - 1) / targetFormat->pixelsPerUnit;
-                bufferSize = static_cast<size_t>(units) * static_cast<size_t>(targetFormat->bytesPerUnit);
-            } else {
-                // 通常形式: ピクセル数 × bytesPerPixel
-                auto targetBpp = targetFormat->bytesPerPixel;
-                bufferSize = static_cast<size_t>(totalPixels) * static_cast<size_t>(targetBpp);
-            }
-
+            // 行単位でバッファサイズを計算（ビットパック形式対応）
+            int32_t dstStride = calcStride(width, targetFormat);
+            size_t bufferSize = static_cast<size_t>(dstStride) * static_cast<size_t>(height);
             std::vector<uint8_t> converted(bufferSize);
 
-            convertFormat(
-                rgba8Data.data(), PixelFormatIDs::RGBA8_Straight,
-                converted.data(), targetFormat,
-                totalPixels
+            // 行単位で変換（ビットパック形式は行境界でパディングが必要）
+            int32_t srcStride = width * 4;  // RGBA8 = 4 bytes/pixel
+            convertFormatRowByRow(
+                rgba8Data.data(), PixelFormatIDs::RGBA8_Straight, srcStride,
+                converted.data(), targetFormat, dstStride,
+                width, height
             );
 
             FormatMetrics::instance().restoreSnapshot(snapshot);
@@ -390,16 +394,14 @@ public:
                 }
             }
 
-            // FormatConverterで変換
-            auto converter = resolveConverter(view.formatID,
-                                              PixelFormatIDs::RGBA8_Straight,
-                                              &aux);
-            if (converter) {
-                converter(rgba8.data(), view.data, pixelCount);
-            } else {
-                // 変換できない場合はゼロ埋め
-                std::memset(rgba8.data(), 0, rgba8.size());
-            }
+            // 行単位でフォーマット変換（ビットパック形式対応）
+            int32_t srcStride = view.stride;
+            int32_t dstStride = view.width * 4;  // RGBA8 = 4 bytes/pixel
+            convertFormatRowByRow(
+                static_cast<const uint8_t*>(view.data), view.formatID, srcStride,
+                rgba8.data(), PixelFormatIDs::RGBA8_Straight, dstStride,
+                view.width, view.height, &aux
+            );
         }
 
         // JavaScriptに返す
@@ -987,14 +989,14 @@ private:
             sinkOut.format = info.format;
             sinkOut.width = info.width;
             sinkOut.height = info.height;
-            auto sinkBpp = info.format->bytesPerPixel;
-            auto sinkBufferSize = static_cast<size_t>(info.width * info.height * sinkBpp);
+            int32_t sinkStride = calcStride(info.width, info.format);
+            auto sinkBufferSize = static_cast<size_t>(sinkStride) * static_cast<size_t>(info.height);
             sinkOut.buffer.resize(sinkBufferSize);
             std::fill(sinkOut.buffer.begin(), sinkOut.buffer.end(), 0);
 
             // SinkNode用のViewPortを作成
             info.targetView = ViewPort(sinkOut.buffer.data(), info.format,
-                                       info.width * sinkBpp, info.width, info.height);
+                                       sinkStride, info.width, info.height);
 
             // SinkNodeを作成
             info.node = std::make_unique<SinkNode>();
@@ -1401,12 +1403,14 @@ private:
                 view_ops::copy(info.outputView, 0, 0, info.targetView, 0, 0,
                               info.width, info.height);
             } else {
-                // フォーマット変換してコピー
-                size_t pixelCount = static_cast<size_t>(info.width) * static_cast<size_t>(info.height);
-                convertFormat(
-                    sinkOut.buffer.data(), info.format,
-                    static_cast<uint8_t*>(info.outputView.data), PixelFormatIDs::RGBA8_Straight,
-                    static_cast<int>(pixelCount)
+                // 行単位でフォーマット変換してコピー（ビットパック形式対応）
+                int32_t srcStride = calcStride(info.width, info.format);
+                int32_t dstStride = info.outputView.stride;
+                convertFormatRowByRow(
+                    sinkOut.buffer.data(), info.format, srcStride,
+                    static_cast<uint8_t*>(info.outputView.data),
+                    PixelFormatIDs::RGBA8_Straight, dstStride,
+                    info.width, info.height
                 );
             }
         }

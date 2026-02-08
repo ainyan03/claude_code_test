@@ -58,25 +58,57 @@ const NODE_TYPES = {
 // formatName: C++側の PixelFormatDescriptor::name と一致させる
 // ========================================
 const PIXEL_FORMATS = [
-    { formatName: 'RGBA8_Straight',        displayName: 'RGBA8888',   bpp: 4, description: 'Standard (default)' },
-    { formatName: 'RGB888',                displayName: 'RGB888',     bpp: 3, description: 'RGB order' },
-    { formatName: 'BGR888',                displayName: 'BGR888',     bpp: 3, description: 'BGR order' },
-    { formatName: 'RGB565_LE',             displayName: 'RGB565_LE',  bpp: 2, description: 'Little Endian' },
-    { formatName: 'RGB565_BE',             displayName: 'RGB565_BE',  bpp: 2, description: 'Big Endian' },
-    { formatName: 'RGB332',                displayName: 'RGB332',     bpp: 1, description: '8-bit color' },
-    { formatName: 'Alpha8',                displayName: 'Alpha8',     bpp: 1, description: 'Alpha only (for matte)' },
-    { formatName: 'Grayscale8',            displayName: 'Gray8',      bpp: 1, description: 'Grayscale' },
-    { formatName: 'Index1_MSB',            displayName: 'Index1 (MSB)', bpp: 0.125, description: 'Palette (2色, 8px/byte)', sinkDisabled: true },
-    { formatName: 'Index1_LSB',            displayName: 'Index1 (LSB)', bpp: 0.125, description: 'Palette (2色, 8px/byte)', sinkDisabled: true },
-    { formatName: 'Index2_MSB',            displayName: 'Index2 (MSB)', bpp: 0.25,  description: 'Palette (4色, 4px/byte)', sinkDisabled: true },
-    { formatName: 'Index2_LSB',            displayName: 'Index2 (LSB)', bpp: 0.25,  description: 'Palette (4色, 4px/byte)', sinkDisabled: true },
-    { formatName: 'Index4_MSB',            displayName: 'Index4 (MSB)', bpp: 0.5,   description: 'Palette (16色, 2px/byte)', sinkDisabled: true },
-    { formatName: 'Index4_LSB',            displayName: 'Index4 (LSB)', bpp: 0.5,   description: 'Palette (16色, 2px/byte)', sinkDisabled: true },
-    { formatName: 'Index8',                displayName: 'Index8',     bpp: 1, description: 'Palette (256色)', sinkDisabled: true },
+    // RGB
+    { formatName: 'RGBA8_Straight', displayName: 'RGBA8888',     bpp: 4,     description: 'Standard (default)', category: 'RGB' },
+    { formatName: 'RGB888',         displayName: 'RGB888',       bpp: 3,     description: 'RGB order',          category: 'RGB' },
+    { formatName: 'BGR888',         displayName: 'BGR888',       bpp: 3,     description: 'BGR order',          category: 'RGB' },
+    { formatName: 'RGB565_LE',      displayName: 'RGB565_LE',    bpp: 2,     description: 'Little Endian',      category: 'RGB' },
+    { formatName: 'RGB565_BE',      displayName: 'RGB565_BE',    bpp: 2,     description: 'Big Endian',         category: 'RGB' },
+    { formatName: 'RGB332',         displayName: 'RGB332',       bpp: 1,     description: '8-bit color',        category: 'RGB' },
+    // Grayscale
+    { formatName: 'Grayscale8',     displayName: 'Gray8',        bpp: 1,     description: 'Grayscale 8bit',     category: 'Grayscale' },
+    { formatName: 'Grayscale4_MSB', displayName: 'Gray4 (MSB)',  bpp: 0.5,   description: '4bit, 2px/byte',     category: 'Grayscale' },
+    { formatName: 'Grayscale4_LSB', displayName: 'Gray4 (LSB)',  bpp: 0.5,   description: '4bit, 2px/byte',     category: 'Grayscale' },
+    { formatName: 'Grayscale2_MSB', displayName: 'Gray2 (MSB)',  bpp: 0.25,  description: '2bit, 4px/byte',     category: 'Grayscale' },
+    { formatName: 'Grayscale2_LSB', displayName: 'Gray2 (LSB)',  bpp: 0.25,  description: '2bit, 4px/byte',     category: 'Grayscale' },
+    { formatName: 'Grayscale1_MSB', displayName: 'Gray1 (MSB)',  bpp: 0.125, description: '1bit, 8px/byte',     category: 'Grayscale' },
+    { formatName: 'Grayscale1_LSB', displayName: 'Gray1 (LSB)',  bpp: 0.125, description: '1bit, 8px/byte',     category: 'Grayscale' },
+    // Alpha
+    { formatName: 'Alpha8',         displayName: 'Alpha8',       bpp: 1,     description: 'Alpha only (for matte)', category: 'Alpha' },
+    // Index (Palette)
+    { formatName: 'Index8',         displayName: 'Index8',       bpp: 1,     description: 'Palette (256色)',    category: 'Index', sinkDisabled: true },
+    { formatName: 'Index4_MSB',     displayName: 'Index4 (MSB)', bpp: 0.5,   description: 'Palette (16色, 2px/byte)', category: 'Index', sinkDisabled: true },
+    { formatName: 'Index4_LSB',     displayName: 'Index4 (LSB)', bpp: 0.5,   description: 'Palette (16色, 2px/byte)', category: 'Index', sinkDisabled: true },
+    { formatName: 'Index2_MSB',     displayName: 'Index2 (MSB)', bpp: 0.25,  description: 'Palette (4色, 4px/byte)', category: 'Index', sinkDisabled: true },
+    { formatName: 'Index2_LSB',     displayName: 'Index2 (LSB)', bpp: 0.25,  description: 'Palette (4色, 4px/byte)', category: 'Index', sinkDisabled: true },
+    { formatName: 'Index1_MSB',     displayName: 'Index1 (MSB)', bpp: 0.125, description: 'Palette (2色, 8px/byte)', category: 'Index', sinkDisabled: true },
+    { formatName: 'Index1_LSB',     displayName: 'Index1 (LSB)', bpp: 0.125, description: 'Palette (2色, 8px/byte)', category: 'Index', sinkDisabled: true },
 ];
 
 // デフォルトピクセルフォーマット
 const DEFAULT_PIXEL_FORMAT = 'RGBA8_Straight';
+
+// フォーマット選択 select 要素を optgroup 付きで構築するヘルパー
+function buildFormatOptions(selectElement, currentFormat, opts = {}) {
+    const { disableSinkOnly = false } = opts;
+    let currentGroup = null;
+    let optgroup = null;
+    PIXEL_FORMATS.forEach(fmt => {
+        if (fmt.category !== currentGroup) {
+            currentGroup = fmt.category;
+            optgroup = document.createElement('optgroup');
+            optgroup.label = currentGroup;
+            selectElement.appendChild(optgroup);
+        }
+        const option = document.createElement('option');
+        option.value = fmt.formatName;
+        option.textContent = `${fmt.displayName} (${fmt.bpp}B)`;
+        option.title = fmt.description;
+        if (disableSinkOnly && fmt.sinkDisabled) option.disabled = true;
+        if (currentFormat === fmt.formatName) option.selected = true;
+        optgroup.appendChild(option);
+    });
+}
 
 // ========================================
 // パレットライブラリ
@@ -5468,14 +5500,7 @@ function buildImageDetailContent(node) {
                     formatSelect.style.cssText = 'width: 100%; padding: 4px; margin-top: 4px;';
 
                     const currentFormat = node.pixelFormat ?? DEFAULT_PIXEL_FORMAT;
-                    PIXEL_FORMATS.forEach(fmt => {
-                        const option = document.createElement('option');
-                        option.value = fmt.formatName;
-                        option.textContent = `${fmt.displayName} (${fmt.bpp}B)`;
-                        option.title = fmt.description;
-                        if (currentFormat === fmt.formatName) option.selected = true;
-                        formatSelect.appendChild(option);
-                    });
+                    buildFormatOptions(formatSelect, currentFormat);
 
                     formatSelect.addEventListener('change', () => {
                         const newFormat = formatSelect.value;
@@ -6111,15 +6136,7 @@ function buildSinkDetailContent(node) {
                     formatSelect.style.width = '140px';
 
                     const currentFormat = node.outputFormat ?? DEFAULT_PIXEL_FORMAT;
-                    PIXEL_FORMATS.forEach(fmt => {
-                        const option = document.createElement('option');
-                        option.value = fmt.formatName;
-                        option.textContent = `${fmt.displayName} (${fmt.bpp}B)`;
-                        option.title = fmt.description;
-                        if (fmt.sinkDisabled) option.disabled = true;
-                        if (currentFormat === fmt.formatName) option.selected = true;
-                        formatSelect.appendChild(option);
-                    });
+                    buildFormatOptions(formatSelect, currentFormat, { disableSinkOnly: true });
 
                     formatSelect.addEventListener('change', () => {
                         node.outputFormat = formatSelect.value;
